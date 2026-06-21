@@ -8,6 +8,7 @@ import { recordGenesis } from '@/lib/genesis';
 import { loadProfile, saveProfile, normalizeHandle, type Profile } from '@/lib/profile';
 import { GenesisStamp } from '@/components/GenesisStamp';
 import { VouchCompose } from '@/components/VouchCompose';
+import { Quests } from '@/components/Quests';
 
 type Step = 'connect' | 'handle' | 'genesis' | 'done';
 
@@ -166,6 +167,7 @@ export default function Home() {
       {step === 'done' && profile && (
         <>
           <VouchCompose />
+          <Quests address={profile.address} />
           <div className="flex gap-4 text-xs text-white/50">
             <Link href="/leaderboard" className="underline">
               who’s most connected →

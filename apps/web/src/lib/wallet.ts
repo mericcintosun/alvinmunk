@@ -26,6 +26,15 @@ export interface Wallet {
   address: string;
   /** Sign a base64 tx XDR, returning the signed XDR. */
   sign: (xdr: string) => Promise<string>;
+  /** Sign a plain UTF-8 message (ed25519), returning a base64 signature.
+   * Used to PROVE wallet ownership to the attester (no key leaves the client). */
+  signMessage: (message: string) => Promise<string>;
+}
+
+function u8ToB64(u8: Uint8Array): string {
+  let s = '';
+  for (const b of u8) s += String.fromCharCode(b);
+  return btoa(s);
 }
 
 const DEV_SECRET_KEY = 'passport.devSecret';
@@ -65,6 +74,10 @@ export async function getDevWallet(): Promise<Wallet> {
       tx.sign(kp);
       return tx.toXDR();
     },
+    signMessage: async (message: string) => {
+      const sig = kp.sign(new TextEncoder().encode(message) as unknown as Buffer);
+      return u8ToB64(new Uint8Array(sig));
+    },
   };
 }
 
@@ -101,6 +114,11 @@ export async function connectFreighter(): Promise<Wallet> {
       });
       if ('error' in res && res.error) throw new Error(String(res.error));
       return res.signedTxXdr;
+    },
+    signMessage: async () => {
+      // Freighter message-signing uses a different scheme; not wired for quest
+      // ownership proof yet. Use the in-app (passkey/dev) wallet for quests.
+      throw new Error('Quests via Freighter not supported yet — use the in-app wallet.');
     },
   };
 }

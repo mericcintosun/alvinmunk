@@ -24,6 +24,34 @@ interface AttestRequest {
   questId: number;
   recipient: string;
   evidence?: { type: 'github_pr' | 'referral_tx'; ref: string };
+  /** ms epoch; request is rejected if too old (replay window). */
+  timestamp: number;
+  /** base64 ed25519 signature of the canonical message, by the recipient wallet. */
+  signature: string;
+}
+
+const FRESHNESS_MS = 120_000; // 2 minutes
+const RATE_MAX = 6; // requests per window per IP
+const RATE_WINDOW_MS = 60_000;
+
+// Best-effort in-memory rate limit (resets on cold start; on-chain replay guard is
+// the hard limit — each (quest, recipient) can only ever be awarded once).
+const hits = new Map<string, { n: number; resetAt: number }>();
+
+function rateLimited(ip: string, now: number): boolean {
+  const h = hits.get(ip);
+  if (!h || now > h.resetAt) {
+    hits.set(ip, { n: 1, resetAt: now + RATE_WINDOW_MS });
+    return false;
+  }
+  h.n += 1;
+  return h.n > RATE_MAX;
+}
+
+/** Canonical message the recipient signs to prove wallet ownership. */
+function ownershipMessage(b: AttestRequest): string {
+  const ev = b.evidence;
+  return `attest:v1:${b.recipient}:${b.questId}:${ev?.type}:${ev?.ref}:${b.timestamp}`;
 }
 
 const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL ?? 'https://soroban-testnet.stellar.org';
@@ -38,17 +66,33 @@ export async function POST(req: Request): Promise<Response> {
     return json({ error: 'attester not configured (ATTESTER_SECRET_KEY / quest id)' }, 500);
   }
 
+  // Rate limit (best-effort; the on-chain replay guard is the hard cap).
+  const now = Date.now();
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+  if (rateLimited(ip, now)) return json({ error: 'rate limited, slow down' }, 429);
+
   let body: AttestRequest;
   try {
     body = (await req.json()) as AttestRequest;
   } catch {
     return json({ error: 'invalid json' }, 400);
   }
-  if (typeof body.questId !== 'number' || !/^[GC][A-Z2-7]{55}$/.test(body.recipient ?? '')) {
-    return json({ error: 'questId (number) and recipient (G/C address) required' }, 400);
+  if (typeof body.questId !== 'number' || !/^G[A-Z2-7]{55}$/.test(body.recipient ?? '')) {
+    return json({ error: 'questId (number) and recipient (G address) required' }, 400);
   }
 
-  // 1) Verify the real-world action.
+  // 1) Freshness — reject stale/replayed requests outside the window.
+  if (typeof body.timestamp !== 'number' || Math.abs(now - body.timestamp) > FRESHNESS_MS) {
+    return json({ error: 'stale or missing timestamp' }, 401);
+  }
+
+  // 2) Wallet-ownership proof — only the owner of `recipient` can request a grant
+  //    for it. We verify the ed25519 signature over the canonical message.
+  if (!verifyOwnership(body)) {
+    return json({ error: 'ownership signature invalid' }, 401);
+  }
+
+  // 3) Verify the real-world action.
   const verified = await verifyEvidence(body);
   if (!verified.ok) return json({ error: verified.reason }, 422);
 
@@ -58,6 +102,17 @@ export async function POST(req: Request): Promise<Response> {
     return json({ ok: true, hash, recipient: body.recipient, questId: body.questId });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : 'submit failed' }, 502);
+  }
+}
+
+function verifyOwnership(body: AttestRequest): boolean {
+  try {
+    const kp = Keypair.fromPublicKey(body.recipient);
+    const msg = Buffer.from(ownershipMessage(body), 'utf8');
+    const sig = Buffer.from(body.signature ?? '', 'base64');
+    return kp.verify(msg, sig);
+  } catch {
+    return false;
   }
 }
 
