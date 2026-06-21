@@ -62,6 +62,14 @@ export default function LeaderboardPage() {
               <span className="w-5 text-right text-sm text-white/40">{e.rank}</span>
               <span className="text-sm">{shortAddr(e.address)}</span>
               {e.address === me && <span className="text-[10px] text-stellar">you</span>}
+              {e.flagged && (
+                <span
+                  title="reciprocal vouch pair — possible ring"
+                  className="text-[10px] text-amber-400"
+                >
+                  ⚠ flagged
+                </span>
+              )}
             </span>
             <span className="text-sm font-semibold text-stellar">{e.score}</span>
           </li>

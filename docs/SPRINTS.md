@@ -66,15 +66,17 @@ The official Level-1 checklist wants **Freighter** connect/disconnect + a plain 
 
 ---
 
-## Sprint 3 — Orange Belt: Verifiable Quests + full tests → Idea Submission
+## Sprint 3 — Orange Belt: Verifiable Quests + full tests → Idea Submission  🟡 (mostly done)
 **Goal:** complete mini-dApp; attester-verified quests; full test suite; testnet URL.
 ### Stories
-1. Deploy `quest_registry`; wire it as a Reputation attester (cross-contract award). `AC` integration test spans all 3 contracts.
-2. Serverless attester: verify **merged GitHub PR** + **referral tx**; return/submit signed award. `AC` merged PR → on-chain Earned XP; self-claim rejected.
-3. Replay guard + fuzz/property tests (amounts/score/overflow). `AC` CI coverage ≥80% contracts; double-claim reverts.
-4. Public testnet URL + profile/quest/leaderboard/claim screens. `AC` 10 outside testers complete the share flow.
-5. **Idea Submission** package (concept + competitive landscape + this PRD).
-**DoD:** full suite green; testnet dApp public; submission ready.
+1. ✅ Deploy `quest_registry` + `rewards`; wire QuestRegistry as a Reputation attester (cross-contract). `AC` met: integration tests span all 3 contracts; **verified on-chain** (award_quest→earned, claim_reward→USDC paid).
+2. ✅ Serverless attester: verifies **merged GitHub PR** + **referral tx**, then signs+submits `award_quest`. `AC` met: e2e tested — `referral_tx` → on-chain Earned XP (dave +30); bad evidence rejected (422).
+3. ✅ Replay guard + cross-contract + keystone tests (16 contract tests). `AC` met: double-claim/replay/non-attester/below-threshold all revert; Social XP can't open the treasury.
+4. 🟡 Public testnet URL + screens (profile/quest/leaderboard/claim). Screens built; **deploy to Vercel + recruit 10 outside testers** outstanding.
+5. ✅ **Idea Submission** package with anchor angle → [`IDEA_SUBMISSION.md`](./IDEA_SUBMISSION.md).
+**Pre-Sprint-3 risk fixes also shipped:** claim-secret vouch (cold-start keystone now truly works), daily cap + asymmetric reward, leaderboard snapshot cache + reciprocal-ring flag, stellar-sdk → 16 (protocol-23 fix).
+**Deployed (testnet):** Reputation `CBNIZ…SZM` · QuestRegistry `CA4LP…AZX` · Rewards `CDEO3…FIS` · USDC SAC `CAKT2…PZT2`.
+**Remaining for Orange DoD:** public URL + 10 outside testers; optional fuzz/property tests.
 
 ---
 

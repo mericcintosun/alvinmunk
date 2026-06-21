@@ -884,6 +884,7 @@ dependencies = [
 name = "passport-quest-registry"
 version = "0.1.0"
 dependencies = [
+ "passport-reputation",
  "soroban-sdk",
 ]
 
@@ -898,6 +899,7 @@ dependencies = [
 name = "passport-rewards"
 version = "0.1.0"
 dependencies = [
+ "passport-reputation",
  "soroban-sdk",
 ]
 

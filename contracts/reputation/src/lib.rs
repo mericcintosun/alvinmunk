@@ -1,23 +1,29 @@
 #![no_std]
 //! Reputation — the consumer brain of Stellar Passport.
 //!
-//! Holds non-transferable XP (no transfer fn => SBT semantics), profiles, async
-//! "half-card" vouches (cold-start fix, see belts/00-strategy §3), and allowlisted
-//! attester-issued attestations.
+//! Two-track model (belts/08-anti-sybil): Social XP (from vouches, non-cashable) and
+//! Earned XP (from attester-verified quests, the only track Rewards reads). Async
+//! "half-card" vouches use a CLAIM-SECRET so you can vouch someone who has NOT
+//! onboarded yet — the recipient binds their own address at claim time.
 //!
-//! SCF door (00-strategy §4): every score-affecting mutation emits the canonical
-//! `attestation_set` event so an off-chain primitive can be exposed later WITHOUT
-//! migration. The `get_attestation` / `get_score` read-views are pure (read-only
-//! adapter, never a second write path).
+//! Anti-sybil on-chain: claim-secret + first-pair-only + per-day cap + asymmetric
+//! reward (claimer earns more than voucher). XP-stake/slash, 2nd-order voucher bonus,
+//! and off-chain ring detection are layered in later belts.
+//!
+//! SCF door (00-strategy §4): the Earned path emits a canonical `att_set` event from
+//! day one; `get_attestation`/`get_score`/`get_earned` are pure read adapters.
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short, Address,
-    Env, String, Symbol,
+    Bytes, BytesN, Env, String, Symbol,
 };
 
-// TTL bump windows for persistent storage (ledgers). Tune per belt (Green §storage).
-const BUMP_THRESHOLD: u32 = 17_280; // ~1 day
+const BUMP_THRESHOLD: u32 = 17_280; // ~1 day (ledgers)
 const BUMP_EXTEND: u32 = 518_400; // ~30 days
+const DAY_SECS: u64 = 86_400;
+const MAX_VOUCH_PER_DAY: u32 = 20;
+const XP_CLAIMER: u64 = 10; // asymmetric: the claimer earns more than the voucher
+const XP_VOUCHER: u64 = 5;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -30,33 +36,35 @@ pub enum Error {
     AlreadyClaimed = 5,
     SelfVouch = 6,
     Overflow = 7,
-    WrongRecipient = 8,
+    BadSecret = 8,
+    DailyCapReached = 9,
 }
 
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
     Admin,
-    Attester(Address), // allowlist flag (bool)
-    // Two-track model (belts/08-anti-sybil keystone): Social is NEVER cashable;
-    // Earned (attester-verified) is the ONLY track Rewards reads.
-    Social(Address),           // u64 — fun/leaderboard, from vouches
-    Earned(Address),           // u64 — USDC-eligible, from verified quests only
-    Seen(Address, Address),    // first-pair-only guard: (from,to) -> bool
-    VouchSeq,                  // u64 counter
-    Vouch(u64),                // Vouch
+    Attester(Address),        // allowlist flag (bool)
+    Social(Address),          // u64 — fun/leaderboard, from vouches (NEVER cashable)
+    Earned(Address),          // u64 — USDC-eligible, from verified quests only
+    Seen(Address, Address),   // first-pair-only guard: (from, claimer) -> bool
+    DailyCount(Address, u64), // (from, day) -> u32  (per-day vouch cap)
+    VouchSeq,
+    Vouch(u64),
     Attestation(Address, u32), // (addr, schema_id) -> Attestation
 }
 
-/// Async half-card vouch. `from` mints it AT `to`; score is only granted on claim.
+/// Async half-card vouch. `from` mints it bound to `claim_hash = sha256(secret)`.
+/// The recipient (unknown at mint time) claims by presenting the secret.
 #[contracttype]
 #[derive(Clone)]
 pub struct Vouch {
     pub id: u64,
     pub from: Address,
-    pub to: Address,
+    pub claim_hash: BytesN<32>,
     pub note: String,
     pub claimed: bool,
+    pub claimer: Option<Address>,
     pub created: u64,
 }
 
@@ -109,16 +117,25 @@ impl ReputationContract {
             .unwrap_or(false)
     }
 
-    // --- Async vouch (cold-start fix) ---
+    // --- Async vouch (cold-start fix via claim-secret) ---
 
-    /// `from` mints a half-card at `to`. Returns the vouch id used in the share link.
-    /// Production note: for not-yet-onboarded recipients, the share link carries a
-    /// claim-secret and `to` is bound at claim time. Skeleton uses an explicit `to`.
-    pub fn mint_vouch(env: Env, from: Address, to: Address, note: String) -> u64 {
+    /// `from` mints a half-card bound to `claim_hash` (= sha256 of a secret held in
+    /// the share link). Returns the vouch id. Per-day cap applies.
+    pub fn mint_vouch(env: Env, from: Address, claim_hash: BytesN<32>, note: String) -> u64 {
         from.require_auth();
-        if from == to {
-            panic_with_error!(&env, Error::SelfVouch);
+
+        // Per-day cap (temporary storage auto-GCs old days).
+        let day = env.ledger().timestamp() / DAY_SECS;
+        let dkey = DataKey::DailyCount(from.clone(), day);
+        let used: u32 = env.storage().temporary().get(&dkey).unwrap_or(0);
+        if used >= MAX_VOUCH_PER_DAY {
+            panic_with_error!(&env, Error::DailyCapReached);
         }
+        env.storage().temporary().set(&dkey, &(used + 1));
+        env.storage()
+            .temporary()
+            .extend_ttl(&dkey, BUMP_THRESHOLD, BUMP_THRESHOLD * 2);
+
         let id: u64 = env
             .storage()
             .instance()
@@ -130,9 +147,10 @@ impl ReputationContract {
         let vouch = Vouch {
             id,
             from: from.clone(),
-            to: to.clone(),
+            claim_hash,
             note,
             claimed: false,
+            claimer: None,
             created: env.ledger().timestamp(),
         };
         env.storage().persistent().set(&DataKey::Vouch(id), &vouch);
@@ -142,16 +160,15 @@ impl ReputationContract {
 
         env.events().publish(
             (symbol_short!("vouch"), symbol_short!("minted")),
-            (id, from, to),
+            (id, from),
         );
         id
     }
 
-    /// `to` claims the half-card. Both sides earn SOCIAL XP (non-cashable).
-    /// first-pair-only (belts/08-anti-sybil §1): a repeated (from,to) pair still
-    /// mints the card (fun) but grants 0 XP — kills the back-and-forth pump.
-    pub fn claim_vouch(env: Env, to: Address, vouch_id: u64) {
-        to.require_auth();
+    /// `claimer` claims by presenting `secret` (sha256(secret) must equal claim_hash).
+    /// Both sides earn SOCIAL XP (asymmetric), first-pair-only on (from, claimer).
+    pub fn claim_vouch(env: Env, claimer: Address, vouch_id: u64, secret: Bytes) {
+        claimer.require_auth();
         let mut vouch: Vouch = env
             .storage()
             .persistent()
@@ -161,17 +178,22 @@ impl ReputationContract {
         if vouch.claimed {
             panic_with_error!(&env, Error::AlreadyClaimed);
         }
-        if vouch.to != to {
-            panic_with_error!(&env, Error::WrongRecipient);
+        let computed: BytesN<32> = env.crypto().sha256(&secret).to_bytes();
+        if computed != vouch.claim_hash {
+            panic_with_error!(&env, Error::BadSecret);
+        }
+        if claimer == vouch.from {
+            panic_with_error!(&env, Error::SelfVouch);
         }
 
         vouch.claimed = true;
+        vouch.claimer = Some(claimer.clone());
         env.storage()
             .persistent()
             .set(&DataKey::Vouch(vouch_id), &vouch);
 
-        // first-pair-only guard
-        let pair = DataKey::Seen(vouch.from.clone(), vouch.to.clone());
+        // first-pair-only guard (kills back-and-forth pump)
+        let pair = DataKey::Seen(vouch.from.clone(), claimer.clone());
         let fresh = !env.storage().persistent().get(&pair).unwrap_or(false);
         if fresh {
             env.storage().persistent().set(&pair, &true);
@@ -179,21 +201,20 @@ impl ReputationContract {
                 .persistent()
                 .extend_ttl(&pair, BUMP_THRESHOLD, BUMP_EXTEND);
             // SOCIAL XP only — vouches never touch the cashable (Earned) track.
-            Self::add_social(&env, &vouch.from, 10);
-            Self::add_social(&env, &vouch.to, 10);
+            Self::add_social(&env, &vouch.from, XP_VOUCHER);
+            Self::add_social(&env, &claimer, XP_CLAIMER);
         }
 
         env.events().publish(
             (symbol_short!("vouch"), symbol_short!("claimed")),
-            (vouch_id, vouch.from, vouch.to),
+            (vouch_id, vouch.from, claimer),
         );
     }
 
     // --- Attester-issued XP (verifiable quests) ---
 
-    /// Called by an allowlisted attester (or the QuestRegistry contract address)
-    /// after off-chain verification of a quest. Credits the EARNED (cashable) track,
-    /// writes the canonical attestation, and emits `att_set`. `schema_id` namespaces it.
+    /// Allowlisted attester (or the QuestRegistry contract) credits the EARNED
+    /// (cashable) track, writes the canonical attestation, emits `att_set`.
     pub fn award_xp(env: Env, attester: Address, to: Address, schema_id: u32, amount: u64) {
         attester.require_auth();
         if !Self::is_attester(env.clone(), attester.clone()) {
@@ -204,7 +225,7 @@ impl ReputationContract {
 
     // --- Read views (pure) ---
 
-    /// Social score — leaderboard / fun. NOT cashable. (belts/08-anti-sybil keystone)
+    /// Social score — leaderboard / fun. NOT cashable.
     pub fn get_score(env: Env, addr: Address) -> u64 {
         env.storage()
             .persistent()
@@ -220,7 +241,6 @@ impl ReputationContract {
             .unwrap_or(0)
     }
 
-    /// The fundable primitive's read shape (00-strategy §4). Verified claims only.
     pub fn get_attestation(env: Env, addr: Address, schema_id: u32) -> Option<Attestation> {
         env.storage()
             .persistent()
@@ -276,7 +296,6 @@ impl ReputationContract {
             .persistent()
             .extend_ttl(&att_key, BUMP_THRESHOLD, BUMP_EXTEND);
 
-        // Canonical event (append-only; retroactively impossible — 00-strategy §4)
         const ATTESTATION_SET: Symbol = symbol_short!("att_set");
         env.events().publish(
             (ATTESTATION_SET, to.clone()),

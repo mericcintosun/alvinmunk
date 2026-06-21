@@ -110,7 +110,7 @@ Copy the printed `NEXT_PUBLIC_*` ids into `apps/web/.env.local` (template: [`.en
 | Handle → address resolution | 🟡 vouch is address-based for now (Orange) |
 | Indexer | ⏸ deferred (RPC-direct for MVP) |
 
-Each TODO references the belt doc that owns it. Build order follows the belts/sprints: see [`docs/SPRINTS.md`](./docs/SPRINTS.md). **Sprints 0–2 are done and green** (Yellow belt verified on testnet).
+Each TODO references the belt doc that owns it. Build order follows the belts/sprints: see [`docs/SPRINTS.md`](./docs/SPRINTS.md). **Sprints 0–2 done; Sprint 3 (Orange) mostly done** — all 3 contracts deployed + cross-contract verified on-chain, claim-secret vouch loop, real serverless attester (GitHub PR / referral tx), anti-sybil (claim-secret + per-day cap + asymmetric + first-pair + ring-flag), leaderboard snapshot cache. **42 tests green** (16 contract + 26 web/shared). Remaining for Orange: public URL + 10 outside testers.
 
 ---
 

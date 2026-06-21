@@ -146,3 +146,6 @@ impl QuestRegistryContract {
             .unwrap_or_else(|| panic_with_error!(env, Error::NotInitialized))
     }
 }
+
+#[cfg(test)]
+mod test;

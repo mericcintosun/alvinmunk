@@ -1,6 +1,7 @@
 'use client';
 
-import { use, useState } from 'react';
+import { Suspense, use, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { getWallet } from '@/lib/wallet';
 import { claimVouch } from '@/lib/reputation';
 import { VouchCard } from '@/components/VouchCard';
@@ -10,18 +11,31 @@ import { VouchCard } from '@/components/VouchCard';
  * from a shared link: "X vouched for you. Claim your side →". Face ID -> claim ->
  * the empty socket blooms. No wallet/seed/gas words on this page.
  */
-export default function ClaimPage({ params }: { params: Promise<{ id: string }> }) {
+export default function ClaimPage(props: { params: Promise<{ id: string }> }) {
+  return (
+    <Suspense fallback={null}>
+      <ClaimInner {...props} />
+    </Suspense>
+  );
+}
+
+function ClaimInner({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const secret = useSearchParams().get('s') ?? '';
   const [claimed, setClaimed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function onClaim() {
+    if (!secret) {
+      setError('This link is missing its claim code.');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       const wallet = await getWallet();
-      await claimVouch(wallet, Number(id));
+      await claimVouch(wallet, Number(id), secret);
       setClaimed(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'claim failed');

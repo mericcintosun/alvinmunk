@@ -1,6 +1,6 @@
 #![cfg(test)]
 use super::*;
-use soroban_sdk::{testutils::Address as _, Env, String};
+use soroban_sdk::{testutils::Address as _, Bytes, BytesN, Env, String};
 
 fn setup() -> (Env, ReputationContractClient<'static>, Address) {
     let env = Env::default();
@@ -12,43 +12,49 @@ fn setup() -> (Env, ReputationContractClient<'static>, Address) {
     (env, client, admin)
 }
 
+/// A secret + its sha256 hash, computed with the same env crypto the contract uses.
+fn secret_and_hash(env: &Env, fill: u8) -> (Bytes, BytesN<32>) {
+    let secret = Bytes::from_array(env, &[fill; 32]);
+    let hash = env.crypto().sha256(&secret).to_bytes();
+    (secret, hash)
+}
+
 #[test]
-fn vouch_grants_social_xp_to_both_on_claim() {
+fn vouch_claim_secret_grants_asymmetric_social_xp() {
     let (env, client, _admin) = setup();
     let alice = Address::generate(&env);
     let bob = Address::generate(&env);
+    let (secret, hash) = secret_and_hash(&env, 7);
 
-    let id = client.mint_vouch(&alice, &bob, &String::from_str(&env, "unblocked me at 2am"));
-
-    // Before claim: no score granted yet.
+    // Alice vouches WITHOUT knowing Bob's address (only the claim hash).
+    let id = client.mint_vouch(
+        &alice,
+        &hash,
+        &String::from_str(&env, "unblocked me at 2am"),
+    );
     assert_eq!(client.get_score(&bob), 0);
-    assert_eq!(client.get_score(&alice), 0);
 
-    client.claim_vouch(&bob, &id);
+    // Bob binds his address at claim time by presenting the secret.
+    client.claim_vouch(&bob, &id, &secret);
 
-    // Vouches grant SOCIAL XP only (non-cashable) — never the Earned track.
-    assert_eq!(client.get_score(&alice), 10);
+    // Asymmetric (claimer 10 > voucher 5); Social only, never Earned.
+    assert_eq!(client.get_score(&alice), 5);
     assert_eq!(client.get_score(&bob), 10);
     assert_eq!(client.get_earned(&alice), 0);
     assert_eq!(client.get_earned(&bob), 0);
-    // Vouches are NOT attestations (the fundable primitive is verified-only).
     assert!(client.get_attestation(&bob, &1).is_none());
 }
 
 #[test]
-fn repeated_pair_grants_no_more_social_xp() {
+#[should_panic]
+fn claim_with_wrong_secret_reverts() {
     let (env, client, _admin) = setup();
     let alice = Address::generate(&env);
     let bob = Address::generate(&env);
-
-    let id1 = client.mint_vouch(&alice, &bob, &String::from_str(&env, "first"));
-    client.claim_vouch(&bob, &id1);
-    let id2 = client.mint_vouch(&alice, &bob, &String::from_str(&env, "again"));
-    client.claim_vouch(&bob, &id2);
-
-    // first-pair-only: the second (alice->bob) vouch grants 0 extra XP.
-    assert_eq!(client.get_score(&alice), 10);
-    assert_eq!(client.get_score(&bob), 10);
+    let (_secret, hash) = secret_and_hash(&env, 7);
+    let id = client.mint_vouch(&alice, &hash, &String::from_str(&env, "x"));
+    let wrong = Bytes::from_array(&env, &[9u8; 32]);
+    client.claim_vouch(&bob, &id, &wrong); // panics: BadSecret
 }
 
 #[test]
@@ -57,9 +63,10 @@ fn double_claim_reverts() {
     let (env, client, _admin) = setup();
     let alice = Address::generate(&env);
     let bob = Address::generate(&env);
-    let id = client.mint_vouch(&alice, &bob, &String::from_str(&env, "gg"));
-    client.claim_vouch(&bob, &id);
-    client.claim_vouch(&bob, &id); // panics: AlreadyClaimed
+    let (secret, hash) = secret_and_hash(&env, 7);
+    let id = client.mint_vouch(&alice, &hash, &String::from_str(&env, "gg"));
+    client.claim_vouch(&bob, &id, &secret);
+    client.claim_vouch(&bob, &id, &secret); // panics: AlreadyClaimed
 }
 
 #[test]
@@ -67,17 +74,48 @@ fn double_claim_reverts() {
 fn self_vouch_reverts() {
     let (env, client, _admin) = setup();
     let alice = Address::generate(&env);
-    client.mint_vouch(&alice, &alice, &String::from_str(&env, "myself"));
+    let (secret, hash) = secret_and_hash(&env, 7);
+    let id = client.mint_vouch(&alice, &hash, &String::from_str(&env, "me"));
+    client.claim_vouch(&alice, &id, &secret); // panics: SelfVouch
 }
 
 #[test]
-fn attester_award_writes_attestation() {
+fn repeated_pair_grants_no_more_social_xp() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+
+    let (s1, h1) = secret_and_hash(&env, 1);
+    let id1 = client.mint_vouch(&alice, &h1, &String::from_str(&env, "first"));
+    client.claim_vouch(&bob, &id1, &s1);
+
+    let (s2, h2) = secret_and_hash(&env, 2);
+    let id2 = client.mint_vouch(&alice, &h2, &String::from_str(&env, "again"));
+    client.claim_vouch(&bob, &id2, &s2);
+
+    // first-pair-only: the repeated (alice->bob) pair grants 0 extra XP.
+    assert_eq!(client.get_score(&alice), 5);
+    assert_eq!(client.get_score(&bob), 10);
+}
+
+#[test]
+#[should_panic]
+fn daily_cap_reverts_on_overuse() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    for i in 0..=MAX_VOUCH_PER_DAY {
+        let (_s, h) = secret_and_hash(&env, i as u8);
+        client.mint_vouch(&alice, &h, &String::from_str(&env, "spam")); // panics on the 21st
+    }
+}
+
+#[test]
+fn attester_award_credits_earned_only() {
     let (env, client, _admin) = setup();
     let attester = Address::generate(&env);
     let user = Address::generate(&env);
     client.add_attester(&attester);
     client.award_xp(&attester, &user, &2u32, &50u64); // schema 2 = "quest"
-                                                      // Attester awards credit the EARNED (cashable) track, not Social.
     assert_eq!(client.get_earned(&user), 50);
     assert_eq!(client.get_score(&user), 0);
     let att = client.get_attestation(&user, &2).unwrap();

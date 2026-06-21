@@ -32,6 +32,8 @@ export const args = {
   u64: (n: number | bigint) => nativeToScVal(n, { type: 'u64' }),
   i128: (n: bigint) => nativeToScVal(n, { type: 'i128' }),
   str: (s: string) => nativeToScVal(s, { type: 'string' }),
+  // Bytes / BytesN<32> (claim hash, secret) — the host checks fixed length where needed.
+  bytes: (u8: Uint8Array) => nativeToScVal(u8, { type: 'bytes' }),
 };
 
 /** Read-only call via simulation (no signature, no fee). */
@@ -88,16 +90,23 @@ export async function invokeAndWait<T = unknown>(
 }
 
 /** Poll getTransaction until it leaves NOT_FOUND; throw on FAILED. */
-async function pollTransaction(hash: string, tries = 30): Promise<rpc.Api.GetSuccessfulTransactionResponse> {
+async function pollTransaction(
+  hash: string,
+  tries = 30,
+): Promise<rpc.Api.GetSuccessfulTransactionResponse> {
+  let lastErr: unknown;
   for (let i = 0; i < tries; i++) {
-    const res = await server.getTransaction(hash);
-    if (res.status === 'SUCCESS') return res;
-    if (res.status === 'FAILED') {
-      throw new Error(`tx ${hash} failed: ${JSON.stringify(res.resultXdr)}`);
+    try {
+      const res = await server.getTransaction(hash);
+      if (res.status === 'SUCCESS') return res;
+      if (res.status === 'FAILED') throw new Error(`tx ${hash} failed on-chain`);
+    } catch (e) {
+      if (e instanceof Error && e.message.endsWith('failed on-chain')) throw e;
+      lastErr = e; // transient decode/RPC error — keep polling
     }
     await sleep(1000);
   }
-  throw new Error(`tx ${hash} not confirmed in time`);
+  throw new Error(`tx ${hash} not confirmed in time${lastErr ? ` (${String(lastErr)})` : ''}`);
 }
 
 function requireDeployed(contractId: string, method: string): void {

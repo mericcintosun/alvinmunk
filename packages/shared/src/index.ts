@@ -153,14 +153,51 @@ export interface LeaderboardEntry {
   rank: number;
   address: string;
   score: number;
+  /** flagged by reciprocal-ring detection (belts/08-anti-sybil; full clustering at Blue) */
+  flagged: boolean;
+}
+
+/** Merge prior + new social records, keeping the latest (highest-ledger) per address.
+ * Used to persist a client-side snapshot so scores survive the RPC retention window. */
+export function mergeSocialRecords(a: SocialRecord[], b: SocialRecord[]): SocialRecord[] {
+  const latest = new Map<string, SocialRecord>();
+  for (const r of [...a, ...b]) {
+    const prev = latest.get(r.address);
+    if (!prev || r.ledger >= prev.ledger) latest.set(r.address, r);
+  }
+  return [...latest.values()];
+}
+
+/** A claimed vouch edge (from vouched, claimer claimed). */
+export interface VouchPair {
+  from: string;
+  claimer: string;
+}
+
+/** Flag addresses that form a reciprocal pair (A→B and B→A) — the cheapest ring
+ * signal. Full cluster detection (A→B→C→A, funding clusters) lands at Blue belt. */
+export function detectReciprocalRings(pairs: VouchPair[]): string[] {
+  const edges = new Set(pairs.map((p) => `${p.from}>${p.claimer}`));
+  const flagged = new Set<string>();
+  for (const p of pairs) {
+    if (edges.has(`${p.claimer}>${p.from}`)) {
+      flagged.add(p.from);
+      flagged.add(p.claimer);
+    }
+  }
+  return [...flagged].sort();
 }
 
 /**
  * Fold raw `social` event records into the latest score per address, then rank
  * descending. Each event carries the *running total*, so the most recent ledger
- * wins per address. Deterministic tie-break by address for stable UI.
+ * wins per address. Deterministic tie-break by address for stable UI. Pass a
+ * `flagged` set to mark suspected ring members.
  */
-export function rankLeaderboard(records: SocialRecord[]): LeaderboardEntry[] {
+export function rankLeaderboard(
+  records: SocialRecord[],
+  flagged: Set<string> = new Set(),
+): LeaderboardEntry[] {
   const latest = new Map<string, SocialRecord>();
   for (const r of records) {
     const prev = latest.get(r.address);
@@ -168,7 +205,12 @@ export function rankLeaderboard(records: SocialRecord[]): LeaderboardEntry[] {
   }
   return [...latest.values()]
     .sort((a, b) => b.total - a.total || a.address.localeCompare(b.address))
-    .map((r, i) => ({ rank: i + 1, address: r.address, score: r.total }));
+    .map((r, i) => ({
+      rank: i + 1,
+      address: r.address,
+      score: r.total,
+      flagged: flagged.has(r.address),
+    }));
 }
 
 // ── Share link (the install funnel) ──

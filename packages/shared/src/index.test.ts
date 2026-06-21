@@ -6,6 +6,8 @@ import {
   PASSPHRASE,
   SCHEMA,
   rankLeaderboard,
+  mergeSocialRecords,
+  detectReciprocalRings,
   buildClaimPath,
   buildClaimUrl,
   shortAddr,
@@ -68,8 +70,16 @@ describe('rankLeaderboard', () => {
       { address: 'GALICE', total: 30, ledger: 5 }, // alice climbed
     ];
     const board = rankLeaderboard(recs);
-    expect(board[0]).toEqual({ rank: 1, address: 'GALICE', score: 30 });
-    expect(board[1]).toEqual({ rank: 2, address: 'GBOB', score: 10 });
+    expect(board[0]).toEqual({ rank: 1, address: 'GALICE', score: 30, flagged: false });
+    expect(board[1]).toEqual({ rank: 2, address: 'GBOB', score: 10, flagged: false });
+  });
+
+  it('marks flagged addresses', () => {
+    const board = rankLeaderboard(
+      [{ address: 'GX', total: 10, ledger: 1 }],
+      new Set(['GX']),
+    );
+    expect(board[0].flagged).toBe(true);
   });
 
   it('breaks ties deterministically by address', () => {
@@ -86,6 +96,37 @@ describe('rankLeaderboard', () => {
       { address: 'GX', total: 20, ledger: 3 },
     ]);
     expect(board[0].score).toBe(50);
+  });
+});
+
+describe('mergeSocialRecords', () => {
+  it('keeps the highest-ledger record per address (survives RPC window)', () => {
+    const cached: SocialRecord[] = [{ address: 'GX', total: 20, ledger: 3 }];
+    const fresh: SocialRecord[] = [{ address: 'GX', total: 50, ledger: 9 }];
+    const merged = mergeSocialRecords(cached, fresh);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].total).toBe(50);
+  });
+  it('retains a cached address absent from the fresh window', () => {
+    const merged = mergeSocialRecords(
+      [{ address: 'GOLD', total: 99, ledger: 1 }],
+      [{ address: 'GNEW', total: 10, ledger: 5 }],
+    );
+    expect(merged.map((r) => r.address).sort()).toEqual(['GNEW', 'GOLD']);
+  });
+});
+
+describe('detectReciprocalRings', () => {
+  it('flags mutual pairs only', () => {
+    const flagged = detectReciprocalRings([
+      { from: 'A', claimer: 'B' },
+      { from: 'B', claimer: 'A' }, // reciprocal with the first
+      { from: 'C', claimer: 'D' }, // one-directional, not flagged
+    ]);
+    expect(flagged).toEqual(['A', 'B']);
+  });
+  it('returns empty when no reciprocity', () => {
+    expect(detectReciprocalRings([{ from: 'A', claimer: 'B' }])).toEqual([]);
   });
 });
 
