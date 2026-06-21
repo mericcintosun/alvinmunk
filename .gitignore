@@ -1,0 +1,35 @@
+# dependencies
+node_modules/
+.pnp.*
+.yarn/*
+
+# builds
+dist/
+.next/
+out/
+build/
+
+# rust / soroban
+contracts/target/
+**/*.rs.bk
+.stellar/
+
+# env & secrets — NEVER commit attester keys
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# turbo
+.turbo/
+
+# reference material — not part of the alvinmunk project
+stellar-build/
+
+# misc
+.DS_Store
+*.log
+npm-debug.log*
+coverage/
+.vercel

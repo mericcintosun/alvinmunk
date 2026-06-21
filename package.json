@@ -1,0 +1,26 @@
+{
+  "name": "stellar-passport",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Stellar Passport — social proof-of-people reputation game on Stellar/Soroban",
+  "packageManager": "pnpm@9.7.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "contracts:build": "cd contracts && stellar contract build",
+    "contracts:test": "cd contracts && cargo test",
+    "contracts:fmt": "cd contracts && cargo fmt",
+    "clean": "turbo run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3",
+    "turbo": "^2.0.9",
+    "typescript": "^5.5.4"
+  }
+}
