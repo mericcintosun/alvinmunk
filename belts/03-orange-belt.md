@@ -1,64 +1,64 @@
 # 🟠 Orange Belt — Level 3
 
-**Rise In gereksinimi:** Komple bir mini dApp — advanced smart contract'lar, testing, deployment.
-**Not:** Bu belt'ten sonra **💡 Idea Submission Stage** var — Rise In ekibi fikri onaylamalı. Bu repodaki konsept + rakip analizi + PRD ile güçlü bir dosya sun.
+**Rise In requirement:** A complete mini dApp — advanced smart contracts, testing, deployment.
+**Note:** After this belt comes the **💡 Idea Submission Stage** — the Rise In team must approve the idea. Present a strong dossier with the concept in this repo + competitive analysis + PRD.
 
-**Milestone (Nicole):** Testnet'e deploy edilmiş komple vertical-slice mini dApp — onboard → shared stamp mint → profilde gör → link paylaş — otomatik testler + public testnet URL ile.
+**Milestone (Nicole):** A complete vertical-slice mini dApp deployed to testnet — onboard → shared stamp mint → see it on the profile → share link — with automated tests + a public testnet URL.
 
-**Scope guard — YAPMA:** Retention loop (recurring quest/stake) veya spend market YOK. Haftalık cadence yok, "rank bir şey satın alır" yok. Tek-session shareable akış. Erken scaling/infra yok.
+**Scope guard — DO NOT:** NO retention loop (recurring quest/stake) or spend market. No weekly cadence, no "rank buys something". A single-session shareable flow. No early scaling/infra.
 
-**Başarı metrikleri:**
-- E2E test suite yeşil.
-- 10 dış tester (program kohortu DEĞİL) share akışını tamamlıyor.
-- Share link → yeni-ziyaretçi dönüşümü en az 1 kez gözlendi.
+**Success metrics:**
+- E2E test suite green.
+- 10 external testers (NOT the program cohort) complete the share flow.
+- Share link → new-visitor conversion observed at least once.
 
 ---
 
-## 🔧 Teknik tasklar
+## 🔧 Technical tasks
 
 ### Smart contract / on-chain (Tyler)
-- **`QuestRegistry` contract:** `create_quest`, `award_quest` (allowlist-gated + replay guard), `add_attester`/`remove_attester`, `verify_sig`. Attester allowlist'i instance storage'da; quest config persistent storage'da.
-- **Replay guard:** `Map<(QuestId, Address), bool>` claimed-set (persistent), `award_quest`'te atomik check-and-set. Double-claim'in revert ettiğini kanıtlayan unit testler.
-- **Signed-claim oracle:** `verify_sig`, `(quest_id, recipient, nonce)` üzerindeki ed25519 attester imzasını `env.crypto().ed25519_verify` ile doğruluyor. Nonce replay set'te → reuse engellenir.
-- **Cross-contract call:** `QuestRegistry.award_quest` → `Reputation.award_xp`/`grant_badge` (typed client `reputation::Client::new`). Reputation, QuestRegistry contract adresini `require_auth` etmeli (Reputation'ın attester'ı = QuestRegistry contract). **Bağımlılık:** Reputation (Yellow) önce deploy.
-- **Tap-to-mint shared stamp:** iki cüzdanın tek tx'te co-sign'ladığı (tek invocation'da multi-`require_auth`) mutual badge mint. `mock_all_auths` + explicit per-address auth testleri.
-- **Testing depth:** tam unit + integration (`Env::default`, `register_contract`) + bir fork/integration testi (Testnet'e karşı). 3 contract'ı Testnet'e deploy et; contract ID'lerini deployment manifest'e yaz.
-- ⚠️ **Upgradeability kararını BURADA flag'le:** tüm contract'lara `require_auth`-gated `upgrade(new_wasm_hash)` (`env.deployer().update_current_contract_wasm`) ekle **VEYA** immutability'ye commit et. Şimdi karar ver; mainnet'te retrofit acı verir.
+- **`QuestRegistry` contract:** `create_quest`, `award_quest` (allowlist-gated + replay guard), `add_attester`/`remove_attester`, `verify_sig`. The attester allowlist in instance storage; quest config in persistent storage.
+- **Replay guard:** `Map<(QuestId, Address), bool>` claimed-set (persistent), atomic check-and-set in `award_quest`. Unit tests proving double-claim reverts.
+- **Signed-claim oracle:** `verify_sig` validates the ed25519 attester signature over `(quest_id, recipient, nonce)` with `env.crypto().ed25519_verify`. Nonce in the replay set → reuse is blocked.
+- **Cross-contract call:** `QuestRegistry.award_quest` → `Reputation.award_xp`/`grant_badge` (typed client `reputation::Client::new`). Reputation must `require_auth` the QuestRegistry contract address (Reputation's attester = QuestRegistry contract). **Dependency:** Reputation (Yellow) deploys first.
+- **Tap-to-mint shared stamp:** a mutual badge mint that two wallets co-sign in a single tx (multi-`require_auth` in one invocation). `mock_all_auths` + explicit per-address auth tests.
+- **Testing depth:** full unit + integration (`Env::default`, `register_contract`) + one fork/integration test (against Testnet). Deploy the 3 contracts to Testnet; write the contract IDs to the deployment manifest.
+- ⚠️ **Flag the upgradeability decision HERE:** add a `require_auth`-gated `upgrade(new_wasm_hash)` (`env.deployer().update_current_contract_wasm`) to all contracts **OR** commit to immutability. Decide now; retrofitting on mainnet is painful.
 
 ### Engineering / full-stack (Elliot)
-- **`Rewards` contract:** reputation → USDC micro-bounty payout (SAC/USDC), tipping `tip(from,to,amount)`. **AC:** claim USDC SAC transfer ediyor, double-claim reddediliyor.
-- Cross-contract wiring: `Rewards` → `Reputation.score`, `QuestRegistry` eligibility gate; interface'leri shared crate'te. **AC:** integration test 3 contract'ı uçtan uca kapsıyor.
-- **Attester service (gerçek):** Express/Fastify, allowlist'li keypair, auto-verify quest = merge'lenmiş GitHub PR (API) + referral-wallet-real-tx kontrolü, signed claim döndürüyor. **AC:** merge'lenmiş PR → on-chain redeem edilebilir geçerli sig.
-- **Indexer service:** Soroban event → Postgres, leaderboard + profile API; IPFS badge art pin. **AC:** leaderboard endpoint on-chain score'ları event'ten <10s sonra yansıtıyor.
-- Komple mini-dApp UX: profile, badge gallery, quest list, leaderboard, claim/tip butonları contract'lara bağlı. **AC:** tam yolculuk (connect→quest→claim→tip) testnet'te çalışıyor.
-- **FULL test suite:** unit + integration + fuzz (proptest: amount/score/overflow) + attester/indexer API testleri. **AC:** CI coverage gate ≥%80 contracts.
-- Testnet deploy pipeline: 3 contract scripted deploy, `/packages/shared`'da address registry, seed data scripti. **AC:** `make deploy-testnet` reproducible adresler + binding'ler.
-- CI/CD: main merge'te build+test+deploy-to-testnet; WASM hash logla. **AC:** yeşil main otomatik testnet staging'e deploy.
+- **`Rewards` contract:** reputation → USDC micro-bounty payout (SAC/USDC), tipping `tip(from,to,amount)`. **AC:** claim transfers USDC SAC, double-claim rejected.
+- Cross-contract wiring: `Rewards` → `Reputation.score`, `QuestRegistry` eligibility gate; interfaces in the shared crate. **AC:** integration test covers all 3 contracts end-to-end.
+- **Attester service (real):** Express/Fastify, allowlisted keypair, auto-verify quest = merged GitHub PR (API) + referral-wallet-real-tx check, returns a signed claim. **AC:** merged PR → a valid sig redeemable on-chain.
+- **Indexer service:** Soroban event → Postgres, leaderboard + profile API; pin IPFS badge art. **AC:** the leaderboard endpoint reflects on-chain scores <10s after the event.
+- Complete mini-dApp UX: profile, badge gallery, quest list, leaderboard, claim/tip buttons wired to contracts. **AC:** the full journey (connect→quest→claim→tip) works on testnet.
+- **FULL test suite:** unit + integration + fuzz (proptest: amount/score/overflow) + attester/indexer API tests. **AC:** CI coverage gate ≥80% contracts.
+- Testnet deploy pipeline: scripted deploy of 3 contracts, address registry in `/packages/shared`, seed data script. **AC:** `make deploy-testnet` reproducible addresses + bindings.
+- CI/CD: build+test+deploy-to-testnet on main merge; log WASM hash. **AC:** a green main auto-deploys to testnet staging.
 
 ---
 
 ## 🎨 UX / Frontend (Kaan)
-- **Ekranlar:** tam mini-dApp loop — profile/passport (stamp grid), stamp detail, vouch/co-sign action sheet, error/failed-tx recovery.
-- **Delight mekaniği:** **VOUCH** — başka bir insanı co-sign'la; onları adlandıran küçük collectible mint'liyor ("Kaan, Alvin'e vouch'ladı"). Her micro-action kendi kartı = "başkası hakkındaki itibar viral".
-- **Share yüzeyi:** Vouch Card (iki handle + ilişki satırı + generative motif) + ön-doldurulmuş share caption + mint'e geri dönen deep link.
-- **Onboarding:** returning-user fast path (FaceID → direkt passport) + vouch butonunda first-run coachmark.
-- **Empty states:** 0 stamp'li passport → "starter quest" checklist; failed tx → korkutucu olmayan retry kartı, asla ham error code.
-- **Erişilebilirlik:** stamp grid accessible list (her stamp'e label), küçük ekran testi (yatay scroll yok).
-- ⚠️ **Sequence:** kart layout template'i + share/deep-link altyapısını burada finalize et — Green/Blue sadece kart tipi ekler, yeni altyapı değil.
+- **Screens:** the full mini-dApp loop — profile/passport (stamp grid), stamp detail, vouch/co-sign action sheet, error/failed-tx recovery.
+- **Delight mechanic:** **VOUCH** — co-sign another person; it mints a small collectible naming them ("Kaan vouched for Alvin"). Every micro-action is its own card = "reputation about someone else goes viral".
+- **Share surface:** Vouch Card (two handles + relationship line + generative motif) + a pre-filled share caption + a deep link back to the mint.
+- **Onboarding:** returning-user fast path (FaceID → straight to passport) + a first-run coachmark on the vouch button.
+- **Empty states:** a 0-stamp passport → a "starter quest" checklist; failed tx → a non-scary retry card, never a raw error code.
+- **Accessibility:** stamp grid as an accessible list (label on every stamp), small-screen test (no horizontal scroll).
+- ⚠️ **Sequence:** finalize the card layout template + share/deep-link infrastructure here — Green/Blue only add card types, not new infrastructure.
 
 ---
 
 ## 📣 Product / GTM (Nicole)
-- Isıtılmış topluluklardan 10-kişilik **dış alpha pod** (program kohortu DEĞİL) recruit et; moderated walkthrough.
-- Share funnel'ı instrument et: mint → share → click → install → activate; drop-off yakala.
-- Referral/share copy + bir insanın adını/handle'ını render eden OG-image badge (viral kanca).
-- 5 feedback call → Green'i besleyen sıralı friction listesi.
-- **Twitter/X hesabını aç;** haftalık build-in-public cadence başlat (gelecekteki kullanıcı tabanını ek).
+- Recruit a 10-person **external alpha pod** (NOT the program cohort) from the warmed-up communities; run a moderated walkthrough.
+- Instrument the share funnel: mint → share → click → install → activate; capture drop-off.
+- Referral/share copy + an OG-image badge that renders a person's name/handle (viral hook).
+- 5 feedback calls → a ranked friction list that feeds Green.
+- **Open the Twitter/X account;** start a weekly build-in-public cadence (seed the future user base).
 
 ---
 
 ## ✅ Definition of Done
-3 contract testnet'te, cross-contract çalışıyor; attester service merge'lenmiş PR'ı doğruluyor; indexer leaderboard'u besliyor; full test suite + fuzz yeşil; 10 dış tester share akışını tamamladı. **Idea Submission dosyası hazır.**
+3 contracts on testnet, cross-contract working; the attester service verifies a merged PR; the indexer feeds the leaderboard; full test suite + fuzz green; 10 external testers completed the share flow. **Idea Submission dossier ready.**
 
-## ⛓️ Bağımlılıklar
-Yellow (Reputation + event şeması). Upgradeability kararı burada verilir, Black'te enforce edilir.
+## ⛓️ Dependencies
+Yellow (Reputation + event schema). The upgradeability decision is made here, enforced in Black.

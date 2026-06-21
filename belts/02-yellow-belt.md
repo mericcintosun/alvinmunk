@@ -1,61 +1,61 @@
 # 🟡 Yellow Belt — Level 2
 
-**Rise In gereksinimi:** Multi-wallet entegrasyonu, smart contract'lar, transaction handling, real-time event senkronizasyonu.
+**Rise In requirement:** Multi-wallet integration, smart contracts, transaction handling, real-time event synchronization.
 
-**Milestone (Nicole):** Multi-wallet desteği + testnet'e deploy edilmiş bir Soroban contract'ı; stamp mint'liyor ve uygulamanın geri okuduğu event emit ediyor.
+**Milestone (Nicole):** Multi-wallet support + a Soroban contract deployed to testnet; it mints stamps and emits events that the app reads back.
 
-**Scope guard — YAPMA:** Bounty/USDC market, staking, quorum review YOK. Tek stamp tipi, tek mint path. Tipping ekonomisi yok. Reputation scoring'i fazla modelleme.
+**Scope guard — DO NOT:** NO bounty/USDC market, staking, or quorum review. One stamp type, one mint path. No tipping economy. No over-modeling reputation scoring.
 
-**Başarı metrikleri:**
-- Vouch mint → claim → event read round-trip >%95 başarı (20 manuel koşu).
-- Yarım-kart link'i ikinci bir cihazda açılıp claim edilebiliyor (async, koordinasyonsuz).
-- 2+ wallet tipi connect oluyor.
+**Success metrics:**
+- Vouch mint → claim → event read round-trip >95% success (20 manual runs).
+- The half-card link can be opened and claimed on a second device (async, coordination-free).
+- 2+ wallet types connect.
 
 ---
 
-## 🔧 Teknik tasklar
+## 🔧 Technical tasks
 
 ### Smart contract / on-chain (Tyler)
-- **`Reputation` contract'ı scaffold et:** `Map<Address,u64>` XP (instance/persistent storage), `Map<(Address,BadgeId),Claim>` badge'ler. `award_xp`, `grant_badge`, `get_profile`, `revoke`. Transfer fn'i koymayarak non-transferable.
-- Her mutasyonda yapısal event emit: `xp_awarded(addr, amount, source)`, `badge_granted(addr, badge_id, attester)`. Bu, indexer'ın kontratı — event topic/data şeklini **şimdi dondur**.
-- ⚠️ **SCF kapısı için (00-strategy §4):** 1. günden **canonical `attestation_set{addr, schema_id, issuer, value, ts}` event'ini** emit et. Append-only, geriye dönük imkânsız — read-view'ı (`get_attestation`) sonraya bırakabilirsin ama event'i bırakamazsın.
-- Auth modeli: `award_xp`/`grant_badge`/`revoke`'u admin/attester adresinde `require_auth` ile gate'le (instance storage `admin`). Public mint yok. Yetkisiz çağrı için `require_auth` unit testleri.
-- ⚠️ **Storage TTL/archival:** badge/XP `persistent` storage — her write içinde `extend_ttl` bump; archived-entry restore akışını dökümante et. Persistent entry'ler archive olabilir; read'ler restore'u handle etmeli.
-- Real-time event indexer kur: `getEvents` (RPC) contract ID + topic ile poll'la, küçük DB'ye yaz, leaderboard read API expose et. Yukarıdaki donmuş event şekline bağlı.
-- Multi-wallet: TS client'ı 2+ passkey wallet yönetecek ve her birinden contract invocation atacak şekilde genişlet (Orange'daki tap-to-mint co-sign için gerekli).
+- **Scaffold the `Reputation` contract:** `Map<Address,u64>` XP (instance/persistent storage), `Map<(Address,BadgeId),Claim>` badges. `award_xp`, `grant_badge`, `get_profile`, `revoke`. Non-transferable by omitting any transfer fn.
+- Emit a structured event on every mutation: `xp_awarded(addr, amount, source)`, `badge_granted(addr, badge_id, attester)`. This is the indexer's contract — **freeze the event topic/data shape now**.
+- ⚠️ **For the SCF gate (00-strategy §4):** from day 1, emit the **canonical `attestation_set{addr, schema_id, issuer, value, ts}` event**. Append-only, impossible to backfill — you can defer the read-view (`get_attestation`) but you cannot defer the event.
+- Auth model: gate `award_xp`/`grant_badge`/`revoke` on the admin/attester address with `require_auth` (instance storage `admin`). No public mint. `require_auth` unit tests for unauthorized calls.
+- ⚠️ **Storage TTL/archival:** badge/XP `persistent` storage — `extend_ttl` bump within every write; document the archived-entry restore flow. Persistent entries can be archived; reads must handle restore.
+- Set up a real-time event indexer: poll `getEvents` (RPC) by contract ID + topic, write to a small DB, expose a leaderboard read API. Depends on the frozen event shape above.
+- Multi-wallet: extend the TS client to manage 2+ passkey wallets and dispatch contract invocations from each (needed for the tap-to-mint co-sign in Orange).
 
 ### Engineering / full-stack (Elliot)
-- `Reputation` contract v0 — **birincil mekanik ASYNC VOUCH** (cold-start fix, 00-strategy §3): `mint_vouch(from, to_handle_or_addr, note)` yarım-kart (pending) yaratıyor, `claim_vouch(to)` ikinci tarafı tamamlayıp iki score'u da artırıyor; `score(addr)`. **AC:** unit test yarım-kart mint'liyor, claim öncesi B'nin score'u artmıyor, claim sonrası iki taraf da artıyor + double-claim revert.
-- (İkincil) `mint_stamp(a, b)` IRL iki-cüzdan co-sign stamp — opsiyonel lezzet, birincil değil.
-- `QuestRegistry` contract v0: `register_quest`, `complete_quest(addr, quest_id, attester_sig)` allowlist'li attester pubkey kontrolü. **AC:** allowlist-dışı imzayı reddediyor, geçerli imzayı kabul ediyor.
-- `stamp_minted` / `quest_completed` Soroban event'leri; event şemasını `/packages/shared`'da tanımla. **AC:** event'ler `stellar contract events` çıktısında.
-- Multi-wallet co-sign/vouch UX: two-party tap-to-mint (deep link / QR handshake), multi-source auth tx. **AC:** iki test cüzdanı tek mint tx'i co-sign'lıyor, ikisi de on-chain.
-- Real-time event consumer (ince): RPC `getEvents` polling → UI'a WebSocket/SSE. **AC:** stamp mint, ikinci tarayıcıyı <5s içinde güncelliyor.
-- Sağlam tx handling: simulation, fee-bump/sponsored fee, `TRY_AGAIN_LATER` retry, restore-footprint. **AC:** sponsored fee + passkey ile tx, user cüzdanında 0 XLM.
-- İki contract için unit testler (happy + auth-failure); CI `cargo test`. **AC:** tüm public fn'lerde coverage.
+- `Reputation` contract v0 — **the primary mechanic is ASYNC VOUCH** (cold-start fix, 00-strategy §3): `mint_vouch(from, to_handle_or_addr, note)` creates a half-card (pending), `claim_vouch(to)` completes the second party and bumps both scores; `score(addr)`. **AC:** unit test mints a half-card, B's score does not increase before claim, both parties increase after claim + double-claim reverts.
+- (Secondary) `mint_stamp(a, b)` IRL two-wallet co-sign stamp — optional flavor, not primary.
+- `QuestRegistry` contract v0: `register_quest`, `complete_quest(addr, quest_id, attester_sig)` with allowlisted attester pubkey check. **AC:** rejects an off-allowlist signature, accepts a valid one.
+- `stamp_minted` / `quest_completed` Soroban events; define the event schema in `/packages/shared`. **AC:** events appear in `stellar contract events` output.
+- Multi-wallet co-sign/vouch UX: two-party tap-to-mint (deep link / QR handshake), multi-source auth tx. **AC:** two test wallets co-sign a single mint tx, both on-chain.
+- Real-time event consumer (thin): RPC `getEvents` polling → WebSocket/SSE to the UI. **AC:** a stamp mint updates the second browser within <5s.
+- Robust tx handling: simulation, fee-bump/sponsored fee, `TRY_AGAIN_LATER` retry, restore-footprint. **AC:** tx with sponsored fee + passkey, 0 XLM in the user wallet.
+- Unit tests for both contracts (happy + auth-failure); CI `cargo test`. **AC:** coverage on all public fns.
 
 ---
 
 ## 🎨 UX / Frontend (Kaan)
-- **Ekranlar:** "ikinci cüzdan ekle" / wallet switcher, contract-interaction ekranı, real-time contract event'lerini akıtan canlı activity feed.
-- **Delight mekaniği (BİRİNCİL):** **ASYNC VOUCH yarım-kart** — A, B'yi seçip ona vouch'luyor; A'nın tarafı dolu, B'nin tarafı *parlayan boş yuva*. Generative sigil A'nın wallet hash'inden tohumlanıyor; B claim'leyince B'nin tarafı seam'den çiçek açıp tam kartı oluşturuyor. Koordinasyon sıfır.
-- **Share yüzeyi:** yarım-kart linki — "X seni vouch'ladı. 1/1. Kendi tarafını claim et →" (crypto kelimesi yok). Bu kart **install funnel'ın kendisi.** (İkincil: IRL tap-to-mint collision-bloom animasyonu, screen-record'lanabilir.)
-- **Real-time hissi:** event toast'ları ("Stamp 4s'de confirmed") + on-chain confirm'de feed item animasyonu — sub-cent/sub-5s settlement'ı bir özellik olarak okunur kıl.
-- **Empty state:** boş feed → "Henüz stamp yok — başlamak için bir arkadaşına bump'la" + iki-el illüstrasyonu.
-- **Erişilebilirlik:** wallet switcher tek elle erişilebilir; mint animasyonu için reduce-motion (statik reveal) varyantı.
+- **Screens:** "add a second wallet" / wallet switcher, contract-interaction screen, a live activity feed streaming real-time contract events.
+- **Delight mechanic (PRIMARY):** **ASYNC VOUCH half-card** — A picks B and vouches for them; A's side is filled, B's side is a *glowing empty slot*. The generative sigil is seeded from A's wallet hash; when B claims, B's side blooms from the seam to form the full card. Zero coordination.
+- **Share surface:** the half-card link — "X vouched for you. 1/1. Claim your side →" (no crypto wording). This card **is the install funnel itself.** (Secondary: IRL tap-to-mint collision-bloom animation, screen-recordable.)
+- **Real-time feel:** event toasts ("Stamp confirmed in 4s") + a feed-item animation on on-chain confirm — make sub-cent/sub-5s settlement legible as a feature.
+- **Empty state:** empty feed → "No stamps yet — bump a friend to get started" + a two-hands illustration.
+- **Accessibility:** the wallet switcher is one-hand reachable; a reduce-motion (static reveal) variant for the mint animation.
 
 ---
 
 ## 📣 Product / GTM (Nicole)
-- **Stamp taxonomy v1:** hangi stamp'ler API/crypto-verifiable (auto-mint) vs subjektif (sonra staked quorum'a ertelenir) — verifiability sınırını kilitle.
-- Co-sign/vouch human-reference mekaniğini kâğıt üstünde spec'le (kim vouch'layabilir, ne değişir) — henüz build etme.
-- 3 shareable badge görsel konsepti çiz; 5 dış kontak ile DM'den "paylaşır mıydın?" valide et.
-- Landing page + waitlist email capture; 2-3 dış topluluğu build-in-public postlarıyla ısıtmaya başla.
+- **Stamp taxonomy v1:** which stamps are API/crypto-verifiable (auto-mint) vs subjective (deferred to staked quorum later) — lock the verifiability boundary.
+- Spec the co-sign/vouch human-reference mechanic on paper (who can vouch, what changes) — do not build yet.
+- Sketch 3 shareable badge visual concepts; validate "would you share this?" via DM with 5 external contacts.
+- Landing page + waitlist email capture; start warming up 2-3 external communities with build-in-public posts.
 
 ---
 
 ## ✅ Definition of Done
-Testnet'te `Reputation` (+`QuestRegistry` v0) deployed; tap-to-mint shared stamp iki cüzdanla çalışıyor; event indexer leaderboard'u besliyor; real-time UI güncellemesi <5s.
+`Reputation` (+`QuestRegistry` v0) deployed on testnet; tap-to-mint shared stamp works with two wallets; the event indexer feeds the leaderboard; real-time UI update <5s.
 
-## ⛓️ Bağımlılıklar
-White (passkey + sponsorship + art engine). Çıktısı (Reputation contract + event şeması) Orange'ın cross-contract çağrılarının ön koşulu.
+## ⛓️ Dependencies
+White (passkey + sponsorship + art engine). Its output (Reputation contract + event schema) is a prerequisite for Orange's cross-contract calls.

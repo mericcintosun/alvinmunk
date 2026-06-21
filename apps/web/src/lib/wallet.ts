@@ -12,9 +12,14 @@
  * never touches feature code.
  */
 import { Keypair, TransactionBuilder } from '@stellar/stellar-sdk';
+import {
+  isConnected as freighterIsConnected,
+  requestAccess as freighterRequestAccess,
+  signTransaction as freighterSign,
+} from '@stellar/freighter-api';
 import { config, networkPassphrase } from './stellar';
 
-export type WalletKind = 'passkey' | 'dev';
+export type WalletKind = 'passkey' | 'dev' | 'freighter';
 
 export interface Wallet {
   kind: WalletKind;
@@ -71,6 +76,38 @@ export async function fundWithFriendbot(publicKey: string): Promise<void> {
     // 400 == already funded; anything else is a real error.
     throw new Error(`friendbot funding failed: ${res.status}`);
   }
+}
+
+// ── Freighter provider (browser extension) ──
+// Satisfies the White-belt Level-1 rubric: Freighter connect/disconnect + signing.
+
+export async function connectFreighter(): Promise<Wallet> {
+  const conn = await freighterIsConnected();
+  if (!conn.isConnected) {
+    throw new Error('Freighter not detected. Install it from freighter.app, then retry.');
+  }
+  const access = await freighterRequestAccess();
+  if ('error' in access && access.error) {
+    throw new Error(String(access.error));
+  }
+  const address = access.address;
+  return {
+    kind: 'freighter',
+    address,
+    sign: async (xdr: string) => {
+      const res = await freighterSign(xdr, {
+        address,
+        networkPassphrase,
+      });
+      if ('error' in res && res.error) throw new Error(String(res.error));
+      return res.signedTxXdr;
+    },
+  };
+}
+
+/** Freighter has no programmatic disconnect; apps clear their own connection state. */
+export function disconnectFreighter(): void {
+  /* state is held in React; the caller clears it. Kept for API symmetry. */
 }
 
 // ── Passkey provider (production) ──

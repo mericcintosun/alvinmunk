@@ -26,6 +26,9 @@ importers:
       '@passport/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@stellar/freighter-api':
+        specifier: ^6.0.1
+        version: 6.0.1
       '@stellar/stellar-sdk':
         specifier: ^13.0.0
         version: 13.3.0
@@ -1063,6 +1066,9 @@ packages:
 
   '@stellar/freighter-api@5.0.0':
     resolution: {integrity: sha512-MydzLg+WpSzmws24uUs4mVME2LPN8xhUWkwyGEP0N1Hr519swC6I/W7K6cdVBzghBiVv7f/vvGFNT+0p1a33Vg==}
+
+  '@stellar/freighter-api@6.0.1':
+    resolution: {integrity: sha512-eqwakEqSg+zoLuPpSbKyrX0pG8DQFzL/J5GtbfuMCmJI+h+oiC9pQ5C6QLc80xopZQKdGt8dUAFCmDMNdAG95w==}
 
   '@stellar/js-xdr@3.1.2':
     resolution: {integrity: sha512-VVolPL5goVEIsvuGqDc5uiKxV03lzfWdvYg1KikvwheDmTBO68CKDji3bAZ/kppZrx5iTA8z3Ld5yuytcvhvOQ==}
@@ -5259,6 +5265,11 @@ snapshots:
       '@stablelib/wipe': 1.0.1
 
   '@stellar/freighter-api@5.0.0':
+    dependencies:
+      buffer: 6.0.3
+      semver: 7.7.1
+
+  '@stellar/freighter-api@6.0.1':
     dependencies:
       buffer: 6.0.3
       semver: 7.7.1

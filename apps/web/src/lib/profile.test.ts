@@ -6,8 +6,8 @@ describe('normalizeHandle', () => {
     expect(normalizeHandle('Kaan!! Designer')).toBe('kaandesigner');
     expect(normalizeHandle('a'.repeat(40))).toHaveLength(20);
   });
-  it('drops non-ascii (e.g. Turkish chars)', () => {
-    expect(normalizeHandle('Yılmaz')).toBe('ylmaz');
+  it('drops non-ascii characters', () => {
+    expect(normalizeHandle('Renée')).toBe('rene');
   });
   it('keeps underscores and digits', () => {
     expect(normalizeHandle('dev_007')).toBe('dev_007');

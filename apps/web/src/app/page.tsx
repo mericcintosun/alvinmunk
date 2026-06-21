@@ -166,10 +166,21 @@ export default function Home() {
       {step === 'done' && profile && (
         <>
           <VouchCompose />
-          <Link href="/leaderboard" className="text-xs text-white/50 underline">
-            see who’s most connected →
-          </Link>
+          <div className="flex gap-4 text-xs text-white/50">
+            <Link href="/leaderboard" className="underline">
+              who’s most connected →
+            </Link>
+            <Link href="/wallet" className="underline">
+              classic wallet (L1) →
+            </Link>
+          </div>
         </>
+      )}
+
+      {step === 'connect' && (
+        <Link href="/wallet" className="text-[11px] text-white/30 underline">
+          or use a classic Freighter wallet (Level 1 demo)
+        </Link>
       )}
 
       {error && <p className="max-w-xs text-center text-xs text-red-400">{error}</p>}

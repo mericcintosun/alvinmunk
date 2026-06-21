@@ -1,69 +1,69 @@
 # 🏆 Master Belt — Ecosystem Acceleration
 
-**Rise In gereksinimi:** Black Belt'ten en iyi projeler final ekosistem-akselerasyon aşamasına girer — uzun-vadeli scaling, partnership, startup growth, yatırımcı görünürlüğü, ekosistem genişlemesi.
+**Rise In requirement:** The best projects from Black Belt enter the final ecosystem-acceleration phase — long-term scaling, partnership, startup growth, investor visibility, ecosystem expansion.
 
-**Milestone (Nicole):** Kanıtlanmış retention + mainnet ekonomi metrikleri üstüne kurulu; gösterilmiş scaling path, ≥1 somut partnership, aktif yatırımcı görünürlüğü.
+**Milestone (Nicole):** Built on proven retention + mainnet economy metrics; a demonstrated scaling path, ≥1 concrete partnership, active investor visibility.
 
-**Scope guard — YAPMA:** Yatırımcı kovalamak için çekirdek loop'u pivot etme; imzalı niyet olmadan partner için spekülatif feature over-build etme. Kanıtlanmış retention'ı vanity growth-hack için takas etme. Her partner talebinden scope creep'e diren.
+**Scope guard — DON'T:** Pivot the core loop to chase investors; over-build speculative features for a partner without signed intent. Trade proven retention for vanity growth-hacks. Resist scope creep from every partner request.
 
-**Başarı metrikleri:**
-- Sürdürülen WAU büyüme trendi (çok-sezonlu retention eğrisi yukarı-sağa).
-- ≥1 imzalı partnership/entegrasyon.
-- Yatırımcı pipeline'ı (≥3 nitelikli görüşme veya akışta SCF/grant başvurusu).
+**Success metrics:**
+- A sustained WAU growth trend (multi-season retention curve up-and-to-the-right).
+- ≥1 signed partnership/integration.
+- Investor pipeline (≥3 qualified conversations or an SCF/grant application in flight).
 
 ---
 
-## 🔧 Teknik tasklar
+## 🔧 Technical tasks
 
 ### Smart contract / on-chain (Tyler)
-- **Upgradeability governance:** contract'lar upgradeable ise admin'i timelock'lu proper on-chain governance/multisig'e taşı, upgrade policy yayınla. Immutable ise migration contract + state-export path tasarla (v2).
-- **Partnership/integration yüzeyi:** temiz cross-contract integration ABI + SDK; başka Stellar dApp'leri reputation okusun (`get_profile`) ve allowlist altında XP award'lasın — **reputation-as-a-primitive** (ekosistem genişlemesi).
-- **Long-term storage/TTL ekonomisi:** ölçekte archival maliyetini modelle, TTL keeper'ı funded infra olarak otomatikleştir, state-rent/archival-restore UX (eski profiller erişimde auto-restore).
-- **Data layer scale:** indexer'ı shard'la (contract/event), read replica + cache, investor/ekosistem metrikleri için dedicated analytics pipeline (Hubble).
-- **Multi-issuer/asset:** Rewards + bounty market'te USDC ötesi configurable SAC adresi (geniş partnership).
-- **Decentralization path (opsiyonel, dürüst trade-off):** allowlist'li attester → staked/permissionless attestation (m-of-n threshold + staking/slashing) — sadece adopsiyon kompleksiteyi haklı çıkarırsa. Boring allowlist düşündüğünden uzun süre yeterli.
+- **Upgradeability governance:** if the contracts are upgradeable, move the admin to proper timelock'd on-chain governance/multisig and publish an upgrade policy. If immutable, design a migration contract + state-export path (v2).
+- **Partnership/integration surface:** clean cross-contract integration ABI + SDK; let other Stellar dApps read reputation (`get_profile`) and award XP under an allowlist — **reputation-as-a-primitive** (ecosystem expansion).
+- **Long-term storage/TTL economics:** model archival cost at scale, automate the TTL keeper as funded infra, state-rent/archival-restore UX (old profiles auto-restore on access).
+- **Data layer scale:** shard the indexer (contract/event), read replica + cache, a dedicated analytics pipeline for investor/ecosystem metrics (Hubble).
+- **Multi-issuer/asset:** configurable SAC address beyond USDC in the Rewards + bounty market (broad partnership).
+- **Decentralization path (optional, honest trade-off):** allowlisted attester → staked/permissionless attestation (m-of-n threshold + staking/slashing) — only if adoption justifies the complexity. The boring allowlist is sufficient for longer than you think.
 
 ### Engineering / full-stack (Elliot)
-- Scale infra: horizontal indexer (sharded), read replica, badge art CDN, multi-region API. **AC:** 10x yük altında stable p95.
-- Contract upgrade/governance: timelock'lu upgrade, parametre governance, state migration tooling. **AC:** fork'ta dry-run state migration value-loss'suz başarılı.
-- **Partnership SDK/API:** public attester onboarding (3rd-party quest provider) + dökümante quest-attestation spec + SDK package. **AC:** harici partner quest register'lıyor ve verifiable claim issue'luyor.
-- Investor/scale metrik pipeline: cohort retention, reputation velocity, payout volume, viral coefficient dashboard. **AC:** board-ready metrikler indexer/warehouse'tan auto-refresh.
-- Multi-attester decentralization: threshold m-of-n imza, attester staking/slashing tasarımı. **AC:** quest completion m-of-n attester gerektiriyor; tek-attester compromise yetersiz.
-- Cost/treasury automation: dynamic fee-sponsorship budgeting, USDC treasury reconciliation, funding alert. **AC:** paymaster + bounty treasury policy limit'leri içinde auto-replenish.
-- Security continuity: bug bounty programı, periyodik audit, CI'da dependency/supply-chain scan. **AC:** bug bounty canlı; CI critical CVE'de fail.
+- Scale infra: horizontal indexer (sharded), read replica, badge art CDN, multi-region API. **AC:** stable p95 under 10x load.
+- Contract upgrade/governance: timelock'd upgrade, parameter governance, state migration tooling. **AC:** dry-run state migration succeeds on a fork without value-loss.
+- **Partnership SDK/API:** public attester onboarding (3rd-party quest provider) + documented quest-attestation spec + SDK package. **AC:** an external partner registers a quest and issues a verifiable claim.
+- Investor/scale metric pipeline: cohort retention, reputation velocity, payout volume, viral coefficient dashboard. **AC:** board-ready metrics auto-refresh from the indexer/warehouse.
+- Multi-attester decentralization: threshold m-of-n signing, attester staking/slashing design. **AC:** quest completion requires m-of-n attesters; a single-attester compromise is insufficient.
+- Cost/treasury automation: dynamic fee-sponsorship budgeting, USDC treasury reconciliation, funding alert. **AC:** paymaster + bounty treasury auto-replenish within policy limits.
+- Security continuity: bug bounty program, periodic audit, dependency/supply-chain scan in CI. **AC:** bug bounty live; CI fails on a critical CVE.
 
 ---
 
 ## 🎨 UX / Frontend (Kaan)
-- **Ekranlar:** partner/branded passport yüzeyleri (event/topluluk için co-branded stamp), creator dashboard/analytics, investor-facing public metrics sayfası.
-- **Delight mekaniği:** **PARTNER-STAMP DROPS** — topluluklar IRL event'lerde co-branded shared stamp mint'liyor (TAP-TO-MINT booth'ları); scarcity/edition-numbered art → collectible + FOMO-shareable.
-- **Share yüzeyi:** edition-numbered event stamp kartları ("#42 of 500, [event]'te mint'lendi") + sezonluk "passport wrapped" recap (yıl-sonu brag artifact'ı).
-- **Onboarding:** white-label/partner theming + event organizer için bulk-invite; passkey çekirdeği değişmeden.
-- **Empty states:** partner dashboard ilk-drop öncesi "ilk stamp'ini oluştur" wizard; analytics zero-data preview.
-- **Erişilebilirlik:** design system'i dökümante token/component library olarak enforce et (partner inaccessible co-branded kart ship'leyemesin); global partnership için localization-ready layout.
+- **Screens:** partner/branded passport surfaces (co-branded stamps for event/community), creator dashboard/analytics, investor-facing public metrics page.
+- **Delight mechanic:** **PARTNER-STAMP DROPS** — communities mint co-branded shared stamps at IRL events (TAP-TO-MINT booths); scarcity/edition-numbered art → collectible + FOMO-shareable.
+- **Share surface:** edition-numbered event stamp cards ("#42 of 500, minted at [event]") + a seasonal "passport wrapped" recap (year-end brag artifact).
+- **Onboarding:** white-label/partner theming + bulk-invite for event organizers; the passkey core unchanged.
+- **Empty states:** a "create your first stamp" wizard for the partner dashboard before the first drop; analytics zero-data preview.
+- **Accessibility:** enforce the design system as a documented token/component library (so a partner can't ship an inaccessible co-branded card); localization-ready layout for global partnership.
 
 ---
 
 ## 📣 Product / GTM (Nicole)
-- **Data hikâyesini paketle:** retention eğrileri, viral katsayı, mainnet USDC hacmi, cohort LTV proxy.
-- **SCF / ilgili grant round'a başvur** (InstaAward'a ≤$15k, SCF'e ≤$150k aday); warm yatırımcı listesi + intro görüşmeleri.
-- En güçlü Black partner sinyalini imzalı entegrasyon/co-marketing'e çevir.
-- Scaling GTM tanımla: ambassador programı, multi-community sezon franchising, self-serve bounty creation.
-- Sürdürülebilirlik/ekonomi modeli anlatısı (fee/spend-sink'ler loop'u uzun vadede nasıl fonluyor).
+- **Package the data story:** retention curves, viral coefficient, mainnet USDC volume, cohort LTV proxy.
+- **Apply to the SCF / relevant grant round** (InstaAward ≤$15k, SCF ≤$150k candidate); warm investor list + intro conversations.
+- Convert the strongest Black partner signal into a signed integration/co-marketing.
+- Define scaling GTM: ambassador program, multi-community season franchising, self-serve bounty creation.
+- Sustainability/economy model narrative (how fee/spend-sinks fund the loop long-term).
 
 ---
 
 ## ✅ Definition of Done
-Çok-sezonlu yukarı-trend retention; reputation-as-a-primitive SDK ile ≥1 imzalı partner entegrasyonu; SCF/grant başvurusu akışta; board-ready metrik dashboard; governance/multisig + bug bounty canlı.
+Multi-season up-trend retention; ≥1 signed partner integration via the reputation-as-a-primitive SDK; SCF/grant application in flight; board-ready metric dashboard; governance/multisig + bug bounty live.
 
-## ⛓️ Bağımlılıklar
-Black (mainnet + audit + ekosistem sinyali). Bu, programın finali — ekosistem fonlama (InstaAward/SCF) ve startup büyüme kapısı.
+## ⛓️ Dependencies
+Black (mainnet + audit + ecosystem signal). This is the finale of the program — ecosystem funding (InstaAward/SCF) and the gateway to startup growth.
 
 ---
 
-### 🔗 Cross-cutting flag'ler (tüm belt'ler boyunca)
-- **Auth:** `require_auth` + deny-by-default — her belt, her fn.
-- **Storage TTL/archival:** Yellow'dan itibaren her write'ta bump; instance archival = brick riski.
-- **Upgradeability:** kararı Orange'da ver, Black'te enforce et.
-- **Dış kullanıcı:** Blue (50) ve Black (20 mainnet) gate'leri program kohortuyla DEĞİL, gerçek dış topluluklarla geçilir (Nicole'ün anti-incest uyarısı).
-- **Verifiability:** sadece kriptografik/API-doğrulanabilir quest'ler on-chain'e naked girer; subjektif olanlar staked quorum.
+### 🔗 Cross-cutting flags (across all belts)
+- **Auth:** `require_auth` + deny-by-default — every belt, every fn.
+- **Storage TTL/archival:** bump on every write from Yellow onward; instance archival = brick risk.
+- **Upgradeability:** decide in Orange, enforce in Black.
+- **External users:** the Blue (50) and Black (20 mainnet) gates are passed with real external communities, NOT the program cohort (Nicole's anti-incest warning).
+- **Verifiability:** only cryptographic/API-verifiable quests go on-chain naked; subjective ones use staked quorum.

@@ -1,8 +1,8 @@
 {
-  "name": "stellar-passport",
+  "name": "alvinmunk",
   "version": "0.1.0",
   "private": true,
-  "description": "Stellar Passport — social proof-of-people reputation game on Stellar/Soroban",
+  "description": "alvinmunk — Stellar Passport: a social proof-of-people reputation game on Stellar/Soroban",
   "packageManager": "pnpm@9.7.0",
   "engines": {
     "node": ">=20"

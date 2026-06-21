@@ -1,68 +1,68 @@
 # 🟢 Green Belt — Level 4
 
-**Rise In gereksinimi:** Advanced smart contract'larla production-ready MVP; uygulamayı production'a hazırla.
+**Rise In requirement:** Production-ready MVP with advanced smart contracts; prepare the app for production.
 
-**Milestone (Nicole):** Production-ready MVP — **çekirdek haftalık retention loop'u** testnet'te uçtan uca canlı.
+**Milestone (Nicole):** Production-ready MVP — the **core weekly retention loop** live end-to-end on testnet.
 
-> ### 🔁 Çekirdek haftalık loop (net tanım)
-> Her hafta N taze quest düşer (çoğu auto-verifiable: did-a-tx, vouched-N-people, referred-a-friend). Kullanıcı commit için reputation/küçük USDC **stake'ler** → tamamlar → reputation + haftalık stamp kazanır → rank güncellenir → rank **gerçek bir fayda açar** (bounty-board erişim kademesi, daha yüksek tipping limiti, exclusive badge, fee indirimi). Haftayı kaçır = stake slash / streak reset. **Rank bir şey SATIN ALMALI, yoksa mint-and-forget.**
+> ### 🔁 Core weekly loop (clear definition)
+> Each week N fresh quests drop (most auto-verifiable: did-a-tx, vouched-N-people, referred-a-friend). To commit, the user **stakes** reputation/a small amount of USDC → completes → earns reputation + a weekly stamp → rank updates → rank **unlocks a real benefit** (bounty-board access tier, higher tipping limit, exclusive badge, fee discount). Miss the week = stake slash / streak reset. **Rank must BUY something, otherwise it's mint-and-forget.**
 
-**Scope guard — YAPMA:** Henüz user scale etme, mainnet yapma, tam açık bounty marketplace yapma — sadece rank'i önemli kılan minimum spend-sink. Subjektif-quest quorum'unu tam kompleksiyle yapma; stub'la. Feature genişliği değil, loop'ta derinlik.
+**Scope guard — DON'T:** Don't scale users yet, don't go mainnet, don't build a fully open bounty marketplace — just the minimum spend-sink that makes rank matter. Don't build the subjective-quest quorum at full complexity; stub it. Depth in the loop, not feature breadth.
 
-> ⚠️ **SIRALAMA (00-strategy §5):** Quest/rank motorundan **ÖNCE tip/bounty USDC rail'ini** ship'le ve D7 retention'ı ölç. "Yabancıdan USDC almak geri getiriyor mu?" sorusu en ucuz şekilde burada cevaplanır. Cevap hayırsa ödülü pivotla — tüm app'i değil.
+> ⚠️ **SEQUENCING (00-strategy §5):** Ship the **tip/bounty USDC rail BEFORE** the quest/rank engine and measure D7 retention. The question "does receiving USDC from a stranger bring people back?" is answered most cheaply here. If the answer is no, pivot the reward — not the whole app.
 
-**Başarı metrikleri:**
-- **North-star (00-strategy §2):** haftalık "kapanan reputation loop" sayısı artıyor (vouch → stake → *farklı* kullanıcı USDC redeem).
-- **Retention de-risk:** USDC spend *alan* kullanıcılarda D7 dönüşü ölçüldü (asıl sinyal bu).
-- Alpha pod'da Week-1→Week-2 dönüş oranı ≥%30.
-- Aktif kullanıcıların ≥%60'ı haftalık quest'leri tamamlıyor.
+**Success metrics:**
+- **North-star (00-strategy §2):** the weekly count of "closed reputation loops" is rising (vouch → stake → a *different* user redeems USDC).
+- **Retention de-risk:** measured D7 return among users who *receive* USDC spend (this is the real signal).
+- Week-1→Week-2 return rate in the alpha pod ≥30%.
+- ≥60% of active users complete the weekly quests.
 
 ---
 
-## 🔧 Teknik tasklar
+## 🔧 Technical tasks
 
 ### Smart contract / on-chain (Tyler)
 - **`Rewards` contract:** XP threshold-gated `claim_reward` (cross-contract read `Reputation.get_profile`), USDC SAC payout (`token::Client::new` → `transfer`). Per-(reward_id, address) replay guard.
-- **Treasury modeli:** Rewards USDC tutuyor veya treasury'den `require_auth` ile çekiyor; admin deposit/withdraw fn'leri. ⚠️ payout path drain edilemez olmalı — per-claim cap + threshold check ile sınırla.
-- Tipping: direkt wallet→wallet USDC SAC transfer + opsiyonel `tipped` event (sosyal feed). Saf SAC transfer ise yeni contract gerekmez.
-- **Production hardening:** her fn'de deny-by-default auth audit, integer overflow (`checked_add`), panic yerine explicit error enum (`contracterror`). Award/claim matematiğinde property/fuzz testleri.
-- **Storage TTL stratejisi:** instance vs persistent için makul `bump_ledgers`; hot entry'lerde (admin config, attester list) TTL extend eden keeper job. ⚠️ instance storage archival kontratı bricklerler — agresif bump.
-- Indexer → production: polling'den durable cursor'a (last-processed ledger), reorg handling, event-ID keyed idempotent upsert. Profile + leaderboard + bounty API.
-- Hâlâ Testnet; release candidate üret: deterministik build (`stellar contract build`), WASM hash kayıtlı, deployment runbook yazılı.
+- **Treasury model:** Rewards holds USDC or pulls from the treasury with `require_auth`; admin deposit/withdraw fns. ⚠️ the payout path must not be drainable — bound it with a per-claim cap + threshold check.
+- Tipping: direct wallet→wallet USDC SAC transfer + optional `tipped` event (social feed). If it's a pure SAC transfer, no new contract is needed.
+- **Production hardening:** deny-by-default auth audit on every fn, integer overflow (`checked_add`), explicit error enum (`contracterror`) instead of panic. Property/fuzz tests on the award/claim math.
+- **Storage TTL strategy:** reasonable `bump_ledgers` for instance vs persistent; a keeper job that extends TTL on hot entries (admin config, attester list). ⚠️ instance storage archival bricks the contract — bump aggressively.
+- Indexer → production: from polling to a durable cursor (last-processed ledger), reorg handling, event-ID keyed idempotent upsert. Profile + leaderboard + bounty API.
+- Still Testnet; produce a release candidate: deterministic build (`stellar contract build`), recorded WASM hash, written deployment runbook.
 
 ### Engineering / full-stack (Elliot)
-- Production-hardening: checked arithmetic, reentrancy/auth review, admin/upgrade pattern, event versioning. **AC:** clippy pedantic temiz, contract path'lerinde `unwrap` yok.
-- Smart-wallet onboarding cilası: passkey create/recover, sponsored-fee paymaster service, session handling. **AC:** sıfır-crypto kullanıcı seed-phrase'siz onboard, fee sponsored.
-- Backend hardening: attester key KMS/secrets manager'da, rate limiting, claim'de nonce replay protection, idempotent indexer ingestion. **AC:** replay'lenen claim reddediliyor; indexer event re-delivery'de dup üretmiyor.
-- Observability: structured logs, Prometheus metrics, Sentry, health/readiness endpoint'leri. **AC:** dashboard tx success rate / indexer lag / attester latency gösteriyor.
-- Staging env (prod ayna): managed Postgres, IPFS pinning, HTTPS arkası servisler. **AC:** dış tester staging URL'den tüm app'i çalıştırabiliyor.
-- E2E (Playwright) core flow + indexer/attester load test. **AC:** E2E suite CI'da yeşil.
-- Performance/UX: mint'lerde optimistic UI, skeleton loader, mobile-first responsive. **AC:** Lighthouse mobile ≥90.
+- Production-hardening: checked arithmetic, reentrancy/auth review, admin/upgrade pattern, event versioning. **AC:** clippy pedantic clean, no `unwrap` in contract paths.
+- Smart-wallet onboarding polish: passkey create/recover, sponsored-fee paymaster service, session handling. **AC:** a zero-crypto user onboards without a seed-phrase, fee sponsored.
+- Backend hardening: attester key in KMS/secrets manager, rate limiting, nonce replay protection on claim, idempotent indexer ingestion. **AC:** a replayed claim is rejected; the indexer produces no dups on event re-delivery.
+- Observability: structured logs, Prometheus metrics, Sentry, health/readiness endpoints. **AC:** dashboard shows tx success rate / indexer lag / attester latency.
+- Staging env (prod mirror): managed Postgres, IPFS pinning, services behind HTTPS. **AC:** an external tester can run the whole app from the staging URL.
+- E2E (Playwright) core flow + indexer/attester load test. **AC:** E2E suite green in CI.
+- Performance/UX: optimistic UI on mints, skeleton loaders, mobile-first responsive. **AC:** Lighthouse mobile ≥90.
 
 ---
 
 ## 🎨 UX / Frontend (Kaan)
-- **Ekranlar:** production passport profile (handle, crest, stat row: stamp/vouch/people-named), badge gallery, settings/recovery, polished share-sheet modal.
-- **Delight mekaniği:** **İNSANLARI ADLANDIRAN BADGE'LER** — milestone badge'leri otomatik üretiliyor ("Connector: 5 kişiye vouch'ladı") + thank-you/tip-back micro-stamp sosyal loop'u kapatıyor.
-- **Share yüzeyi (hero shareable):** auto-generated Badge Card — generative art + adlandırılan insanlar + crest + app handle/QR; "Share to X" primary action.
-- **Onboarding:** passkey edge case'leri sertleştir — multi-device, account recovery, lost-device path — net insancıl copy.
-- **Empty states:** her gallery/section'da tasarlanmış empty + "almost there" near-complete state (bir sonraki milestone'a çek).
-- **Erişilebilirlik (tam geçiş):** contrast AA, dynamic type, generative art'a screen-reader alt-text, offline/zayıf-ağ state'leri.
-- ⚠️ **Sequence:** tüm kart tiplerinin visual-regression baseline'ını ship et — sonraki belt'ler share artifact'larını sessizce kırmasın.
+- **Screens:** production passport profile (handle, crest, stat row: stamp/vouch/people-named), badge gallery, settings/recovery, polished share-sheet modal.
+- **Delight mechanic:** **BADGES THAT NAME PEOPLE** — milestone badges are auto-generated ("Connector: vouched for 5 people") + a thank-you/tip-back micro-stamp closes the social loop.
+- **Share surface (hero shareable):** auto-generated Badge Card — generative art + named people + crest + app handle/QR; "Share to X" primary action.
+- **Onboarding:** harden passkey edge cases — multi-device, account recovery, lost-device path — with clear, human copy.
+- **Empty states:** a designed empty state on every gallery/section + an "almost there" near-complete state (pull toward the next milestone).
+- **Accessibility (full pass):** contrast AA, dynamic type, screen-reader alt-text on generative art, offline/weak-network states.
+- ⚠️ **Sequence:** ship the visual-regression baseline for all card types — so later belts don't silently break the share artifacts.
 
 ---
 
 ## 📣 Product / GTM (Nicole)
-- Haftalık quest takvimini (4-haftalık rolling) + net rank→reward unlock tablosunu dökümante et.
-- Alpha pod'u recurring haftalık-aktif kohorta çevir; Blue'dan önce loop'u **2+ ardışık hafta** canlı koştur.
-- Retention analytics dashboard (WAU, hafta-üstü-hafta dönüş, quest completion, stake-slash rate).
-- "Neden Pazartesi geri gel" hook mesajı + push/notification copy.
-- Pitch-deck iskeleti (problem, loop, erken retention sayıları) — metrikler geldikçe doldur.
+- Document the weekly quest calendar (4-week rolling) + a clear rank→reward unlock table.
+- Turn the alpha pod into a recurring weekly-active cohort; run the loop live for **2+ consecutive weeks** before Blue.
+- Retention analytics dashboard (WAU, week-over-week return, quest completion, stake-slash rate).
+- "Why come back on Monday" hook message + push/notification copy.
+- Pitch-deck skeleton (problem, loop, early retention numbers) — fill in as the metrics come.
 
 ---
 
 ## ✅ Definition of Done
-Haftalık loop testnet'te 2+ hafta canlı koştu, ölçülen Week-1→2 retention ≥%30. Rewards contract production-hardened (checked math, error enum, caps). Staging env dış tester'a açık. Pitch-deck iskeleti hazır.
+The weekly loop ran live on testnet for 2+ weeks, with measured Week-1→2 retention ≥30%. The Rewards contract is production-hardened (checked math, error enum, caps). Staging env open to external testers. Pitch-deck skeleton ready.
 
-## ⛓️ Bağımlılıklar
-Orange (3 contract + attester + indexer). Bu loop, Blue'nun 50-kullanıcı ve Black'in mainnet sezonlarının çekirdeği.
+## ⛓️ Dependencies
+Orange (3 contracts + attester + indexer). This loop is the core of Blue's 50-user and Black's mainnet seasons.

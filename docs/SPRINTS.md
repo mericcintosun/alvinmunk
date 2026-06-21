@@ -4,6 +4,14 @@ _Derived from [`PRD.md`](./PRD.md) + the belt roadmap. Sprints map 1:1 to belts.
 
 > **Nicole's sequencing rules baked in:** (1) ship the **tip rail before** quests/ranks at Green to de-risk retention; (2) get **outside users** for the 50/20 gates, not the cohort; (3) only **verifiable** quests on-chain; (4) every sprint ends with a **demoable** increment.
 
+> ### ⚠️ Official program rules (verified from Rise In, corrects earlier assumptions)
+> - **One track, one project per month** — can't run Builder + Startup (or two projects) simultaneously. → **Single focus: Passport on Builder Track.** SCF/InstaAward come via **Master Belt (L7 = Startup track)**, not a parallel project.
+> - **Belt-chain must stay unbroken**; reward = highest *valid* belt that month; **can't resubmit the same version** (needs meaningful new commits).
+> - **White (L1) rubric is literal:** Freighter connect/disconnect, balance display, **send an XLM payment** on testnet (success/fail + hash), public repo + README **with screenshots**. → shipped at `/wallet` (Freighter) in addition to the passkey Passport flow.
+> - **Green (L4): Production MVP + 10 users (testnet).** **Black (L6): Mainnet + Audit + 10+ mainnet users** (not 20) + Demo-Day ready.
+> - **Mentor & Market-Fit checkpoint is MANDATORY before onboarding users for L5/L6** — users onboarded without it **don't count**.
+> - **Idea Submission (post-Orange)** favors ideas that **resonate with Stellar Anchors** → add an anchor angle by Orange.
+
 Legend: `AC` = acceptance criterion.
 
 ---
@@ -40,8 +48,8 @@ Hand a phone to someone → Face ID → they're on-chain with a unique stamp in 
 ### Definition of Done
 Onboarding + first tx + Genesis Stamp working on testnet (passkey where infra is configured; dev-wallet fallback for local). Art engine + tests green. No seed phrase shown anywhere.
 
-### Out of scope (guard)
-No vouch/quest/leaderboard/contract logic. Wallet + balance + one tx + stamp only.
+### Rubric compliance (added)
+The official Level-1 checklist wants **Freighter** connect/disconnect + a plain **XLM payment** (success/fail + hash). Shipped at **`/wallet`** (Freighter provider in `lib/wallet.ts` + `lib/payments.ts`) alongside the passkey Passport onboarding, so the submission satisfies the checklist literally. **TODO before review:** add screenshots (wallet connected, balance, successful tx) to the repo README.
 
 ---
 

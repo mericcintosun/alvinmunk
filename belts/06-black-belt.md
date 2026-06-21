@@ -1,64 +1,64 @@
 # ⚫ Black Belt — Level 6
 
-**Rise In gereksinimi:** Projenin Twitter profili + projeyle ilgili postlar; 30+ yeni kullanıcı onboard; Level 5'e göre daha advanced feature'lar; **Stellar Mainnet lansmanı**; gerçek mainnet kullanıcıları (en az 20); security review/audit; gerçek ekosistem adopsiyonu.
+**Rise In requirement:** The project's Twitter profile + project-related posts; 30+ new users onboarded; more advanced features than Level 5; **Stellar Mainnet launch**; real mainnet users (at least 20); security review/audit; real ecosystem adoption.
 
-**Milestone (Nicole):** MAINNET'te canlı; 30+ onboard, 20+ gerçek mainnet kullanıcısı tx atıyor; advanced feature'lar ship'lendi; audit'li; ilk ekosistem-adopsiyon sinyali.
+**Milestone (Nicole):** Live on MAINNET; 30+ onboarded, 20+ real mainnet users sending tx; advanced features shipped; audited; first ecosystem-adoption signal.
 
-> ### 🎯 20 mainnet kullanıcı nasıl tutturulur (gerçek, dış)
-> Blue'nun Season-0 power user'larını (zaten engaged, dış-kaynaklı) gerçek USDC micro-bounty/tipping çekişli bir mainnet **"Season 1"**'e migrate et — **gerçek para = dönüşüm kaldıracı.** Passkey ile onboarding ≤2 dk tut (mainnet drop-off minimize). ≥1 on-chain action tamamlayan **20+ DISTINCT mainnet signer** + kullanıcı başına settle olmuş gerçek USDC tip/bounty iste.
+> ### 🎯 How to hit 20 mainnet users (real, external)
+> Migrate Blue's Season-0 power users (already engaged, externally sourced) to a mainnet **"Season 1"** with real USDC micro-bounty/tipping draw — **real money = the conversion lever.** Keep passkey onboarding ≤2 min (minimize mainnet drop-off). Require **20+ DISTINCT mainnet signers** who each complete ≥1 on-chain action + a real USDC tip/bounty settled per user.
 
-**Scope guard — YAPMA:** Henüz Master-tier partnership/fundraising kovalama; audit ortasında scope genişletme. Audit-öncesi feature freeze; sadece audit'li yüzeyi mainnet'e ship et. Audit'siz contract gerçek USDC tutmaz.
+**Scope guard — DON'T:** Chase Master-tier partnership/fundraising yet; expand scope mid-audit. Feature freeze before the audit; ship only the audited surface to mainnet. An unaudited contract should not hold real USDC.
 
-**Başarı metrikleri:**
-- 30+ onboard, 20+ distinct mainnet signer (her biri ≥1 settle olmuş USDC action).
-- Temiz/triaged audit raporu.
-- ≥1 ekosistem partneri entegre ediyor veya co-promote ediyor.
+**Success metrics:**
+- 30+ onboarded, 20+ distinct mainnet signers (each with ≥1 settled USDC action).
+- Clean/triaged audit report.
+- ≥1 ecosystem partner integrating or co-promoting.
 
 ---
 
-## 🔧 Teknik tasklar
+## 🔧 Technical tasks
 
 ### Smart contract / on-chain (Tyler)
-- **Mainnet launch:** 4 contract'ı Pubnet'e, taze, hardware-secured **(veya multisig)** admin key ile deploy. ⚠️ admin tek hot key DEĞİL — multisig veya timelock'lu governance. Tüm mainnet WASM hash'lerini kaydet.
-- **Audit prep:** contract code freeze + threat model (drain path, replay, auth bypass, attester key compromise, integer overflow, archival/TTL DoS) + `cargo audit` + Soroban-odaklı static pass + harici review. 20-kullanıcı maruziyetinden önce bulguları düzelt.
-- **Gerçek USDC:** canonical mainnet USDC SAC (Circle) entegre, treasury'yi gerçek USDC ile fonla, conservative per-claim cap + global daily payout cap (circuit breaker fn). ⚠️ gerçek para → **pausable/emergency-stop** admin fn (`require_auth`, `paused` flag tüm mutator'larda kontrol edilir).
-- **Attester-key opsec:** signing key'leri HSM/KMS signer service'e taşı; `add_attester`/`remove_attester` ile redeploy'suz key-rotation.
+- **Mainnet launch:** Deploy the 4 contracts to Pubnet with a fresh, hardware-secured **(or multisig)** admin key. ⚠️ the admin is NOT a single hot key — multisig or timelock'd governance. Record all mainnet WASM hashes.
+- **Audit prep:** contract code freeze + threat model (drain path, replay, auth bypass, attester key compromise, integer overflow, archival/TTL DoS) + `cargo audit` + Soroban-focused static pass + external review. Fix findings before 20-user exposure.
+- **Real USDC:** integrate the canonical mainnet USDC SAC (Circle), fund the treasury with real USDC, conservative per-claim cap + global daily payout cap (circuit breaker fn). ⚠️ real money → **pausable/emergency-stop** admin fn (`require_auth`, `paused` flag checked in all mutators).
+- **Attester-key opsec:** move signing keys to an HSM/KMS signer service; key-rotation without redeploy via `add_attester`/`remove_attester`.
 - **Mainnet fee sponsorship at scale:** production channel-account pool + monitoring + sponsor account auto-refill; sponsor balance alerting.
-- **Advanced feature'lar (vs Blue):** USDC micro-bounty market olgunluğu (escrow + dispute/expiry refund path) + insanları adlandıran shareable badge'ler (Orange'daki two-party co-mint, artık mainnet'te).
-- Indexer/infra hardening: deep-history backfill (Hubble/Galexie veya RPC archive), monitoring/alerting, public read API + status page.
+- **Advanced features (vs Blue):** USDC micro-bounty market maturity (escrow + dispute/expiry refund path) + shareable badges that name people (the two-party co-mint from Orange, now on mainnet).
+- Indexer/infra hardening: deep-history backfill (Hubble/Galexie or RPC archive), monitoring/alerting, public read API + status page.
 
 ### Engineering / full-stack (Elliot)
-- **Audit-readiness:** interface freeze, full doc, threat model, tüm clippy/audit-tool bulgularını düzelt. **AC:** audit firmasına frozen tagged commit + dokümanlar.
-- **Fork + differential testler:** mainnet-fork state'e karşı test, replay senaryoları, invariant testler (total-score conservation, no-USDC-mint). **AC:** invariant + fork suite yeşil; contract coverage ≥%90.
-- Mainnet deploy runbook: multisig admin key ceremony, staged rollout, contract-hash verification, rollback plan. **AC:** 3 contract mainnet'te, hash'ler verified, admin multisig'te.
-- Mainnet USDC: gerçek USDC SAC trustline/SEP-41, paymaster funded, treasury limits. **AC:** gerçek USDC micro-bounty mainnet kullanıcısına ödendi.
-- 30+ onboarding + Twitter/social share: co-signer'ları adlandıran shareable badge kartları, deep link, on-chain referral attribution. **AC:** 20+ mainnet kullanıcı gerçek tx ile, referral attribution track'leniyor.
-- Advanced: USDC tipping at scale, vouch-graph reputation weighting, badge showcase. **AC:** weighted reputation leaderboard + payout'a yansıyor.
-- Production observability + on-call: tx-failure/paymaster-drain/indexer-lag alerting, incident runbook, SLO. **AC:** paymaster-low ve indexer-lag alert'leri page atıyor.
+- **Audit-readiness:** interface freeze, full docs, threat model, fix all clippy/audit-tool findings. **AC:** frozen tagged commit + docs to the audit firm.
+- **Fork + differential tests:** test against mainnet-fork state, replay scenarios, invariant tests (total-score conservation, no-USDC-mint). **AC:** invariant + fork suite green; contract coverage ≥90%.
+- Mainnet deploy runbook: multisig admin key ceremony, staged rollout, contract-hash verification, rollback plan. **AC:** 3 contracts on mainnet, hashes verified, admin in multisig.
+- Mainnet USDC: real USDC SAC trustline/SEP-41, paymaster funded, treasury limits. **AC:** a real USDC micro-bounty paid to a mainnet user.
+- 30+ onboarding + Twitter/social share: shareable badge cards that name co-signers, deep link, on-chain referral attribution. **AC:** 20+ mainnet users with real tx, referral attribution tracked.
+- Advanced: USDC tipping at scale, vouch-graph reputation weighting, badge showcase. **AC:** weighted reputation leaderboard + reflected in payout.
+- Production observability + on-call: tx-failure/paymaster-drain/indexer-lag alerting, incident runbook, SLO. **AC:** paymaster-low and indexer-lag alerts page.
 
 ---
 
 ## 🎨 UX / Frontend (Kaan)
-- **Ekranlar:** mainnet/testnet mode indicator, gerçek-USDC micro-bounty + tipping flow, Twitter/X connect, 20+ mainnet kullanıcı için invite-link onboarding/first-run.
-- **Delight mekaniği:** **USDC MICRO-BOUNTY + TIPPING** (harcanabilir reputation); tip, iki tarafı adlandıran "thank-you" collectible mint'liyor — viral artifact + gerçek para hareketi füzyonu.
-- **Share yüzeyi:** badge/stamp mint'te X'e auto-post hook (image card + tag) + public passport URL (OG-image = crest kartı) → timeline'da güzel unfurl.
-- **Onboarding:** invite-link onboarding (link tap → passkey → inviter'la ilk shared stamp) = en yüksek dönüşümlü acquisition loop; UI'da "audited" trust badge göster.
-- **Empty states / safety:** mainnet ilk-tip confirmation (gerçek-para netliği), low-balance/failed-payment state, başkalarını adlandırmada scam/abuse guardrail.
-- **Erişilebilirlik:** gerçek-para flow'larında explicit confirm + undo-window copy, payment CTA'larda büyük touch target, **mainnet vs testnet net görsel ayrım** (asla karıştırma).
+- **Screens:** mainnet/testnet mode indicator, real-USDC micro-bounty + tipping flow, Twitter/X connect, invite-link onboarding/first-run for 20+ mainnet users.
+- **Delight mechanic:** **USDC MICRO-BOUNTY + TIPPING** (spendable reputation); a tip mints a "thank-you" collectible that names both parties — fusion of a viral artifact + real money movement.
+- **Share surface:** auto-post hook to X on badge/stamp mint (image card + tag) + public passport URL (OG-image = crest card) → nice unfurl in the timeline.
+- **Onboarding:** invite-link onboarding (link tap → passkey → first shared stamp with the inviter) = the highest-conversion acquisition loop; show an "audited" trust badge in the UI.
+- **Empty states / safety:** mainnet first-tip confirmation (real-money clarity), low-balance/failed-payment state, scam/abuse guardrail when naming others.
+- **Accessibility:** explicit confirm + undo-window copy on real-money flows, large touch targets on payment CTAs, **clear visual distinction between mainnet vs testnet** (never confuse them).
 
 ---
 
 ## 📣 Product / GTM (Nicole)
-- Mainnet contract yüzeyinin (stamp mint, stake/slash, bounty/tip settlement) audit'ini commission et; triage + fix.
-- Mainnet **"Season 1"**'i gerçek USDC bounty/tip havuzuyla koştur; önce Blue power user'larını çevir.
-- Tutarlı Twitter/X presence: ship log, leaderboard anları, user spotlight → onboarding sür.
-- 1 ekosistem partneri (wallet, Stellar projesi veya topluluk) co-promotion/quest entegrasyonu için sırala.
-- Subjektif-quest staked-quorum review'ı artık gerçek kur (ekonomik stake var).
+- Commission an audit of the mainnet contract surface (stamp mint, stake/slash, bounty/tip settlement); triage + fix.
+- Run the mainnet **"Season 1"** with a real USDC bounty/tip pool; convert Blue power users first.
+- Consistent Twitter/X presence: ship log, leaderboard moments, user spotlight → drive onboarding.
+- Line up 1 ecosystem partner (wallet, Stellar project, or community) for co-promotion/quest integration.
+- Run subjective-quest staked-quorum review for real now (economic stake exists).
 
 ---
 
 ## ✅ Definition of Done
-4 contract mainnet'te (multisig admin, emergency-stop, gerçek USDC cap'leri); harici audit raporu temiz/triaged; 30+ onboard + 20+ distinct mainnet signer her biri ≥1 settle olmuş USDC action; ≥1 ekosistem partneri co-promote/entegre; Twitter aktif.
+4 contracts on mainnet (multisig admin, emergency-stop, real USDC caps); external audit report clean/triaged; 30+ onboarded + 20+ distinct mainnet signers each with ≥1 settled USDC action; ≥1 ecosystem partner co-promoting/integrating; Twitter active.
 
-## ⛓️ Bağımlılıklar
-Blue (power user kohortu + ölçek). Orange'daki upgradeability kararı burada enforce edilir. Çıktısı Master'ın partnership/yatırımcı hikâyesi.
+## ⛓️ Dependencies
+Blue (power user cohort + scale). The upgradeability decision from Orange is enforced here. Its output is Master's partnership/investor story.
