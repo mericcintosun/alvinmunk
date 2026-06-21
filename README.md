@@ -6,6 +6,16 @@ You earn reputation through **mutual/social actions** (vouch for someone, comple
 
 The full product thesis, the persona debates, and the belt-by-belt roadmap live in **[`belts/`](./belts/)** — start with **[`belts/00-strategy.md`](./belts/00-strategy.md)** (source of truth).
 
+## White Belt (Level 1) — submission screenshots
+
+Captured on **Stellar testnet** via the built-in wallet flow (passkey infra unset → a Friendbot-funded testnet keypair; a literal Freighter connect/disconnect + XLM-send flow is also shipped at the `/wallet` route).
+
+| Wallet connected | Balance displayed | Successful testnet transaction |
+| :---: | :---: | :---: |
+| ![wallet connected](./level1-1-wallet-connected.png) | ![balance](./level1-2-balance.png) | ![testnet tx](./level1-3-testnet-tx.png) |
+
+The third shot shows the first on-chain transaction confirmed (`You're on-chain ✨ in 0.6s`) with a **view your first transaction →** link to Stellar Expert.
+
 ---
 
 ## Architecture (and the "no standing backend" decision)
