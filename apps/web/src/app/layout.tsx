@@ -25,8 +25,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${fontVars} dark`}>
-      <body className="min-h-dvh">
+    <html lang="en" className={`${fontVars} dark`} suppressHydrationWarning>
+      <body className="min-h-dvh" suppressHydrationWarning>
         <WalletProvider>
           <Starfield />
           <Navbar />
