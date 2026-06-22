@@ -1,6 +1,7 @@
 #![cfg(test)]
 //! Integration tests for the Rewards -> Reputation CROSS-CONTRACT read
-//! (`claim_reward` gates USDC payout on `get_earned`) + the USDC SAC transfer.
+//! (`claim_reward` gates USDC payout on `get_earned`) + the USDC SAC transfer +
+//! the on-chain reward registry (caller can never dictate the payout amount).
 use super::*;
 use passport_reputation::{ReputationContract, ReputationContractClient};
 use soroban_sdk::{testutils::Address as _, token, Env};
@@ -47,19 +48,60 @@ fn setup() -> Fixture<'static> {
 }
 
 #[test]
-fn claim_reward_reads_earned_and_pays_usdc() {
+fn claim_reward_reads_earned_and_pays_stored_amount() {
     let f = setup();
     let user = Address::generate(&f.env);
+
+    // Admin registers reward #1: needs 50 Earned XP, pays 200 USDC from treasury.
+    f.rewards.add_reward(&1u32, &50u64, &200i128);
 
     // User earns 100 Earned XP via the attester (the cashable track).
     f.rep.award_xp(&f.attester, &user, &2u32, &100u64);
 
-    // threshold 50 <= 100 earned -> pays 200 USDC from treasury.
-    f.rewards.claim_reward(&user, &1u32, &50u64, &200i128);
+    f.rewards.claim_reward(&user, &1u32);
 
     let token_c = token::TokenClient::new(&f.env, &f.usdc);
     assert_eq!(token_c.balance(&user), 200);
     assert_eq!(token_c.balance(&f.rewards_id), 800);
+    assert!(f.rewards.is_claimed(&1u32, &user));
+}
+
+#[test]
+fn get_rewards_lists_the_table() {
+    let f = setup();
+    f.rewards.add_reward(&1u32, &30u64, &50i128);
+    f.rewards.add_reward(&2u32, &60u64, &100i128);
+    f.rewards.add_reward(&1u32, &40u64, &75i128); // update — no duplicate row
+
+    let table = f.rewards.get_rewards();
+    assert_eq!(table.len(), 2);
+    let first = table.get(0).unwrap();
+    assert_eq!(first.id, 1);
+    assert_eq!(first.threshold, 40); // reflects the update
+    assert_eq!(first.amount, 75);
+    assert!(first.active);
+}
+
+#[test]
+#[should_panic]
+fn claim_unregistered_reward_reverts() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    f.rep.award_xp(&f.attester, &user, &2u32, &100u64);
+    // No add_reward — there is no caller-supplied amount to exploit, and an unknown
+    // reward id cannot be claimed. (panics: RewardNotFound)
+    f.rewards.claim_reward(&user, &999u32);
+}
+
+#[test]
+#[should_panic]
+fn claim_inactive_reward_reverts() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    f.rep.award_xp(&f.attester, &user, &2u32, &100u64);
+    f.rewards.add_reward(&1u32, &50u64, &200i128);
+    f.rewards.set_reward_active(&1u32, &false);
+    f.rewards.claim_reward(&user, &1u32); // panics: RewardInactive
 }
 
 #[test]
@@ -67,7 +109,8 @@ fn claim_reward_reads_earned_and_pays_usdc() {
 fn claim_below_threshold_reverts() {
     let f = setup();
     let user = Address::generate(&f.env); // 0 earned
-    f.rewards.claim_reward(&user, &1u32, &50u64, &200i128); // panics: BelowThreshold
+    f.rewards.add_reward(&1u32, &50u64, &200i128);
+    f.rewards.claim_reward(&user, &1u32); // panics: BelowThreshold
 }
 
 #[test]
@@ -76,6 +119,7 @@ fn social_xp_does_not_unlock_treasury() {
     let f = setup();
     let alice = Address::generate(&f.env);
     let bob = Address::generate(&f.env);
+    f.rewards.add_reward(&1u32, &5u64, &100i128);
     // Bob earns SOCIAL XP from a vouch (non-cashable).
     let secret = soroban_sdk::Bytes::from_array(&f.env, &[3u8; 32]);
     let hash = f.env.crypto().sha256(&secret).to_bytes();
@@ -85,7 +129,7 @@ fn social_xp_does_not_unlock_treasury() {
     f.rep.claim_vouch(&bob, &id, &secret);
     assert_eq!(f.rep.get_score(&bob), 10); // has Social XP
                                            // ...but Social XP must NOT open the treasury (keystone). threshold 5 > earned 0.
-    f.rewards.claim_reward(&bob, &1u32, &5u64, &100i128); // panics: BelowThreshold
+    f.rewards.claim_reward(&bob, &1u32); // panics: BelowThreshold
 }
 
 #[test]
@@ -93,7 +137,8 @@ fn social_xp_does_not_unlock_treasury() {
 fn double_claim_reverts() {
     let f = setup();
     let user = Address::generate(&f.env);
+    f.rewards.add_reward(&1u32, &50u64, &100i128);
     f.rep.award_xp(&f.attester, &user, &2u32, &100u64);
-    f.rewards.claim_reward(&user, &1u32, &50u64, &100i128);
-    f.rewards.claim_reward(&user, &1u32, &50u64, &100i128); // panics: AlreadyClaimed
+    f.rewards.claim_reward(&user, &1u32);
+    f.rewards.claim_reward(&user, &1u32); // panics: AlreadyClaimed
 }

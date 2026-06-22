@@ -105,17 +105,35 @@ export async function tip(wallet: Wallet, to: string, amount: bigint): Promise<v
   );
 }
 
-/** Claim an Earned-XP-gated reward from the treasury (cashable track only). */
-export async function claimReward(
-  wallet: Wallet,
-  rewardId: number,
-  threshold: number,
-  amount: bigint,
-): Promise<void> {
+/** One row of the on-chain rank -> reward unlock table. */
+export interface RewardEntry {
+  id: number;
+  threshold: bigint; // Earned XP required
+  amount: bigint; // USDC stroops paid from the treasury
+  active: boolean;
+}
+
+/** The full unlock table (admin-registered on-chain). */
+export async function getRewards(source: string): Promise<RewardEntry[]> {
+  const v = await readContract<RewardEntry[]>(rewardsId(), 'get_rewards', [], source);
+  return (v ?? []).filter((r) => r.active);
+}
+
+/** Has this wallet already claimed `rewardId`? */
+export async function isClaimed(rewardId: number, who: string, source: string): Promise<boolean> {
+  return (await readContract<boolean>(rewardsId(), 'is_claimed', [args.u32(rewardId), args.addr(who)], source)) ?? false;
+}
+
+/**
+ * Claim a registered reward from the treasury. The payout amount + threshold are read
+ * on-chain from the admin-registered reward — the caller can't dictate them (the
+ * treasury is not drainable). Earned-XP-gated (cashable track only).
+ */
+export async function claimReward(wallet: Wallet, rewardId: number): Promise<void> {
   await invokeAndWait(
     rewardsId(),
     'claim_reward',
-    [args.addr(wallet.address), args.u32(rewardId), args.u64(threshold), args.i128(amount)],
+    [args.addr(wallet.address), args.u32(rewardId)],
     wallet,
   );
 }

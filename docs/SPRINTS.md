@@ -75,7 +75,7 @@ The official Level-1 checklist wants **Freighter** connect/disconnect + a plain 
 4. 🟡 Public testnet URL + screens (profile/quest/leaderboard/claim). Screens built; **deploy to Vercel + recruit 10 outside testers** outstanding.
 5. ✅ **Idea Submission** package with anchor angle → [`IDEA_SUBMISSION.md`](./IDEA_SUBMISSION.md).
 **Pre-Sprint-3 risk fixes also shipped:** claim-secret vouch (cold-start keystone now truly works), daily cap + asymmetric reward, leaderboard snapshot cache + reciprocal-ring flag, stellar-sdk → 16 (protocol-23 fix).
-**Deployed (testnet):** Reputation `CBNIZ…SZM` · QuestRegistry `CA4LP…AZX` · Rewards `CDEO3…FIS` · USDC SAC `CAKT2…PZT2`.
+**Deployed (testnet):** Reputation `CBNIZ…SZM` · QuestRegistry `CA4LP…AZX` · Rewards `CC3XB…NNLI` (Green redeploy) · USDC SAC `CAKT2…PZT2`.
 **Remaining for Orange DoD:** public URL + 10 outside testers; optional fuzz/property tests.
 
 ---

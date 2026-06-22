@@ -69,7 +69,7 @@ Leaderboard reads RPC directly (+ localStorage cache). Indexer deferred to Blue/
 ## 6. Testnet contract IDs (also in apps/web/.env.local, gitignored)
 - Reputation:     `CBNIZXITUVTRVW6RZGEGCI7KNF46REG4EDM4XUVHKDAV63WOHWW75SZM`
 - QuestRegistry:  `CA4LPTZZ22GV3236L23OPZ5WILRVNZ4NP5HDAMEYEQXEKBK5YTGSXAZX`
-- Rewards:        `CDEO3H2O3V4SPS4IC4E65JDMEH4SKW5ILJQVZV4VW2PQDSDSQPAWBFIS`
+- Rewards:        `CC3XBTO36OW3GX5Y7ZWY76BNG7EPR4LYJPLOJ3HD2X6HMM4YTXVHNNLI` (redeployed Green: on-chain reward registry; old `CDEO3…FIS` had a caller-set-amount drain)
 - USDC test SAC:  `CAKT2EK2SFGNXTXVSYZLZXA5YB5QPVHLTVUMRHLJTF5RFFAFMIRNPZT2`
 - CLI identities (in `stellar keys`): `passport-admin` (admin+issuer), `passport-attester` (allowlisted), `passport-alice/bob/carol/dave/eve/frank` (test users).
 - If you change a contract's interface, you MUST redeploy + re-wire attesters (`reputation.add_attester(quest_id)`, `quest.add_attester(attester_pubkey)`) + update `.env.local` and Vercel env.
