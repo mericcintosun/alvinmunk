@@ -20,9 +20,8 @@ const CLAIM_ERRORS: Record<number, string> = {
 };
 
 /**
- * Claim funnel — the viral moment (00-strategy §3). A non-crypto friend lands here from a
- * shared link: "Someone vouched for you. Claim your half of the sky." Works logged-out;
- * the value (who vouched you) is shown before any wallet friction.
+ * Claim funnel — the viral moment (00-strategy §3). A friend lands here from a shared
+ * link. Value first (who vouched you), then one tap; the wallet is provisioned silently.
  */
 export default function ClaimPage(props: { params: { id: string } }) {
   return (
@@ -35,7 +34,7 @@ export default function ClaimPage(props: { params: { id: string } }) {
 function ClaimInner({ params }: { params: { id: string } }) {
   const { id } = params;
   const secret = useSearchParams().get('s') ?? '';
-  const { connect } = useWallet();
+  const { connect, profile } = useWallet();
   const [state, setState] = useState<'preview' | 'claiming' | 'done' | 'error'>('preview');
   const [error, setError] = useState<string | null>(null);
 
@@ -60,18 +59,18 @@ function ClaimInner({ params }: { params: { id: string } }) {
   const done = state === 'done';
 
   return (
-    <div className="container flex max-w-lg flex-col items-center gap-8 py-16 text-center">
-      <h1 className="text-3xl font-semibold text-balance">
+    <div className="container flex max-w-lg flex-col items-center gap-7 py-16 text-center">
+      <h1 className="text-3xl font-semibold text-balance sm:text-4xl">
         {done ? "You're connected." : 'Someone vouched for you.'}
       </h1>
       <p className="max-w-sm text-muted-foreground text-balance">
         {done
-          ? 'Your star just ignited. Keep the sky growing — vouch someone back.'
-          : 'Claim your half of the sky. Two halves become one card.'}
+          ? 'Your star just ignited — your constellation grew by one. Keep the sky alive: vouch someone back.'
+          : 'They put their reputation behind yours. Claim your half of the sky — two halves become one card.'}
       </p>
 
       {/* The half-card: voucher's side filled, your side a glowing socket until claimed */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 py-2">
         <div className="rounded-2xl border border-border bg-card p-5">
           <Crest address={`voucher-${id}`} size={96} points={6} animate />
           <p className="mt-2 text-xs text-muted-foreground">a friend</p>
@@ -86,7 +85,7 @@ function ClaimInner({ params }: { params: { id: string } }) {
           )}
         >
           {done ? (
-            <Crest address={`claimer-${id}-${secret.slice(0, 6)}`} size={96} points={6} animate />
+            <Crest address={profile?.address ?? `claimer-${id}-${secret.slice(0, 6)}`} size={96} points={6} animate />
           ) : (
             <div className="flex size-24 items-center justify-center text-xs text-muted-foreground">
               your half
@@ -97,20 +96,38 @@ function ClaimInner({ params }: { params: { id: string } }) {
       </div>
 
       {!done ? (
-        <Button size="lg" onClick={onClaim} disabled={state === 'claiming'}>
-          {state === 'claiming' ? 'Lighting your star…' : 'Claim your star'}
-        </Button>
+        <div className="flex flex-col items-center gap-3">
+          <Button size="lg" onClick={onClaim} disabled={state === 'claiming'}>
+            {state === 'claiming' ? 'Lighting your star…' : 'Claim your star'}
+          </Button>
+          {error && (
+            <>
+              <p className="max-w-xs text-sm text-destructive">{error}</p>
+              <Link href="/app" className="text-xs text-muted-foreground underline">
+                Open the app instead →
+              </Link>
+            </>
+          )}
+        </div>
       ) : (
-        <Link href="/app" className={cn(buttonVariants({ size: 'lg' }))}>
-          Now vouch someone back →
-        </Link>
+        <div className="flex flex-col items-center gap-3">
+          <Link href="/app" className={cn(buttonVariants({ size: 'lg' }))}>
+            {profile ? 'Now vouch someone back →' : 'Create your passport →'}
+          </Link>
+          {profile && (
+            <Link href={`/u/${profile.handle}`} className="text-xs text-muted-foreground underline">
+              View your passport
+            </Link>
+          )}
+        </div>
       )}
 
-      {error && <p className="max-w-xs text-sm text-destructive">{error}</p>}
-
-      <p className="text-xs text-muted-foreground">
-        Fees are sponsored on testnet — no gas, no seed phrase.
-      </p>
+      {!done && (
+        <p className="max-w-xs text-xs text-muted-foreground text-balance">
+          New here? There&apos;s nothing to install — we set up your passport, and fees are
+          sponsored on testnet. No seed phrase.
+        </p>
+      )}
     </div>
   );
 }
