@@ -7,6 +7,7 @@ import { useWallet } from '@/components/wallet/wallet-provider';
 import { recordGenesis } from '@/lib/genesis';
 import { normalizeHandle, type Profile } from '@/lib/profile';
 import { txExplorerUrl } from '@/lib/stellar';
+import { humanizeError } from '@/lib/utils';
 import { Crest } from '@/components/brand/crest';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,91 +18,69 @@ import { Quests } from '@/components/Quests';
 import { Tip } from '@/components/Tip';
 import { Rewards } from '@/components/Rewards';
 
-type Step = 'connect' | 'handle' | 'minting' | 'done';
-
 export default function AppHome() {
-  const { profile, balance, connecting, connect, setProfile } = useWallet();
-  const [step, setStep] = useState<Step>(profile ? 'done' : 'connect');
+  const { profile, connect, setProfile } = useWallet();
   const [handle, setHandle] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [creating, setCreating] = useState(false);
 
-  // Returning user with a saved profile → straight to the dashboard.
-  if (profile && step !== 'done') setStep('done');
-
-  async function onConnect() {
-    try {
-      await connect();
-      setStep('handle');
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not connect');
-    }
-  }
-
-  async function onMint() {
+  // Invisible wallet: one step. Pick a handle → we silently provision a testnet wallet,
+  // fund it, and write the genesis tx. No "connect wallet", no "mint", no jargon.
+  async function createPassport() {
     const h = normalizeHandle(handle);
     if (h.length < 3) {
       toast.error('Pick a handle — 3+ letters or numbers.');
       return;
     }
-    setBusy(true);
-    setStep('minting');
+    setCreating(true);
     try {
-      const w = await connect(); // idempotent — returns the live wallet
+      const w = await connect();
       const tx = await recordGenesis(w, h);
       const p: Profile = { handle: h, address: w.address, createdAt: Date.now(), genesisTx: tx };
       setProfile(p);
-      setStep('done');
       toast.success('Your passport is live — verified on-chain.');
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Mint failed');
-      setStep('handle');
+      toast.error(humanizeError(e));
     } finally {
-      setBusy(false);
+      setCreating(false);
     }
   }
 
-  // ─── Onboarding ───
-  if (step !== 'done' || !profile) {
+  // ─── Onboarding (no profile yet) ───
+  if (!profile) {
     return (
-      <div className="container flex max-w-md flex-col items-center gap-8 py-16">
+      <div className="container flex max-w-md flex-col items-center gap-8 py-20">
         <div className="text-center">
-          <h1 className="text-3xl font-semibold">Step into your passport</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Connect to start your constellation. Fees are sponsored on testnet — no seed phrase.
+          <h1 className="text-3xl font-semibold">Create your passport</h1>
+          <p className="mx-auto mt-2 max-w-xs text-sm text-muted-foreground text-balance">
+            Pick a handle — we set everything up for you. Your first star is one tap away.
           </p>
         </div>
 
-        <Crest address={handle || 'new-passport'} size={160} points={6} animate />
+        <Crest address={handle ? `passport-${handle}` : 'new-passport'} size={160} points={6} animate />
 
-        {step === 'connect' && (
-          <Button size="lg" onClick={onConnect} disabled={connecting}>
-            {connecting ? 'Connecting…' : 'Connect wallet'}
+        <form
+          className="flex w-full flex-col items-center gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void createPassport();
+          }}
+        >
+          <Input
+            autoFocus
+            value={handle}
+            onChange={(e) => setHandle(e.target.value)}
+            placeholder="your handle"
+            className="text-center"
+            aria-label="Handle"
+          />
+          <Button type="submit" size="lg" disabled={creating} className="w-full">
+            {creating ? 'Creating your passport…' : 'Create my passport'}
           </Button>
-        )}
+        </form>
 
-        {(step === 'handle' || step === 'minting') && (
-          <div className="flex w-full flex-col items-center gap-3">
-            {balance != null && (
-              <p className="text-xs text-muted-foreground">
-                Funded: {Number(balance).toFixed(1)} XLM
-              </p>
-            )}
-            <Input
-              autoFocus
-              value={handle}
-              onChange={(e) => setHandle(e.target.value)}
-              placeholder="pick a handle"
-              className="text-center"
-            />
-            <Button size="lg" onClick={onMint} disabled={busy}>
-              {step === 'minting' ? 'Lighting your first star…' : 'Mint my passport'}
-            </Button>
-          </div>
-        )}
-
-        <Link href="/wallet" className="text-xs text-muted-foreground underline">
-          or use a classic Freighter wallet (Level 1 demo)
-        </Link>
+        <p className="text-center text-xs text-muted-foreground text-balance">
+          Saved on this device · fees sponsored on testnet · no seed phrase.
+        </p>
       </div>
     );
   }
@@ -109,7 +88,6 @@ export default function AppHome() {
   // ─── Dashboard ───
   return (
     <div className="container max-w-2xl py-10">
-      {/* Passport header */}
       <Card className="mb-6 overflow-hidden">
         <CardContent className="flex items-center gap-5 p-6">
           <Crest address={profile.address} handle={profile.handle} size={88} points={7} animate />
@@ -140,7 +118,6 @@ export default function AppHome() {
         </CardContent>
       </Card>
 
-      {/* The loop */}
       <div className="grid gap-4">
         <VouchCompose />
         <Quests address={profile.address} />

@@ -8,7 +8,16 @@ import { useWallet } from '@/components/wallet/wallet-provider';
 import { claimVouch } from '@/lib/reputation';
 import { Crest } from '@/components/brand/crest';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
+import { cn, humanizeError } from '@/lib/utils';
+
+// reputation contract error codes → calm human copy (lib.rs Error enum).
+const CLAIM_ERRORS: Record<number, string> = {
+  4: "This vouch doesn't exist or has expired.",
+  5: 'This star is already lit — it was claimed already.',
+  6: "You can't claim your own vouch. Share the link with someone you trust instead.",
+  8: "This link's claim code is invalid.",
+  9: 'Daily limit reached — try again tomorrow.',
+};
 
 /**
  * Claim funnel — the viral moment (00-strategy §3). A non-crypto friend lands here from a
@@ -43,7 +52,7 @@ function ClaimInner({ params }: { params: { id: string } }) {
       await claimVouch(wallet, Number(id), secret);
       setState('done');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Claim failed');
+      setError(humanizeError(e, CLAIM_ERRORS));
       setState('error');
     }
   }

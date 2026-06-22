@@ -8,7 +8,7 @@ const COLS = [
     links: [
       { href: '/app', label: 'App' },
       { href: '/leaderboard', label: 'Leaderboard' },
-      { href: '/wallet', label: 'Wallet' },
+      { href: '/how-it-works', label: 'How it works' },
     ],
   },
   {

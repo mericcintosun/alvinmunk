@@ -6,9 +6,19 @@
 import { Horizon, rpc, Networks } from '@stellar/stellar-sdk';
 import { readNetworkConfig } from '@passport/shared';
 
-export const config = readNetworkConfig(
-  typeof process !== 'undefined' ? (process.env as Record<string, string | undefined>) : {},
-);
+// Next.js only inlines LITERAL `process.env.NEXT_PUBLIC_*` member expressions into the
+// client bundle — passing the whole `process.env` object would leave these undefined in
+// the browser (and contract IDs empty). So we reference each var literally here.
+export const config = readNetworkConfig({
+  NEXT_PUBLIC_STELLAR_NETWORK: process.env.NEXT_PUBLIC_STELLAR_NETWORK,
+  NEXT_PUBLIC_RPC_URL: process.env.NEXT_PUBLIC_RPC_URL,
+  NEXT_PUBLIC_NETWORK_PASSPHRASE: process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE,
+  NEXT_PUBLIC_HORIZON_URL: process.env.NEXT_PUBLIC_HORIZON_URL,
+  NEXT_PUBLIC_REPUTATION_CONTRACT_ID: process.env.NEXT_PUBLIC_REPUTATION_CONTRACT_ID,
+  NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID: process.env.NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID,
+  NEXT_PUBLIC_REWARDS_CONTRACT_ID: process.env.NEXT_PUBLIC_REWARDS_CONTRACT_ID,
+  NEXT_PUBLIC_USDC_SAC_ID: process.env.NEXT_PUBLIC_USDC_SAC_ID,
+});
 
 export const server = new rpc.Server(config.rpcUrl, {
   allowHttp: config.rpcUrl.startsWith('http://'),
