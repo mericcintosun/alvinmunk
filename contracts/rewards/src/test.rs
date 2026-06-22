@@ -142,3 +142,49 @@ fn double_claim_reverts() {
     f.rewards.claim_reward(&user, &1u32);
     f.rewards.claim_reward(&user, &1u32); // panics: AlreadyClaimed
 }
+
+#[test]
+#[should_panic]
+fn daily_cap_blocks_over_limit_payout() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    f.rewards.add_reward(&1u32, &50u64, &200i128);
+    f.rewards.add_reward(&2u32, &50u64, &200i128);
+    f.rewards.set_daily_cap(&250i128); // total/day
+    f.rep.award_xp(&f.attester, &user, &2u32, &100u64);
+    f.rewards.claim_reward(&user, &1u32); // 200 paid, within cap
+    f.rewards.claim_reward(&user, &2u32); // 400 > 250 -> panics: DailyCapExceeded
+}
+
+#[test]
+fn daily_cap_allows_within_limit_and_tracks_paid() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    f.rewards.add_reward(&1u32, &50u64, &200i128);
+    f.rewards.set_daily_cap(&500i128);
+    f.rep.award_xp(&f.attester, &user, &2u32, &100u64);
+    f.rewards.claim_reward(&user, &1u32);
+    assert_eq!(f.rewards.get_daily_paid(), 200);
+    assert_eq!(f.rewards.get_daily_cap(), 500);
+}
+
+#[test]
+#[should_panic]
+fn frozen_account_cannot_claim() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    f.rewards.add_reward(&1u32, &50u64, &100i128);
+    f.rep.award_xp(&f.attester, &user, &2u32, &100u64);
+    f.rewards.set_frozen(&user, &true);
+    f.rewards.claim_reward(&user, &1u32); // panics: Frozen
+}
+
+#[test]
+#[should_panic]
+fn frozen_account_cannot_tip() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    let other = Address::generate(&f.env);
+    f.rewards.set_frozen(&user, &true);
+    f.rewards.tip(&user, &other, &10i128); // panics: Frozen
+}

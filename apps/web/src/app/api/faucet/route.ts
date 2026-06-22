@@ -76,10 +76,17 @@ export async function POST(req: Request): Promise<Response> {
     tx.sign(issuer);
     const res = await server.submitTransaction(tx);
     funded.add(recipient);
+    logEvent({ route: 'faucet', outcome: 'ok', amount: DRIP, ms: Date.now() - now });
     return json({ ok: true, hash: res.hash, amount: DRIP });
   } catch (e) {
+    logEvent({ route: 'faucet', outcome: 'error', ms: Date.now() - now });
     return json({ error: e instanceof Error ? e.message : 'faucet payment failed' }, 502);
   }
+}
+
+/** Structured one-line log for observability (captured by the platform log drain). */
+function logEvent(fields: Record<string, unknown>): void {
+  console.log(JSON.stringify({ t: new Date().toISOString(), ...fields }));
 }
 
 function json(data: unknown, status = 200): Response {

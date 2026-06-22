@@ -99,14 +99,21 @@ export async function POST(req: Request): Promise<Response> {
   // 2) Sign + submit award_quest as the attester.
   try {
     const hash = await submitAwardQuest(secret, body.questId, body.recipient);
+    logEvent({ route: 'attest', outcome: 'ok', questId: body.questId, ms: Date.now() - now });
     return json({ ok: true, hash, recipient: body.recipient, questId: body.questId });
   } catch (e) {
     // A reverting contract (e.g. the replay guard) is a business condition, not a
     // gateway failure — map known quest_registry error codes to 4xx so callers get a
     // clear signal instead of an alarming 502. Genuine infra errors stay 502.
     const mapped = mapSubmitError(e);
+    logEvent({ route: 'attest', outcome: 'error', status: mapped.status, questId: body.questId, ms: Date.now() - now });
     return json({ error: mapped.error }, mapped.status);
   }
+}
+
+/** Structured one-line log for observability (captured by the platform log drain). */
+function logEvent(fields: Record<string, unknown>): void {
+  console.log(JSON.stringify({ t: new Date().toISOString(), ...fields }));
 }
 
 /** quest_registry Error enum (contracts/quest_registry/src/lib.rs) → HTTP. */

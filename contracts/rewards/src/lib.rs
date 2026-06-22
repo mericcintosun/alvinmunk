@@ -19,6 +19,7 @@ use soroban_sdk::{
 // ~30 / ~60 days of ledgers (5s) — keep registered rewards + claim guards alive.
 const BUMP_THRESHOLD: u32 = 518_400;
 const BUMP_EXTEND: u32 = 1_036_800;
+const DAY_SECS: u64 = 86_400;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -32,6 +33,9 @@ pub enum Error {
     RewardNotFound = 6,
     RewardInactive = 7,
     InvalidAmount = 8,
+    DailyCapExceeded = 9, // global treasury circuit breaker (belts/08)
+    Frozen = 10,          // ring/cluster-flagged account (Blue anti-abuse hook)
+    Overflow = 11,
 }
 
 /// One row of the rank->reward unlock table.
@@ -54,6 +58,9 @@ pub enum DataKey {
     RewardClaimed(u32, Address), // replay guard
     Reward(u32),                 // RewardEntry (admin-registered)
     RewardIds,                   // Vec<u32> — enumerable table for the UI
+    DailyCap,                    // i128 — max treasury payout per UTC day (0 = unlimited)
+    DailyPaid(u64),              // (day) -> i128 paid so far (temporary, auto-GCs)
+    Frozen(Address),             // bool — ring/cluster-flagged; blocked from payout/tip
 }
 
 #[contract]
@@ -77,6 +84,7 @@ impl RewardsContract {
     pub fn tip(env: Env, from: Address, to: Address, amount: i128) {
         Self::not_paused(&env);
         from.require_auth();
+        Self::require_unfrozen(&env, &from);
         let usdc: Address = env.storage().instance().get(&DataKey::Usdc).unwrap();
         token::Client::new(&env, &usdc).transfer(&from, &to, &amount);
         env.events()
@@ -179,6 +187,7 @@ impl RewardsContract {
     pub fn claim_reward(env: Env, to: Address, reward_id: u32) {
         Self::not_paused(&env);
         to.require_auth();
+        Self::require_unfrozen(&env, &to);
 
         let entry: RewardEntry = env
             .storage()
@@ -205,6 +214,10 @@ impl RewardsContract {
             panic_with_error!(&env, Error::BelowThreshold);
         }
 
+        // Global treasury circuit breaker (belts/08): bound total daily payout so even
+        // sybil-farmed Earned XP or a compromised attester can't drain more than the cap.
+        Self::charge_daily(&env, entry.amount);
+
         env.storage().persistent().set(&key, &true);
         env.storage()
             .persistent()
@@ -225,6 +238,54 @@ impl RewardsContract {
         env.storage().instance().set(&DataKey::Paused, &paused);
     }
 
+    /// Set the max treasury payout per UTC day (0 = unlimited). Admin-only.
+    pub fn set_daily_cap(env: Env, cap: i128) {
+        Self::admin(&env).require_auth();
+        env.storage().instance().set(&DataKey::DailyCap, &cap);
+    }
+
+    pub fn get_daily_cap(env: Env) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::DailyCap)
+            .unwrap_or(0)
+    }
+
+    pub fn get_daily_paid(env: Env) -> i128 {
+        let day = env.ledger().timestamp() / DAY_SECS;
+        env.storage()
+            .temporary()
+            .get(&DataKey::DailyPaid(day))
+            .unwrap_or(0)
+    }
+
+    /// Flag/unflag a ring/cluster-detected account. Admin-only — the off-chain detector
+    /// (Blue belt) computes the set; the contract enforces it on payout/tip.
+    pub fn set_frozen(env: Env, who: Address, frozen: bool) {
+        Self::admin(&env).require_auth();
+        if frozen {
+            env.storage()
+                .persistent()
+                .set(&DataKey::Frozen(who.clone()), &true);
+            env.storage().persistent().extend_ttl(
+                &DataKey::Frozen(who),
+                BUMP_THRESHOLD,
+                BUMP_EXTEND,
+            );
+        } else {
+            env.storage().persistent().remove(&DataKey::Frozen(who));
+        }
+    }
+
+    pub fn is_frozen(env: Env, who: Address) -> bool {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Frozen(who))
+            .unwrap_or(false)
+    }
+
+    // --- internal ---
+
     fn not_paused(env: &Env) {
         let paused: bool = env
             .storage()
@@ -234,6 +295,39 @@ impl RewardsContract {
         if paused {
             panic_with_error!(env, Error::Paused);
         }
+    }
+
+    fn require_unfrozen(env: &Env, who: &Address) {
+        if env
+            .storage()
+            .persistent()
+            .get(&DataKey::Frozen(who.clone()))
+            .unwrap_or(false)
+        {
+            panic_with_error!(env, Error::Frozen);
+        }
+    }
+
+    /// Accumulate today's treasury outflow and enforce the daily cap (0 = unlimited).
+    fn charge_daily(env: &Env, amount: i128) {
+        let cap: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::DailyCap)
+            .unwrap_or(0);
+        let day = env.ledger().timestamp() / DAY_SECS;
+        let key = DataKey::DailyPaid(day);
+        let paid: i128 = env.storage().temporary().get(&key).unwrap_or(0);
+        let next = paid
+            .checked_add(amount)
+            .unwrap_or_else(|| panic_with_error!(env, Error::Overflow));
+        if cap > 0 && next > cap {
+            panic_with_error!(env, Error::DailyCapExceeded);
+        }
+        env.storage().temporary().set(&key, &next);
+        env.storage()
+            .temporary()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_THRESHOLD * 2);
     }
 
     fn admin(env: &Env) -> Address {
