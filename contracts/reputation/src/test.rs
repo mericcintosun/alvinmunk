@@ -131,3 +131,29 @@ fn non_allowlisted_attester_reverts() {
     let user = Address::generate(&env);
     client.award_xp(&imposter, &user, &2u32, &50u64); // panics: NotAuthorized
 }
+
+// --- Property/fuzz tests on the XP math (Green-belt AC) ---
+use proptest::prelude::*;
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(40))]
+
+    /// Invariant: Earned XP equals the EXACT sum of attester awards (no mint, no loss),
+    /// and the Earned path never credits Social (two-track keystone) — for any sequence.
+    #[test]
+    fn earned_equals_sum_of_awards_and_social_untouched(
+        amounts in prop::collection::vec(0u64..1000, 1..15)
+    ) {
+        let (env, client, _admin) = setup();
+        let attester = Address::generate(&env);
+        client.add_attester(&attester);
+        let user = Address::generate(&env);
+        let mut total = 0u64;
+        for (i, a) in amounts.iter().enumerate() {
+            client.award_xp(&attester, &user, &(i as u32), a);
+            total += *a;
+        }
+        prop_assert_eq!(client.get_earned(&user), total);
+        prop_assert_eq!(client.get_score(&user), 0);
+    }
+}

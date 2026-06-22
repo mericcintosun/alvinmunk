@@ -188,3 +188,74 @@ fn frozen_account_cannot_tip() {
     f.rewards.set_frozen(&user, &true);
     f.rewards.tip(&user, &other, &10i128); // panics: Frozen
 }
+
+#[test]
+#[should_panic]
+fn proof_of_funding_blocks_unfunded_claim_when_enabled() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    f.rewards.add_reward(&1u32, &50u64, &100i128);
+    f.rep.award_xp(&f.attester, &user, &2u32, &100u64);
+    f.rewards.set_require_funding(&true);
+    f.rewards.claim_reward(&user, &1u32); // panics: NotFunded (received no external value)
+}
+
+#[test]
+fn proof_of_funding_allows_funded_claim_and_is_off_by_default() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    f.rewards.add_reward(&1u32, &50u64, &100i128);
+    f.rep.award_xp(&f.attester, &user, &2u32, &100u64);
+    assert!(!f.rewards.get_require_funding()); // default off (testnet demo works)
+
+    f.rewards.set_require_funding(&true);
+    f.rewards.set_funded(&user, &true); // verifier proved external value
+    f.rewards.claim_reward(&user, &1u32);
+    let token_c = token::TokenClient::new(&f.env, &f.usdc);
+    assert_eq!(token_c.balance(&user), 100);
+}
+
+// --- Property/fuzz tests on the claim/cap math (Green-belt AC) ---
+use proptest::prelude::*;
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(30))]
+
+    /// Invariant: a claim pays EXACTLY the admin-registered amount and the treasury
+    /// decreases by exactly that — the caller can never influence the payout, for any
+    /// (threshold ≤ earned, amount). Treasury is funded with 1_000 in setup().
+    #[test]
+    fn claim_pays_exactly_registered_amount(
+        threshold in 0u64..200, extra in 0u64..300, amount in 1i128..=1000
+    ) {
+        let f = setup();
+        let user = Address::generate(&f.env);
+        f.rewards.add_reward(&1u32, &threshold, &amount);
+        f.rep.award_xp(&f.attester, &user, &2u32, &(threshold + extra));
+        let tok = token::TokenClient::new(&f.env, &f.usdc);
+        let before = tok.balance(&f.rewards_id);
+        f.rewards.claim_reward(&user, &1u32);
+        prop_assert_eq!(tok.balance(&user), amount);
+        prop_assert_eq!(before - tok.balance(&f.rewards_id), amount);
+    }
+
+    /// Invariant: the daily payout cap is NEVER exceeded across an arbitrary claim
+    /// sequence (the treasury circuit breaker holds under fuzzed inputs).
+    #[test]
+    fn daily_cap_is_never_exceeded(
+        cap in 1i128..=1000, amounts in prop::collection::vec(1i128..=400, 1..6)
+    ) {
+        let f = setup();
+        f.rewards.set_daily_cap(&cap);
+        let mut paid = 0i128;
+        for (i, a) in amounts.iter().enumerate() {
+            let id = (i as u32) + 1;
+            f.rewards.add_reward(&id, &0u64, a);
+            let user = Address::generate(&f.env);
+            if f.rewards.try_claim_reward(&user, &id).is_ok() {
+                paid += *a;
+            }
+            prop_assert!(paid <= cap);
+        }
+    }
+}

@@ -12,7 +12,7 @@ actions (vouch, verified quests, tips); reputation is spendable. Core viral loop
 ## 2. Current state (as of 2026-06-22)
 - **Live:** https://alvinmunk.vercel.app (Vercel, project `mericcintosun/alvinmunk`, Root Directory = `apps/web`).
 - **Sprints 0–2 done; Sprint 3 (Orange) build done + deployed.** ~30% toward Master.
-- **42 tests green** (16 contract + 26 web/shared), typecheck + next build + clippy + fmt all green.
+- **61 tests green** (31 contract incl. proptest property/fuzz + 30 web/shared), typecheck + next build + clippy + fmt all green.
 - All 3 contracts deployed to **testnet** and verified ON-CHAIN (not just unit tests).
 - Quests are LIVE and secured (wallet-ownership proof + freshness + rate limit).
 - **Remaining for Orange DoD (non-code):** 10 outside testers use the share flow + submit the idea on the Rise In panel.
@@ -69,7 +69,8 @@ Leaderboard reads RPC directly (+ localStorage cache). Indexer deferred to Blue/
 ## 6. Testnet contract IDs (also in apps/web/.env.local, gitignored)
 - Reputation:     `CBNIZXITUVTRVW6RZGEGCI7KNF46REG4EDM4XUVHKDAV63WOHWW75SZM`
 - QuestRegistry:  `CD6RZUVNQ3TV3X6MNQM25NB2YRFRGMSUGKWTMAIGJOC23C6ESHJKYNFO` (redeployed Green: weekly streak + `quest.active` enforced; old `CA4LP…AZX` de-allowlisted in Reputation)
-- Rewards:        `CDABZALCZ6QAYH2DAUDC5V7UPFCZ5LZRAYVFIJNA3J2SJ5PKCKWWSHOT` (Green v3: reward registry + daily-cap circuit breaker + frozen-set gate; supersedes `CC3XB…`/`CDEO3…`. Daily cap set to 50 USDC; treasury 10 USDC)
+- Rewards:        `CBUKGIFOEOS74I2IUUHYNRBZODQFOFCFWIJY3DUJHOUUJV7TT2QYADOU` (Green v4: reward registry + daily-cap circuit breaker + frozen-set gate + proof-of-funding toggle (`set_require_funding`, OFF on testnet); supersedes CDABZ…/CC3XB…/CDEO3…. Daily cap 50 USDC; treasury 10 USDC)
+- Ops scripts: `scripts/bump-ttl.sh` (TTL keeper), `scripts/freeze-rings.mjs` (ring detector → set_frozen; APPLY=1 + ADMIN_SECRET_KEY), `scripts/status.mjs` (on-chain ops snapshot). Health probe: `/api/health`.
 - USDC test SAC:  `CAKT2EK2SFGNXTXVSYZLZXA5YB5QPVHLTVUMRHLJTF5RFFAFMIRNPZT2`
 - CLI identities (in `stellar keys`): `passport-admin` (admin+issuer), `passport-attester` (allowlisted), `passport-alice/bob/carol/dave/eve/frank` (test users).
 - If you change a contract's interface, you MUST redeploy + re-wire attesters (`reputation.add_attester(quest_id)`, `quest.add_attester(attester_pubkey)`) + update `.env.local` and Vercel env.

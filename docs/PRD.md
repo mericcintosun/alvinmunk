@@ -2,7 +2,7 @@
 
 _Owner: Nicole (PM). Source-of-truth decisions live in [`belts/00-strategy.md`](../belts/00-strategy.md) and [`belts/08-anti-sybil.md`](../belts/08-anti-sybil.md); this PRD operationalizes them._
 
-Status: **v1 (MVP through White→Green belts)** · Last updated: 2026-06-22 — White→Orange shipped on testnet (3 contracts verified on-chain, 42 tests); Green is next.
+Status: **v1 (MVP through White→Green belts)** · Last updated: 2026-06-22 — White→Green code shipped on testnet (3 contracts verified on-chain, 61 tests); Green code complete (tip rail + rank rewards + weekly streak + treasury hardening).
 
 ---
 

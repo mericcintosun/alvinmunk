@@ -33,3 +33,6 @@ stellar-build/
 npm-debug.log*
 coverage/
 .vercel
+
+# Soroban auto-generated test snapshots (regenerable)
+contracts/*/test_snapshots/

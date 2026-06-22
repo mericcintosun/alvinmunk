@@ -36,6 +36,7 @@ pub enum Error {
     DailyCapExceeded = 9, // global treasury circuit breaker (belts/08)
     Frozen = 10,          // ring/cluster-flagged account (Blue anti-abuse hook)
     Overflow = 11,
+    NotFunded = 12, // proof-of-funding gate (belts/08): no external value received
 }
 
 /// One row of the rank->reward unlock table.
@@ -61,6 +62,8 @@ pub enum DataKey {
     DailyCap,                    // i128 — max treasury payout per UTC day (0 = unlimited)
     DailyPaid(u64),              // (day) -> i128 paid so far (temporary, auto-GCs)
     Frozen(Address),             // bool — ring/cluster-flagged; blocked from payout/tip
+    RequireFunding,              // bool — enforce proof-of-funding on claim (off on testnet)
+    Funded(Address),             // bool — verified to have received external value (belts/08)
 }
 
 #[contract]
@@ -188,6 +191,7 @@ impl RewardsContract {
         Self::not_paused(&env);
         to.require_auth();
         Self::require_unfrozen(&env, &to);
+        Self::require_funded(&env, &to);
 
         let entry: RewardEntry = env
             .storage()
@@ -284,7 +288,66 @@ impl RewardsContract {
             .unwrap_or(false)
     }
 
+    /// Toggle the proof-of-funding gate. Admin-only. OFF on testnet (so the demo claim
+    /// works); ON for mainnet, where every claimer must first be proven funded.
+    pub fn set_require_funding(env: Env, on: bool) {
+        Self::admin(&env).require_auth();
+        env.storage().instance().set(&DataKey::RequireFunding, &on);
+    }
+
+    pub fn get_require_funding(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::RequireFunding)
+            .unwrap_or(false)
+    }
+
+    /// Mark/unmark an address as having received external value (belts/08 proof-of-funding).
+    /// Admin-only — set by the off-chain funding verifier (a regulated anchor / SEP-24
+    /// deposit signal on mainnet; an external-inbound-payment check on testnet).
+    pub fn set_funded(env: Env, who: Address, funded: bool) {
+        Self::admin(&env).require_auth();
+        if funded {
+            env.storage()
+                .persistent()
+                .set(&DataKey::Funded(who.clone()), &true);
+            env.storage().persistent().extend_ttl(
+                &DataKey::Funded(who),
+                BUMP_THRESHOLD,
+                BUMP_EXTEND,
+            );
+        } else {
+            env.storage().persistent().remove(&DataKey::Funded(who));
+        }
+    }
+
+    pub fn is_funded(env: Env, who: Address) -> bool {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Funded(who))
+            .unwrap_or(false)
+    }
+
     // --- internal ---
+
+    /// Enforce proof-of-funding only when the gate is on (mainnet). The cheapest real
+    /// uniqueness signal that isn't heavy KYC: a wallet must have received external value.
+    fn require_funded(env: &Env, who: &Address) {
+        let on: bool = env
+            .storage()
+            .instance()
+            .get(&DataKey::RequireFunding)
+            .unwrap_or(false);
+        if on
+            && !env
+                .storage()
+                .persistent()
+                .get(&DataKey::Funded(who.clone()))
+                .unwrap_or(false)
+        {
+            panic_with_error!(env, Error::NotFunded);
+        }
+    }
 
     fn not_paused(env: &Env) {
         let paused: bool = env

@@ -48,7 +48,7 @@ export async function fetchWindow(): Promise<{ records: SocialRecord[]; pairs: V
   let startLedger: number;
   try {
     const latest = await server.getLatestLedger();
-    startLedger = Math.max(1, latest.sequence - 16000); // ~24h, within RPC retention
+    startLedger = Math.max(1, latest.sequence - 9000); // within RPC retention (≥16k returns 0 events)
   } catch {
     return { records, pairs };
   }

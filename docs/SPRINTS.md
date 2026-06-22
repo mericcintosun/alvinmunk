@@ -71,23 +71,23 @@ The official Level-1 checklist wants **Freighter** connect/disconnect + a plain 
 ### Stories
 1. ✅ Deploy `quest_registry` + `rewards`; wire QuestRegistry as a Reputation attester (cross-contract). `AC` met: integration tests span all 3 contracts; **verified on-chain** (award_quest→earned, claim_reward→USDC paid).
 2. ✅ Serverless attester: verifies **merged GitHub PR** + **referral tx**, then signs+submits `award_quest`. `AC` met: e2e tested — `referral_tx` → on-chain Earned XP (dave +30); bad evidence rejected (422).
-3. ✅ Replay guard + cross-contract + keystone tests (16 contract tests). `AC` met: double-claim/replay/non-attester/below-threshold all revert; Social XP can't open the treasury.
+3. ✅ Replay guard + cross-contract + keystone tests (31 contract tests incl. property/fuzz). `AC` met: double-claim/replay/non-attester/below-threshold all revert; Social XP can't open the treasury.
 4. 🟡 Public testnet URL + screens (profile/quest/leaderboard/claim). Screens built; **deploy to Vercel + recruit 10 outside testers** outstanding.
 5. ✅ **Idea Submission** package with anchor angle → [`IDEA_SUBMISSION.md`](./IDEA_SUBMISSION.md).
 **Pre-Sprint-3 risk fixes also shipped:** claim-secret vouch (cold-start keystone now truly works), daily cap + asymmetric reward, leaderboard snapshot cache + reciprocal-ring flag, stellar-sdk → 16 (protocol-23 fix).
-**Deployed (testnet):** Reputation `CBNIZ…SZM` · QuestRegistry `CD6RZ…YNFO` (Green redeploy: weekly streak) · Rewards `CDABZ…SHOT` (Green v3: reward registry + daily-cap + frozen gate) · USDC SAC `CAKT2…PZT2`.
+**Deployed (testnet):** Reputation `CBNIZ…SZM` · QuestRegistry `CD6RZ…YNFO` (Green redeploy: weekly streak) · Rewards `CBUKGI…ADOU` (Green v4: reward registry + daily-cap + frozen gate + proof-of-funding toggle) · USDC SAC `CAKT2…PZT2`.
 **Remaining for Orange DoD:** public URL + 10 outside testers; optional fuzz/property tests.
 
 ---
 
-## Sprint 4 — Green Belt: Retention loop (tip rail FIRST)
+## Sprint 4 — Green Belt: Retention loop (tip rail FIRST)  🟡 (code complete)
 **Goal:** production-ready MVP; weekly loop; **retention de-risked**.
 ### Stories
-1. **Ship the tip/bounty USDC rail FIRST**; measure D7 return of spend-receivers. `AC` D7 (receivers) ≥30% on alpha pod, or pivot the reward.
-2. `Rewards.claim_reward` Earned-gated; rank→reward unlock table. `AC` rank buys a real benefit (limit/badge/payout tier).
-3. Weekly quest calendar (4-week rolling) + stake/streak (decay). `AC` loop runs 2+ consecutive weeks live.
-4. Production hardening: checked math, error enums, TTL keeper, observability. `AC` clippy pedantic clean; dashboards live.
-**DoD:** weekly loop live 2+ weeks; retention gate measured; pitch-deck skeleton.
+1. ✅ **Tip/bounty USDC rail shipped FIRST** — `lib/rewards.ts` (tip + trustline `enableUsdc`), serverless `/api/faucet` (test USDC), `Tip.tsx`. Verified on-chain (trustline→faucet→tip). **Remaining (human/time):** measure D7 (receivers) ≥30% on alpha pod, or pivot the reward.
+2. ✅ `Rewards.claim_reward` Earned-gated + **on-chain rank→reward unlock table** (`add_reward`/`get_rewards`, caller can't set the amount — fixes a treasury-drain). `Rewards.tsx` shows the table. Verified on-chain. `AC` met: rank buys a real USDC payout.
+3. ✅ **Weekly streak** (consecutive-week run + all-time best, resets on a gap) in `quest_registry` (`get_streak`/`get_week`) + 🔥 UI badge. Verified on-chain. _Stake/slash STUBBED (green-belt "stub complexity") — needs a reputation escrow API; deferred._ **Remaining (time):** run the loop 2+ consecutive weeks live.
+4. ✅ Production hardening: checked math + `#[contracterror]` enums, **TTL keeper** (`scripts/bump-ttl.sh`), **treasury circuit breaker** (daily cap + frozen-set gate + proof-of-funding toggle), **property/fuzz tests** (proptest), structured route logs + `/api/health` + `scripts/status.mjs`, off-chain ring detector (`scripts/freeze-rings.mjs`). clippy `-D warnings` clean. _Full metrics dashboard = infra._
+**DoD:** code complete + verified on-chain; **open: weekly loop live 2+ weeks + measured D7** (needs real users).
 
 ---
 
@@ -96,7 +96,7 @@ The official Level-1 checklist wants **Freighter** connect/disconnect + a plain 
 ### Stories
 1. **Season 0** launch (public quest + referral quest + small bounty pool). `AC` ≥50 onboarded, <20% from cohort.
 2. Channel-account pool for fee sponsor (scaling cliff). `AC` 50 concurrent passkey users without sequence bottleneck.
-3. Anti-abuse v1: rate-limit mint; off-chain ring/cluster detection → `frozen` set. `AC` self-vouch/rapid-mint flagged.
+3. ✅ (code) Anti-abuse v1: **mint rate-limit** (on-chain `MAX_VOUCH_PER_DAY=20`, from Yellow) + **off-chain reciprocal-ring detection → `frozen` set** (`scripts/freeze-rings.mjs` reads events → `detectReciprocalRings` → `Rewards.set_frozen`; frozen blocks claim+tip). Verified on-chain end-to-end (manufactured ring → both frozen). _Full cluster detection (A→B→C→A) later._ `AC` met for reciprocal pairs.
 4. Feedback systematization (NPS + exit survey) + analytics funnel. `AC` per-step conversion dashboard.
 5. Pitch deck + 2-min demo with real retention/viral numbers.
 **DoD:** WAU≥25; week-over-week retention ≥25%; viral coeff measured; deck done.
