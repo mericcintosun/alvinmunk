@@ -9,6 +9,7 @@ import { loadProfile, saveProfile, normalizeHandle, type Profile } from '@/lib/p
 import { GenesisStamp } from '@/components/GenesisStamp';
 import { VouchCompose } from '@/components/VouchCompose';
 import { Quests } from '@/components/Quests';
+import { Tip } from '@/components/Tip';
 
 type Step = 'connect' | 'handle' | 'genesis' | 'done';
 
@@ -168,6 +169,7 @@ export default function Home() {
         <>
           <VouchCompose />
           <Quests address={profile.address} />
+          <Tip address={profile.address} />
           <div className="flex gap-4 text-xs text-white/50">
             <Link href="/leaderboard" className="underline">
               who’s most connected →
