@@ -103,14 +103,14 @@ The official Level-1 checklist wants **Freighter** connect/disconnect + a plain 
 
 ---
 
-## Sprint 6 — Black Belt: Mainnet + audit + 20 real users
-**Goal:** mainnet launch with real USDC, audited; 20+ distinct mainnet signers.
+## Sprint 6 — Black Belt: Mainnet + audit + 10 real users
+**Goal:** mainnet launch with real USDC, audited; 10+ distinct mainnet signers.
 ### Stories
 1. Mainnet deploy (multisig/timelock admin); record wasm hashes. `AC` 3 contracts live, admin multisig.
 2. Security review/audit: threat model, fork/differential/invariant tests, fixes. `AC` coverage ≥90%; clean audit report.
 3. Real USDC + caps + global daily cap + pausable; **proof-of-funding** on payout. `AC` real USDC bounty paid; payout gated by external-funding proof.
-4. Season 1 (real USDC) converting Blue power users; Twitter presence; 1 ecosystem partner. `AC` 20+ distinct mainnet signers each w/ a settled USDC action.
-**DoD:** mainnet + audit + 20 users + partner signal + Twitter active.
+4. Season 1 (real USDC) converting Blue power users; Twitter presence; 1 ecosystem partner. `AC` 10+ distinct mainnet signers each w/ a settled USDC action.
+**DoD:** mainnet + audit + 10 users + partner signal + Twitter active.
 
 ---
 

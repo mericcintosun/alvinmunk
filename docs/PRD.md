@@ -2,7 +2,7 @@
 
 _Owner: Nicole (PM). Source-of-truth decisions live in [`belts/00-strategy.md`](../belts/00-strategy.md) and [`belts/08-anti-sybil.md`](../belts/08-anti-sybil.md); this PRD operationalizes them._
 
-Status: **v1 (MVP through White→Green belts)** · Last updated: 2026-06-21
+Status: **v1 (MVP through White→Green belts)** · Last updated: 2026-06-22 — White→Orange shipped on testnet (3 contracts verified on-chain, 42 tests); Green is next.
 
 ---
 
@@ -83,7 +83,7 @@ mint_vouch (async half-card)  →  share link = install funnel  →  claim_vouch
 | Orange | 3 contracts + attester + full tests + testnet URL; 10 outside testers share; Idea Submission |
 | Green | weekly loop live 2+ weeks; D7 (spend-receivers) ≥30%; tip rail shipped first |
 | Blue | 50 real outside users (<20% cohort); WAU≥25; viral coeff measured; pitch deck |
-| Black | mainnet + audit; 20+ distinct mainnet signers w/ settled USDC; ecosystem partner |
+| Black | mainnet + audit; 10+ distinct mainnet signers w/ settled USDC; ecosystem partner |
 | Master | multi-season retention up-trend; ≥1 signed partnership; SCF/grant in flight |
 
 ## 12. Key risks

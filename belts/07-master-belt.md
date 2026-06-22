@@ -65,5 +65,5 @@ Black (mainnet + audit + ecosystem signal). This is the finale of the program â€
 - **Auth:** `require_auth` + deny-by-default â€” every belt, every fn.
 - **Storage TTL/archival:** bump on every write from Yellow onward; instance archival = brick risk.
 - **Upgradeability:** decide in Orange, enforce in Black.
-- **External users:** the Blue (50) and Black (20 mainnet) gates are passed with real external communities, NOT the program cohort (Nicole's anti-incest warning).
+- **External users:** the Blue (50) and Black (10 mainnet) gates are passed with real external communities, NOT the program cohort (Nicole's anti-incest warning).
 - **Verifiability:** only cryptographic/API-verifiable quests go on-chain naked; subjective ones use staked quorum.

@@ -23,7 +23,7 @@ Passport touches anchors on **two** concrete surfaces — not as decoration:
 - 3 Soroban contracts (Reputation / QuestRegistry / Rewards) deployed to **testnet** and verified on-chain (cross-contract award_quest, claim-secret vouch, USDC `claim_reward`).
 - Two-track anti-sybil keystone live (Social vs Earned, asymmetric, per-day cap, first-pair-only).
 - Consumer dApp: passkey/dev onboarding, async claim-secret vouch loop, live leaderboard.
-- 37 automated tests (16 contract + 21 web/shared) green; serverless attester verifies real actions (merged GitHub PR / referral tx).
+- 42 automated tests (16 contract + 26 web/shared) green; serverless attester verifies real actions (merged GitHub PR / referral tx).
 
 ## Why it can win the belts
 Novel on Stellar (no consumer social-reputation game exists), demoable in seconds, a viral install loop (the half-card link), a credible anchor angle for funding, and a sybil-resistant economy that survives scrutiny.
