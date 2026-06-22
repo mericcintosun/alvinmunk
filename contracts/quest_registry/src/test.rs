@@ -3,7 +3,10 @@
 //! (the manual ScVal arg encoding in `award_quest` that was previously untested).
 use super::*;
 use passport_reputation::{ReputationContract, ReputationContractClient};
-use soroban_sdk::{testutils::Address as _, Env};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger as _},
+    Env,
+};
 
 struct Fixture<'a> {
     env: Env,
@@ -79,4 +82,54 @@ fn award_unknown_quest_reverts() {
     let f = setup();
     let user = Address::generate(&f.env);
     f.quest.award_quest(&f.attester, &99u32, &user); // panics: QuestNotFound
+}
+
+#[test]
+#[should_panic]
+fn award_inactive_quest_reverts() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    f.quest.create_quest(&1u32, &2u32, &50u64);
+    f.quest.set_quest_active(&1u32, &false);
+    f.quest.award_quest(&f.attester, &1u32, &user); // panics: QuestInactive
+}
+
+#[test]
+fn weekly_streak_increments_then_resets_on_a_gap() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    f.quest.create_quest(&1u32, &2u32, &10u64);
+    f.quest.create_quest(&2u32, &2u32, &10u64);
+    f.quest.create_quest(&3u32, &2u32, &10u64);
+
+    // Week 0: first completion -> streak 1.
+    f.env.ledger().with_mut(|l| l.timestamp = 0);
+    f.quest.award_quest(&f.attester, &1u32, &user);
+    assert_eq!(f.quest.get_streak(&user).weeks, 1);
+
+    // Week 1 (consecutive) -> streak 2.
+    f.env.ledger().with_mut(|l| l.timestamp = WEEK_SECS);
+    f.quest.award_quest(&f.attester, &2u32, &user);
+    let s = f.quest.get_streak(&user);
+    assert_eq!(s.weeks, 2);
+    assert_eq!(s.best, 2);
+
+    // Week 3 (skipped week 2) -> reset to 1, but best stays 2.
+    f.env.ledger().with_mut(|l| l.timestamp = WEEK_SECS * 3);
+    f.quest.award_quest(&f.attester, &3u32, &user);
+    let s = f.quest.get_streak(&user);
+    assert_eq!(s.weeks, 1);
+    assert_eq!(s.best, 2);
+}
+
+#[test]
+fn same_week_completions_do_not_double_count_streak() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    f.quest.create_quest(&1u32, &2u32, &10u64);
+    f.quest.create_quest(&2u32, &2u32, &10u64);
+    f.env.ledger().with_mut(|l| l.timestamp = WEEK_SECS * 5);
+    f.quest.award_quest(&f.attester, &1u32, &user);
+    f.quest.award_quest(&f.attester, &2u32, &user); // same week
+    assert_eq!(f.quest.get_streak(&user).weeks, 1);
 }

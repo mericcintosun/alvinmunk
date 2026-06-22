@@ -68,7 +68,7 @@ Leaderboard reads RPC directly (+ localStorage cache). Indexer deferred to Blue/
 
 ## 6. Testnet contract IDs (also in apps/web/.env.local, gitignored)
 - Reputation:     `CBNIZXITUVTRVW6RZGEGCI7KNF46REG4EDM4XUVHKDAV63WOHWW75SZM`
-- QuestRegistry:  `CA4LPTZZ22GV3236L23OPZ5WILRVNZ4NP5HDAMEYEQXEKBK5YTGSXAZX`
+- QuestRegistry:  `CD6RZUVNQ3TV3X6MNQM25NB2YRFRGMSUGKWTMAIGJOC23C6ESHJKYNFO` (redeployed Green: weekly streak + `quest.active` enforced; old `CA4LP…AZX` de-allowlisted in Reputation)
 - Rewards:        `CC3XBTO36OW3GX5Y7ZWY76BNG7EPR4LYJPLOJ3HD2X6HMM4YTXVHNNLI` (redeployed Green: on-chain reward registry; old `CDEO3…FIS` had a caller-set-amount drain)
 - USDC test SAC:  `CAKT2EK2SFGNXTXVSYZLZXA5YB5QPVHLTVUMRHLJTF5RFFAFMIRNPZT2`
 - CLI identities (in `stellar keys`): `passport-admin` (admin+issuer), `passport-attester` (allowlisted), `passport-alice/bob/carol/dave/eve/frank` (test users).

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { getWallet } from '@/lib/wallet';
-import { completeQuest } from '@/lib/quests';
+import { completeQuest, getStreak } from '@/lib/quests';
 import { getEarnedScore } from '@/lib/reputation';
 import { txExplorerUrl } from '@/lib/stellar';
 
@@ -13,6 +13,7 @@ import { txExplorerUrl } from '@/lib/stellar';
  */
 export function Quests({ address }: { address: string }) {
   const [earned, setEarned] = useState<number | null>(null);
+  const [streak, setStreak] = useState<{ weeks: number; best: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [hash, setHash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -21,6 +22,9 @@ export function Quests({ address }: { address: string }) {
     getEarnedScore(address, address)
       .then(setEarned)
       .catch(() => setEarned(0));
+    getStreak(address, address)
+      .then((s) => setStreak({ weeks: s.weeks, best: s.best }))
+      .catch(() => setStreak({ weeks: 0, best: 0 }));
   }, [address]);
 
   async function onComplete() {
@@ -34,6 +38,8 @@ export function Quests({ address }: { address: string }) {
       if (!r.ok) throw new Error(r.error);
       setHash(r.hash ?? null);
       setEarned(await getEarnedScore(address, address));
+      const s = await getStreak(address, address);
+      setStreak({ weeks: s.weeks, best: s.best });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'quest failed');
     } finally {
@@ -49,9 +55,15 @@ export function Quests({ address }: { address: string }) {
           Earned XP: <span className="font-semibold text-stellar">{earned ?? '…'}</span>
         </span>
       </div>
-      <p className="mb-3 text-[11px] text-white/40">
+      <p className="mb-1 text-[11px] text-white/40">
         Cashable track — only attester-verified actions grant it (vouches don’t).
       </p>
+      {streak && (
+        <p className="mb-3 text-[11px] text-white/50">
+          🔥 Weekly streak: <span className="font-semibold text-stellar">{streak.weeks}</span>
+          {streak.best > streak.weeks && <span className="text-white/30"> (best {streak.best})</span>}
+        </p>
+      )}
       <button
         onClick={onComplete}
         disabled={busy}
