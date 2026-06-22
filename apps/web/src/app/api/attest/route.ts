@@ -101,8 +101,30 @@ export async function POST(req: Request): Promise<Response> {
     const hash = await submitAwardQuest(secret, body.questId, body.recipient);
     return json({ ok: true, hash, recipient: body.recipient, questId: body.questId });
   } catch (e) {
-    return json({ error: e instanceof Error ? e.message : 'submit failed' }, 502);
+    // A reverting contract (e.g. the replay guard) is a business condition, not a
+    // gateway failure — map known quest_registry error codes to 4xx so callers get a
+    // clear signal instead of an alarming 502. Genuine infra errors stay 502.
+    const mapped = mapSubmitError(e);
+    return json({ error: mapped.error }, mapped.status);
   }
+}
+
+/** quest_registry Error enum (contracts/quest_registry/src/lib.rs) → HTTP. */
+const CONTRACT_ERRORS: Record<number, { status: number; error: string }> = {
+  1: { status: 503, error: 'quest registry not initialized' },
+  3: { status: 403, error: 'attester not authorized for this quest' },
+  4: { status: 404, error: 'quest not found' },
+  5: { status: 409, error: 'this wallet has already completed this quest' },
+};
+
+function mapSubmitError(e: unknown): { status: number; error: string } {
+  const msg = e instanceof Error ? e.message : String(e);
+  const m = msg.match(/Error\(Contract,\s*#?(\d+)\)/);
+  if (m) {
+    const code = Number(m[1]);
+    return CONTRACT_ERRORS[code] ?? { status: 409, error: `quest rejected (contract error ${code})` };
+  }
+  return { status: 502, error: msg };
 }
 
 function verifyOwnership(body: AttestRequest): boolean {
