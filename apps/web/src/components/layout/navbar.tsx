@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Menu, X } from 'lucide-react';
@@ -16,9 +16,22 @@ const LINKS = [
 export function Navbar() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 12);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border/60 bg-background/70 backdrop-blur-xl">
+    <header
+      className={cn(
+        'sticky top-0 z-40 backdrop-blur-xl transition-colors duration-300',
+        scrolled ? 'border-b border-border/70 bg-background/80' : 'border-b border-transparent bg-background/30',
+      )}
+    >
       <nav className="container flex h-16 items-center justify-between gap-4">
         <Logo />
 

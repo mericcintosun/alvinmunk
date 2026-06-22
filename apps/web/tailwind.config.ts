@@ -93,12 +93,35 @@ const config: Config = {
           '0%,100%': { opacity: '0.35' },
           '50%': { opacity: '1' },
         },
+        float: {
+          '0%,100%': { transform: 'translateY(0)' },
+          '50%': { transform: 'translateY(-10px)' },
+        },
+        'glow-pulse': {
+          '0%,100%': { opacity: '0.5', transform: 'scale(1)' },
+          '50%': { opacity: '0.85', transform: 'scale(1.08)' },
+        },
+        'gradient-pan': {
+          '0%,100%': { 'background-position': '0% 50%' },
+          '50%': { 'background-position': '100% 50%' },
+        },
+        marquee: {
+          '0%': { transform: 'translateX(0)' },
+          '100%': { transform: 'translateX(-50%)' },
+        },
+        shimmer: {
+          '100%': { transform: 'translateX(100%)' },
+        },
       },
       animation: {
         'fade-up': 'fade-up 0.5s cubic-bezier(0.22,1,0.36,1) both',
         breathe: 'breathe 5.2s ease-in-out infinite',
         ignite: 'ignite 0.42s cubic-bezier(0.22,1,0.36,1) both',
         twinkle: 'twinkle 4s ease-in-out infinite',
+        float: 'float 6s ease-in-out infinite',
+        'glow-pulse': 'glow-pulse 6s ease-in-out infinite',
+        'gradient-pan': 'gradient-pan 6s ease-in-out infinite',
+        marquee: 'marquee 40s linear infinite',
       },
     },
   },

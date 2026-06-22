@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { fontVars } from '@/lib/fonts';
 import { Starfield } from '@/components/brand/starfield';
+import { SmoothScroll } from '@/components/smooth-scroll';
 import { Navbar } from '@/components/layout/navbar';
 import { Footer } from '@/components/layout/footer';
 import { Toaster } from '@/components/ui/toaster';
@@ -26,8 +27,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${fontVars} dark`} suppressHydrationWarning>
-      <body className="min-h-dvh" suppressHydrationWarning>
+      <body className="grain min-h-dvh" suppressHydrationWarning>
         <WalletProvider>
+          <SmoothScroll />
           <Starfield />
           <Navbar />
           <main className="min-h-[calc(100dvh-4rem)]">{children}</main>
