@@ -1,14 +1,18 @@
 'use client';
 
 import { useState } from 'react';
+import { Copy, Check } from 'lucide-react';
 import { getWallet } from '@/lib/wallet';
 import { mintVouch } from '@/lib/reputation';
 import { buildClaimUrl } from '@passport/shared';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 
 /**
- * Vouch compose (Yellow belt) — the async half-card mint. You write one line and get
- * a shareable link bound to a claim-secret; you do NOT need the recipient's address
- * (cold-start fix). Whoever opens the link claims it and their side blooms.
+ * Vouch compose — the async half-card mint. You write one line and get a shareable link
+ * bound to a claim-secret; no recipient address needed (cold-start fix). Whoever opens
+ * the link claims it and their star ignites.
  */
 export function VouchCompose() {
   const [note, setNote] = useState('');
@@ -41,39 +45,38 @@ export function VouchCompose() {
   }
 
   return (
-    <section className="w-full rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-      <h2 className="mb-1 text-sm font-semibold text-white/80">Vouch for someone</h2>
-      <p className="mb-3 text-[11px] text-white/40">
-        No address needed — share the link with anyone. They claim, their side blooms.
-      </p>
-      <input
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        maxLength={60}
-        placeholder="one line — e.g. “unblocked me at 2am”"
-        className="mb-3 w-full rounded-lg bg-white/5 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-stellar"
-      />
-      <button
-        onClick={onMint}
-        disabled={busy}
-        className="w-full rounded-full bg-stellar py-2.5 text-sm font-semibold text-ink active:scale-95 disabled:opacity-50"
-      >
-        {busy ? 'Minting…' : 'Mint half-card'}
-      </button>
+    <Card>
+      <CardContent className="p-5">
+        <h2 className="text-base font-semibold">Vouch for someone you trust</h2>
+        <p className="mb-3 mt-1 text-sm text-muted-foreground">
+          Why them? One line. No address needed — share the link, their star ignites.
+        </p>
+        <Textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          maxLength={60}
+          rows={2}
+          placeholder="unblocked me at 2am"
+          className="mb-3"
+        />
+        <Button onClick={onMint} disabled={busy} className="w-full">
+          {busy ? 'Lighting their star…' : 'Light their star'}
+        </Button>
 
-      {link && (
-        <div className="mt-3 rounded-lg bg-sigil/10 p-3 ring-1 ring-sigil/30">
-          <p className="mb-1 text-[11px] text-white/50">Share this — their side blooms when they claim:</p>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 truncate text-xs text-sigil">{link}</code>
-            <button onClick={copy} className="rounded bg-white/10 px-2 py-1 text-[11px]">
-              {copied ? 'copied' : 'copy'}
-            </button>
+        {link && (
+          <div className="mt-3 rounded-xl border border-secondary/30 bg-secondary/10 p-3">
+            <p className="mb-2 text-xs text-muted-foreground">Share their half of the sky:</p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 truncate font-mono text-xs text-secondary">{link}</code>
+              <Button variant="secondary" size="icon" onClick={copy} aria-label="Copy link">
+                {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+              </Button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
-    </section>
+        {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
+      </CardContent>
+    </Card>
   );
 }

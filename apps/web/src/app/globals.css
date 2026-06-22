@@ -2,12 +2,75 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Design tokens — docs/product/DESIGN_SYSTEM_TOKENS.md. Dark-first cosmic theme. */
 :root {
   color-scheme: dark;
+
+  --background: 230 33% 4%; /* #07080D deep space */
+  --foreground: 40 33% 94%; /* #F4F1EA soft white */
+
+  --card: 228 24% 7%;
+  --card-foreground: 40 33% 94%;
+  --popover: 228 24% 8%;
+  --popover-foreground: 40 33% 94%;
+
+  --primary: 24 100% 68%; /* #FF9E5E soft orange — the one warm CTA */
+  --primary-foreground: 230 33% 6%;
+
+  --secondary: 255 92% 76%; /* #A78BFA stellar violet — on-chain only */
+  --secondary-foreground: 230 33% 6%;
+
+  --muted: 228 14% 13%;
+  --muted-foreground: 40 8% 64%;
+
+  --accent: 28 90% 60%;
+  --accent-foreground: 230 33% 6%;
+
+  --destructive: 0 72% 58%;
+  --destructive-foreground: 40 33% 96%;
+  --success: 150 55% 55%;
+  --warning: 38 95% 60%;
+
+  --border: 228 16% 16%;
+  --input: 228 16% 16%;
+  --ring: 24 100% 68%;
+
+  --starlight: 40 100% 95%;
+  --onchain: 255 92% 76%;
+  --radius: 0.75rem;
 }
 
-body {
-  background: radial-gradient(1200px 600px at 50% -10%, #161427 0%, #0b0b14 60%);
-  color: #ece9ff;
-  min-height: 100dvh;
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    min-height: 100dvh;
+  }
+  h1, h2, h3, h4 {
+    @apply font-display tracking-tight;
+  }
+}
+
+@layer utilities {
+  /* Cosmic backdrop: a faint nebula glow behind the deep-space base. */
+  .nebula {
+    background:
+      radial-gradient(900px 500px at 50% -8%, hsl(255 60% 16% / 0.5) 0%, transparent 60%),
+      radial-gradient(700px 400px at 85% 10%, hsl(24 70% 18% / 0.35) 0%, transparent 55%);
+  }
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }

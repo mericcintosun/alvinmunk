@@ -1,15 +1,18 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Flame } from 'lucide-react';
 import { getWallet } from '@/lib/wallet';
 import { completeQuest, getStreak } from '@/lib/quests';
 import { getEarnedScore } from '@/lib/reputation';
 import { txExplorerUrl } from '@/lib/stellar';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 
 /**
- * Starter quest (Orange belt). Demonstrates the secured attester flow: the wallet
- * owner proves ownership (signs a message), the server verifies proof + on-chain
- * activity, then grants Earned XP (the cashable track). Earned ≠ Social (vouches).
+ * Verified quests (Earned XP — the cashable track). The wallet owner proves ownership,
+ * the attester verifies proof + on-chain activity, then grants Earned XP. Earned ≠ Social.
  */
 export function Quests({ address }: { address: string }) {
   const [earned, setEarned] = useState<number | null>(null);
@@ -19,9 +22,7 @@ export function Quests({ address }: { address: string }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getEarnedScore(address, address)
-      .then(setEarned)
-      .catch(() => setEarned(0));
+    getEarnedScore(address, address).then(setEarned).catch(() => setEarned(0));
     getStreak(address, address)
       .then((s) => setStreak({ weeks: s.weeks, best: s.best }))
       .catch(() => setStreak({ weeks: 0, best: 0 }));
@@ -33,7 +34,6 @@ export function Quests({ address }: { address: string }) {
     setHash(null);
     try {
       const wallet = await getWallet();
-      // Starter quest #2: prove you're active on-chain (your Genesis tx counts).
       const r = await completeQuest(wallet, 2, { type: 'referral_tx', ref: wallet.address });
       if (!r.ok) throw new Error(r.error);
       setHash(r.hash ?? null);
@@ -48,41 +48,38 @@ export function Quests({ address }: { address: string }) {
   }
 
   return (
-    <section className="w-full rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-      <div className="mb-1 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-white/80">Verified quest</h2>
-        <span className="text-xs text-white/50">
-          Earned XP: <span className="font-semibold text-stellar">{earned ?? '…'}</span>
-        </span>
-      </div>
-      <p className="mb-1 text-[11px] text-white/40">
-        Cashable track — only attester-verified actions grant it (vouches don’t).
-      </p>
-      {streak && (
-        <p className="mb-3 text-[11px] text-white/50">
-          🔥 Weekly streak: <span className="font-semibold text-stellar">{streak.weeks}</span>
-          {streak.best > streak.weeks && <span className="text-white/30"> (best {streak.best})</span>}
+    <Card>
+      <CardContent className="p-5">
+        <div className="mb-1 flex items-center justify-between">
+          <h2 className="text-base font-semibold">Earn it</h2>
+          <Badge variant="onchain">Earned XP: {earned ?? '…'}</Badge>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Verified actions earn Earned XP — the only kind that unlocks USDC. Vouches don&apos;t.
         </p>
-      )}
-      <button
-        onClick={onComplete}
-        disabled={busy}
-        className="w-full rounded-full bg-sigil/80 py-2.5 text-sm font-semibold text-white active:scale-95 disabled:opacity-50"
-      >
-        {busy ? 'Verifying…' : 'Complete starter quest'}
-      </button>
+        {streak && (
+          <p className="mt-2 flex items-center gap-1.5 text-sm text-muted-foreground">
+            <Flame className="size-4 text-primary" />
+            <span className="font-medium text-foreground">{streak.weeks}</span>-week streak
+            {streak.best > streak.weeks && <span className="text-muted-foreground/60">· best {streak.best}</span>}
+          </p>
+        )}
+        <Button variant="onchain" onClick={onComplete} disabled={busy} className="mt-4 w-full">
+          {busy ? 'Verifying…' : 'Verify a quest'}
+        </Button>
 
-      {hash && (
-        <a
-          href={txExplorerUrl(hash)}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-2 block text-center text-xs text-sigil underline"
-        >
-          verified on-chain → +30 Earned XP
-        </a>
-      )}
-      {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
-    </section>
+        {hash && (
+          <a
+            href={txExplorerUrl(hash)}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-2 block text-center text-xs text-secondary underline"
+          >
+            verified on-chain → +30 Earned XP
+          </a>
+        )}
+        {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
+      </CardContent>
+    </Card>
   );
 }

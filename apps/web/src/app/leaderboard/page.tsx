@@ -1,14 +1,18 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
 import { fetchLeaderboard } from '@/lib/leaderboard';
-import { shortAddr, type LeaderboardEntry } from '@passport/shared';
+import { type LeaderboardEntry } from '@passport/shared';
 import { loadProfile } from '@/lib/profile';
+import { Crest } from '@/components/brand/crest';
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { cn, shortAddress } from '@/lib/utils';
 
 /**
- * Leaderboard (Yellow belt) — framed SOCIALLY ("most connected", Kaan), folded from
- * on-chain `social` events via RPC, polled every 5s (MVP "real-time").
+ * Leaderboard — the night sky of the most-connected (Kaan: faces over numbers). Folded
+ * from on-chain `social` events via RPC, polled every 5s.
  */
 export default function LeaderboardPage() {
   const [rows, setRows] = useState<LeaderboardEntry[]>([]);
@@ -25,7 +29,7 @@ export default function LeaderboardPage() {
         if (alive) setLoading(false);
       }
     };
-    tick();
+    void tick();
     const iv = setInterval(tick, 5000);
     return () => {
       alive = false;
@@ -34,51 +38,60 @@ export default function LeaderboardPage() {
   }, []);
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-md flex-col gap-4 p-6">
-      <header className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Most connected</h1>
-        <Link href="/" className="text-xs text-white/50 underline">
-          ← passport
-        </Link>
-      </header>
+    <div className="container max-w-xl py-12">
+      <div className="mb-2 flex items-center justify-between">
+        <h1 className="text-3xl font-semibold">The most-connected</h1>
+        <Badge variant="onchain">live</Badge>
+      </div>
+      <p className="mb-8 text-sm text-muted-foreground">Social score · clout, not cash · updates live.</p>
 
-      {loading && <p className="text-sm text-white/40">reading the chain…</p>}
+      {loading && (
+        <div className="flex flex-col gap-2">
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-16 w-full rounded-2xl" />
+          ))}
+        </div>
+      )}
 
       {!loading && rows.length === 0 && (
-        <p className="text-sm text-white/40">
-          No connections yet — be the first to vouch for 10 people.
-        </p>
+        <Card className="p-8 text-center text-sm text-muted-foreground">
+          No constellations yet. Be the first to vouch for ten people.
+        </Card>
       )}
 
       <ol className="flex flex-col gap-2">
-        {rows.map((e) => (
-          <li
-            key={e.address}
-            className={`flex items-center justify-between rounded-xl px-4 py-3 ${
-              e.address === me ? 'bg-stellar/15 ring-1 ring-stellar/40' : 'bg-white/[0.03]'
-            }`}
-          >
-            <span className="flex items-center gap-3">
-              <span className="w-5 text-right text-sm text-white/40">{e.rank}</span>
-              <span className="text-sm">{shortAddr(e.address)}</span>
-              {e.address === me && <span className="text-[10px] text-stellar">you</span>}
-              {e.flagged && (
-                <span
-                  title="reciprocal vouch pair — possible ring"
-                  className="text-[10px] text-amber-400"
-                >
-                  ⚠ flagged
-                </span>
-              )}
-            </span>
-            <span className="text-sm font-semibold text-stellar">{e.score}</span>
-          </li>
-        ))}
+        {rows.map((e) => {
+          const isMe = e.address === me;
+          return (
+            <li key={e.address}>
+              <div
+                className={cn(
+                  'flex items-center gap-4 rounded-2xl border p-3 transition-colors',
+                  isMe ? 'border-primary/40 bg-primary/5' : 'border-border bg-card',
+                )}
+              >
+                <span className="w-6 text-center font-mono text-sm text-muted-foreground">{e.rank}</span>
+                <Crest address={e.address} size={44} points={Math.min(9, 4 + (e.rank % 5))} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-mono text-sm">{shortAddress(e.address)}</p>
+                  <div className="mt-0.5 flex items-center gap-2">
+                    {isMe && <span className="text-[10px] font-medium text-primary">you</span>}
+                    {e.flagged && (
+                      <span
+                        title="reciprocal vouch pair — possible ring"
+                        className="text-[10px] text-warning"
+                      >
+                        ⚠ flagged
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <span className="font-display text-lg font-semibold text-primary">★ {e.score}</span>
+              </div>
+            </li>
+          );
+        })}
       </ol>
-
-      <p className="mt-2 text-center text-[11px] text-white/30">
-        social score · non-cashable · updates live
-      </p>
-    </main>
+    </div>
   );
 }

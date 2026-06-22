@@ -1,16 +1,18 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 import { connectFreighter, type Wallet } from '@/lib/wallet';
 import { getXlmBalance, txExplorerUrl } from '@/lib/stellar';
 import { sendXlm, type PaymentResult } from '@/lib/payments';
-import { shortAddr } from '@passport/shared';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { shortAddress } from '@/lib/utils';
 
 /**
- * White-belt Level-1 demo: Freighter connect/disconnect, balance display, and a
- * testnet XLM payment with success/failure + tx-hash feedback. This page maps
- * 1:1 to the official Level-1 submission checklist.
+ * White-belt Level-1 demo: Freighter connect/disconnect, balance, and a testnet XLM
+ * payment with success/failure + tx-hash feedback. Maps 1:1 to the L1 checklist.
  */
 export default function WalletPage() {
   const [wallet, setWallet] = useState<Wallet | null>(null);
@@ -38,12 +40,6 @@ export default function WalletPage() {
     }
   }
 
-  function disconnect() {
-    setWallet(null);
-    setBalance(null);
-    setResult(null);
-  }
-
   async function refresh() {
     if (wallet) setBalance(await getXlmBalance(wallet.address));
   }
@@ -65,103 +61,92 @@ export default function WalletPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-md flex-col gap-5 p-6">
-      <header className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Classic wallet · Level 1</h1>
-        <Link href="/" className="text-xs text-white/50 underline">
-          ← passport
-        </Link>
-      </header>
+    <div className="container max-w-md py-12">
+      <div className="mb-1 flex items-center gap-2">
+        <h1 className="text-2xl font-semibold">Classic wallet</h1>
+        <Badge variant="outline">Level 1</Badge>
+      </div>
+      <p className="mb-8 text-sm text-muted-foreground">
+        Freighter connect, balance, and a testnet XLM payment.
+      </p>
 
       {!wallet ? (
-        <button
-          onClick={connect}
-          disabled={busy}
-          className="rounded-full bg-stellar px-6 py-3 font-semibold text-ink active:scale-95 disabled:opacity-60"
-        >
+        <Button size="lg" onClick={connect} disabled={busy}>
           {busy ? 'Connecting…' : 'Connect Freighter'}
-        </button>
+        </Button>
       ) : (
-        <>
-          <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-            <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4">
+          <Card>
+            <CardContent className="flex items-center justify-between p-5">
               <div>
-                <p className="text-xs text-white/50">connected</p>
-                <p className="font-mono text-sm">{shortAddr(wallet.address)}</p>
-              </div>
-              <button onClick={disconnect} className="rounded bg-white/10 px-3 py-1 text-xs">
-                Disconnect
-              </button>
-            </div>
-            <div className="mt-3 flex items-center justify-between">
-              <span className="text-sm">
-                Balance:{' '}
-                <span className="font-semibold text-stellar">
-                  {balance ? `${Number(balance).toFixed(2)} XLM` : '…'}
-                </span>
-              </span>
-              <button onClick={refresh} className="text-[11px] text-white/40 underline">
-                refresh
-              </button>
-            </div>
-          </section>
-
-          <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-            <h2 className="mb-3 text-sm font-semibold text-white/80">Send XLM (testnet)</h2>
-            <input
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-              placeholder="destination address (G…)"
-              className="mb-2 w-full rounded-lg bg-white/5 px-3 py-2 font-mono text-xs outline-none ring-1 ring-white/10 focus:ring-stellar"
-            />
-            <input
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              inputMode="decimal"
-              placeholder="amount"
-              className="mb-3 w-full rounded-lg bg-white/5 px-3 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-stellar"
-            />
-            <button
-              onClick={pay}
-              disabled={busy || !validAddr || !validAmount}
-              className="w-full rounded-full bg-stellar py-2.5 text-sm font-semibold text-ink active:scale-95 disabled:opacity-50"
-            >
-              {busy ? 'Sending…' : 'Send'}
-            </button>
-
-            {result && (
-              <div
-                className={`mt-3 rounded-lg p-3 text-xs ${
-                  result.status === 'SUCCESS'
-                    ? 'bg-green-500/10 text-green-300 ring-1 ring-green-500/30'
-                    : result.status === 'FAILED'
-                      ? 'bg-red-500/10 text-red-300 ring-1 ring-red-500/30'
-                      : 'bg-white/5 text-white/60'
-                }`}
-              >
-                <p className="font-semibold">
-                  {result.status === 'SUCCESS'
-                    ? '✓ Payment confirmed'
-                    : result.status === 'FAILED'
-                      ? '✗ Payment failed'
-                      : '… Submitted (pending)'}
+                <p className="text-xs text-muted-foreground">connected</p>
+                <p className="font-mono text-sm">{shortAddress(wallet.address)}</p>
+                <p className="mt-2 text-sm">
+                  Balance:{' '}
+                  <span className="font-semibold text-primary">
+                    {balance ? `${Number(balance).toFixed(2)} XLM` : '…'}
+                  </span>
                 </p>
-                <a
-                  href={txExplorerUrl(result.hash)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="break-all underline"
-                >
-                  {result.hash}
-                </a>
               </div>
-            )}
-          </section>
-        </>
+              <Button variant="ghost" size="sm" onClick={() => setWallet(null)}>
+                Disconnect
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="flex flex-col gap-3 p-5">
+              <h2 className="text-sm font-semibold">Send XLM (testnet)</h2>
+              <Input
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                placeholder="destination address (G…)"
+                className="font-mono text-xs"
+              />
+              <Input
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                inputMode="decimal"
+                placeholder="amount"
+              />
+              <Button onClick={pay} disabled={busy || !validAddr || !validAmount}>
+                {busy ? 'Sending…' : 'Send'}
+              </Button>
+
+              {result && (
+                <div
+                  className={
+                    result.status === 'SUCCESS'
+                      ? 'rounded-xl bg-success/10 p-3 text-xs text-success ring-1 ring-success/30'
+                      : result.status === 'FAILED'
+                        ? 'rounded-xl bg-destructive/10 p-3 text-xs text-destructive ring-1 ring-destructive/30'
+                        : 'rounded-xl bg-muted p-3 text-xs text-muted-foreground'
+                  }
+                >
+                  <p className="font-semibold">
+                    {result.status === 'SUCCESS'
+                      ? '✓ Payment confirmed'
+                      : result.status === 'FAILED'
+                        ? '✗ Payment failed'
+                        : '… Submitted (pending)'}
+                  </p>
+                  <a
+                    href={txExplorerUrl(result.hash)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="break-all underline"
+                  >
+                    {result.hash}
+                  </a>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       )}
 
-      {error && <p className="text-xs text-red-400">{error}</p>}
-    </main>
+      {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
+    </div>
   );
 }
 

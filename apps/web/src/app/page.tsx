@@ -1,203 +1,154 @@
-'use client';
-
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { getWallet, isPasskeyConfigured, type Wallet } from '@/lib/wallet';
-import { getXlmBalance, txExplorerUrl } from '@/lib/stellar';
-import { recordGenesis } from '@/lib/genesis';
-import { loadProfile, saveProfile, normalizeHandle, type Profile } from '@/lib/profile';
-import { GenesisStamp } from '@/components/GenesisStamp';
-import { VouchCompose } from '@/components/VouchCompose';
-import { Quests } from '@/components/Quests';
-import { Tip } from '@/components/Tip';
-import { Rewards } from '@/components/Rewards';
+import { ArrowRight, Sparkles, ShieldCheck, Coins, Globe } from 'lucide-react';
+import { Crest } from '@/components/brand/crest';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
+import { buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
-type Step = 'connect' | 'handle' | 'genesis' | 'done';
+const SAMPLE = [
+  'GABCXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXAYSE',
+  'GMEHMETXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXMET',
+  'GDENIZXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXDENIZ',
+  'GLEYLAXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXLEYLA',
+  'GKEREMXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXKEREM',
+];
 
-export default function Home() {
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [step, setStep] = useState<Step>('connect');
-  const [wallet, setWallet] = useState<Wallet | null>(null);
-  const [handle, setHandle] = useState('');
-  const [balance, setBalance] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [elapsed, setElapsed] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  // Returning user: skip onboarding.
-  useEffect(() => {
-    const p = loadProfile();
-    if (p) {
-      setProfile(p);
-      setStep('done');
-      getXlmBalance(p.address).then(setBalance);
-    }
-  }, []);
-
-  async function onConnect() {
-    setError(null);
-    setBusy(true);
-    try {
-      const w = await getWallet();
-      setWallet(w);
-      setBalance(await getXlmBalance(w.address));
-      setStep('handle');
-    } catch (e) {
-      setError(msg(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function onGenesis() {
-    if (!wallet) return;
-    const h = normalizeHandle(handle);
-    if (h.length < 3) {
-      setError('Pick a handle (3+ letters/numbers).');
-      return;
-    }
-    setError(null);
-    setBusy(true);
-    setStep('genesis');
-    const t0 = Date.now();
-    try {
-      const tx = await recordGenesis(wallet, h);
-      const p: Profile = {
-        handle: h,
-        address: wallet.address,
-        createdAt: Date.now(),
-        genesisTx: tx,
-      };
-      saveProfile(p);
-      setProfile(p);
-      setElapsed((Date.now() - t0) / 1000);
-      setBalance(await getXlmBalance(wallet.address));
-      setStep('done');
-    } catch (e) {
-      setError(msg(e));
-      setStep('handle');
-    } finally {
-      setBusy(false);
-    }
-  }
-
+export default function LandingPage() {
   return (
-    <main className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center gap-6 p-6">
-      <header className="text-center">
-        <h1 className="text-3xl font-bold tracking-tight">
-          Stellar <span className="text-stellar">Passport</span>
-        </h1>
-        <p className="mt-2 text-sm text-white/60">Collect people, not points.</p>
-      </header>
-
-      {/* The hero artifact */}
-      {profile ? (
-        <GenesisStamp
-          address={profile.address}
-          handle={profile.handle}
-          joinedAt={profile.createdAt}
-        />
-      ) : (
-        <div className="flex aspect-[1.6/1] w-full items-center justify-center rounded-2xl border border-dashed border-white/15 text-sm text-white/30">
-          Your first stamp lands here
-        </div>
-      )}
-
-      {/* Step machine */}
-      {step === 'connect' && (
-        <div className="flex flex-col items-center gap-2">
-          <button
-            onClick={onConnect}
-            disabled={busy}
-            className="rounded-full bg-stellar px-6 py-3 font-semibold text-ink active:scale-95 disabled:opacity-60"
-          >
-            {busy ? 'Connecting…' : 'Continue with Face ID'}
-          </button>
-          {!isPasskeyConfigured() && (
-            <p className="text-[11px] text-white/30">dev wallet (testnet) — passkey infra not set</p>
-          )}
-        </div>
-      )}
-
-      {step === 'handle' && (
-        <div className="flex w-full flex-col items-center gap-3">
-          <p className="text-xs text-white/50">
-            funded: {balance ? `${Number(balance).toFixed(1)} XLM` : '…'} ·{' '}
-            {wallet?.address.slice(0, 6)}…
+    <div className="overflow-x-hidden">
+      {/* ───────────── Hero ───────────── */}
+      <section className="container grid items-center gap-12 py-16 md:grid-cols-2 md:py-28">
+        <div className="flex flex-col items-start gap-6 animate-fade-up">
+          <Badge variant="primary">Proof-of-people on Stellar</Badge>
+          <h1 className="text-4xl font-semibold leading-[1.05] text-balance sm:text-5xl md:text-6xl">
+            Collect people,
+            <br />
+            not points.
+          </h1>
+          <p className="max-w-md text-lg text-muted-foreground text-balance">
+            Someone you trust vouches for you — and it becomes a star in your constellation.
+            The more people back you, the brighter you shine.
           </p>
-          <input
-            autoFocus
-            value={handle}
-            onChange={(e) => setHandle(e.target.value)}
-            placeholder="pick a handle"
-            className="w-full rounded-xl bg-white/5 px-4 py-3 text-center outline-none ring-1 ring-white/10 focus:ring-stellar"
-          />
-          <button
-            onClick={onGenesis}
-            disabled={busy}
-            className="rounded-full bg-stellar px-6 py-3 font-semibold text-ink active:scale-95 disabled:opacity-60"
-          >
-            Mint my Genesis Stamp
-          </button>
-        </div>
-      )}
-
-      {step === 'genesis' && (
-        <p className="animate-pulse text-sm text-white/60">Going on-chain…</p>
-      )}
-
-      {step === 'done' && profile && (
-        <div className="flex flex-col items-center gap-2 text-center">
-          <p className="text-sm text-white/70">
-            You’re on-chain ✨ {elapsed != null && <span>in {elapsed.toFixed(1)}s</span>}
-          </p>
-          <p className="text-[11px] text-white/40">Fees paid by app: $0.00</p>
-          {profile.genesisTx && (
-            <a
-              href={txExplorerUrl(profile.genesisTx)}
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs text-sigil underline"
-            >
-              view your first transaction →
-            </a>
-          )}
-        </div>
-      )}
-
-      {/* Yellow belt: the vouch loop, available once you have a passport */}
-      {step === 'done' && profile && (
-        <>
-          <VouchCompose />
-          <Quests address={profile.address} />
-          <Tip address={profile.address} />
-          <Rewards address={profile.address} />
-          <div className="flex gap-4 text-xs text-white/50">
-            <Link href="/leaderboard" className="underline">
-              who’s most connected →
+          <div className="flex flex-wrap items-center gap-3">
+            <Link href="/app" className={cn(buttonVariants({ size: 'lg' }))}>
+              Open the app <ArrowRight className="size-4" />
             </Link>
-            <Link href="/wallet" className="underline">
-              classic wallet (L1) →
+            <Link href="/how-it-works" className={cn(buttonVariants({ variant: 'outline', size: 'lg' }))}>
+              See how it works
             </Link>
           </div>
-        </>
-      )}
+          <p className="text-xs text-muted-foreground">
+            No seed phrase · fees sponsored on testnet · live on Stellar
+          </p>
+        </div>
 
-      {step === 'connect' && (
-        <Link href="/wallet" className="text-[11px] text-white/30 underline">
-          or use a classic Freighter wallet (Level 1 demo)
+        <div className="relative flex items-center justify-center">
+          <div className="absolute size-72 rounded-full bg-primary/10 blur-3xl" aria-hidden />
+          <Crest
+            address="stellar-passport-hero-constellation"
+            size={300}
+            points={9}
+            animate
+            className="relative"
+          />
+        </div>
+      </section>
+
+      {/* ───────────── How it works ───────────── */}
+      <section className="container py-16">
+        <h2 className="mb-10 text-center text-3xl font-semibold">How it works</h2>
+        <div className="grid gap-4 md:grid-cols-3">
+          {[
+            { n: '01', t: 'Vouch', d: 'Pick someone you trust, add one line — why. You light a star for them.' },
+            { n: '02', t: 'Claim', d: 'They open your link, connect, and claim their half. Two halves become one card.' },
+            { n: '03', t: 'Constellation', d: 'Every vouch adds a star. Your passport grows with your people.' },
+          ].map((s) => (
+            <Card key={s.n}>
+              <CardContent className="flex flex-col gap-2 p-6">
+                <span className="font-mono text-sm text-primary">{s.n}</span>
+                <h3 className="text-lg font-semibold">{s.t}</h3>
+                <p className="text-sm text-muted-foreground">{s.d}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </section>
+
+      {/* ───────────── Why different ───────────── */}
+      <section className="container py-16">
+        <div className="grid gap-4 sm:grid-cols-2">
+          {[
+            { icon: Sparkles, t: 'Names humans, not tasks', d: 'Every card is one person + one moment — never a faceless badge.' },
+            { icon: ShieldCheck, t: 'Honest by design', d: 'Daily caps, first-pair-only, and a separate cashable track keep it real, not farmable.' },
+            { icon: Coins, t: 'Spendable recognition', d: 'Earned reputation can unlock real USDC — backed, capped, and gated.' },
+            { icon: Globe, t: 'Yours, on-chain', d: 'Your constellation lives on Stellar and can be read by other apps.' },
+          ].map((f) => (
+            <Card key={f.t}>
+              <CardContent className="flex items-start gap-4 p-6">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <f.icon className="size-5" />
+                </div>
+                <div>
+                  <h3 className="font-semibold">{f.t}</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">{f.d}</p>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </section>
+
+      {/* ───────────── Leaderboard peek ───────────── */}
+      <section className="container py-16">
+        <div className="mb-6 flex items-center justify-between">
+          <h2 className="text-2xl font-semibold">The most-connected</h2>
+          <Link href="/leaderboard" className="text-sm text-primary hover:underline">
+            See the night sky →
+          </Link>
+        </div>
+        <div className="flex flex-wrap justify-center gap-6">
+          {SAMPLE.map((addr, i) => (
+            <div key={addr} className="flex flex-col items-center gap-2">
+              <Crest address={addr} size={64} points={i + 4} />
+              <span className="text-xs text-muted-foreground">★ {(SAMPLE.length - i) * 4}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ───────────── Dev teaser ───────────── */}
+      <section className="container py-16">
+        <Card className="nebula overflow-hidden">
+          <CardContent className="grid items-center gap-6 p-8 md:grid-cols-2">
+            <div>
+              <Badge variant="onchain" className="mb-3">For developers</Badge>
+              <h2 className="text-2xl font-semibold">Reputation other apps can read.</h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                One call returns a wallet&apos;s score. Build allowlists, gates, and trust
+                signals on a primitive that&apos;s on-chain and open.
+              </p>
+              <Link href="/how-it-works#devs" className="mt-4 inline-flex text-sm text-primary hover:underline">
+                Read the docs →
+              </Link>
+            </div>
+            <pre className="overflow-x-auto rounded-xl border border-border bg-background/60 p-4 font-mono text-xs text-foreground/80">
+{`const score = await getScore(address);
+// → 42`}
+            </pre>
+          </CardContent>
+        </Card>
+      </section>
+
+      {/* ───────────── Final CTA ───────────── */}
+      <section className="container py-20 text-center">
+        <h2 className="text-3xl font-semibold text-balance sm:text-4xl">
+          Someone&apos;s waiting to be recognized.
+        </h2>
+        <Link href="/app" className={cn(buttonVariants({ size: 'lg' }), 'mt-6')}>
+          Open the app <ArrowRight className="size-4" />
         </Link>
-      )}
-
-      {error && <p className="max-w-xs text-center text-xs text-red-400">{error}</p>}
-
-      <footer className="mt-4 text-center text-[11px] text-white/30">
-        Yellow belt · vouch loop live · belts/02-yellow-belt.md
-      </footer>
-    </main>
+      </section>
+    </div>
   );
-}
-
-function msg(e: unknown): string {
-  return e instanceof Error ? e.message : 'something went wrong';
 }
