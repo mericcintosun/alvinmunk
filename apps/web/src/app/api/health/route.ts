@@ -7,6 +7,11 @@
 import { rpc } from '@stellar/stellar-sdk';
 
 export const runtime = 'nodejs';
+// Read env + RPC at REQUEST time, never at build. Without this, Next statically
+// prerenders this GET (no request input) and freezes a build-time snapshot — where
+// "Sensitive" secrets (ATTESTER_SECRET_KEY/USDC_ISSUER_SECRET_KEY) are absent, so the
+// probe would falsely report them unconfigured even though they exist at runtime.
+export const dynamic = 'force-dynamic';
 
 const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL ?? 'https://soroban-testnet.stellar.org';
 
