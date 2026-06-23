@@ -5,6 +5,7 @@ import { getWallet } from '@/lib/wallet';
 import { txExplorerUrl } from '@/lib/stellar';
 import { getEarnedScore } from '@/lib/reputation';
 import { claimReward, getRewards, isClaimed, stroopsToUsdc, type RewardEntry } from '@/lib/rewards';
+import { getAnchorConfig, anchorEntryUrl } from '@/lib/anchor';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -111,7 +112,37 @@ export function Rewards({ address }: { address: string }) {
           </a>
         )}
         {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
+
+        <AnchorCashout />
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Anchor off-ramp affordance (IDEA_SUBMISSION anchor angle). Reserved at Orange: when
+ * an anchor is configured it links out to start the cash-out; otherwise it states the
+ * path honestly. The full SEP-24 interactive withdraw lands at Black belt.
+ */
+function AnchorCashout() {
+  const anchor = getAnchorConfig();
+  const url = anchorEntryUrl();
+  return (
+    <div className="mt-4 border-t border-border pt-3">
+      {anchor && url ? (
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          className="text-xs text-secondary underline"
+        >
+          Cash out to local currency via {anchor.homeDomain} →
+        </a>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Cash out to local cash via a Stellar anchor (SEP-24 off-ramp) — coming at mainnet.
+        </p>
+      )}
+    </div>
   );
 }

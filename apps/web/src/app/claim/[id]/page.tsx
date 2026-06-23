@@ -1,11 +1,12 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Sparkles } from 'lucide-react';
+import { shortAddr } from '@passport/shared';
 import { useWallet } from '@/components/wallet/wallet-provider';
-import { claimVouch } from '@/lib/reputation';
+import { claimVouch, getVouch, VOUCH_TTL_SECS, type VouchView } from '@/lib/reputation';
 import { Crest } from '@/components/brand/crest';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { cn, humanizeError } from '@/lib/utils';
@@ -37,6 +38,24 @@ function ClaimInner({ params }: { params: { id: string } }) {
   const { connect, profile } = useWallet();
   const [state, setState] = useState<'preview' | 'claiming' | 'done' | 'error'>('preview');
   const [error, setError] = useState<string | null>(null);
+  // The on-chain half-card (note + voucher + staked XP + 7-day window). Best-effort —
+  // the page still works if this read fails (the claim itself is the source of truth).
+  const [vouch, setVouch] = useState<VouchView | null | undefined>(undefined);
+
+  useEffect(() => {
+    let alive = true;
+    getVouch(Number(id))
+      .then((v) => alive && setVouch(v))
+      .catch(() => alive && setVouch(null));
+    return () => {
+      alive = false;
+    };
+  }, [id]);
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  const deadline = vouch ? vouch.created + VOUCH_TTL_SECS : 0;
+  const daysLeft = vouch ? Math.max(0, Math.ceil((deadline - nowSec) / 86_400)) : 0;
+  const windowOpen = vouch ? !vouch.slashed && !vouch.claimed && nowSec < deadline : false;
 
   async function onClaim() {
     if (!secret) {
@@ -69,11 +88,19 @@ function ClaimInner({ params }: { params: { id: string } }) {
           : 'They put their reputation behind yours. Claim your half of the sky — two halves become one card.'}
       </p>
 
+      {!done && vouch?.note && (
+        <p className="-mt-3 max-w-sm text-balance text-sm italic text-foreground/80">
+          &ldquo;{vouch.note}&rdquo;
+        </p>
+      )}
+
       {/* The half-card: voucher's side filled, your side a glowing socket until claimed */}
       <div className="flex items-center gap-2 py-2">
         <div className="rounded-2xl border border-border bg-card p-5">
-          <Crest address={`voucher-${id}`} size={96} points={6} animate />
-          <p className="mt-2 text-xs text-muted-foreground">a friend</p>
+          <Crest address={vouch?.from ?? `voucher-${id}`} size={96} points={6} animate />
+          <p className="mt-2 text-xs text-muted-foreground">
+            {vouch ? shortAddr(vouch.from) : 'a friend'}
+          </p>
         </div>
         <Sparkles className={cn('size-6 shrink-0', done ? 'text-primary' : 'text-muted-foreground')} />
         <div
@@ -94,6 +121,18 @@ function ClaimInner({ params }: { params: { id: string } }) {
           <p className="mt-2 text-xs text-muted-foreground">{done ? 'you' : '— · —'}</p>
         </div>
       </div>
+
+      {!done && vouch && (
+        <p className="max-w-xs text-balance text-xs text-muted-foreground">
+          {windowOpen
+            ? `They staked ${vouch.stake} reputation on you — claim within ${daysLeft} day${
+                daysLeft === 1 ? '' : 's'
+              } to keep it from being slashed.`
+            : vouch.claimed
+              ? 'This star is already lit.'
+              : 'The staking window has closed — claiming still lights your star.'}
+        </p>
+      )}
 
       {!done ? (
         <div className="flex flex-col items-center gap-3">

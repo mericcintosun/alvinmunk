@@ -8,8 +8,10 @@
  * the lean equivalent for the handful of methods the MVP calls.
  */
 import {
+  Account,
   Address,
   Contract,
+  Keypair,
   TransactionBuilder,
   nativeToScVal,
   scValToNative,
@@ -46,6 +48,31 @@ export async function readContract<T>(
   requireDeployed(contractId, method);
   const account = await server.getAccount(sourceAccount);
   const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase })
+    .addOperation(new Contract(contractId).call(method, ...callArgs))
+    .setTimeout(30)
+    .build();
+
+  const sim = await server.simulateTransaction(tx);
+  if (rpc.Api.isSimulationError(sim)) {
+    throw new Error(`simulate ${method} failed: ${sim.error}`);
+  }
+  const retval = sim.result?.retval;
+  return retval ? (scValToNative(retval) as T) : (undefined as T);
+}
+
+/**
+ * Read-only simulation with NO wallet — for logged-out pages (e.g. the claim funnel).
+ * A read getter has no auth and no fee, so the source account need not exist on-chain;
+ * we use a throwaway key purely to form a valid envelope for `simulateTransaction`.
+ */
+export async function readPublic<T>(
+  contractId: string,
+  method: string,
+  callArgs: xdr.ScVal[],
+): Promise<T> {
+  requireDeployed(contractId, method);
+  const source = new Account(Keypair.random().publicKey(), '0');
+  const tx = new TransactionBuilder(source, { fee: BASE_FEE, networkPassphrase })
     .addOperation(new Contract(contractId).call(method, ...callArgs))
     .setTimeout(30)
     .build();

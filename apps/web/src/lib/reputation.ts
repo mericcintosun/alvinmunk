@@ -5,8 +5,26 @@
  * recipient's address. The share link carries the secret; the recipient binds their
  * own address at claim time. This is the cold-start fix (belts/00-strategy §3).
  */
-import { invokeAndWait, readContract, args, repId } from './contracts';
+import { invokeAndWait, readContract, readPublic, args, repId } from './contracts';
 import type { Wallet } from './wallet';
+
+/** Vouch TTL — claim within this window to refund the voucher's stake (mirrors the
+ *  contract's VOUCH_TTL_SECS). After it, the stake is slashed but the card still claims. */
+export const VOUCH_TTL_SECS = 604_800; // 7 days
+
+/** A half-card as read from chain (the fields the claim funnel surfaces). */
+export interface VouchView {
+  id: number;
+  from: string;
+  note: string;
+  claimed: boolean;
+  claimer: string | null;
+  /** ledger unix-seconds when the half-card was minted */
+  created: number;
+  /** Social XP the voucher escrowed (refunded on a timely claim, else slashed) */
+  stake: number;
+  slashed: boolean;
+}
 
 // ── client-side crypto for the claim secret ──
 function randomBytes(n: number): Uint8Array {
@@ -50,6 +68,31 @@ export async function claimVouch(wallet: Wallet, vouchId: number, secretHex: str
     [args.addr(wallet.address), args.u64(vouchId), args.bytes(fromHex(secretHex))],
     wallet,
   );
+}
+
+/** Read a half-card by id (no wallet needed — used by the logged-out claim funnel). */
+export async function getVouch(vouchId: number): Promise<VouchView | null> {
+  const v = await readPublic<{
+    id: bigint;
+    from: string;
+    note: string;
+    claimed: boolean;
+    claimer: string | null;
+    created: bigint;
+    stake: bigint;
+    slashed: boolean;
+  } | null>(repId(), 'get_vouch', [args.u64(vouchId)]);
+  if (!v) return null;
+  return {
+    id: Number(v.id),
+    from: v.from,
+    note: v.note,
+    claimed: v.claimed,
+    claimer: v.claimer ?? null,
+    created: Number(v.created),
+    stake: Number(v.stake),
+    slashed: v.slashed,
+  };
 }
 
 /** `get_score(addr)` — Social XP (leaderboard, non-cashable). */
