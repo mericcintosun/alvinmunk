@@ -7,6 +7,11 @@
  * Only cryptographically / API-verifiable quests are accepted (00-strategy §1):
  *   - github_pr   : evidence.ref = "owner/repo#123" -> PR must be merged
  *   - referral_tx : evidence.ref = "G..." address   -> must have ≥1 on-chain tx
+ *
+ * Defense-in-depth (belts/08 §security): wallet-ownership proof bound to this
+ * deployment (v2 message), ±2 min freshness, per-signature in-window replay guard,
+ * per-IP rate limit, bounded request body, optional GitHub repo allowlist, and a
+ * self-referral guard. The on-chain replay guard is the hard cap.
  */
 import {
   Address,
@@ -17,26 +22,37 @@ import {
   nativeToScVal,
   rpc,
 } from '@stellar/stellar-sdk';
+import {
+  FRESHNESS_MS,
+  MAX_BODY_BYTES,
+  isGAddress,
+  isValidQuestId,
+  makeReplayGuard,
+  ownershipMessage,
+  parseRepoAllowlist,
+  repoAllowed,
+  validateEvidence,
+  withinFreshness,
+  type AttestClaim,
+  type AttestEvidence,
+} from '../../../lib/attest';
 
 export const runtime = 'nodejs';
 
-interface AttestRequest {
-  questId: number;
-  recipient: string;
-  evidence?: { type: 'github_pr' | 'referral_tx'; ref: string };
-  /** ms epoch; request is rejected if too old (replay window). */
-  timestamp: number;
+interface AttestRequest extends AttestClaim {
   /** base64 ed25519 signature of the canonical message, by the recipient wallet. */
   signature: string;
 }
 
-const FRESHNESS_MS = 120_000; // 2 minutes
 const RATE_MAX = 6; // requests per window per IP
 const RATE_WINDOW_MS = 60_000;
 
 // Best-effort in-memory rate limit (resets on cold start; on-chain replay guard is
 // the hard limit — each (quest, recipient) can only ever be awarded once).
 const hits = new Map<string, { n: number; resetAt: number }>();
+
+// Best-effort per-signature replay guard within the freshness window.
+const replay = makeReplayGuard(FRESHNESS_MS);
 
 function rateLimited(ip: string, now: number): boolean {
   const h = hits.get(ip);
@@ -48,17 +64,14 @@ function rateLimited(ip: string, now: number): boolean {
   return h.n > RATE_MAX;
 }
 
-/** Canonical message the recipient signs to prove wallet ownership. */
-function ownershipMessage(b: AttestRequest): string {
-  const ev = b.evidence;
-  return `attest:v1:${b.recipient}:${b.questId}:${ev?.type}:${ev?.ref}:${b.timestamp}`;
-}
-
 const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL ?? 'https://soroban-testnet.stellar.org';
 const HORIZON = process.env.NEXT_PUBLIC_HORIZON_URL ?? 'https://horizon-testnet.stellar.org';
 const PASSPHRASE =
   process.env.NEXT_PUBLIC_STELLAR_NETWORK === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
 const QUEST_ID = process.env.NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID ?? '';
+// Optional: restrict github_pr quests to specific repos so a user can't point at a
+// random famous merged PR. Unset = any repo (backward compatible).
+const REPO_ALLOWLIST = parseRepoAllowlist(process.env.QUEST_GITHUB_REPOS);
 
 export async function POST(req: Request): Promise<Response> {
   const secret = process.env.ATTESTER_SECRET_KEY;
@@ -66,37 +79,63 @@ export async function POST(req: Request): Promise<Response> {
     return json({ error: 'attester not configured (ATTESTER_SECRET_KEY / quest id)' }, 500);
   }
 
+  // Bound the request body before reading it.
+  const len = Number(req.headers.get('content-length') ?? '0');
+  if (Number.isFinite(len) && len > MAX_BODY_BYTES) {
+    return json({ error: 'request too large' }, 413);
+  }
+
   // Rate limit (best-effort; the on-chain replay guard is the hard cap).
   const now = Date.now();
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
   if (rateLimited(ip, now)) return json({ error: 'rate limited, slow down' }, 429);
 
+  let raw: string;
+  try {
+    raw = await req.text();
+  } catch {
+    return json({ error: 'invalid body' }, 400);
+  }
+  if (raw.length > MAX_BODY_BYTES) return json({ error: 'request too large' }, 413);
+
   let body: AttestRequest;
   try {
-    body = (await req.json()) as AttestRequest;
+    body = JSON.parse(raw) as AttestRequest;
   } catch {
     return json({ error: 'invalid json' }, 400);
   }
-  if (typeof body.questId !== 'number' || !/^G[A-Z2-7]{55}$/.test(body.recipient ?? '')) {
+  if (!isValidQuestId(body.questId) || !isGAddress(body.recipient)) {
     return json({ error: 'questId (number) and recipient (G address) required' }, 400);
   }
+  if (typeof body.signature !== 'string' || body.signature.length === 0) {
+    return json({ error: 'signature required' }, 400);
+  }
 
-  // 1) Freshness — reject stale/replayed requests outside the window.
-  if (typeof body.timestamp !== 'number' || Math.abs(now - body.timestamp) > FRESHNESS_MS) {
+  // 1) Freshness — reject stale/future-dated requests outside the window.
+  if (!withinFreshness(now, body.timestamp)) {
     return json({ error: 'stale or missing timestamp' }, 401);
   }
 
-  // 2) Wallet-ownership proof — only the owner of `recipient` can request a grant
-  //    for it. We verify the ed25519 signature over the canonical message.
+  // 2) Evidence shape (cheap, network-free) — format, length, self-referral.
+  const shape = validateEvidence(body.evidence, body.recipient);
+  if (!shape.ok) return json({ error: shape.reason }, 422);
+
+  // 3) Wallet-ownership proof — only the owner of `recipient` can request a grant
+  //    for it. We verify the ed25519 signature over the canonical (v2) message.
   if (!verifyOwnership(body)) {
     return json({ error: 'ownership signature invalid' }, 401);
   }
 
-  // 3) Verify the real-world action.
-  const verified = await verifyEvidence(body);
+  // 4) Replay guard — a valid signature can be used at most once within the window.
+  if (!replay.accept(body.signature, now)) {
+    return json({ error: 'duplicate request (replay)' }, 409);
+  }
+
+  // 5) Verify the real-world action (network).
+  const verified = await verifyEvidence(body.evidence as AttestEvidence);
   if (!verified.ok) return json({ error: verified.reason }, 422);
 
-  // 2) Sign + submit award_quest as the attester.
+  // 6) Sign + submit award_quest as the attester.
   try {
     const hash = await submitAwardQuest(secret, body.questId, body.recipient);
     logEvent({ route: 'attest', outcome: 'ok', questId: body.questId, ms: Date.now() - now });
@@ -106,7 +145,13 @@ export async function POST(req: Request): Promise<Response> {
     // gateway failure — map known quest_registry error codes to 4xx so callers get a
     // clear signal instead of an alarming 502. Genuine infra errors stay 502.
     const mapped = mapSubmitError(e);
-    logEvent({ route: 'attest', outcome: 'error', status: mapped.status, questId: body.questId, ms: Date.now() - now });
+    logEvent({
+      route: 'attest',
+      outcome: 'error',
+      status: mapped.status,
+      questId: body.questId,
+      ms: Date.now() - now,
+    });
     return json({ error: mapped.error }, mapped.status);
   }
 }
@@ -122,6 +167,7 @@ const CONTRACT_ERRORS: Record<number, { status: number; error: string }> = {
   3: { status: 403, error: 'attester not authorized for this quest' },
   4: { status: 404, error: 'quest not found' },
   5: { status: 409, error: 'this wallet has already completed this quest' },
+  6: { status: 409, error: 'quest is not active' },
 };
 
 function mapSubmitError(e: unknown): { status: number; error: string } {
@@ -129,7 +175,9 @@ function mapSubmitError(e: unknown): { status: number; error: string } {
   const m = msg.match(/Error\(Contract,\s*#?(\d+)\)/);
   if (m) {
     const code = Number(m[1]);
-    return CONTRACT_ERRORS[code] ?? { status: 409, error: `quest rejected (contract error ${code})` };
+    return (
+      CONTRACT_ERRORS[code] ?? { status: 409, error: `quest rejected (contract error ${code})` }
+    );
   }
   return { status: 502, error: msg };
 }
@@ -137,32 +185,34 @@ function mapSubmitError(e: unknown): { status: number; error: string } {
 function verifyOwnership(body: AttestRequest): boolean {
   try {
     const kp = Keypair.fromPublicKey(body.recipient);
-    const msg = Buffer.from(ownershipMessage(body), 'utf8');
-    const sig = Buffer.from(body.signature ?? '', 'base64');
+    const message = ownershipMessage(body, { contractId: QUEST_ID, passphrase: PASSPHRASE });
+    const msg = Buffer.from(message, 'utf8');
+    const sig = Buffer.from(body.signature, 'base64');
     return kp.verify(msg, sig);
   } catch {
     return false;
   }
 }
 
-async function verifyEvidence(body: AttestRequest): Promise<{ ok: boolean; reason?: string }> {
-  const ev = body.evidence;
-  if (!ev) return { ok: false, reason: 'evidence required' };
-
+async function verifyEvidence(ev: AttestEvidence): Promise<{ ok: boolean; reason?: string }> {
   if (ev.type === 'github_pr') {
     const m = ev.ref.match(/^([\w.-]+)\/([\w.-]+)#(\d+)$/);
     if (!m) return { ok: false, reason: 'ref must be owner/repo#number' };
     const [, owner, repo, num] = m;
+    if (!repoAllowed(REPO_ALLOWLIST, owner, repo)) {
+      return { ok: false, reason: 'repo not eligible for this quest' };
+    }
     const headers: Record<string, string> = { accept: 'application/vnd.github+json' };
     if (process.env.GITHUB_TOKEN) headers.authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
-    const r = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${num}`, { headers });
+    const r = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${num}`, {
+      headers,
+    });
     if (!r.ok) return { ok: false, reason: `github ${r.status}` };
     const pr = (await r.json()) as { merged?: boolean };
     return pr.merged ? { ok: true } : { ok: false, reason: 'PR not merged' };
   }
 
   if (ev.type === 'referral_tx') {
-    if (!/^G[A-Z2-7]{55}$/.test(ev.ref)) return { ok: false, reason: 'ref must be a G address' };
     const r = await fetch(`${HORIZON}/accounts/${ev.ref}/transactions?limit=1`);
     if (!r.ok) return { ok: false, reason: 'referred account not found' };
     const data = (await r.json()) as { _embedded?: { records?: unknown[] } };

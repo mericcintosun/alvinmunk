@@ -127,7 +127,8 @@ fn social_xp_does_not_unlock_treasury() {
         .rep
         .mint_vouch(&alice, &hash, &soroban_sdk::String::from_str(&f.env, "ty"));
     f.rep.claim_vouch(&bob, &id, &secret);
-    assert_eq!(f.rep.get_score(&bob), 10); // has Social XP
+    // starter Social XP (20) + first-pair claim XP (10) = 30 — all SOCIAL, non-cashable.
+    assert_eq!(f.rep.get_score(&bob), 30); // has Social XP
                                            // ...but Social XP must NOT open the treasury (keystone). threshold 5 > earned 0.
     f.rewards.claim_reward(&bob, &1u32); // panics: BelowThreshold
 }

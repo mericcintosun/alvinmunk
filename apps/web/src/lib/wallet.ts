@@ -39,10 +39,17 @@ function u8ToB64(u8: Uint8Array): string {
 
 const DEV_SECRET_KEY = 'passport.devSecret';
 
-/** Is the passkey smart-wallet infra configured? If not, we use the dev wallet. */
+/**
+ * Is the passkey smart-wallet infra fully configured? Requires ALL THREE pieces —
+ * the deployed wallet WASM hash, a launchtube submitter (fee sponsorship), and the
+ * factory contract id. Half-configured = stay on the dev wallet (never half-enable).
+ * See docs/PASSKEY_WIRING.md.
+ */
 export function isPasskeyConfigured(): boolean {
   return Boolean(
-    process.env.NEXT_PUBLIC_WALLET_WASM_HASH && process.env.NEXT_PUBLIC_LAUNCHTUBE_URL,
+    process.env.NEXT_PUBLIC_WALLET_WASM_HASH &&
+      process.env.NEXT_PUBLIC_LAUNCHTUBE_URL &&
+      process.env.NEXT_PUBLIC_PASSKEY_FACTORY_ID,
   );
 }
 
@@ -129,15 +136,35 @@ export function disconnectFreighter(): void {
 }
 
 // ── Passkey provider (production) ──
-
+//
+// This is the ONLY function that needs filling to ship real FaceID onboarding — the
+// adapter seam is already complete: every caller depends only on the `Wallet`
+// interface, so wiring passkey here touches no feature code. It's deferred (not on
+// the critical path to the next belt) and intentionally carries NO heavy dependency:
+// `passkey-kit` pulls native node-gyp modules that fail Vercel's install-time build,
+// which is why it was removed. Re-add it safely (pnpm.overrides / isolated package)
+// only when the infra below exists. Full runbook: docs/PASSKEY_WIRING.md.
+//
+// Integration contract (map passkey-kit -> the `Wallet` interface):
+//   const kit = new PasskeyKit({
+//     rpcUrl: config.rpcUrl,
+//     networkPassphrase,
+//     walletWasmHash:  process.env.NEXT_PUBLIC_WALLET_WASM_HASH!,
+//     factoryContractId: process.env.NEXT_PUBLIC_PASSKEY_FACTORY_ID!,
+//   });
+//   // createWallet() on first run (FaceID enroll) / connectWallet() on return;
+//   // submit via launchtube (NEXT_PUBLIC_LAUNCHTUBE_URL) for sponsored fees.
+//   return {
+//     kind: 'passkey',
+//     address: contractId,                 // the smart-account contract address (C...)
+//     sign: (xdr) => kit.sign(xdr) -> launchtube.send(...) -> signedXdr,
+//     signMessage: (m) => kit.signMessage(m),  // for the /api/attest ownership proof
+//   };
 export async function connectPasskey(): Promise<Wallet> {
-  // TODO(White belt infra): instantiate passkey-kit here with:
-  //   rpcUrl: config.rpcUrl, networkPassphrase, walletWasmHash, factory, launchtube.
-  // Then createWallet/connectWallet -> { contractId } and a sponsored sign().
-  // See belts/01-white-belt.md. Until configured, getWallet() falls back to dev.
   throw new Error(
-    'Passkey infra not configured. Set NEXT_PUBLIC_WALLET_WASM_HASH + NEXT_PUBLIC_LAUNCHTUBE_URL, ' +
-      'or use the dev wallet on testnet (default).',
+    'Passkey infra not configured. Set NEXT_PUBLIC_WALLET_WASM_HASH, ' +
+      'NEXT_PUBLIC_LAUNCHTUBE_URL and NEXT_PUBLIC_PASSKEY_FACTORY_ID (see ' +
+      'docs/PASSKEY_WIRING.md), or use the dev wallet on testnet (default).',
   );
 }
 

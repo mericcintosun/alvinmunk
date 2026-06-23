@@ -5,6 +5,8 @@
  * attester key never touches the client (belts/08 security).
  */
 import { readContract, args, questId as questRegistryId } from './contracts';
+import { config, networkPassphrase } from './stellar';
+import { ownershipMessage } from './attest';
 import type { Wallet } from './wallet';
 
 export interface QuestResult {
@@ -43,8 +45,12 @@ export async function completeQuest(
   evidence: Evidence,
 ): Promise<QuestResult> {
   const timestamp = Date.now();
-  // MUST match the server's ownershipMessage() exactly.
-  const message = `attest:v1:${wallet.address}:${questId}:${evidence.type}:${evidence.ref}:${timestamp}`;
+  // Canonical v2 message — built from the SHARED helper so it matches the server byte
+  // for byte, and bound to this deployment (quest contract id + network passphrase).
+  const message = ownershipMessage(
+    { questId, recipient: wallet.address, evidence, timestamp },
+    { contractId: config.contracts.questRegistry, passphrase: networkPassphrase },
+  );
   const signature = await wallet.signMessage(message);
 
   const res = await fetch('/api/attest', {
