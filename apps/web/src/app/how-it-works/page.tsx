@@ -4,6 +4,7 @@ import { Frame } from '@/components/fx/frame';
 import { Stamp } from '@/components/fx/stamp';
 import { LoopScroll } from '@/components/fx/loop-scroll';
 import { BorderBeam } from '@/components/fx/border-beam';
+import { Sticker } from '@/components/ui/sticker';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -26,8 +27,11 @@ export default function HowItWorks() {
     <div className="container max-w-5xl py-16">
       {/* header */}
       <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-primary/80">{'// the_machine'}</p>
-      <h1 className="display-hero mt-4 font-display text-5xl font-semibold tracking-tight sm:text-6xl">
+      <h1 className="display-hero mt-4 flex flex-wrap items-center gap-3 font-display text-5xl font-semibold tracking-tight sm:text-6xl">
         How it works
+        <Sticker name="star-lime" size={48} className="h-10 w-auto motion-safe:animate-float" />
+        <Sticker name="star-arc" size={56} className="hidden h-8 w-auto opacity-80 sm:block" />
+        <Sticker name="doodle-spiral" size={30} className="hidden h-6 w-auto opacity-70 sm:block" />
       </h1>
       <p className="mt-5 max-w-xl text-lg text-muted-foreground text-balance">
         Stellar Passport turns trust into something you can see — and other apps can read.
@@ -37,7 +41,10 @@ export default function HowItWorks() {
       {/* the loop — scrollytelling */}
       <section className="mt-16">
         <div className="flex items-end justify-between border-b border-border/60 pb-3">
-          <h2 className="font-display text-3xl font-semibold tracking-tight">The vouch loop</h2>
+          <h2 className="flex items-center gap-2.5 font-display text-3xl font-semibold tracking-tight">
+            The vouch loop
+            <Sticker name="doodle-spark" size={28} className="h-6 w-auto" />
+          </h2>
           <span className="font-mono text-xs text-muted-foreground">scroll ↓</span>
         </div>
         <div className="mt-8">
@@ -51,8 +58,9 @@ export default function HowItWorks() {
           Two kinds of XP
         </h2>
         <div className="mt-8 grid gap-4 md:grid-cols-2">
-          <Frame label="track // social" index="A" tilt>
-            <div className="p-7">
+          <Frame label="track // social" index="A" tilt tape="br">
+            <div className="relative p-7">
+              <Sticker name="social-seen" size={70} rotate={6} className="absolute right-4 top-4" />
               <Stamp accent="primary">CLOUT · NOT CASH</Stamp>
               <h3 className="mt-4 text-xl font-semibold">Social XP</h3>
               <p className="mt-2 text-sm text-muted-foreground">
@@ -62,7 +70,8 @@ export default function HowItWorks() {
             </div>
           </Frame>
           <Frame label="track // earned" index="B" accent="secondary" tilt>
-            <div className="p-7">
+            <div className="relative p-7">
+              <Sticker name="stamp-verified" size={72} rotate={-8} className="absolute right-3 top-3" />
               <Stamp accent="secondary">UNLOCKS USDC</Stamp>
               <h3 className="mt-4 text-xl font-semibold">Earned XP</h3>
               <p className="mt-2 text-sm text-muted-foreground">
@@ -82,7 +91,8 @@ export default function HowItWorks() {
         <p className="mt-3 text-sm text-muted-foreground">
           We&apos;d rather show you the limits than pretend they don&apos;t exist.
         </p>
-        <Frame label="constraints // enforced" index="06" className="mt-6">
+        <Frame label="constraints // enforced" index="06" className="mt-6" tape="tr">
+          <Sticker name="stamp-strip" size={96} rotate={-4} className="absolute -top-4 right-10 z-10 hidden sm:block" />
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
             {LIMITS.map((l, i) => (
               <div
@@ -128,7 +138,8 @@ const earned = await getEarned(address); // → 30`}
         </div>
       </section>
 
-      <div className="mt-16 flex justify-center">
+      <div className="relative mt-16 flex justify-center">
+        <Sticker name="social-boom" size={64} rotate={-10} className="absolute -top-6 left-1/2 hidden -translate-x-[7rem] motion-safe:animate-float md:block" />
         <span className="relative inline-flex overflow-hidden rounded-full">
           <Link href="/app" className={cn(buttonVariants({ variant: 'flow', size: 'lg' }))}>
             Open the app

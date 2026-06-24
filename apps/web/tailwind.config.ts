@@ -55,6 +55,10 @@ const config: Config = {
         starlight: 'hsl(var(--starlight) / <alpha-value>)',
         onchain: 'hsl(var(--onchain) / <alpha-value>)',
         tertiary: 'hsl(var(--tertiary) / <alpha-value>)',
+        lime: {
+          DEFAULT: 'hsl(var(--lime) / <alpha-value>)',
+          foreground: 'hsl(var(--lime-foreground) / <alpha-value>)',
+        },
         surface: {
           DEFAULT: 'hsl(var(--surface) / <alpha-value>)',
           2: 'hsl(var(--surface-2) / <alpha-value>)',

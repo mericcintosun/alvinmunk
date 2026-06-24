@@ -6,6 +6,7 @@ import { ArrowRight } from 'lucide-react';
 import { resolveHandle } from '@/lib/registry';
 import { getScores } from '@/lib/reputation';
 import { Crest } from '@/components/brand/crest';
+import { Avatar } from '@/components/Avatar';
 import { Frame } from '@/components/fx/frame';
 import { Stamp } from '@/components/fx/stamp';
 import { BorderBeam } from '@/components/fx/border-beam';
@@ -56,9 +57,13 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
         sponsored), then vouch them back so your stars connect.
       </p>
 
-      <Frame label={`invite // @${handle}`} index="REF" className="mt-7" tilt>
+      <Frame label={`invite // @${handle}`} index="REF" className="mt-7" tilt tape="tr">
         <div className="flex items-center gap-5 p-7">
-          <Crest address={address ?? `unclaimed-${handle}`} size={96} points={7} animate />
+          {address ? (
+            <Avatar address={address} handle={handle} size={96} />
+          ) : (
+            <Crest address={`unclaimed-${handle}`} size={96} points={7} animate />
+          )}
           <div className="min-w-0">
             <div className="font-display text-2xl font-semibold">@{handle}</div>
             <p className="mt-1 font-mono text-xs text-muted-foreground">

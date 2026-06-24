@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { Frame } from '@/components/fx/frame';
+import { Sticker } from '@/components/ui/sticker';
 
 /**
  * Invite nudge — if you arrived via a /v/<handle> link, the dashboard reminds you to
@@ -33,7 +34,8 @@ export function InviteNudge() {
   return (
     <Frame label="invite // pending" index="REF" accent="secondary">
       <div className="flex items-center justify-between gap-3 p-4">
-        <p className="text-sm">
+        <Sticker name="hand-shake" size={48} className="hidden shrink-0 sm:block" />
+        <p className="flex-1 text-sm">
           <span className="font-mono text-secondary">@{ref}</span> invited you — light a star and send
           it back to complete the loop.
         </p>

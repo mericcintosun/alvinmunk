@@ -44,6 +44,12 @@ export async function completeQuest(
   questId: number,
   evidence: Evidence,
 ): Promise<QuestResult> {
+  // Quests need an ed25519 message signature to prove recipient ownership. Freighter's
+  // message-signing scheme isn't wired for that yet (wallet.ts), so fail clearly here
+  // instead of letting `signMessage` throw a raw error mid-flow.
+  if (wallet.kind === 'freighter') {
+    return { ok: false, error: 'Quests need the in-app wallet — switch from Freighter to verify.' };
+  }
   const timestamp = Date.now();
   // Canonical v2 message — built from the SHARED helper so it matches the server byte
   // for byte, and bound to this deployment (quest contract id + network passphrase).

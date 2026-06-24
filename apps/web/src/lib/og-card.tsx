@@ -1,6 +1,8 @@
 import { stampArt, shortAddr } from '@passport/shared';
 import { resolveHandle } from './registry';
 import { getScores } from './reputation';
+import { loadPngDataUri } from './og-assets';
+import { faceFile, type FaceId } from './avatar';
 
 // Shared passport-card renderer for the OG image routes (/u and /v). Resolves the handle
 // on-chain and returns Satori-compatible JSX. Literal colors (Satori has no CSS vars).
@@ -10,6 +12,7 @@ const VIOLET = '#9945FF';
 const CYAN = '#37E0FF';
 const GREEN = '#14F195';
 const GOLD = '#FFB257';
+const LIME = '#C4FA4E';
 const FG = '#F4F1FA';
 const MUTED = '#8b86a8';
 
@@ -33,12 +36,16 @@ export function passportCard(opts: {
   address: string | null;
   scores: { social: number; earned: number };
   invite?: boolean;
+  /** The passport face to render. When set (claimed handle), shows the portrait sticker;
+   *  otherwise falls back to the deterministic constellation. */
+  avatarId?: FaceId;
 }) {
-  const { handle, address, scores, invite } = opts;
+  const { handle, address, scores, invite, avatarId } = opts;
   const art = stampArt(address ?? `unclaimed-${handle}`, 7);
   const pts = art.points.split(' ').map((p) => p.split(',').map(Number));
   const polyPoints = [...pts, pts[0]].map((p) => `${p[0]},${p[1]}`).join(' ');
   const stars = Math.max(1, Math.round(scores.social / 10));
+  const faceUri = avatarId && address ? loadPngDataUri(faceFile(avatarId)) : null;
 
   return (
     <div
@@ -64,15 +71,33 @@ export function passportCard(opts: {
       </div>
 
       <div style={{ display: 'flex', flex: 1, alignItems: 'center', gap: '56px' }}>
-        <div style={{ display: 'flex', width: '380px', height: '380px' }}>
-          <svg width="380" height="380" viewBox="0 0 100 100">
-            <circle cx="50" cy="50" r="46" fill={VIOLET} fillOpacity="0.08" />
-            <polyline points={polyPoints} fill="none" stroke="#9fb0d8" strokeOpacity="0.3" strokeWidth="0.6" />
-            {pts.map((p, i) => (
-              <circle key={i} cx={p[0]} cy={p[1]} r={i === 0 ? 4 : 2.4} fill={i === 0 ? GOLD : i % 2 ? CYAN : VIOLET} />
-            ))}
-          </svg>
-        </div>
+        {faceUri ? (
+          <div
+            style={{
+              display: 'flex',
+              width: '380px',
+              height: '380px',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: '50%',
+              overflow: 'hidden',
+              background: `radial-gradient(circle, ${VIOLET}22 0%, ${BG} 72%)`,
+              border: `6px solid ${LIME}`,
+            }}
+          >
+            <img src={faceUri} width={372} height={475} style={{ objectFit: 'cover', objectPosition: 'top' }} />
+          </div>
+        ) : (
+          <div style={{ display: 'flex', width: '380px', height: '380px' }}>
+            <svg width="380" height="380" viewBox="0 0 100 100">
+              <circle cx="50" cy="50" r="46" fill={VIOLET} fillOpacity="0.08" />
+              <polyline points={polyPoints} fill="none" stroke="#9fb0d8" strokeOpacity="0.3" strokeWidth="0.6" />
+              {pts.map((p, i) => (
+                <circle key={i} cx={p[0]} cy={p[1]} r={i === 0 ? 4 : 2.4} fill={i === 0 ? GOLD : i % 2 ? CYAN : VIOLET} />
+              ))}
+            </svg>
+          </div>
+        )}
 
         <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
           {invite && (

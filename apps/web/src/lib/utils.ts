@@ -30,6 +30,31 @@ export function humanizeError(e: unknown, codeMap: Record<number, string> = {}):
   const raw = e instanceof Error ? e.message : String(e ?? 'Something went wrong');
   // Drop Soroban's "Event log (newest first): …" diagnostic tail and take the first line.
   const firstLine = raw.split(/Event log|\n/)[0].trim();
-  if (code != null) return `That didn't go through (chain error ${code}).`;
+  // Unknown contract code → always give the user a next step, never a dead end.
+  if (code != null) return `That didn't go through (chain error ${code}). Try again in a moment.`;
   return firstLine.length > 120 ? `${firstLine.slice(0, 117)}…` : firstLine || 'Something went wrong';
+}
+
+/**
+ * Race a promise against a timeout so a hung RPC/Horizon read can't leave the UI stuck
+ * in a loading state at an action point (claim, tip, reward). Rejects with a recoverable
+ * message on timeout; the caller surfaces a visible retry.
+ */
+export function withTimeout<T>(p: Promise<T>, ms = 15_000, label = 'request'): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(
+      () => reject(new Error(`The ${label} timed out — the network is slow. Try again.`)),
+      ms,
+    );
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      },
+    );
+  });
 }

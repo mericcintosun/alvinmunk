@@ -48,6 +48,7 @@ export function Star({
   glowScale,
   hovered = false,
   opacity = 0.7,
+  reduced = false,
   onOver,
   onOut,
   onClick,
@@ -58,6 +59,7 @@ export function Star({
   glowScale: number;
   hovered?: boolean;
   opacity?: number;
+  reduced?: boolean;
   onOver?: () => void;
   onOut?: () => void;
   onClick?: () => void;
@@ -65,8 +67,8 @@ export function Star({
   const sprite = useRef<THREE.Sprite>(null);
   const phase = useRef(Math.random() * Math.PI * 2);
   useFrame((_, d) => {
-    phase.current += d;
-    const pulse = 1 + Math.sin(phase.current * 1.5) * 0.07;
+    // Honor prefers-reduced-motion fully: no idle pulse, only the static (and hover) scale.
+    const pulse = reduced ? 1 : 1 + Math.sin((phase.current += d) * 1.5) * 0.07;
     sprite.current?.scale.setScalar(glowScale * (hovered ? 1.7 : 1) * pulse);
   });
   return (

@@ -2,6 +2,8 @@
 
 import { useRef, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+import { Tape } from '@/components/ui/sticker';
+import { type TapeCorner } from '@/lib/assets';
 
 /**
  * Technical Frame — the brand's anti-template container. Sharp corners, a hairline
@@ -17,6 +19,7 @@ export function Frame({
   tilt = false,
   brackets = true,
   accent = 'primary',
+  tape,
 }: {
   children: ReactNode;
   className?: string;
@@ -25,6 +28,8 @@ export function Frame({
   tilt?: boolean;
   brackets?: boolean;
   accent?: 'primary' | 'secondary' | 'tertiary';
+  /** Optional washi-tape decal pinning a corner — the scrapbook touch. */
+  tape?: TapeCorner;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const ring =
@@ -69,6 +74,7 @@ export function Frame({
           <span className={cn('pointer-events-none absolute -bottom-px -right-px size-3.5 border-b-2 border-r-2', ring)} />
         </>
       )}
+      {tape && <Tape corner={tape} size={64} className="z-10" />}
       {(label || index) && (
         <div className="flex items-center justify-between border-b border-border/60 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
           <span>{label}</span>

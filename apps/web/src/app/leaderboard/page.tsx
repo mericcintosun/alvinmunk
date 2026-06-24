@@ -9,6 +9,8 @@ import { Crest } from '@/components/brand/crest';
 import { Frame } from '@/components/fx/frame';
 import { ShareRow } from '@/components/fx/share-row';
 import { Skeleton } from '@/components/ui/skeleton';
+import { StateArt } from '@/components/ui/state-art';
+import { Sticker } from '@/components/ui/sticker';
 import { cn, shortAddress } from '@/lib/utils';
 
 /**
@@ -77,9 +79,12 @@ export default function LeaderboardPage() {
             ))}
           </div>
         ) : rows.length === 0 ? (
-          <p className="p-10 text-center font-mono text-sm text-muted-foreground">
-            no constellations yet — be the first to vouch ten people.
-          </p>
+          <div className="flex flex-col items-center gap-4 p-10 text-center">
+            <StateArt kind="empty-leaderboard" size={300} className="motion-safe:animate-float" />
+            <p className="font-mono text-sm text-muted-foreground">
+              no constellations yet — be the first to vouch ten people.
+            </p>
+          </div>
         ) : (
           <ol className="divide-y divide-border/50">
             {rows.map((e) => {
@@ -92,8 +97,11 @@ export default function LeaderboardPage() {
                     isMe && 'bg-primary/5',
                   )}
                 >
-                  <span className="w-8 shrink-0 font-mono text-sm text-muted-foreground">
+                  <span className="relative w-8 shrink-0 font-mono text-sm text-muted-foreground">
                     #{String(e.rank).padStart(2, '0')}
+                    {e.rank === 1 && (
+                      <Sticker name="burst-hot" size={34} rotate={-12} className="absolute -left-1 -top-5 h-7 w-auto" />
+                    )}
                   </span>
                   <Crest address={e.address} size={42} points={Math.min(9, 4 + (e.rank % 5))} />
                   <div className="min-w-0 flex-1">

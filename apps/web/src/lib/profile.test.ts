@@ -24,6 +24,18 @@ describe('profile persistence', () => {
     expect(p?.address).toBe('GABC');
   });
 
+  it('round-trips an optional avatar choice', () => {
+    saveProfile({ handle: 'kaan', address: 'GABC', createdAt: 1, avatar: { kind: 'face', id: 'face-03' } });
+    expect(loadProfile()?.avatar).toEqual({ kind: 'face', id: 'face-03' });
+  });
+
+  it('stays backward-compatible with avatar-less profiles', () => {
+    saveProfile({ handle: 'old', address: 'GOLD', createdAt: 1 });
+    const p = loadProfile();
+    expect(p?.handle).toBe('old');
+    expect(p?.avatar).toBeUndefined();
+  });
+
   it('returns null when nothing saved', () => {
     expect(loadProfile()).toBeNull();
   });

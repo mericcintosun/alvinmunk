@@ -55,6 +55,10 @@ const hits = new Map<string, { n: number; resetAt: number }>();
 const replay = makeReplayGuard(FRESHNESS_MS);
 
 function rateLimited(ip: string, now: number): boolean {
+  // Bound memory: drop expired buckets before they accumulate across a warm instance.
+  if (hits.size > 500) {
+    for (const [k, v] of hits) if (now > v.resetAt) hits.delete(k);
+  }
   const h = hits.get(ip);
   if (!h || now > h.resetAt) {
     hits.set(ip, { n: 1, resetAt: now + RATE_WINDOW_MS });
@@ -126,14 +130,17 @@ export async function POST(req: Request): Promise<Response> {
     return json({ error: 'ownership signature invalid' }, 401);
   }
 
-  // 4) Replay guard — a valid signature can be used at most once within the window.
+  // 4) Verify the real-world action (network) BEFORE consuming the replay slot. If we
+  //    burned the signature here and GitHub/Horizon returned a transient 5xx, the user
+  //    would be locked out for the whole freshness window despite a valid signature.
+  //    The on-chain `award_quest` replay guard is the hard idempotency cap regardless.
+  const verified = await verifyEvidence(body.evidence as AttestEvidence);
+  if (!verified.ok) return json({ error: verified.reason }, 422);
+
+  // 5) Replay guard — a valid, verified signature can be used at most once in-window.
   if (!replay.accept(body.signature, now)) {
     return json({ error: 'duplicate request (replay)' }, 409);
   }
-
-  // 5) Verify the real-world action (network).
-  const verified = await verifyEvidence(body.evidence as AttestEvidence);
-  if (!verified.ok) return json({ error: verified.reason }, 422);
 
   // 6) Sign + submit award_quest as the attester.
   try {
@@ -213,6 +220,10 @@ async function verifyEvidence(ev: AttestEvidence): Promise<{ ok: boolean; reason
   }
 
   if (ev.type === 'referral_tx') {
+    // KNOWN LIMITATION (belts/08, deferred to Blue): this proves the referred account is
+    // active, NOT that a real referral relationship exists between it and the recipient.
+    // A genuine binding needs an on-chain edge (e.g. a recorded vouch/payment between the
+    // two) — intentionally not enforced at <50 users to avoid premature anti-sybil cost.
     const r = await fetch(`${HORIZON}/accounts/${ev.ref}/transactions?limit=1`);
     if (!r.ok) return { ok: false, reason: 'referred account not found' };
     const data = (await r.json()) as { _embedded?: { records?: unknown[] } };

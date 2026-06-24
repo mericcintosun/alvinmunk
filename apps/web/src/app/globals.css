@@ -47,6 +47,11 @@
   --surface: 266 34% 9%;
   --surface-2: 266 30% 12%;
   --hairline: 260 60% 100%;
+
+  /* Sticker-kit lime — the playful, human accent from the scrapbook asset kit (#C4FA4E).
+     Used on warm/social surfaces only; never on money/proof UI (see asset-art-direction). */
+  --lime: 79 94% 64%;
+  --lime-foreground: 265 60% 6%;
 }
 
 @layer base {
@@ -183,6 +188,18 @@
     font-size: clamp(2.75rem, 7vw, 5.5rem);
     line-height: 0.96;
     letter-spacing: -0.02em;
+  }
+
+  /* Scoped sticker cursor — a delightful brand touch on the hero ONLY (never global, never
+     over interactive elements; pointer-device only). Falls back to the system cursor. */
+  @media (hover: hover) and (pointer: fine) {
+    .brand-cursor {
+      cursor: url('/assets/cursors/sticker-default.png') 4 2, auto;
+    }
+    .brand-cursor a,
+    .brand-cursor button {
+      cursor: pointer;
+    }
   }
 
   /* Subtle film grain — kills the flat "AI gradient" look. Fixed, non-interactive. */

@@ -2,7 +2,6 @@
 
 import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
 import { ArrowRight } from 'lucide-react';
 import { shortAddr } from '@passport/shared';
 import { useWallet } from '@/components/wallet/wallet-provider';
@@ -12,7 +11,19 @@ import { Frame } from '@/components/fx/frame';
 import { Stamp } from '@/components/fx/stamp';
 import { BorderBeam } from '@/components/fx/border-beam';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { cn, humanizeError } from '@/lib/utils';
+import { Skeleton } from '@/components/ui/skeleton';
+import { StateArt } from '@/components/ui/state-art';
+import { Sticker } from '@/components/ui/sticker';
+import { cn, humanizeError, withTimeout } from '@/lib/utils';
+
+/** Read the claim-secret from the URL fragment (#s=…), falling back to the legacy ?s=
+ *  query for links shared before the switch. The fragment never reaches the server. */
+function readSecret(): string {
+  if (typeof window === 'undefined') return '';
+  const fromHash = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('s');
+  const fromQuery = new URLSearchParams(window.location.search).get('s');
+  return fromHash ?? fromQuery ?? '';
+}
 
 const CLAIM_ERRORS: Record<number, string> = {
   4: "This vouch doesn't exist or has expired.",
@@ -32,21 +43,42 @@ export default function ClaimPage(props: { params: { id: string } }) {
 
 function ClaimInner({ params }: { params: { id: string } }) {
   const { id } = params;
-  const secret = useSearchParams().get('s') ?? '';
+  const vid = Number(id);
+  const validId = Number.isInteger(vid) && vid >= 0;
   const { connect, profile } = useWallet();
+  const [secret, setSecret] = useState('');
   const [state, setState] = useState<'preview' | 'claiming' | 'done' | 'error'>('preview');
   const [error, setError] = useState<string | null>(null);
   const [vouch, setVouch] = useState<VouchView | null | undefined>(undefined);
+  // Distinguish "couldn't read the chain" (retryable) from "this vouch doesn't exist"
+  // so a slow/failing RPC never masquerades as an expired or missing vouch.
+  const [loadError, setLoadError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => setSecret(readSecret()), []);
 
   useEffect(() => {
+    if (!validId) {
+      setVouch(null);
+      return;
+    }
     let alive = true;
-    getVouch(Number(id))
-      .then((v) => alive && setVouch(v))
-      .catch(() => alive && setVouch(null));
+    setVouch(undefined);
+    setLoadError(false);
+    withTimeout(getVouch(vid), 15_000, 'vouch')
+      .then((v) => alive && setVouch(v ?? null))
+      .catch(() => {
+        if (alive) {
+          setVouch(null);
+          setLoadError(true);
+        }
+      });
     return () => {
       alive = false;
     };
-  }, [id]);
+  }, [vid, validId, reloadKey]);
+
+  const loading = validId && vouch === undefined && !loadError;
 
   const nowSec = Math.floor(Date.now() / 1000);
   const deadline = vouch ? vouch.created + VOUCH_TTL_SECS : 0;
@@ -63,7 +95,7 @@ function ClaimInner({ params }: { params: { id: string } }) {
     setError(null);
     try {
       const wallet = await connect();
-      await claimVouch(wallet, Number(id), secret);
+      await claimVouch(wallet, vid, secret);
       setState('done');
     } catch (e) {
       setError(humanizeError(e, CLAIM_ERRORS));
@@ -73,6 +105,57 @@ function ClaimInner({ params }: { params: { id: string } }) {
 
   const done = state === 'done';
   const status = done ? 'CLAIMED' : vouch?.claimed ? 'CLAIMED' : windowOpen ? 'OPEN' : vouch ? 'EXPIRED' : '—';
+
+  // Loading — show a skeleton, not a half-rendered "from / —" frame at the most
+  // emotionally loaded moment of the funnel.
+  if (loading) {
+    return (
+      <div className="container max-w-lg py-16">
+        <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-primary/80">
+          {'// incoming_vouch'}
+        </p>
+        <Skeleton className="mt-4 h-10 w-3/4" />
+        <Skeleton className="mt-3 h-4 w-full max-w-sm" />
+        <Frame label={`vouch // #${id}`} index="…" className="mt-7">
+          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 p-6">
+            <Skeleton className="mx-auto size-[88px] rounded-full" />
+            <ArrowRight className="size-5 text-muted-foreground/40" />
+            <Skeleton className="mx-auto size-[88px] rounded-full" />
+          </div>
+        </Frame>
+      </div>
+    );
+  }
+
+  // Couldn't read the vouch (invalid link or RPC failure) — honest, retryable, never
+  // disguised as "expired".
+  if (!validId || loadError) {
+    return (
+      <div className="container max-w-lg py-16">
+        <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-primary/80">
+          {`// ${validId ? 'unreadable' : 'invalid_link'}`}
+        </p>
+        <h1 className="mt-4 font-display text-4xl font-semibold tracking-tight">
+          {validId ? "Couldn't read this vouch." : 'This link looks broken.'}
+        </h1>
+        <p className="mt-3 max-w-sm text-muted-foreground text-balance">
+          {validId
+            ? 'The network didn’t answer in time. Your vouch is safe — try again.'
+            : 'The claim link is malformed. Ask the person who sent it to re-share it.'}
+        </p>
+        <div className="mt-7 flex flex-col items-start gap-3">
+          {validId && (
+            <Button variant="flow" size="lg" onClick={() => setReloadKey((k) => k + 1)}>
+              Try again <ArrowRight className="size-4" />
+            </Button>
+          )}
+          <Link href="/app" className="font-mono text-xs text-muted-foreground underline">
+            open_the_app →
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="container max-w-lg py-16">
@@ -165,6 +248,10 @@ function ClaimInner({ params }: { params: { id: string } }) {
           </div>
         ) : (
           <div className="flex flex-col items-start gap-3">
+            <div className="relative self-stretch">
+              <StateArt kind="claim-success" size={220} className="mx-auto motion-safe:animate-ignite" />
+              <Sticker name="stamp-verified" size={88} rotate={-8} className="absolute -right-1 top-0 motion-safe:animate-ignite" />
+            </div>
             <Stamp accent="secondary">✦ STAR IGNITED</Stamp>
             <Link href="/app" className={cn(buttonVariants({ variant: 'flow', size: 'lg' }))}>
               {profile ? 'Now vouch someone back' : 'Create your passport'} <ArrowRight className="size-4" />

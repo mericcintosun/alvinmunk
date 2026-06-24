@@ -4,9 +4,8 @@
  * render real faces/stars, not numbers. Wallet-free — reads RPC events + the on-chain
  * get_vouch view (durable indexer deferred to Blue/Black, belts/00-strategy).
  */
-import { scValToNative, xdr } from '@stellar/stellar-sdk';
 import { EVENTS } from '@passport/shared';
-import { server, config } from './stellar';
+import { fetchReputationEvents } from './events';
 import { getVouch } from './reputation';
 
 /** A person who vouched you — one star in your constellation. */
@@ -18,47 +17,19 @@ export interface VoucherStar {
   created: number;
 }
 
-function toNative(v: xdr.ScVal | string): unknown {
-  const sv = typeof v === 'string' ? xdr.ScVal.fromXDR(v, 'base64') : v;
-  return scValToNative(sv);
-}
-
 /**
  * People who vouched `address` — newest first, de-duplicated per voucher, capped at
  * `max`. Reads `vouch:claimed` events (id, from, claimer) where claimer === address,
  * then enriches each with note + timestamp via get_vouch.
  */
 export async function fetchVouchersOf(address: string, max = 14): Promise<VoucherStar[]> {
-  if (!config.contracts.reputation) return [];
-
-  let startLedger: number;
-  try {
-    const latest = await server.getLatestLedger();
-    startLedger = Math.max(1, latest.sequence - 9000); // within RPC retention
-  } catch {
-    return [];
-  }
-
-  let res;
-  try {
-    res = await server.getEvents({
-      startLedger,
-      filters: [
-        { type: 'contract', contractIds: [config.contracts.reputation], topics: [['*', '*']] },
-      ],
-      limit: 1000,
-    });
-  } catch {
-    return [];
-  }
+  const events = await fetchReputationEvents();
 
   const seen = new Set<string>();
   const edges: { from: string; vouchId: number }[] = [];
-  for (let i = res.events.length - 1; i >= 0; i--) {
-    const ev = res.events[i];
-    const topics = (ev.topic as Array<xdr.ScVal | string>).map(toNative);
+  for (let i = events.length - 1; i >= 0; i--) {
+    const { topics, data } = events[i];
     if (topics[0] !== EVENTS.VOUCH || topics[1] !== 'claimed') continue;
-    const data = toNative(ev.value as xdr.ScVal | string);
     if (!Array.isArray(data)) continue;
     const vouchId = Number(data[0]);
     const from = String(data[1]);

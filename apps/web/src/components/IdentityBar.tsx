@@ -11,6 +11,11 @@ import { ShareRow } from '@/components/fx/share-row';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Avatar } from '@/components/Avatar';
+import { AvatarPicker } from '@/components/AvatarPicker';
+import { AvatarRemix } from '@/components/AvatarRemix';
+import { type FaceId, type KitAvatar } from '@/lib/avatar';
+import { cn } from '@/lib/utils';
 
 /**
  * Identity bar — your @handle as the passport ID, with inline claim/edit (re-stamps the
@@ -22,8 +27,22 @@ export function IdentityBar() {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const [tab, setTab] = useState<'faces' | 'remix'>('faces');
 
   if (!profile) return null;
+
+  function chooseFace(id: FaceId) {
+    if (!profile) return;
+    setProfile({ ...profile, avatar: { kind: 'face', id } });
+    setPicking(false);
+  }
+
+  function chooseKit(cfg: KitAvatar) {
+    if (!profile) return;
+    setProfile({ ...profile, avatar: cfg });
+    setPicking(false);
+  }
 
   async function save() {
     if (!profile) return;
@@ -55,7 +74,8 @@ export function IdentityBar() {
   }
 
   return (
-    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+    <div className="mb-3">
+    <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex min-w-0 items-center gap-2">
         {editing ? (
           <form
@@ -88,6 +108,14 @@ export function IdentityBar() {
           </form>
         ) : (
           <>
+            <button
+              onClick={() => setPicking((p) => !p)}
+              className="rounded-full outline-none ring-offset-2 ring-offset-background transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-lime"
+              aria-label="Change your face"
+              title="Change your face"
+            >
+              <Avatar address={profile.address} avatar={profile.avatar} handle={profile.handle} size={40} />
+            </button>
             <h1 className="truncate font-display text-lg font-semibold">@{profile.handle}</h1>
             <Badge variant="onchain">on-chain</Badge>
             <button
@@ -112,6 +140,39 @@ export function IdentityBar() {
           text="My constellation on Stellar Passport — collect people, not points."
         />
       </div>
+    </div>
+      {picking && (
+        <div className="mt-3 rounded-xl border border-border/60 bg-surface/40 p-3">
+          <div className="mb-3 flex justify-center gap-1">
+            {(['faces', 'remix'] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={cn(
+                  'rounded-full px-3 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors',
+                  tab === t ? 'bg-lime text-lime-foreground' : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {t === 'faces' ? 'pick a face' : 'remix'}
+              </button>
+            ))}
+          </div>
+          {tab === 'faces' ? (
+            <AvatarPicker
+              value={profile.avatar?.kind === 'face' ? profile.avatar.id : undefined}
+              onChange={chooseFace}
+              size={44}
+            />
+          ) : (
+            <AvatarRemix
+              seed={profile.address}
+              initial={profile.avatar?.kind === 'kit' ? profile.avatar : undefined}
+              onSave={chooseKit}
+              onCancel={() => setPicking(false)}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -3,11 +3,15 @@
  * On-chain handle binding happens via the Genesis tx (recordGenesis); this is the
  * client-side cache so returning users skip onboarding.
  */
+import type { AvatarConfig } from './avatar';
+
 export interface Profile {
   handle: string;
   address: string;
   createdAt: number;
   genesisTx?: string;
+  /** Chosen passport face. Absent → a deterministic default is derived from address. */
+  avatar?: AvatarConfig;
 }
 
 const KEY = 'passport.profile';

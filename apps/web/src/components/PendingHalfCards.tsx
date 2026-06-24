@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Copy, Check } from 'lucide-react';
 import { getPendingVouches, type PendingVouch } from '@/lib/myvouches';
 import { Frame } from '@/components/fx/frame';
+import { Sticker } from '@/components/ui/sticker';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -35,17 +36,31 @@ export function PendingHalfCards() {
   }
 
   return (
-    <Frame label="pending // awaiting_claim" index={String(items.length).padStart(2, '0')} accent="tertiary">
+    <Frame label="pending // awaiting_claim" index={String(items.length).padStart(2, '0')} accent="tertiary" tape="tr">
+      <Sticker name="stamp-ticket" size={60} rotate={-6} className="absolute -bottom-2 right-3 z-10 opacity-90" />
       <ul className="divide-y divide-border/50">
         {items.map((v) => (
           <li key={v.id} className="flex items-center gap-3 p-4">
-            <div className="grid size-10 shrink-0 place-items-center border border-dashed border-tertiary/50 text-tertiary">
-              <span className="font-mono text-[10px]">{v.daysLeft}d</span>
+            {/* Last-day urgency is signaled by color AND the "today" label — never color alone. */}
+            <div
+              className={cn(
+                'grid size-10 shrink-0 place-items-center border border-dashed',
+                v.daysLeft <= 1
+                  ? 'border-destructive/60 text-destructive'
+                  : 'border-tertiary/50 text-tertiary',
+              )}
+            >
+              <span className="font-mono text-[10px]">{v.daysLeft <= 0 ? 'now' : `${v.daysLeft}d`}</span>
             </div>
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm italic text-foreground/85">&ldquo;{v.note}&rdquo;</p>
-              <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-                stake at risk · re-share before it&apos;s slashed
+              <p
+                className={cn(
+                  'font-mono text-[10px] uppercase tracking-wider',
+                  v.daysLeft <= 1 ? 'text-destructive' : 'text-muted-foreground',
+                )}
+              >
+                {v.daysLeft <= 1 ? 'slashes today · re-share now' : "stake at risk · re-share before it's slashed"}
               </p>
             </div>
             <button

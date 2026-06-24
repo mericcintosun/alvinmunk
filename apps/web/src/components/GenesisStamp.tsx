@@ -1,6 +1,7 @@
 'use client';
 
 import { stampArt } from '@passport/shared';
+import { Avatar } from '@/components/Avatar';
 
 /**
  * Passport Cover + Genesis Stamp (Sprint 1). Deterministic generative crest from the
@@ -43,10 +44,13 @@ export function GenesisStamp({
         <span className="text-[11px] uppercase tracking-widest text-white/40">
           Stellar Passport
         </span>
-        <div>
-          <div className="text-lg font-semibold">@{handle}</div>
-          <div className="text-xs text-white/50">
-            joined {date} · {address.slice(0, 4)}…{address.slice(-4)}
+        <div className="flex items-center gap-3">
+          <Avatar address={address} handle={handle} size={48} />
+          <div>
+            <div className="text-lg font-semibold">@{handle}</div>
+            <div className="text-xs text-white/50">
+              joined {date} · {address.slice(0, 4)}…{address.slice(-4)}
+            </div>
           </div>
         </div>
       </figcaption>

@@ -57,7 +57,8 @@ function Scene({
   const centerColor = useMemo(() => new THREE.Color().setHSL(40 / 360, 1, 0.72), []); // warm gold = you
 
   useFrame((_, d) => {
-    if (spin.current && !reduced) spin.current.rotation.y += d * 0.08;
+    if (reduced) return; // prefers-reduced-motion: freeze spin AND cursor parallax
+    if (spin.current) spin.current.rotation.y += d * 0.08;
     const tx = -target.current.y * 0.3;
     const ty = target.current.x * 0.42;
     if (tilt.current) {
@@ -97,12 +98,12 @@ function Scene({
               );
             })}
 
-          <Star glow={glow} color={centerColor} coreSize={0.26} glowScale={2.6} opacity={0.85} />
+          <Star glow={glow} color={centerColor} coreSize={0.26} glowScale={2.6} opacity={0.85} reduced={reduced} />
 
           {empty
             ? positions.map((p, i) => (
                 <group key={`ghost-${i}`} position={p}>
-                  <Star glow={glow} color="#7c84a8" coreSize={0.055} glowScale={0.4} opacity={0.28} />
+                  <Star glow={glow} color="#7c84a8" coreSize={0.055} glowScale={0.4} opacity={0.28} reduced={reduced} />
                 </group>
               ))
             : positions.map((p, i) => {
@@ -116,6 +117,7 @@ function Scene({
                       coreSize={0.11}
                       glowScale={0.78}
                       hovered={on}
+                      reduced={reduced}
                       onOver={() => setHoverId(v.vouchId)}
                       onOut={() => setHoverId(null)}
                       onClick={() => onSelect(v)}
@@ -141,15 +143,23 @@ export default function ConstellationHero3D({ address, handle }: { address: stri
   const [vouchers, setVouchers] = useState<VoucherStar[] | null>(null);
   const [selected, setSelected] = useState<VoucherStar | null>(null);
   const [hoverId, setHoverId] = useState<number | null>(null);
+  // A read failure must NOT look like an empty sky — they mean opposite things.
+  const [loadFailed, setLoadFailed] = useState(false);
   const reduced = reducedMotion();
 
   useEffect(() => {
     let alive = true;
     setVouchers(null);
     setSelected(null);
+    setLoadFailed(false);
     fetchVouchersOf(address)
       .then((v) => alive && setVouchers(v))
-      .catch(() => alive && setVouchers([]));
+      .catch(() => {
+        if (alive) {
+          setVouchers([]);
+          setLoadFailed(true);
+        }
+      });
     return () => {
       alive = false;
     };
@@ -191,13 +201,29 @@ export default function ConstellationHero3D({ address, handle }: { address: stri
           <p className="max-w-md text-sm text-muted-foreground" aria-live="polite">
             {vouchers === null
               ? 'Reading your sky…'
-              : count === 0
-                ? 'Your sky is dark — for now. Vouch someone, and their star ignites in your orbit.'
-                : count === 1
-                  ? 'One star lights your sky. Move your cursor — the field follows.'
-                  : `${count} people light your sky. Hover a star to see who.`}
+              : loadFailed
+                ? 'Couldn’t read your sky right now — the network is slow. It’ll fill in on refresh.'
+                : count === 0
+                  ? 'Your sky is dark — for now. Vouch someone, and their star ignites in your orbit.'
+                  : count === 1
+                    ? 'One star lights your sky. Move your cursor — the field follows.'
+                    : `${count} people light your sky. Hover a star to see who.`}
           </p>
         </div>
+
+        {/* Accessible, non-visual mirror of the sky: keyboard/screen-reader users get the
+            same social proof the 3D hover tooltips show sighted-mouse users. */}
+        {count > 0 && (
+          <ul className="sr-only" aria-label={`${count} people vouched for you`}>
+            {vouchers!.map((v) => (
+              <li key={v.vouchId}>
+                {shortAddr(v.from)}
+                {v.note ? ` — “${v.note}”` : ''}
+                {v.created ? ` (${timeAgo(v.created)})` : ''}
+              </li>
+            ))}
+          </ul>
+        )}
 
         {selected && (
           <div className="pointer-events-auto absolute bottom-5 right-5 max-w-[16rem] rounded-2xl glass p-3.5 sm:bottom-7 sm:right-7">

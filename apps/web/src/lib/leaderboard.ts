@@ -6,7 +6,6 @@
  *   - #5 sybil: flag reciprocal vouch pairs (A↔B). Full clustering lands at Blue.
  * The fold/merge/ring logic is the pure, tested code in @passport/shared.
  */
-import { scValToNative, xdr } from '@stellar/stellar-sdk';
 import {
   rankLeaderboard,
   mergeSocialRecords,
@@ -16,14 +15,9 @@ import {
   type VouchPair,
   type LeaderboardEntry,
 } from '@passport/shared';
-import { server, config } from './stellar';
+import { fetchReputationEvents } from './events';
 
 const SNAPSHOT_KEY = 'passport.leaderboard.snapshot';
-
-function toNative(v: xdr.ScVal | string): unknown {
-  const sv = typeof v === 'string' ? xdr.ScVal.fromXDR(v, 'base64') : v;
-  return scValToNative(sv);
-}
 
 function loadSnapshot(): SocialRecord[] {
   if (typeof localStorage === 'undefined') return [];
@@ -39,39 +33,15 @@ function saveSnapshot(records: SocialRecord[]): void {
   }
 }
 
-/** Pull recent reputation events (paginated) → social records + claimed vouch pairs. */
+/** Pull recent reputation events → social records + claimed vouch pairs. */
 export async function fetchWindow(): Promise<{ records: SocialRecord[]; pairs: VouchPair[] }> {
   const records: SocialRecord[] = [];
   const pairs: VouchPair[] = [];
-  if (!config.contracts.reputation) return { records, pairs };
 
-  let startLedger: number;
-  try {
-    const latest = await server.getLatestLedger();
-    startLedger = Math.max(1, latest.sequence - 9000); // within RPC retention (≥16k returns 0 events)
-  } catch {
-    return { records, pairs };
-  }
-
-  let res;
-  try {
-    res = await server.getEvents({
-      startLedger,
-      filters: [
-        { type: 'contract', contractIds: [config.contracts.reputation], topics: [['*', '*']] },
-      ],
-      limit: 1000,
-    });
-  } catch {
-    return { records, pairs };
-  }
-
-  for (const ev of res.events) {
-    const topics = (ev.topic as Array<xdr.ScVal | string>).map(toNative);
-    const data = toNative(ev.value as xdr.ScVal | string);
+  for (const { topics, data, ledger } of await fetchReputationEvents()) {
     if (topics[0] === EVENTS.SOCIAL) {
       const total = Array.isArray(data) ? Number(data[1]) : Number(data);
-      records.push({ address: String(topics[1]), total, ledger: ev.ledger });
+      records.push({ address: String(topics[1]), total, ledger });
     } else if (topics[0] === EVENTS.VOUCH && topics[1] === 'claimed' && Array.isArray(data)) {
       // ('vouch','claimed') -> (id, from, claimer)
       pairs.push({ from: String(data[1]), claimer: String(data[2]) });

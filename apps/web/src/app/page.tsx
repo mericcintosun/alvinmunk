@@ -9,8 +9,15 @@ import { BorderBeam } from '@/components/fx/border-beam';
 import { NumberTicker } from '@/components/fx/number-ticker';
 import { AuroraText } from '@/components/fx/shiny-text';
 import { Meteors } from '@/components/fx/meteors';
+import { Sticker } from '@/components/ui/sticker';
 import { buttonVariants } from '@/components/ui/button';
+import { asset, BRAND, type StickerName } from '@/lib/assets';
 import { cn } from '@/lib/utils';
+
+// Small sticker icons cycle through the live vouch ticker — heart=vouch, coin=tip, eye=seen.
+const TICKER_ICONS: StickerName[] = ['ticker-heart', 'ticker-coin', 'ticker-eye'];
+// One playful sticker per "how it works" step.
+const STEP_STICKERS: StickerName[] = ['hand-open', 'hand-shake', 'star-lime'];
 
 const SAMPLE = [
   'GABCXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXAYSE',
@@ -42,20 +49,31 @@ const STEPS = [
 ];
 
 const FEATURES = [
-  { id: 'F-01', icon: Sparkles, title: 'Names humans, not tasks', body: 'Every card is one person and one moment — never a faceless badge or a points counter. Your reputation has a face.', span: 'md:col-span-2', stamp: 'NO POINTS' },
-  { id: 'F-02', icon: ShieldCheck, title: 'Honest by design', body: 'Daily caps, first-pair-only, and a separate cashable track keep it real — not farmable.' },
-  { id: 'F-03', icon: Coins, title: 'Spendable recognition', body: 'Earned reputation unlocks real USDC — backed, capped, gated.' },
-  { id: 'F-04', icon: Globe, title: 'Yours, on-chain — readable by any app', body: 'Your constellation lives on Stellar. The reputation primitive can be read by any app in one call.', span: 'md:col-span-2' },
+  { id: 'F-01', icon: Sparkles, sticker: 'social-seen' as StickerName, title: 'Names humans, not tasks', body: 'Every card is one person and one moment — never a faceless badge or a points counter. Your reputation has a face.', span: 'md:col-span-2', stamp: 'NO POINTS' },
+  { id: 'F-02', icon: ShieldCheck, sticker: 'hand-crossed' as StickerName, title: 'Honest by design', body: 'Daily caps, first-pair-only, and a separate cashable track keep it real — not farmable.' },
+  { id: 'F-03', icon: Coins, sticker: 'ticker-coin' as StickerName, title: 'Spendable recognition', body: 'Earned reputation unlocks real USDC — backed, capped, gated.' },
+  { id: 'F-04', icon: Globe, sticker: 'social-eye' as StickerName, title: 'Yours, on-chain — readable by any app', body: 'Your constellation lives on Stellar. The reputation primitive can be read by any app in one call.', span: 'md:col-span-2' },
 ];
 
 export default function LandingPage() {
   return (
     <div className="overflow-x-hidden">
       {/* ───────────── Hero ───────────── */}
-      <section className="relative isolate overflow-hidden">
+      <section className="brand-cursor relative isolate overflow-hidden">
         <HeroBackdrop className="absolute inset-0 -z-10" />
         <div className="absolute inset-0 -z-10 bg-gradient-to-r from-background via-background/75 to-transparent" aria-hidden />
         <div className="absolute inset-x-0 bottom-0 -z-10 h-40 bg-gradient-to-t from-background to-transparent" aria-hidden />
+
+        {/* The passport centerpiece — a warm, physical object beside the cosmic field (md+). */}
+        <img
+          src={asset(BRAND.centerpiece.file)}
+          alt=""
+          aria-hidden
+          width={460}
+          height={459}
+          draggable={false}
+          className="pointer-events-none absolute -right-10 top-1/2 hidden -translate-y-1/2 select-none opacity-90 motion-safe:animate-float lg:block xl:right-6"
+        />
 
         <div className="container py-28 md:py-40">
           <div className="max-w-2xl">
@@ -108,7 +126,7 @@ export default function LandingPage() {
           <div className="flex w-max motion-safe:animate-marquee gap-10 pr-10">
             {[...TICKER, ...TICKER].map((t, i) => (
               <span key={i} className="flex items-center gap-2 whitespace-nowrap font-mono text-xs text-muted-foreground">
-                <span className="text-secondary">▸</span>
+                <Sticker name={TICKER_ICONS[i % TICKER_ICONS.length]} size={20} className="h-4 w-auto" />
                 {t}
               </span>
             ))}
@@ -149,7 +167,14 @@ export default function LandingPage() {
               <div className="group grid grid-cols-[3rem_1fr] items-baseline gap-x-6 py-8 transition-colors hover:bg-surface/30 md:grid-cols-[6rem_1fr_14rem]">
                 <span className="font-mono text-lg text-primary/60 transition-colors group-hover:text-primary">{s.n}</span>
                 <div>
-                  <h3 className="text-2xl font-semibold">{s.t}</h3>
+                  <h3 className="flex items-center gap-2.5 text-2xl font-semibold">
+                    {s.t}
+                    <Sticker
+                      name={STEP_STICKERS[i % STEP_STICKERS.length]}
+                      size={34}
+                      className="h-7 w-auto transition-transform group-hover:rotate-6 group-hover:scale-110"
+                    />
+                  </h3>
                   <p className="mt-2 max-w-lg text-muted-foreground">{s.d}</p>
                 </div>
                 <span className="col-start-2 mt-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground md:col-start-3 md:mt-0 md:self-center md:text-right">
@@ -181,9 +206,12 @@ export default function LandingPage() {
                   >
                     <div className="flex items-center justify-between">
                       <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-primary/60">{f.id}</span>
-                      <Icon className="size-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+                      <Sticker name={f.sticker} size={40} className="h-8 w-auto transition-transform group-hover:-rotate-6 group-hover:scale-110" />
                     </div>
-                    <h3 className="mt-5 text-xl font-semibold">{f.title}</h3>
+                    <h3 className="mt-5 flex items-center gap-2 text-xl font-semibold">
+                      <Icon className="size-4 text-muted-foreground" />
+                      {f.title}
+                    </h3>
                     <p className="mt-2 max-w-md text-sm text-muted-foreground">{f.body}</p>
                     {f.stamp && (
                       <div className="mt-4">
@@ -202,7 +230,10 @@ export default function LandingPage() {
       <section className="container py-20">
         <Reveal>
           <div className="mb-10 flex items-end justify-between border-b border-border/60 pb-4">
-            <h2 className="font-display text-3xl font-semibold tracking-tight">The most-connected</h2>
+            <h2 className="flex items-center gap-3 font-display text-3xl font-semibold tracking-tight">
+              The most-connected
+              <Sticker name="burst-new" size={52} rotate={-8} className="hidden h-9 w-auto sm:block" />
+            </h2>
             <Link href="/leaderboard" className="font-mono text-xs text-primary hover:underline">
               see_the_night_sky →
             </Link>
@@ -262,7 +293,14 @@ export default function LandingPage() {
 
       {/* ───────────── Final CTA ───────────── */}
       <section className="relative overflow-hidden py-32 text-center">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-[0.05] [mask-image:radial-gradient(circle_at_center,black,transparent_70%)]"
+          style={{ backgroundImage: `url(${asset('backgrounds/landing-hero.png')})`, backgroundSize: 'cover', backgroundPosition: 'center' }}
+        />
         <Meteors number={18} />
+        <Sticker name="burst-wow" size={92} rotate={-12} className="pointer-events-none absolute left-[12%] top-16 hidden motion-safe:animate-float md:block" />
+        <Sticker name="star-pop" size={70} className="pointer-events-none absolute right-[14%] bottom-20 hidden motion-safe:animate-float md:block" />
         <div className="absolute left-1/2 top-1/2 size-[30rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/10 blur-3xl motion-safe:animate-glow-pulse" aria-hidden />
         <div className="container relative">
           <Reveal>

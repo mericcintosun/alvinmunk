@@ -1,5 +1,6 @@
 import { ImageResponse } from 'next/og';
 import { ogResolve, passportCard } from '@/lib/og-card';
+import { defaultAvatarId } from '@/lib/avatar';
 
 // The artifact every shared /u/<handle> link unfurls into — resolves the handle
 // on-chain and renders the real constellation + scores (shared builder in lib/og-card).
@@ -11,5 +12,6 @@ export const alt = 'Stellar Passport';
 export default async function Image({ params }: { params: { handle: string } }) {
   const handle = params.handle.toLowerCase();
   const { address, scores } = await ogResolve(handle);
-  return new ImageResponse(passportCard({ handle, address, scores }), { ...size });
+  const avatarId = address ? defaultAvatarId(address) : undefined;
+  return new ImageResponse(passportCard({ handle, address, scores, avatarId }), { ...size });
 }

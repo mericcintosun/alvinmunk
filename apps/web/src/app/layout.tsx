@@ -20,8 +20,10 @@ export const metadata: Metadata = {
     title: 'Stellar Passport — Collect people, not points',
     description: 'Someone vouched for you. Claim your half of the sky.',
     type: 'website',
+    images: ['/assets/meta/og-default.png'],
   },
-  twitter: { card: 'summary_large_image' },
+  twitter: { card: 'summary_large_image', images: ['/assets/meta/og-default.png'] },
+  icons: { icon: [{ url: '/assets/meta/favicon-32.png', type: 'image/png' }] },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

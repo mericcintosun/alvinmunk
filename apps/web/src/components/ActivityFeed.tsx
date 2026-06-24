@@ -5,6 +5,7 @@ import { shortAddr } from '@passport/shared';
 import { fetchActivity, type FeedItem } from '@/lib/feed';
 import { reverseHandle } from '@/lib/registry';
 import { Frame } from '@/components/fx/frame';
+import { Avatar } from '@/components/Avatar';
 
 /**
  * Activity feed — "the sky is moving". Recent vouch claims from chain, labelled with
@@ -47,9 +48,10 @@ export function ActivityFeed() {
         <ul className="divide-y divide-border/50 font-mono text-xs">
           {items.map((it, i) => (
             <li key={i} className="flex items-center gap-2 px-4 py-2.5">
-              <span className="text-secondary">▸</span>
+              <Avatar address={it.from} size={22} ring={false} />
               <span className="truncate text-foreground">{name(it.from)}</span>
               <span className="shrink-0 text-muted-foreground">→ vouched →</span>
+              <Avatar address={it.to} size={22} ring={false} />
               <span className="truncate text-foreground">{name(it.to)}</span>
             </li>
           ))}

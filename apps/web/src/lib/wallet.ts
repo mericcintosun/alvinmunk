@@ -88,14 +88,34 @@ export async function getDevWallet(): Promise<Wallet> {
   };
 }
 
-/** Friendbot funds a new testnet account (~10,000 XLM). No-op if already funded. */
-export async function fundWithFriendbot(publicKey: string): Promise<void> {
+/**
+ * Friendbot funds a new testnet account (~10,000 XLM). No-op if already funded.
+ * Friendbot is the single entry point of the install funnel, and it rate-limits /
+ * times out under load — so we retry with backoff and surface a clear, recoverable
+ * error if it stays down (onboarding must never die on a transient 429/5xx).
+ */
+export async function fundWithFriendbot(publicKey: string, tries = 4): Promise<void> {
   const url = `https://friendbot.stellar.org/?addr=${encodeURIComponent(publicKey)}`;
-  const res = await fetch(url);
-  if (!res.ok && res.status !== 400) {
-    // 400 == already funded; anything else is a real error.
-    throw new Error(`friendbot funding failed: ${res.status}`);
+  let lastStatus = 0;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const res = await fetch(url);
+      // 400 == already funded; 200 == funded now. Both are success.
+      if (res.ok || res.status === 400) return;
+      lastStatus = res.status;
+    } catch {
+      lastStatus = 0; // network/timeout — retry
+    }
+    if (i < tries - 1) await sleep(800 * (i + 1)); // linear backoff
   }
+  throw new Error(
+    `Couldn't fund your testnet wallet (Friendbot ${lastStatus || 'unreachable'}). ` +
+      'Friendbot is busy — wait a moment and try again.',
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 // ── Freighter provider (browser extension) ──

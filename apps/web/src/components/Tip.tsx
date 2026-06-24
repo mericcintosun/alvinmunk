@@ -17,6 +17,8 @@ import { NumberTicker } from '@/components/fx/number-ticker';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { StateArt } from '@/components/ui/state-art';
+import { withTimeout } from '@/lib/utils';
 
 /**
  * USDC tip rail (Green belt). A tip is a real wallet -> wallet USDC transfer. USDC is a
@@ -33,8 +35,14 @@ export function Tip({ address }: { address: string }) {
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
-    void getUsdcBalance(address, address).then(setBalance).catch(() => setBalance(0n));
-    void hasUsdcTrustline(address).then(setTrusts).catch(() => setTrusts(false));
+    // Timeout the gating reads so a slow Horizon/RPC degrades to a usable state instead
+    // of leaving the balance stuck on "…" forever (demo-grade robustness).
+    void withTimeout(getUsdcBalance(address, address), 12_000, 'balance')
+      .then(setBalance)
+      .catch(() => setBalance(0n));
+    void withTimeout(hasUsdcTrustline(address), 12_000, 'trustline')
+      .then(setTrusts)
+      .catch(() => setTrusts(false));
   }, [address]);
 
   useEffect(refresh, [refresh]);
@@ -120,14 +128,17 @@ export function Tip({ address }: { address: string }) {
         )}
 
         {hash && (
-          <a
-            href={txExplorerUrl(hash)}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-2 block text-center text-xs text-secondary underline"
-          >
-            confirmed on-chain →
-          </a>
+          <div className="mt-3 flex flex-col items-center">
+            <StateArt kind="tip-received" size={104} className="motion-safe:animate-ignite" />
+            <a
+              href={txExplorerUrl(hash)}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-1 block text-center text-xs text-secondary underline"
+            >
+              confirmed on-chain →
+            </a>
+          </div>
         )}
         {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
       </div>

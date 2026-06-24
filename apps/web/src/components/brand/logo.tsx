@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import { asset, BRAND } from '@/lib/assets';
 
-/** The Passport logo — a small constellation mark + wordmark. */
+/** The Passport logo — a small constellation mark + the lime wordmark from the asset kit. */
 export function Logo({
   href = '/',
   markOnly = false,
@@ -27,9 +28,14 @@ export function Logo({
         <circle cx="9" cy="18" r="1.4" fill="hsl(var(--starlight))" />
       </svg>
       {!markOnly && (
-        <span className="font-display text-lg font-semibold tracking-tight">
-          Passport
-        </span>
+        <img
+          src={asset(BRAND.wordmark.file)}
+          alt="Passport"
+          width={Math.round((22 / BRAND.wordmark.h) * BRAND.wordmark.w)}
+          height={22}
+          draggable={false}
+          className="select-none transition-transform group-hover:-rotate-1"
+        />
       )}
     </Link>
   );

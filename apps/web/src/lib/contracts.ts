@@ -119,10 +119,15 @@ export async function invokeAndWait<T = unknown>(
   return (retval ? scValToNative(retval) : undefined) as T;
 }
 
-/** Poll getTransaction until it leaves NOT_FOUND; throw on FAILED. */
+/**
+ * Poll getTransaction until it leaves NOT_FOUND; throw on FAILED. The poll budget must
+ * outlast the tx's own validity window (`setTimeout(60)` above) — otherwise a slow ledger
+ * makes us give up on a tx that actually lands, turning a successful claim into a
+ * false-negative error in the funnel.
+ */
 async function pollTransaction(
   hash: string,
-  tries = 30,
+  tries = 65,
 ): Promise<rpc.Api.GetSuccessfulTransactionResponse> {
   let lastErr: unknown;
   for (let i = 0; i < tries; i++) {

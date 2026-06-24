@@ -6,6 +6,7 @@ import { useWallet } from '@/components/wallet/wallet-provider';
 import { getScores } from '@/lib/reputation';
 import { resolveHandle } from '@/lib/registry';
 import { Crest } from '@/components/brand/crest';
+import { Avatar } from '@/components/Avatar';
 import { Frame } from '@/components/fx/frame';
 import { Stamp } from '@/components/fx/stamp';
 import { ShareRow } from '@/components/fx/share-row';
@@ -85,7 +86,12 @@ export default function ProfilePage({ params }: { params: { handle: string } }) 
     <div className="container max-w-2xl py-14">
       <Frame label={`passport // @${handle}`} index="ID" tilt>
         <div className="grid gap-6 p-7 sm:grid-cols-[auto_1fr] sm:items-center sm:p-8">
-          <Crest address={address} handle={handle} size={140} points={7} animate />
+          <Avatar
+            address={address}
+            avatar={isMe ? profile?.avatar : undefined}
+            handle={handle}
+            size={140}
+          />
           <div>
             <h1 className="font-display text-3xl font-semibold">@{handle}</h1>
             <p className="mt-1 font-mono text-xs text-muted-foreground">{shortAddress(address)}</p>

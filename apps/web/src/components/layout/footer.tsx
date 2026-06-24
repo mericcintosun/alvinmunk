@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { Logo } from '@/components/brand/logo';
+import { asset } from '@/lib/assets';
 
 const COLS = [
   {
@@ -34,6 +35,12 @@ const MRZ2 = 'STELLAR<<TESTNET<<<2026<<<PROOF<OF<PEOPLE<<REPUTATION<HAS<A<FACE<<
 export function Footer() {
   return (
     <footer className="relative mt-28 border-t border-border/60">
+      {/* faint sticker-tile texture — warmth under the cosmic base, masked to stay subtle */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 opacity-[0.04] [mask-image:linear-gradient(to_bottom,transparent,black)]"
+        style={{ backgroundImage: `url(${asset('backgrounds/tile-256.png')})`, backgroundSize: '180px' }}
+      />
       {/* corner crosshair markers */}
       <Plus className="pointer-events-none absolute left-3 top-3 size-3 text-border" />
       <Plus className="pointer-events-none absolute right-3 top-3 size-3 text-border" />

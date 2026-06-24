@@ -1,6 +1,7 @@
 'use client';
 
 import { stampArt } from '@passport/shared';
+import { Sticker } from '@/components/ui/sticker';
 
 /**
  * The half-card — Stellar Passport's core viral artifact (00-strategy §3).
@@ -55,6 +56,15 @@ export function VouchCard({
           <div className="absolute inset-y-0 right-0 w-1/2 animate-pulse rounded-r-2xl bg-sigil/10 ring-1 ring-inset ring-sigil/30" />
         )}
       </div>
+
+      {/* Scrapbook touch: a wax seal makes the card feel hand-pressed, not generated.
+          Once claimed, a VERIFIED stamp marks the connection as real. */}
+      <Sticker
+        name={claimed ? 'stamp-verified' : 'wax-seal'}
+        size={claimed ? 64 : 52}
+        rotate={claimed ? -10 : 4}
+        className="absolute bottom-2 right-2"
+      />
     </div>
   );
 }
