@@ -54,6 +54,11 @@ const config: Config = {
         ring: 'hsl(var(--ring) / <alpha-value>)',
         starlight: 'hsl(var(--starlight) / <alpha-value>)',
         onchain: 'hsl(var(--onchain) / <alpha-value>)',
+        tertiary: 'hsl(var(--tertiary) / <alpha-value>)',
+        surface: {
+          DEFAULT: 'hsl(var(--surface) / <alpha-value>)',
+          2: 'hsl(var(--surface-2) / <alpha-value>)',
+        },
         // Legacy aliases (existing components) → brand values.
         ink: 'hsl(var(--background) / <alpha-value>)',
         stellar: 'hsl(var(--primary) / <alpha-value>)',
@@ -112,6 +117,19 @@ const config: Config = {
         shimmer: {
           '100%': { transform: 'translateX(100%)' },
         },
+        'border-beam': {
+          '100%': { 'offset-distance': '100%' },
+        },
+        shiny: {
+          '0%': { 'background-position': '200% 0' },
+          '100%': { 'background-position': '-200% 0' },
+        },
+        meteor: {
+          '0%': { transform: 'rotate(215deg) translateX(0)', opacity: '0' },
+          '10%': { opacity: '1' },
+          '70%': { opacity: '1' },
+          '100%': { transform: 'rotate(215deg) translateX(-520px)', opacity: '0' },
+        },
       },
       animation: {
         'fade-up': 'fade-up 0.5s cubic-bezier(0.22,1,0.36,1) both',
@@ -122,6 +140,9 @@ const config: Config = {
         'glow-pulse': 'glow-pulse 6s ease-in-out infinite',
         'gradient-pan': 'gradient-pan 6s ease-in-out infinite',
         marquee: 'marquee 40s linear infinite',
+        'border-beam': 'border-beam calc(var(--beam-duration, 8s)) linear infinite',
+        shiny: 'shiny 4s linear infinite',
+        meteor: 'meteor 5s linear infinite',
       },
     },
   },

@@ -3,15 +3,17 @@
 import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Sparkles } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { shortAddr } from '@passport/shared';
 import { useWallet } from '@/components/wallet/wallet-provider';
 import { claimVouch, getVouch, VOUCH_TTL_SECS, type VouchView } from '@/lib/reputation';
 import { Crest } from '@/components/brand/crest';
+import { Frame } from '@/components/fx/frame';
+import { Stamp } from '@/components/fx/stamp';
+import { BorderBeam } from '@/components/fx/border-beam';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { cn, humanizeError } from '@/lib/utils';
 
-// reputation contract error codes → calm human copy (lib.rs Error enum).
 const CLAIM_ERRORS: Record<number, string> = {
   4: "This vouch doesn't exist or has expired.",
   5: 'This star is already lit — it was claimed already.',
@@ -20,10 +22,6 @@ const CLAIM_ERRORS: Record<number, string> = {
   9: 'Daily limit reached — try again tomorrow.',
 };
 
-/**
- * Claim funnel — the viral moment (00-strategy §3). A friend lands here from a shared
- * link. Value first (who vouched you), then one tap; the wallet is provisioned silently.
- */
 export default function ClaimPage(props: { params: { id: string } }) {
   return (
     <Suspense fallback={null}>
@@ -38,8 +36,6 @@ function ClaimInner({ params }: { params: { id: string } }) {
   const { connect, profile } = useWallet();
   const [state, setState] = useState<'preview' | 'claiming' | 'done' | 'error'>('preview');
   const [error, setError] = useState<string | null>(null);
-  // The on-chain half-card (note + voucher + staked XP + 7-day window). Best-effort —
-  // the page still works if this read fails (the claim itself is the source of truth).
   const [vouch, setVouch] = useState<VouchView | null | undefined>(undefined);
 
   useEffect(() => {
@@ -76,97 +72,120 @@ function ClaimInner({ params }: { params: { id: string } }) {
   }
 
   const done = state === 'done';
+  const status = done ? 'CLAIMED' : vouch?.claimed ? 'CLAIMED' : windowOpen ? 'OPEN' : vouch ? 'EXPIRED' : '—';
 
   return (
-    <div className="container flex max-w-lg flex-col items-center gap-7 py-16 text-center">
-      <h1 className="text-3xl font-semibold text-balance sm:text-4xl">
+    <div className="container max-w-lg py-16">
+      <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-primary/80">
+        {done ? '// connected' : '// incoming_vouch'}
+      </p>
+      <h1 className="mt-4 font-display text-4xl font-semibold tracking-tight">
         {done ? "You're connected." : 'Someone vouched for you.'}
       </h1>
-      <p className="max-w-sm text-muted-foreground text-balance">
+      <p className="mt-3 max-w-sm text-muted-foreground text-balance">
         {done
           ? 'Your star just ignited — your constellation grew by one. Keep the sky alive: vouch someone back.'
-          : 'They put their reputation behind yours. Claim your half of the sky — two halves become one card.'}
+          : 'They put their reputation behind yours. Claim your half — two halves become one card.'}
       </p>
 
-      {!done && vouch?.note && (
-        <p className="-mt-3 max-w-sm text-balance text-sm italic text-foreground/80">
-          &ldquo;{vouch.note}&rdquo;
-        </p>
-      )}
-
-      {/* The half-card: voucher's side filled, your side a glowing socket until claimed */}
-      <div className="flex items-center gap-2 py-2">
-        <div className="rounded-2xl border border-border bg-card p-5">
-          <Crest address={vouch?.from ?? `voucher-${id}`} size={96} points={6} animate />
-          <p className="mt-2 text-xs text-muted-foreground">
-            {vouch ? shortAddr(vouch.from) : 'a friend'}
-          </p>
-        </div>
-        <Sparkles className={cn('size-6 shrink-0', done ? 'text-primary' : 'text-muted-foreground')} />
-        <div
-          className={cn(
-            'rounded-2xl border p-5 transition-all',
-            done
-              ? 'border-primary/40 bg-primary/5 shadow-glow-primary motion-safe:animate-ignite'
-              : 'border-dashed border-border bg-card/30',
-          )}
-        >
-          {done ? (
-            <Crest address={profile?.address ?? `claimer-${id}-${secret.slice(0, 6)}`} size={96} points={6} animate />
-          ) : (
-            <div className="flex size-24 items-center justify-center text-xs text-muted-foreground">
-              your half
+      <Frame label={`vouch // #${id}`} index={status} className="mt-7">
+        {/* the two halves */}
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 p-6">
+          <div className="flex flex-col items-center gap-2 text-center">
+            <Crest address={vouch?.from ?? `voucher-${id}`} size={88} points={6} animate />
+            <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+              {vouch ? shortAddr(vouch.from) : 'from'}
+            </span>
+          </div>
+          <ArrowRight className={cn('size-5', done ? 'text-primary' : 'text-muted-foreground')} />
+          <div className="flex flex-col items-center gap-2 text-center">
+            <div
+              className={cn(
+                'grid size-[88px] place-items-center border transition-all',
+                done
+                  ? 'border-primary/40 bg-primary/5 motion-safe:animate-ignite'
+                  : 'border-dashed border-border bg-surface/30',
+              )}
+            >
+              {done ? (
+                <Crest address={profile?.address ?? `claimer-${id}`} size={80} points={6} animate />
+              ) : (
+                <span className="font-mono text-[10px] uppercase text-muted-foreground">your half</span>
+              )}
             </div>
-          )}
-          <p className="mt-2 text-xs text-muted-foreground">{done ? 'you' : '— · —'}</p>
+            <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+              {done ? 'you' : 'unclaimed'}
+            </span>
+          </div>
         </div>
-      </div>
 
-      {!done && vouch && (
-        <p className="max-w-xs text-balance text-xs text-muted-foreground">
-          {windowOpen
-            ? `They staked ${vouch.stake} reputation on you — claim within ${daysLeft} day${
-                daysLeft === 1 ? '' : 's'
-              } to keep it from being slashed.`
-            : vouch.claimed
-              ? 'This star is already lit.'
-              : 'The staking window has closed — claiming still lights your star.'}
+        {/* note */}
+        {!done && vouch?.note && (
+          <p className="border-t border-border/60 px-6 py-4 text-center text-sm italic text-foreground/85">
+            &ldquo;{vouch.note}&rdquo;
+          </p>
+        )}
+
+        {/* data fields */}
+        <div className="grid grid-cols-3 divide-x divide-border/60 border-t border-border/60 font-mono">
+          <Field label="STATUS" value={status} />
+          <Field label="STAKE" value={vouch ? `${vouch.stake} XP` : '—'} />
+          <Field label="WINDOW" value={vouch ? (windowOpen ? `${daysLeft}d left` : 'closed') : '—'} />
+        </div>
+      </Frame>
+
+      {!done && vouch && windowOpen && (
+        <p className="mt-3 text-xs text-muted-foreground">
+          They staked <strong className="text-foreground">{vouch.stake} reputation</strong> on you — claim within{' '}
+          {daysLeft} day{daysLeft === 1 ? '' : 's'} to keep it from being slashed.
         </p>
       )}
 
-      {!done ? (
-        <div className="flex flex-col items-center gap-3">
-          <Button size="lg" onClick={onClaim} disabled={state === 'claiming'}>
-            {state === 'claiming' ? 'Lighting your star…' : 'Claim your star'}
-          </Button>
-          {error && (
-            <>
-              <p className="max-w-xs text-sm text-destructive">{error}</p>
-              <Link href="/app" className="text-xs text-muted-foreground underline">
-                Open the app instead →
-              </Link>
-            </>
-          )}
-        </div>
-      ) : (
-        <div className="flex flex-col items-center gap-3">
-          <Link href="/app" className={cn(buttonVariants({ size: 'lg' }))}>
-            {profile ? 'Now vouch someone back →' : 'Create your passport →'}
-          </Link>
-          {profile && (
-            <Link href={`/u/${profile.handle}`} className="text-xs text-muted-foreground underline">
-              View your passport
+      <div className="mt-7">
+        {!done ? (
+          <div className="flex flex-col items-start gap-3">
+            <span className="relative inline-flex overflow-hidden rounded-full">
+              <Button variant="flow" size="lg" onClick={onClaim} disabled={state === 'claiming'}>
+                {state === 'claiming' ? 'Lighting your star…' : 'Claim your star'}
+                {state !== 'claiming' && <ArrowRight className="size-4" />}
+              </Button>
+              {state !== 'claiming' && <BorderBeam size={56} duration={6} colorTo="hsl(var(--tertiary))" />}
+            </span>
+            {error && (
+              <>
+                <p className="max-w-xs text-sm text-destructive">{error}</p>
+                <Link href="/app" className="font-mono text-xs text-muted-foreground underline">
+                  open_the_app →
+                </Link>
+              </>
+            )}
+            <p className="max-w-xs text-xs text-muted-foreground text-balance">
+              Nothing to install — we set up your passport, fees sponsored on testnet. No seed phrase.
+            </p>
+          </div>
+        ) : (
+          <div className="flex flex-col items-start gap-3">
+            <Stamp accent="secondary">✦ STAR IGNITED</Stamp>
+            <Link href="/app" className={cn(buttonVariants({ variant: 'flow', size: 'lg' }))}>
+              {profile ? 'Now vouch someone back' : 'Create your passport'} <ArrowRight className="size-4" />
             </Link>
-          )}
-        </div>
-      )}
+            {profile && (
+              <Link href={`/u/${profile.handle}`} className="font-mono text-xs text-muted-foreground underline">
+                view_your_passport →
+              </Link>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
-      {!done && (
-        <p className="max-w-xs text-xs text-muted-foreground text-balance">
-          New here? There&apos;s nothing to install — we set up your passport, and fees are
-          sponsored on testnet. No seed phrase.
-        </p>
-      )}
+function Field({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="px-4 py-3 text-center">
+      <p className="text-[9px] uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
+      <p className="mt-1 text-sm text-foreground">{value}</p>
     </div>
   );
 }

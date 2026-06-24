@@ -6,9 +6,11 @@ import { getWallet } from '@/lib/wallet';
 import { completeQuest, getStreak } from '@/lib/quests';
 import { getEarnedScore } from '@/lib/reputation';
 import { txExplorerUrl } from '@/lib/stellar';
-import { Card, CardContent } from '@/components/ui/card';
+import { Frame } from '@/components/fx/frame';
+import { NumberTicker } from '@/components/fx/number-ticker';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 
 /**
  * Verified quests (Earned XP — the cashable track). The wallet owner proves ownership,
@@ -48,21 +50,41 @@ export function Quests({ address }: { address: string }) {
   }
 
   return (
-    <Card>
-      <CardContent className="p-5">
+    <Frame label="quests // earn" index="02" accent="secondary">
+      <div className="p-5">
         <div className="mb-1 flex items-center justify-between">
-          <h2 className="text-base font-semibold">Earn it</h2>
-          <Badge variant="onchain">Earned XP: {earned ?? '…'}</Badge>
+          <h2 className="text-base font-semibold">Verified quests</h2>
+          <Badge variant="onchain">
+            Earned XP: {earned === null ? '…' : <NumberTicker value={earned} className="ml-0.5" />}
+          </Badge>
         </div>
         <p className="text-sm text-muted-foreground">
           Verified actions earn Earned XP — the only kind that unlocks USDC. Vouches don&apos;t.
         </p>
         {streak && (
-          <p className="mt-2 flex items-center gap-1.5 text-sm text-muted-foreground">
-            <Flame className="size-4 text-primary" />
-            <span className="font-medium text-foreground">{streak.weeks}</span>-week streak
-            {streak.best > streak.weeks && <span className="text-muted-foreground/60">· best {streak.best}</span>}
-          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+              weekly stamp
+            </span>
+            <div className="flex gap-1.5">
+              {Array.from({ length: 7 }).map((_, i) => (
+                <span
+                  key={i}
+                  className={cn(
+                    'size-3.5 border transition-colors',
+                    i < Math.min(streak.weeks, 7) ? 'border-secondary bg-secondary/70' : 'border-border',
+                  )}
+                />
+              ))}
+            </div>
+            <span className="flex items-center gap-1 font-mono text-[10px] text-secondary">
+              <Flame className="size-3.5" />
+              {streak.weeks}
+              {streak.best > streak.weeks && (
+                <span className="text-muted-foreground/60"> · best {streak.best}</span>
+              )}
+            </span>
+          </div>
         )}
         <Button variant="onchain" onClick={onComplete} disabled={busy} className="mt-4 w-full">
           {busy ? 'Verifying…' : 'Verify a quest'}
@@ -79,7 +101,7 @@ export function Quests({ address }: { address: string }) {
           </a>
         )}
         {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
-      </CardContent>
-    </Card>
+      </div>
+    </Frame>
   );
 }

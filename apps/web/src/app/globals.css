@@ -6,38 +6,47 @@
 :root {
   color-scheme: dark;
 
-  --background: 230 33% 4%; /* #07080D deep space */
-  --foreground: 40 33% 94%; /* #F4F1EA soft white */
+  /* 2026 "living cosmos" palette — near-black violet base with a flowing
+     violet → green → cyan signature (constellation energy). Warm gold is the
+     sparing HUMAN accent (vouch / your own star). */
+  --background: 264 52% 4.5%; /* #0B0512 near-black violet */
+  --foreground: 250 28% 96%;
 
-  --card: 228 24% 7%;
-  --card-foreground: 40 33% 94%;
-  --popover: 228 24% 8%;
-  --popover-foreground: 40 33% 94%;
+  --card: 266 38% 8%;
+  --card-foreground: 250 28% 96%;
+  --popover: 266 40% 9%;
+  --popover-foreground: 250 28% 96%;
 
-  --primary: 24 100% 68%; /* #FF9E5E soft orange — the one warm CTA */
-  --primary-foreground: 230 33% 6%;
+  --primary: 265 100% 66%; /* electric violet — primary / chain */
+  --primary-foreground: 0 0% 100%;
 
-  --secondary: 255 92% 76%; /* #A78BFA stellar violet — on-chain only */
-  --secondary-foreground: 230 33% 6%;
+  --secondary: 157 84% 52%; /* mint green — earned / verified energy */
+  --secondary-foreground: 265 60% 6%;
 
-  --muted: 228 14% 13%;
-  --muted-foreground: 40 8% 64%;
+  --muted: 265 20% 14%;
+  --muted-foreground: 252 14% 67%;
 
-  --accent: 28 90% 60%;
-  --accent-foreground: 230 33% 6%;
+  --accent: 36 100% 64%; /* warm gold — the human/vouch warmth, used sparingly */
+  --accent-foreground: 265 60% 6%;
 
-  --destructive: 0 72% 58%;
-  --destructive-foreground: 40 33% 96%;
-  --success: 150 55% 55%;
-  --warning: 38 95% 60%;
+  --destructive: 350 82% 62%;
+  --destructive-foreground: 250 30% 97%;
+  --success: 157 84% 52%;
+  --warning: 38 95% 62%;
 
-  --border: 228 16% 16%;
-  --input: 228 16% 16%;
-  --ring: 24 100% 68%;
+  --border: 265 26% 16%;
+  --input: 265 26% 16%;
+  --ring: 265 100% 66%;
 
-  --starlight: 40 100% 95%;
-  --onchain: 255 92% 76%;
-  --radius: 0.75rem;
+  --starlight: 250 100% 97%;
+  --onchain: 265 100% 66%;
+  --radius: 0.875rem;
+
+  /* the signature flow + depth surfaces */
+  --tertiary: 193 100% 52%; /* cyan — social / connection */
+  --surface: 266 34% 9%;
+  --surface-2: 266 30% 12%;
+  --hairline: 260 60% 100%;
 }
 
 @layer base {
@@ -64,20 +73,116 @@
     text-wrap: balance;
   }
 
-  /* Animated gradient headline accent (kinetic typography). */
+  /* Signature flowing gradient — violet → cyan → green → violet (the constellation
+     "alive" treatment). Used on kinetic headlines + ribbons. */
   .text-gradient {
     background-image: linear-gradient(
       100deg,
       hsl(var(--primary)),
-      hsl(var(--accent)),
-      hsl(var(--starlight)),
+      hsl(var(--tertiary)),
+      hsl(var(--secondary)),
       hsl(var(--primary))
     );
     background-size: 200% auto;
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
-    animation: gradient-pan 6s ease-in-out infinite;
+    animation: gradient-pan 7s ease-in-out infinite;
+  }
+
+  /* Flowing ribbon fill — the same signature as a surface (CTAs, accents, dividers). */
+  .flow {
+    background-image: linear-gradient(
+      110deg,
+      hsl(var(--primary)),
+      hsl(var(--tertiary)),
+      hsl(var(--secondary)),
+      hsl(var(--primary))
+    );
+    background-size: 280% 100%;
+    animation: gradient-pan 8s ease-in-out infinite;
+  }
+
+  /* Aurora mesh — a slow, living gradient field for cosmic depth (hero backdrops).
+     Multi-radial blend of violet (chain) + orange (human) + cyan (sky), drifting. */
+  .aurora {
+    background:
+      radial-gradient(60% 80% at 18% 12%, hsl(var(--secondary) / 0.22) 0%, transparent 60%),
+      radial-gradient(55% 70% at 85% 18%, hsl(var(--primary) / 0.16) 0%, transparent 58%),
+      radial-gradient(70% 90% at 70% 95%, hsl(var(--tertiary) / 0.14) 0%, transparent 60%),
+      radial-gradient(90% 120% at 50% 50%, hsl(228 40% 7%) 0%, hsl(var(--background)) 70%);
+    background-size: 160% 160%, 150% 150%, 170% 170%, 100% 100%;
+    animation: aurora-pan 26s ease-in-out infinite alternate;
+  }
+  @keyframes aurora-pan {
+    0% { background-position: 0% 0%, 100% 0%, 50% 100%, 50% 50%; }
+    100% { background-position: 30% 20%, 70% 30%, 30% 70%, 50% 50%; }
+  }
+
+  /* Glass surface — translucent, blurred, hairline border + top inner highlight. */
+  .glass {
+    background: hsl(var(--surface) / 0.6);
+    backdrop-filter: blur(14px) saturate(120%);
+    -webkit-backdrop-filter: blur(14px) saturate(120%);
+    border: 1px solid hsl(var(--hairline) / 0.07);
+    box-shadow:
+      inset 0 1px 0 0 hsl(var(--hairline) / 0.06),
+      0 24px 60px -28px hsl(230 60% 2% / 0.8);
+  }
+
+  /* Faint technical grid — the "engineered" motif from chain sites, masked to fade out. */
+  .grid-faint {
+    background-image:
+      linear-gradient(hsl(var(--hairline) / 0.04) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--hairline) / 0.04) 1px, transparent 1px);
+    background-size: 44px 44px;
+    -webkit-mask-image: radial-gradient(circle at 50% 40%, black 0%, transparent 78%);
+    mask-image: radial-gradient(circle at 50% 40%, black 0%, transparent 78%);
+  }
+
+  /* Spotlight follow — a cursor-tracked glow (set --mx/--my in px from JS). Pairs with
+     interactive cards (Magic-Card style hover). */
+  .spotlight {
+    position: relative;
+    isolation: isolate;
+  }
+  .spotlight::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    opacity: 0;
+    transition: opacity 0.35s ease;
+    background: radial-gradient(
+      340px circle at var(--mx, 50%) var(--my, 50%),
+      hsl(var(--primary) / 0.22),
+      hsl(var(--tertiary) / 0.1) 40%,
+      transparent 62%
+    );
+  }
+  .spotlight:hover::before {
+    opacity: 1;
+  }
+
+  .text-glow {
+    text-shadow: 0 0 28px hsl(var(--primary) / 0.35);
+  }
+
+  /* Eyebrow — the small uppercase kicker above headings (chain-site rhythm). */
+  .eyebrow {
+    font-size: 0.6875rem;
+    line-height: 1;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: hsl(var(--muted-foreground));
+  }
+
+  /* Fluid hero display size — scales smoothly from mobile to desktop. */
+  .display-hero {
+    font-size: clamp(2.75rem, 7vw, 5.5rem);
+    line-height: 0.96;
+    letter-spacing: -0.02em;
   }
 
   /* Subtle film grain — kills the flat "AI gradient" look. Fixed, non-interactive. */

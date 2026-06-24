@@ -95,6 +95,16 @@ export async function getVouch(vouchId: number): Promise<VouchView | null> {
   };
 }
 
+/** Wallet-free profile aggregator — both XP tracks in parallel for ANY address
+ *  (the public-profile read path; the on-chain get_profile view is a later optimization). */
+export async function getScores(address: string): Promise<{ social: number; earned: number }> {
+  const [s, e] = await Promise.all([
+    readPublic<bigint>(repId(), 'get_score', [args.addr(address)]).catch(() => 0n),
+    readPublic<bigint>(repId(), 'get_earned', [args.addr(address)]).catch(() => 0n),
+  ]);
+  return { social: Number(s ?? 0), earned: Number(e ?? 0) };
+}
+
 /** `get_score(addr)` — Social XP (leaderboard, non-cashable). */
 export async function getSocialScore(addr: string, source: string): Promise<number> {
   const v = await readContract<bigint>(repId(), 'get_score', [args.addr(addr)], source);

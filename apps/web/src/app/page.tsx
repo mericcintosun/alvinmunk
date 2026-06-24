@@ -1,9 +1,14 @@
 import Link from 'next/link';
-import { ArrowRight, Sparkles, ShieldCheck, Coins, Globe } from 'lucide-react';
+import { ArrowRight, Sparkles, ShieldCheck, Coins, Globe, Plus } from 'lucide-react';
 import { Crest } from '@/components/brand/crest';
-import { Reveal, Parallax } from '@/components/motion/reveal';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
+import { HeroBackdrop } from '@/components/brand/hero-backdrop';
+import { Reveal } from '@/components/motion/reveal';
+import { Frame } from '@/components/fx/frame';
+import { Stamp } from '@/components/fx/stamp';
+import { BorderBeam } from '@/components/fx/border-beam';
+import { NumberTicker } from '@/components/fx/number-ticker';
+import { AuroraText } from '@/components/fx/shiny-text';
+import { Meteors } from '@/components/fx/meteors';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -24,74 +29,86 @@ const TICKER = [
   'Efe lit a star for Naz',
 ];
 
+const STATS = [
+  { code: 'CONTRACTS', v: 3, label: 'Soroban, on-chain' },
+  { code: 'XP_TRACKS', v: 2, label: 'clout vs cashable' },
+  { code: 'STAKE_WIN', v: 7, suffix: 'd', label: 'vouch window' },
+];
+
+const STEPS = [
+  { n: '01', t: 'Vouch', tag: 'mint · 1 line', d: 'Pick someone you trust, add one line — why. You light a star for them.' },
+  { n: '02', t: 'Claim', tag: 'one tap · sponsored', d: 'They open your link, connect in a tap, and claim their half. Two halves become one card.' },
+  { n: '03', t: 'Constellation', tag: 'on-chain · forever', d: 'Every vouch adds a star. Your passport grows with the people who back you.' },
+];
+
+const FEATURES = [
+  { id: 'F-01', icon: Sparkles, title: 'Names humans, not tasks', body: 'Every card is one person and one moment — never a faceless badge or a points counter. Your reputation has a face.', span: 'md:col-span-2', stamp: 'NO POINTS' },
+  { id: 'F-02', icon: ShieldCheck, title: 'Honest by design', body: 'Daily caps, first-pair-only, and a separate cashable track keep it real — not farmable.' },
+  { id: 'F-03', icon: Coins, title: 'Spendable recognition', body: 'Earned reputation unlocks real USDC — backed, capped, gated.' },
+  { id: 'F-04', icon: Globe, title: 'Yours, on-chain — readable by any app', body: 'Your constellation lives on Stellar. The reputation primitive can be read by any app in one call.', span: 'md:col-span-2' },
+];
+
 export default function LandingPage() {
   return (
     <div className="overflow-x-hidden">
       {/* ───────────── Hero ───────────── */}
-      <section className="relative">
-        <div className="container grid items-center gap-10 py-20 md:grid-cols-[1.1fr_0.9fr] md:py-28">
-          <div className="flex flex-col items-start gap-6">
+      <section className="relative isolate overflow-hidden">
+        <HeroBackdrop className="absolute inset-0 -z-10" />
+        <div className="absolute inset-0 -z-10 bg-gradient-to-r from-background via-background/75 to-transparent" aria-hidden />
+        <div className="absolute inset-x-0 bottom-0 -z-10 h-40 bg-gradient-to-t from-background to-transparent" aria-hidden />
+
+        <div className="container py-28 md:py-40">
+          <div className="max-w-2xl">
             <Reveal>
-              <Badge variant="primary">Proof-of-people on Stellar</Badge>
+              <p className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.28em] text-primary/80">
+                <Plus className="size-3" />
+                proof-of-people · stellar
+              </p>
             </Reveal>
             <Reveal delay={0.05}>
-              <h1 className="text-5xl font-semibold leading-[0.98] tracking-tight text-balance sm:text-6xl md:text-7xl">
+              <h1 className="display-hero mt-6 font-display font-semibold text-balance">
                 Collect people,
                 <br />
-                <span className="text-gradient">not points.</span>
+                <AuroraText>not points.</AuroraText>
               </h1>
             </Reveal>
             <Reveal delay={0.12}>
-              <p className="max-w-md text-lg text-muted-foreground text-balance">
+              <p className="mt-6 max-w-md text-lg text-muted-foreground text-balance">
                 Someone you trust vouches for you — and it becomes a star in your
                 constellation. The more people back you, the brighter you shine.
               </p>
             </Reveal>
             <Reveal delay={0.18}>
-              <div className="flex flex-wrap items-center gap-3">
-                <Link href="/app" className={cn(buttonVariants({ size: 'lg' }))}>
-                  Open the app <ArrowRight className="size-4" />
-                </Link>
-                <Link
-                  href="/how-it-works"
-                  className={cn(buttonVariants({ variant: 'outline', size: 'lg' }))}
-                >
+              <div className="mt-9 flex flex-wrap items-center gap-3">
+                <span className="relative inline-flex overflow-hidden rounded-full">
+                  <Link href="/app" className={cn(buttonVariants({ variant: 'flow', size: 'lg' }))}>
+                    Open the app <ArrowRight className="size-4" />
+                  </Link>
+                  <BorderBeam size={60} duration={6} colorTo="hsl(var(--tertiary))" />
+                </span>
+                <Link href="/how-it-works" className={cn(buttonVariants({ variant: 'outline', size: 'lg' }), 'glass')}>
                   See how it works
                 </Link>
               </div>
             </Reveal>
             <Reveal delay={0.24}>
-              <p className="text-xs text-muted-foreground">
-                No seed phrase · fees sponsored on testnet · live on Stellar
+              <p className="mt-7 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                <span>no_seed_phrase</span>
+                <span className="text-border">/</span>
+                <span>fees_sponsored</span>
+                <span className="text-border">/</span>
+                <span>live_on_stellar</span>
               </p>
             </Reveal>
-          </div>
-
-          {/* Floating crest with a breathing glow halo */}
-          <div className="relative flex items-center justify-center">
-            <div
-              className="absolute size-72 rounded-full bg-primary/20 blur-3xl motion-safe:animate-glow-pulse md:size-96"
-              aria-hidden
-            />
-            <Parallax speed={0.12} className="relative">
-              <div className="motion-safe:animate-float">
-                <Crest
-                  address="stellar-passport-hero-constellation"
-                  size={320}
-                  points={9}
-                  animate
-                />
-              </div>
-            </Parallax>
           </div>
         </div>
 
         {/* Live vouch ticker (marquee) */}
-        <div className="border-y border-border/50 bg-card/30 py-3 [mask-image:linear-gradient(to_right,transparent,black_8%,black_92%,transparent)]">
+        <div className="border-y border-border/50 bg-card/20 py-3 backdrop-blur-sm [mask-image:linear-gradient(to_right,transparent,black_8%,black_92%,transparent)]">
           <div className="flex w-max motion-safe:animate-marquee gap-10 pr-10">
             {[...TICKER, ...TICKER].map((t, i) => (
-              <span key={i} className="flex items-center gap-2 whitespace-nowrap text-sm text-muted-foreground">
-                <Sparkles className="size-3.5 text-primary" />
+              <span key={i} className="flex items-center gap-2 whitespace-nowrap font-mono text-xs text-muted-foreground">
+                <span className="text-secondary">▸</span>
                 {t}
               </span>
             ))}
@@ -99,167 +116,171 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ───────────── How it works (scrollytelling steps) ───────────── */}
-      <section className="container py-24">
+      {/* ───────────── Stats (passport data row) ───────────── */}
+      <section className="container py-14">
         <Reveal>
-          <h2 className="mb-14 text-center text-4xl font-semibold tracking-tight">How it works</h2>
-        </Reveal>
-        <div className="mx-auto flex max-w-3xl flex-col gap-4">
-          {[
-            { n: '01', t: 'Vouch', d: 'Pick someone you trust, add one line — why. You light a star for them.' },
-            { n: '02', t: 'Claim', d: 'They open your link, connect in one tap, and claim their half. Two halves become one card.' },
-            { n: '03', t: 'Constellation', d: 'Every vouch adds a star. Your passport grows with the people who back you.' },
-          ].map((s, i) => (
-            <Reveal key={s.n} delay={i * 0.08}>
-              <div className="group flex items-start gap-6 rounded-2xl border border-border/70 bg-card/40 p-6 transition-all duration-300 hover:-translate-y-1 hover:border-primary/30 hover:bg-card">
-                <span className="font-display text-5xl font-semibold text-primary/30 transition-colors group-hover:text-primary/60">
-                  {s.n}
-                </span>
-                <div className="pt-1">
-                  <h3 className="text-xl font-semibold">{s.t}</h3>
-                  <p className="mt-1 text-muted-foreground">{s.d}</p>
+          <Frame label="on-chain // facts" index="00">
+            <div className="grid grid-cols-1 divide-y divide-border/60 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+              {STATS.map((s) => (
+                <div key={s.code} className="p-6">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">{s.code}</p>
+                  <p className="mt-2 font-display text-4xl font-semibold">
+                    <NumberTicker value={s.v} suffix={s.suffix} />
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">{s.label}</p>
                 </div>
+              ))}
+            </div>
+          </Frame>
+        </Reveal>
+      </section>
+
+      {/* ───────────── How it works (editorial numbered rows) ───────────── */}
+      <section className="container py-20">
+        <Reveal>
+          <div className="flex items-end justify-between border-b border-border/60 pb-4">
+            <h2 className="font-display text-4xl font-semibold tracking-tight">How it works</h2>
+            <span className="font-mono text-xs text-muted-foreground">[ 01 — 03 ]</span>
+          </div>
+        </Reveal>
+        <div className="divide-y divide-border/50">
+          {STEPS.map((s, i) => (
+            <Reveal key={s.n} delay={i * 0.06}>
+              <div className="group grid grid-cols-[3rem_1fr] items-baseline gap-x-6 py-8 transition-colors hover:bg-surface/30 md:grid-cols-[6rem_1fr_14rem]">
+                <span className="font-mono text-lg text-primary/60 transition-colors group-hover:text-primary">{s.n}</span>
+                <div>
+                  <h3 className="text-2xl font-semibold">{s.t}</h3>
+                  <p className="mt-2 max-w-lg text-muted-foreground">{s.d}</p>
+                </div>
+                <span className="col-start-2 mt-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground md:col-start-3 md:mt-0 md:self-center md:text-right">
+                  {s.tag}
+                </span>
               </div>
             </Reveal>
           ))}
         </div>
       </section>
 
-      {/* ───────────── Why different (bento, asymmetric) ───────────── */}
+      {/* ───────────── Why different (passport data page) ───────────── */}
       <section className="container py-12">
         <Reveal>
-          <h2 className="mb-10 text-3xl font-semibold tracking-tight">Why it&apos;s different</h2>
+          <Frame label="why_different" index="01" tilt>
+            <div className="grid grid-cols-1 md:grid-cols-2">
+              {FEATURES.map((f, i) => {
+                const Icon = f.icon;
+                return (
+                  <div
+                    key={f.id}
+                    className={cn(
+                      'relative border-border/50 p-7',
+                      f.span,
+                      'border-t md:border-t',
+                      i % 2 === 0 && 'md:border-r',
+                      i < 2 && 'md:border-t-0',
+                    )}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-primary/60">{f.id}</span>
+                      <Icon className="size-4 text-muted-foreground transition-colors group-hover:text-foreground" />
+                    </div>
+                    <h3 className="mt-5 text-xl font-semibold">{f.title}</h3>
+                    <p className="mt-2 max-w-md text-sm text-muted-foreground">{f.body}</p>
+                    {f.stamp && (
+                      <div className="mt-4">
+                        <Stamp accent="secondary">✦ {f.stamp}</Stamp>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </Frame>
         </Reveal>
-        <div className="grid gap-4 md:grid-cols-3 md:grid-rows-2">
-          <Reveal className="md:col-span-2 md:row-span-2">
-            <BentoTile
-              big
-              icon={Sparkles}
-              title="Names humans, not tasks"
-              body="Every card is one person and one moment — never a faceless badge or a points counter. Your reputation has a face."
-            />
-          </Reveal>
-          <Reveal delay={0.06}>
-            <BentoTile icon={ShieldCheck} title="Honest by design" body="Daily caps, first-pair-only, and a separate cashable track keep it real — not farmable." />
-          </Reveal>
-          <Reveal delay={0.12}>
-            <BentoTile icon={Coins} title="Spendable recognition" body="Earned reputation unlocks real USDC — backed, capped, gated." />
-          </Reveal>
-          <Reveal delay={0.18} className="md:col-span-3">
-            <BentoTile
-              wide
-              icon={Globe}
-              title="Yours, on-chain — and readable by other apps"
-              body="Your constellation lives on Stellar. The reputation primitive can be read by any app in one call."
-            />
-          </Reveal>
-        </div>
       </section>
 
       {/* ───────────── Leaderboard peek ───────────── */}
-      <section className="container py-24">
+      <section className="container py-20">
         <Reveal>
-          <div className="mb-10 flex items-end justify-between">
-            <h2 className="text-3xl font-semibold tracking-tight">The most-connected</h2>
-            <Link href="/leaderboard" className="text-sm text-primary hover:underline">
-              See the night sky →
+          <div className="mb-10 flex items-end justify-between border-b border-border/60 pb-4">
+            <h2 className="font-display text-3xl font-semibold tracking-tight">The most-connected</h2>
+            <Link href="/leaderboard" className="font-mono text-xs text-primary hover:underline">
+              see_the_night_sky →
             </Link>
           </div>
         </Reveal>
         <Reveal>
-          <div className="flex flex-wrap justify-center gap-x-10 gap-y-8">
+          <div className="flex flex-wrap justify-center gap-x-10 gap-y-8 sm:justify-start">
             {SAMPLE.map((addr, i) => (
               <div key={addr} className="group flex flex-col items-center gap-2">
-                <div className="transition-transform duration-300 group-hover:scale-110">
+                <div className="transition-transform duration-300 group-hover:-translate-y-1 group-hover:scale-105">
                   <Crest address={addr} size={72} points={i + 4} />
                 </div>
-                <span className="text-xs text-muted-foreground">★ {(SAMPLE.length - i) * 4}</span>
+                <span className="font-mono text-[10px] text-muted-foreground">★ {(SAMPLE.length - i) * 4}</span>
               </div>
             ))}
           </div>
         </Reveal>
       </section>
 
-      {/* ───────────── Dev teaser ───────────── */}
+      {/* ───────────── Dev teaser (terminal frame) ───────────── */}
       <section className="container py-12">
         <Reveal>
-          <Card className="nebula overflow-hidden border-secondary/20">
-            <CardContent className="grid items-center gap-8 p-8 md:grid-cols-2 md:p-12">
+          <Frame label="// for_developers" index="02" accent="tertiary">
+            <div className="grid items-center gap-8 p-8 md:grid-cols-2 md:p-10">
               <div>
-                <Badge variant="onchain" className="mb-4">For developers</Badge>
-                <h2 className="text-3xl font-semibold tracking-tight">Reputation other apps can read.</h2>
+                <Stamp accent="tertiary">READ-ONLY · ON-CHAIN</Stamp>
+                <h2 className="mt-4 text-3xl font-semibold tracking-tight">
+                  Reputation other apps can <AuroraText>read.</AuroraText>
+                </h2>
                 <p className="mt-3 text-muted-foreground">
                   One call returns a wallet&apos;s score. Build allowlists, gates, and trust
                   signals on a primitive that&apos;s on-chain and open.
                 </p>
-                <Link href="/how-it-works#devs" className="mt-5 inline-flex text-sm text-primary hover:underline">
-                  Read the docs →
+                <Link href="/how-it-works#devs" className="mt-5 inline-flex font-mono text-sm text-tertiary hover:underline">
+                  read_the_docs →
                 </Link>
               </div>
-              <pre className="overflow-x-auto rounded-xl border border-border bg-background/70 p-5 font-mono text-sm leading-relaxed text-foreground/80">
-                <span className="text-muted-foreground">{'// read a wallet’s reputation'}</span>
-                {'\n'}
-                <span className="text-secondary">const</span> score = <span className="text-secondary">await</span> getScore(addr);
-                {'\n'}
-                <span className="text-primary">{'// → 42'}</span>
-              </pre>
-            </CardContent>
-          </Card>
+              <div className="border border-border/70 bg-background/70">
+                <div className="flex items-center gap-1.5 border-b border-border/60 px-3 py-2">
+                  <span className="size-2.5 rounded-full bg-destructive/70" />
+                  <span className="size-2.5 rounded-full bg-warning/70" />
+                  <span className="size-2.5 rounded-full bg-secondary/70" />
+                  <span className="ml-2 font-mono text-[10px] text-muted-foreground">reputation.ts</span>
+                </div>
+                <pre className="overflow-x-auto p-5 font-mono text-sm leading-relaxed text-foreground/80">
+                  <span className="text-muted-foreground">{'// read a wallet’s reputation'}</span>
+                  {'\n'}
+                  <span className="text-primary">const</span> score = <span className="text-primary">await</span> getScore(addr);
+                  {'\n'}
+                  <span className="text-secondary">{'// → 42'}</span>
+                </pre>
+              </div>
+            </div>
+          </Frame>
         </Reveal>
       </section>
 
       {/* ───────────── Final CTA ───────────── */}
-      <section className="relative py-28 text-center">
-        <div className="absolute left-1/2 top-1/2 size-[28rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/10 blur-3xl motion-safe:animate-glow-pulse" aria-hidden />
+      <section className="relative overflow-hidden py-32 text-center">
+        <Meteors number={18} />
+        <div className="absolute left-1/2 top-1/2 size-[30rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/10 blur-3xl motion-safe:animate-glow-pulse" aria-hidden />
         <div className="container relative">
           <Reveal>
+            <p className="mb-4 font-mono text-[11px] uppercase tracking-[0.28em] text-primary/70">{'// your_turn'}</p>
             <h2 className="mx-auto max-w-2xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
-              Someone&apos;s waiting to be <span className="text-gradient">recognized.</span>
+              Someone&apos;s waiting to be <AuroraText>recognized.</AuroraText>
             </h2>
           </Reveal>
           <Reveal delay={0.1}>
-            <Link href="/app" className={cn(buttonVariants({ size: 'lg' }), 'mt-8')}>
-              Open the app <ArrowRight className="size-4" />
-            </Link>
+            <span className="relative mt-9 inline-flex overflow-hidden rounded-full">
+              <Link href="/app" className={cn(buttonVariants({ variant: 'flow', size: 'lg' }))}>
+                Open the app <ArrowRight className="size-4" />
+              </Link>
+              <BorderBeam size={60} duration={6} colorTo="hsl(var(--tertiary))" />
+            </span>
           </Reveal>
         </div>
       </section>
-    </div>
-  );
-}
-
-function BentoTile({
-  icon: Icon,
-  title,
-  body,
-  big,
-  wide,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  title: string;
-  body: string;
-  big?: boolean;
-  wide?: boolean;
-}) {
-  return (
-    <div
-      className={cn(
-        'group flex h-full flex-col rounded-2xl border border-border/70 bg-card/40 p-6 transition-all duration-300 hover:-translate-y-1 hover:border-primary/30 hover:bg-card hover:shadow-card',
-        big && 'justify-between md:p-8',
-      )}
-    >
-      <div
-        className={cn(
-          'flex shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary transition-colors group-hover:bg-primary/20',
-          big ? 'size-14' : 'size-11',
-        )}
-      >
-        <Icon className={big ? 'size-7' : 'size-5'} />
-      </div>
-      <div className={cn(big || wide ? 'mt-6' : 'mt-4')}>
-        <h3 className={cn('font-semibold', big ? 'text-2xl' : 'text-lg')}>{title}</h3>
-        <p className={cn('mt-2 text-muted-foreground', big ? 'max-w-md text-base' : 'text-sm')}>{body}</p>
-      </div>
     </div>
   );
 }

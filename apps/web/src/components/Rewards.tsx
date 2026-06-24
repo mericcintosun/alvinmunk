@@ -6,7 +6,8 @@ import { txExplorerUrl } from '@/lib/stellar';
 import { getEarnedScore } from '@/lib/reputation';
 import { claimReward, getRewards, isClaimed, stroopsToUsdc, type RewardEntry } from '@/lib/rewards';
 import { getAnchorConfig, anchorEntryUrl } from '@/lib/anchor';
-import { Card, CardContent } from '@/components/ui/card';
+import { Frame } from '@/components/fx/frame';
+import { NumberTicker } from '@/components/fx/number-ticker';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -57,11 +58,13 @@ export function Rewards({ address }: { address: string }) {
   }
 
   return (
-    <Card>
-      <CardContent className="p-5">
+    <Frame label="spend // rank" index="04" accent="secondary">
+      <div className="p-5">
         <div className="mb-1 flex items-center justify-between">
           <h2 className="text-base font-semibold">Rank rewards</h2>
-          <Badge variant="onchain">Earned XP: {earned ?? '…'}</Badge>
+          <Badge variant="onchain">
+            Earned XP: {earned === null ? '…' : <NumberTicker value={earned} className="ml-0.5" />}
+          </Badge>
         </div>
         <p className="mb-4 text-sm text-muted-foreground">
           Earned XP unlocks real USDC — rank buys something. Vouches (Social XP) never do.
@@ -114,8 +117,8 @@ export function Rewards({ address }: { address: string }) {
         {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
 
         <AnchorCashout />
-      </CardContent>
-    </Card>
+      </div>
+    </Frame>
   );
 }
 

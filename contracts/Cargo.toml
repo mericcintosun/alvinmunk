@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["reputation", "quest_registry", "rewards"]
+members = ["reputation", "quest_registry", "rewards", "registry", "gate"]
 
 [workspace.dependencies]
 # NOTE: verify the latest soroban-sdk before first build (`cargo search soroban-sdk`).

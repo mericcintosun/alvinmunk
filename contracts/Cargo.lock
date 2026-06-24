@@ -947,10 +947,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "passport-gate"
+version = "0.1.0"
+dependencies = [
+ "passport-reputation",
+ "soroban-sdk",
+]
+
+[[package]]
 name = "passport-quest-registry"
 version = "0.1.0"
 dependencies = [
  "passport-reputation",
+ "soroban-sdk",
+]
+
+[[package]]
+name = "passport-registry"
+version = "0.1.0"
+dependencies = [
  "soroban-sdk",
 ]
 

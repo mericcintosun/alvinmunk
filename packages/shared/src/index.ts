@@ -63,6 +63,8 @@ export interface ContractIds {
   questRegistry: string;
   rewards: string;
   usdcSac: string;
+  registry: string;
+  gate: string;
 }
 
 export interface NetworkConfig {
@@ -91,6 +93,8 @@ export function readNetworkConfig(env: Record<string, string | undefined>): Netw
       questRegistry: env.NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID ?? '',
       rewards: env.NEXT_PUBLIC_REWARDS_CONTRACT_ID ?? '',
       usdcSac: env.NEXT_PUBLIC_USDC_SAC_ID ?? '',
+      registry: env.NEXT_PUBLIC_REGISTRY_CONTRACT_ID ?? '',
+      gate: env.NEXT_PUBLIC_GATE_CONTRACT_ID ?? '',
     },
   };
 }

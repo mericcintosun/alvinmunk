@@ -105,3 +105,41 @@ become the stars you carry.*
 - Soft-white on deep-space meets AA; orange CTA text uses near-black foreground for AAA.
 - Every generative crest ships `alt` text ("a 6-point constellation for @handle").
 - `prefers-reduced-motion` disables drift/breathing/bloom.
+
+---
+
+## 10. 2026 Immersive Refresh (implemented)
+
+The metaphor is now **literal and interactive** — the constellation is a real 3D scene,
+not just a 2D crest. This is the current shipped design language across landing + app.
+
+**Hero = a live 3D constellation (WebGL / react-three-fiber).** Your star burns at the
+center; everyone who vouched you orbits as a star, beamed to you. Hover lights a star
+(tooltip: who · note · when), the field tilts to the cursor (parallax) and slowly
+rotates. Alive even with an empty sky — orbital rings + drifting particles + a
+parallaxing starfield — so a brand-new passport still feels cosmic. three.js is
+lazy-loaded (`dynamic(ssr:false)`) so it never touches SSR or the marketing bundle.
+Shared scene primitives: `components/brand/constellation-parts` (Star, OrbitRing, glow
+sprite); the app hero (`constellation-3d`) and the marketing backdrop
+(`constellation-backdrop`) share them so product and pitch are one world.
+
+**Depth palette (added to the cosmic base, brand hues kept):** orange = human,
+violet = chain, **+ a cyan `--tertiary` for sky/connection depth**. New surface system:
+glassy translucent `--surface` panels with hairline borders + inner highlight, a slow
+**aurora** gradient mesh, and a faint technical **grid** (the "engineered" chain-site
+motif), masked to fade.
+
+**Interactive primitives (`components/fx`, Magic-UI language, zero heavy deps):**
+- **MagicCard** — glass surface with a cursor-tracked spotlight glow; replaces every
+  flat `bg-card` box.
+- **BorderBeam** — a light particle traveling a rounded border (`offset-path`); marks
+  live primary CTAs.
+- **NumberTicker** — count-up for XP / USDC / stats (eases in on scroll).
+- **AuroraText / ShinyText** — kinetic gradient headline + shimmering eyebrows.
+
+**Typography:** display = Bricolage Grotesque, fluid `.display-hero`
+(`clamp(2.75rem,7vw,5.5rem)`, tight tracking) for heroes; `.eyebrow` uppercase kicker
+above headings (chain-site rhythm); body Inter; mono for addresses/code.
+
+**Still honors §9 accessibility:** `prefers-reduced-motion` calms autonomous motion
+(rotation/drift/ticker) while keeping cursor parallax; faces/shapes over numbers holds.

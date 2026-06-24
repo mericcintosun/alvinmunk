@@ -1,22 +1,33 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { toast } from 'sonner';
 import { useWallet } from '@/components/wallet/wallet-provider';
 import { recordGenesis } from '@/lib/genesis';
+import { claimHandle, isHandleAvailable } from '@/lib/registry';
 import { normalizeHandle, type Profile } from '@/lib/profile';
-import { txExplorerUrl } from '@/lib/stellar';
 import { humanizeError } from '@/lib/utils';
 import { Crest } from '@/components/brand/crest';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { IdentityBar } from '@/components/IdentityBar';
+import { InviteNudge } from '@/components/InviteNudge';
+import { PendingHalfCards } from '@/components/PendingHalfCards';
+import { ActivityFeed } from '@/components/ActivityFeed';
 import { VouchCompose } from '@/components/VouchCompose';
 import { Quests } from '@/components/Quests';
+import { Unlockables } from '@/components/Unlockables';
 import { Tip } from '@/components/Tip';
 import { Rewards } from '@/components/Rewards';
+
+// three.js stays out of SSR + the marketing bundle — lazy, client-only.
+const ConstellationHero3D = dynamic(() => import('@/components/brand/constellation-3d'), {
+  ssr: false,
+  loading: () => (
+    <div className="aurora h-[58vh] max-h-[560px] min-h-[400px] w-full animate-pulse rounded-3xl border border-border/60" />
+  ),
+});
 
 export default function AppHome() {
   const { profile, connect, setProfile } = useWallet();
@@ -34,10 +45,16 @@ export default function AppHome() {
     setCreating(true);
     try {
       const w = await connect();
+      // The handle becomes your PUBLIC passport ID, so it must be free on-chain.
+      if (!(await isHandleAvailable(h))) {
+        toast.error(`@${h} is taken — pick another.`);
+        return;
+      }
       const tx = await recordGenesis(w, h);
+      await claimHandle(w, h); // stamp the handle to chain (registry)
       const p: Profile = { handle: h, address: w.address, createdAt: Date.now(), genesisTx: tx };
       setProfile(p);
-      toast.success('Your passport is live — verified on-chain.');
+      toast.success(`Your passport is live — @${h} stamped on-chain.`);
     } catch (e) {
       toast.error(humanizeError(e));
     } finally {
@@ -87,42 +104,34 @@ export default function AppHome() {
 
   // ─── Dashboard ───
   return (
-    <div className="container max-w-2xl py-10">
-      <Card className="mb-6 overflow-hidden">
-        <CardContent className="flex items-center gap-5 p-6">
-          <Crest address={profile.address} handle={profile.handle} size={88} points={7} animate />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <h1 className="truncate text-xl font-semibold">@{profile.handle}</h1>
-              <Badge variant="onchain">on-chain</Badge>
-            </div>
-            <p className="mt-1 font-mono text-xs text-muted-foreground">
-              {profile.address.slice(0, 6)}…{profile.address.slice(-4)}
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2 text-xs">
-              <Link href={`/u/${profile.handle}`} className="text-primary hover:underline">
-                View public passport →
-              </Link>
-              {profile.genesisTx && (
-                <a
-                  href={txExplorerUrl(profile.genesisTx)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-muted-foreground hover:underline"
-                >
-                  Genesis tx ↗
-                </a>
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+    <div className="container max-w-3xl py-8">
+      {/* IDENTITY — @handle (claim/edit) + share + public link */}
+      <IdentityBar />
 
-      <div className="grid gap-4">
+      {/* HERO — your living 3D constellation */}
+      <ConstellationHero3D address={profile.address} handle={profile.handle} />
+
+      <div className="mt-8 grid gap-4">
+        {/* INVITE — if you arrived via /v/<handle>, vouch your inviter back */}
+        <InviteNudge />
+        {/* RE-ENGAGEMENT — your unclaimed half-cards (stake at risk) */}
+        <PendingHalfCards />
+        {/* SOCIAL PROOF — the sky is moving */}
+        <ActivityFeed />
+        {/* PRIMARY — vouch = the viral install loop */}
         <VouchCompose />
         <Quests address={profile.address} />
-        <Tip address={profile.address} />
-        <Rewards address={profile.address} />
+        {/* CAPABILITY — reputation unlocks access (composable gates) */}
+        <Unlockables address={profile.address} />
+        <div className="mt-2">
+          <p className="mb-3 px-1 text-xs font-medium uppercase tracking-wide text-muted-foreground/70">
+            Spend
+          </p>
+          <div className="grid gap-4">
+            <Tip address={profile.address} />
+            <Rewards address={profile.address} />
+          </div>
+        </div>
       </div>
     </div>
   );

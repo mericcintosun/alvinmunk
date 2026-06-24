@@ -26,6 +26,8 @@ const BASE_FEE = '1000000'; // 0.1 XLM ceiling; simulation sets the real fee.
 export const repId = () => config.contracts.reputation;
 export const rewardsId = () => config.contracts.rewards;
 export const questId = () => config.contracts.questRegistry;
+export const registryId = () => config.contracts.registry;
+export const gateId = () => config.contracts.gate;
 
 /** ScVal builders for the contract ABIs. */
 export const args = {
@@ -34,6 +36,7 @@ export const args = {
   u64: (n: number | bigint) => nativeToScVal(n, { type: 'u64' }),
   i128: (n: bigint) => nativeToScVal(n, { type: 'i128' }),
   str: (s: string) => nativeToScVal(s, { type: 'string' }),
+  sym: (s: string) => nativeToScVal(s, { type: 'symbol' }),
   // Bytes / BytesN<32> (claim hash, secret) — the host checks fixed length where needed.
   bytes: (u8: Uint8Array) => nativeToScVal(u8, { type: 'bytes' }),
 };

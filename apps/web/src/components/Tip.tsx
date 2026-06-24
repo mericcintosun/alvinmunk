@@ -12,7 +12,8 @@ import {
   tip,
   usdcToStroops,
 } from '@/lib/rewards';
-import { Card, CardContent } from '@/components/ui/card';
+import { Frame } from '@/components/fx/frame';
+import { NumberTicker } from '@/components/fx/number-ticker';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -54,12 +55,16 @@ export function Tip({ address }: { address: string }) {
   }
 
   return (
-    <Card>
-      <CardContent className="p-5">
+    <Frame label="spend // tip" index="03">
+      <div className="p-5">
         <div className="mb-1 flex items-center justify-between">
           <h2 className="text-base font-semibold">Send a tip</h2>
           <Badge variant="primary">
-            {balance === null ? '…' : `${stroopsToUsdc(balance)} USDC`}
+            {balance === null ? (
+              '…'
+            ) : (
+              <NumberTicker value={Number(stroopsToUsdc(balance))} decimals={2} suffix=" USDC" />
+            )}
           </Badge>
         </div>
         <p className="mb-4 text-sm text-muted-foreground">
@@ -125,7 +130,7 @@ export function Tip({ address }: { address: string }) {
           </a>
         )}
         {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
-      </CardContent>
-    </Card>
+      </div>
+    </Frame>
   );
 }
