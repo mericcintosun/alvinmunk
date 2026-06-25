@@ -12,6 +12,18 @@ const nextConfig = {
     // recompression so every sticker/illustration stays pixel-for-pixel lossless.
     unoptimized: true,
   },
+  webpack: (config) => {
+    // smart-account-kit lazy-imports the OPTIONAL external-wallet adapter
+    // (@creit-tech/stellar-wallets-kit) only when connecting a Freighter/LOBSTR signer.
+    // We use the passkey path only, so stub it to an empty module — actually installing
+    // it would drag back the native node-hid/usb deps that broke the Vercel build.
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      '@creit-tech/stellar-wallets-kit': false,
+      '@creit-tech/stellar-wallets-kit/modules/utils': false,
+    };
+    return config;
+  },
 };
 
 export default nextConfig;

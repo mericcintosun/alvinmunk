@@ -10,18 +10,47 @@ import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 
-/** A soft radial-gradient sprite texture for additive glow (built once on the client). */
+/**
+ * A solid five-point star sprite texture (filled classic star + a soft glow halo),
+ * built once on the client. Kept pure white so each instance tints it via its own
+ * palette color.
+ */
 export function makeGlowTexture(): THREE.Texture {
-  const s = 128;
+  const s = 256;
   const c = document.createElement('canvas');
   c.width = c.height = s;
   const ctx = c.getContext('2d')!;
-  const g = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
-  g.addColorStop(0, 'rgba(255,255,255,1)');
-  g.addColorStop(0.18, 'rgba(255,255,255,0.55)');
-  g.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, s, s);
+  const mid = s / 2;
+  ctx.translate(mid, mid);
+
+  // Soft halo behind the star so it blooms instead of sitting hard against space.
+  const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, mid);
+  halo.addColorStop(0, 'rgba(255,255,255,0.55)');
+  halo.addColorStop(0.45, 'rgba(255,255,255,0.12)');
+  halo.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = halo;
+  ctx.fillRect(-mid, -mid, s, s);
+
+  // Filled classic 5-point star. Inner/outer ratio 0.382 gives the sharp, even shape.
+  const R = mid * 0.86;
+  const r = R * 0.382;
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const rad = i % 2 === 0 ? R : r;
+    const ang = -Math.PI / 2 + (i * Math.PI) / 5;
+    const x = Math.cos(ang) * rad;
+    const y = Math.sin(ang) * rad;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  // Brightest at the core, easing out toward the points for a little depth.
+  const fill = ctx.createRadialGradient(0, 0, 0, 0, 0, R);
+  fill.addColorStop(0, 'rgba(255,255,255,1)');
+  fill.addColorStop(1, 'rgba(255,255,255,0.82)');
+  ctx.fillStyle = fill;
+  ctx.fill();
+
   const t = new THREE.CanvasTexture(c);
   t.needsUpdate = true;
   return t;
@@ -40,7 +69,10 @@ export function fibonacciSphere(n: number, radius: number): THREE.Vector3[] {
   return pts;
 }
 
-/** A glowing point: additive halo sprite + a small bright core. */
+/** Global size multiplier for every star sprite — tune the whole sky in one place. */
+const STAR_SCALE = 0.6;
+
+/** A glowing five-point star sprite (no solid core dot; the sprite is the star). */
 export function Star({
   glow,
   color,
@@ -69,7 +101,7 @@ export function Star({
   useFrame((_, d) => {
     // Honor prefers-reduced-motion fully: no idle pulse, only the static (and hover) scale.
     const pulse = reduced ? 1 : 1 + Math.sin((phase.current += d) * 1.5) * 0.07;
-    sprite.current?.scale.setScalar(glowScale * (hovered ? 1.7 : 1) * pulse);
+    sprite.current?.scale.setScalar(glowScale * STAR_SCALE * (hovered ? 1.7 : 1) * pulse);
   });
   return (
     <group>
@@ -83,9 +115,11 @@ export function Star({
           depthWrite={false}
         />
       </sprite>
+      {/* Invisible hit target — keeps hover/click raycasting without drawing a round
+          core dot on top of the star sprite. */}
       <mesh onPointerOver={onOver} onPointerOut={onOut} onClick={onClick}>
-        <sphereGeometry args={[coreSize * (hovered ? 1.35 : 1), 20, 20]} />
-        <meshBasicMaterial color={hovered ? '#ffffff' : color} toneMapped={false} />
+        <sphereGeometry args={[coreSize * (hovered ? 1.35 : 1), 12, 12]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
     </group>
   );

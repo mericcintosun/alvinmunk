@@ -84,7 +84,10 @@ export default function AppHome() {
         toast.error(`@${h} is taken — pick another.`);
         return;
       }
-      const tx = await recordGenesis(w, h);
+      // Genesis is a classic manageData op (needs a G… source) — passkey smart accounts
+      // (C…) can't author it, so we skip it there; the registry claim below IS the
+      // on-chain identity binding for every wallet kind.
+      const tx = w.kind === 'passkey' ? undefined : await recordGenesis(w, h);
       await claimHandle(w, h); // stamp the handle to chain (registry)
       const p: Profile = {
         handle: h,

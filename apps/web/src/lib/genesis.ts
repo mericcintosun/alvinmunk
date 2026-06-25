@@ -4,7 +4,7 @@
  * signed transaction. Cheap, classic, and demoable: FaceID -> on-chain in seconds.
  */
 import { Operation, TransactionBuilder } from '@stellar/stellar-sdk';
-import { server, networkPassphrase } from './stellar';
+import { server, networkPassphrase, waitForTransaction } from './stellar';
 import type { Wallet } from './wallet';
 
 const FEE = '1000'; // stroops; sponsored in the passkey flow.
@@ -29,5 +29,8 @@ export async function recordGenesis(wallet: Wallet, handle: string): Promise<str
   if (sent.status === 'ERROR') {
     throw new Error(`genesis tx failed: ${JSON.stringify(sent.errorResult ?? sent)}`);
   }
+  // Wait for it to land so the follow-up claim tx builds on an advanced sequence
+  // number (otherwise the two back-to-back txs collide with txBAD_SEQ).
+  await waitForTransaction(sent.hash);
   return sent.hash;
 }

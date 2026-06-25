@@ -1,9 +1,10 @@
 /**
  * Wallet layer (Sprint 1 / White belt). Two providers behind one interface:
  *
- *  - PASSKEY (production): passkey smart wallet (FaceID, no seed phrase), fee-sponsored.
- *    Requires deployed factory + a submitter (launchtube) — wired in `connectPasskey`
- *    once that infra is configured (NEXT_PUBLIC_WALLET_WASM_HASH + LAUNCHTUBE_URL).
+ *  - PASSKEY (production): smart-account-kit passkey wallet (FaceID, no seed phrase),
+ *    fee-sponsored via a relayer. Wired in `connectPasskey` once the infra env is set
+ *    (NEXT_PUBLIC_SMART_ACCOUNT_WASM_HASH + WEBAUTHN_VERIFIER_ID + RELAYER_URL). See
+ *    docs/PASSKEY_WIRING.md.
  *  - DEV (local/testing ONLY): an ephemeral classic keypair funded by Friendbot on
  *    testnet. Lets White belt run + be tested end-to-end without passkey infra.
  *    HARD-disabled on mainnet.
@@ -11,13 +12,13 @@
  * The rest of the app depends only on the `Wallet` interface, so swapping providers
  * never touches feature code.
  */
-import { Keypair, TransactionBuilder } from '@stellar/stellar-sdk';
+import { Keypair, TransactionBuilder, scValToNative } from '@stellar/stellar-sdk';
 import {
   isConnected as freighterIsConnected,
   requestAccess as freighterRequestAccess,
   signTransaction as freighterSign,
 } from '@stellar/freighter-api';
-import { config, networkPassphrase } from './stellar';
+import { config, networkPassphrase, waitForAccountReady, server } from './stellar';
 
 export type WalletKind = 'passkey' | 'dev' | 'freighter';
 
@@ -29,6 +30,18 @@ export interface Wallet {
   /** Sign a plain UTF-8 message (ed25519), returning a base64 signature.
    * Used to PROVE wallet ownership to the attester (no key leaves the client). */
   signMessage: (message: string) => Promise<string>;
+  /**
+   * Smart-account-mediated contract call (passkey only). A passkey wallet's address is
+   * a CONTRACT (`C…`), which can't be a classic tx source — so contract invocations are
+   * authorized by the passkey and submitted via the relayer here, instead of the
+   * build→sign→send path. When present, the contract layer routes through this and
+   * returns the decoded return value. Absent on G… wallets (dev/freighter).
+   */
+  invoke?: (
+    contractId: string,
+    method: string,
+    args: import('@stellar/stellar-sdk').xdr.ScVal[],
+  ) => Promise<unknown>;
 }
 
 function u8ToB64(u8: Uint8Array): string {
@@ -40,16 +53,16 @@ function u8ToB64(u8: Uint8Array): string {
 const DEV_SECRET_KEY = 'passport.devSecret';
 
 /**
- * Is the passkey smart-wallet infra fully configured? Requires ALL THREE pieces —
- * the deployed wallet WASM hash, a launchtube submitter (fee sponsorship), and the
- * factory contract id. Half-configured = stay on the dev wallet (never half-enable).
- * See docs/PASSKEY_WIRING.md.
+ * Is the passkey smart-wallet infra configured? Needs the OpenZeppelin smart-account
+ * WASM hash + the WebAuthn verifier contract. On testnet the kit's shared, well-known
+ * deployer account pays fees, so a relayer is OPTIONAL there; set NEXT_PUBLIC_RELAYER_URL
+ * to sponsor fees yourself (required for mainnet). Half-configured = stay on the dev
+ * wallet (never half-enable). See docs/PASSKEY_WIRING.md.
  */
 export function isPasskeyConfigured(): boolean {
   return Boolean(
-    process.env.NEXT_PUBLIC_WALLET_WASM_HASH &&
-      process.env.NEXT_PUBLIC_LAUNCHTUBE_URL &&
-      process.env.NEXT_PUBLIC_PASSKEY_FACTORY_ID,
+    process.env.NEXT_PUBLIC_SMART_ACCOUNT_WASM_HASH &&
+      process.env.NEXT_PUBLIC_WEBAUTHN_VERIFIER_ID,
   );
 }
 
@@ -71,6 +84,9 @@ export async function getDevWallet(): Promise<Wallet> {
   if (!existing) {
     safeLocalSet(DEV_SECRET_KEY, kp.secret());
     await fundWithFriendbot(kp.publicKey());
+    // Friendbot may return before the RPC sees the new account; wait so the first
+    // getAccount in the onboarding flow doesn't 404.
+    await waitForAccountReady(kp.publicKey());
   }
 
   return {
@@ -99,7 +115,9 @@ export async function fundWithFriendbot(publicKey: string, tries = 4): Promise<v
   let lastStatus = 0;
   for (let i = 0; i < tries; i++) {
     try {
-      const res = await fetch(url);
+      // Hard timeout per attempt — Friendbot can hold a connection open under load,
+      // which would otherwise hang onboarding forever (no fetch default timeout).
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
       // 400 == already funded; 200 == funded now. Both are success.
       if (res.ok || res.status === 400) return;
       lastStatus = res.status;
@@ -157,35 +175,82 @@ export function disconnectFreighter(): void {
 
 // ── Passkey provider (production) ──
 //
-// This is the ONLY function that needs filling to ship real FaceID onboarding — the
-// adapter seam is already complete: every caller depends only on the `Wallet`
-// interface, so wiring passkey here touches no feature code. It's deferred (not on
-// the critical path to the next belt) and intentionally carries NO heavy dependency:
-// `passkey-kit` pulls native node-gyp modules that fail Vercel's install-time build,
-// which is why it was removed. Re-add it safely (pnpm.overrides / isolated package)
-// only when the infra below exists. Full runbook: docs/PASSKEY_WIRING.md.
-//
-// Integration contract (map passkey-kit -> the `Wallet` interface):
-//   const kit = new PasskeyKit({
-//     rpcUrl: config.rpcUrl,
-//     networkPassphrase,
-//     walletWasmHash:  process.env.NEXT_PUBLIC_WALLET_WASM_HASH!,
-//     factoryContractId: process.env.NEXT_PUBLIC_PASSKEY_FACTORY_ID!,
-//   });
-//   // createWallet() on first run (FaceID enroll) / connectWallet() on return;
-//   // submit via launchtube (NEXT_PUBLIC_LAUNCHTUBE_URL) for sponsored fees.
-//   return {
-//     kind: 'passkey',
-//     address: contractId,                 // the smart-account contract address (C...)
-//     sign: (xdr) => kit.sign(xdr) -> launchtube.send(...) -> signedXdr,
-//     signMessage: (m) => kit.signMessage(m),  // for the /api/attest ownership proof
-//   };
+// Built on `smart-account-kit` (compiled ESM, no native deps → Vercel-build-safe). The
+// adapter seam is complete: callers depend only on the `Wallet` interface, so this file
+// is the only feature-facing change. A passkey wallet's address is a CONTRACT (C…), which
+// can't be a classic tx source — contract calls go out via `invoke` (auth signed by the
+// passkey, submitted + fee-sponsored by the relayer). Turn it on by setting the three
+// NEXT_PUBLIC_* infra vars below; otherwise the app stays on the dev wallet.
+// Full runbook + deferred follow-ups (quests, trustlines): docs/PASSKEY_WIRING.md.
 export async function connectPasskey(): Promise<Wallet> {
-  throw new Error(
-    'Passkey infra not configured. Set NEXT_PUBLIC_WALLET_WASM_HASH, ' +
-      'NEXT_PUBLIC_LAUNCHTUBE_URL and NEXT_PUBLIC_PASSKEY_FACTORY_ID (see ' +
-      'docs/PASSKEY_WIRING.md), or use the dev wallet on testnet (default).',
-  );
+  const wasmHash = process.env.NEXT_PUBLIC_SMART_ACCOUNT_WASM_HASH;
+  const verifier = process.env.NEXT_PUBLIC_WEBAUTHN_VERIFIER_ID;
+  if (!wasmHash || !verifier) {
+    throw new Error(
+      'Passkey infra not configured. Set NEXT_PUBLIC_SMART_ACCOUNT_WASM_HASH, ' +
+        'NEXT_PUBLIC_WEBAUTHN_VERIFIER_ID and NEXT_PUBLIC_RELAYER_URL (see ' +
+        'docs/PASSKEY_WIRING.md), or use the dev wallet on testnet (default).',
+    );
+  }
+
+  // Browser-only SDK (WebAuthn + IndexedDB); dynamic-imported so it never enters SSR
+  // or the marketing bundle. Compiled ESM, no native deps — Vercel-build-safe.
+  const { SmartAccountKit, IndexedDBStorage } = await import('smart-account-kit');
+  const kit = new SmartAccountKit({
+    rpcUrl: config.rpcUrl,
+    networkPassphrase,
+    accountWasmHash: wasmHash,
+    webauthnVerifierAddress: verifier,
+    // Relayer (OZ Channels) pays fees so the user needs no XLM — a C… account can't
+    // be a tx source, so submission MUST go through it.
+    relayerUrl: process.env.NEXT_PUBLIC_RELAYER_URL || undefined,
+    storage: new IndexedDBStorage(),
+    rpName: 'Stellar Passport',
+  });
+
+  // Returning user → silent restore. First run → FaceID/passkey enroll + create the
+  // smart account (fees sponsored by the relayer).
+  const restored = await kit.connectWallet();
+  const contractId =
+    restored?.contractId ??
+    (await kit.createWallet('Stellar Passport', 'passport', { autoSubmit: true })).contractId;
+
+  return {
+    kind: 'passkey',
+    address: contractId, // a CONTRACT address (C…), not a G… key
+    invoke: async (target, method, callArgs) => {
+      // Build the contract call with the kit's shared DEPLOYER account (a real G… key) as
+      // the fee source — a C… smart account can't be a tx source. Simulation returns the
+      // auth entries requiring the smart account's signature; kit.signAndSubmit then signs
+      // them with the passkey, re-simulates, and submits (deployer pays the fee).
+      const { contract: contractNs } = await import('@stellar/stellar-sdk');
+      const at = await contractNs.AssembledTransaction.build({
+        method,
+        args: callArgs,
+        contractId: target,
+        networkPassphrase,
+        rpcUrl: config.rpcUrl,
+        publicKey: kit.deployerPublicKey,
+        parseResultXdr: (scv) => scValToNative(scv),
+      });
+      const sent = await kit.signAndSubmit(at);
+      if (!sent.success) throw new Error(sent.error || `${method} failed`);
+      // signAndSubmit only returns {success, hash} — no return value. Fetch the confirmed
+      // tx by hash and decode its result so callers (e.g. mintVouch → vouch id) get it.
+      const res = await server.getTransaction(sent.hash);
+      const rv = res.status === 'SUCCESS' ? res.returnValue : undefined;
+      return rv ? scValToNative(rv) : undefined;
+    },
+    sign: async () => {
+      // Passkey wallets author actions via `invoke` (Soroban auth), never raw classic XDR.
+      throw new Error('This action needs a classic wallet; passkey wallets sign on-chain calls only.');
+    },
+    signMessage: async () => {
+      // Quest ownership proof verifies an ed25519 G… signer; the smart-account (secp256r1)
+      // signer path is a documented follow-up in the attester. Defer like Freighter quests.
+      throw new Error('Quests with a passkey wallet are coming soon — use the in-app wallet to verify a quest for now.');
+    },
+  };
 }
 
 // ── helpers ──

@@ -99,6 +99,13 @@ export async function invokeAndWait<T = unknown>(
   wallet: Wallet,
 ): Promise<T> {
   requireDeployed(contractId, method);
+
+  // Passkey (smart-account) wallets can't be a classic tx source: the call is
+  // authorized by the passkey and submitted via the relayer inside wallet.invoke.
+  if (wallet.invoke) {
+    return (await wallet.invoke(contractId, method, callArgs)) as T;
+  }
+
   const account = await server.getAccount(wallet.address);
   const built = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase })
     .addOperation(new Contract(contractId).call(method, ...callArgs))

@@ -36,12 +36,54 @@ export const networkPassphrase =
 
 /** Native XLM balance as a string, or '0' if the account isn't funded yet. */
 export async function getXlmBalance(address: string): Promise<string> {
+  // Smart accounts (C…) aren't classic Horizon accounts — querying /accounts/C… 400s.
+  // Their balance lives in the native SAC; skip the Horizon lookup here.
+  if (address.startsWith('C')) return '0';
   try {
     const acct = await horizon.loadAccount(address);
     const native = acct.balances.find((b) => b.asset_type === 'native');
     return native?.balance ?? '0';
   } catch {
     return '0'; // not funded yet
+  }
+}
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * Block until a submitted tx is applied on-chain. Onboarding fires two txs back-to-back
+ * from the same account (genesis → claim); the second must not build its sequence number
+ * until the first has landed, or it collides (txBAD_SEQ). Throws on on-chain failure or
+ * if it never confirms within the budget.
+ */
+export async function waitForTransaction(hash: string, tries = 30): Promise<void> {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const res = await server.getTransaction(hash);
+      if (res.status === 'SUCCESS') return;
+      if (res.status === 'FAILED') throw new Error(`tx ${hash} failed on-chain`);
+    } catch (e) {
+      if (e instanceof Error && e.message.endsWith('failed on-chain')) throw e;
+      // NOT_FOUND yet / transient RPC error — keep polling.
+    }
+    await sleep(1000);
+  }
+  throw new Error(`tx ${hash} not confirmed in time — the network is slow, try again.`);
+}
+
+/**
+ * Poll until a freshly-funded account is visible to the RPC. Friendbot can return before
+ * the creating ledger has propagated to our RPC node, so the very next getAccount would
+ * 404. Bounded; stays quiet on failure and lets the downstream call surface a clear error.
+ */
+export async function waitForAccountReady(address: string, tries = 20): Promise<void> {
+  for (let i = 0; i < tries; i++) {
+    try {
+      await server.getAccount(address);
+      return;
+    } catch {
+      await sleep(800);
+    }
   }
 }
 

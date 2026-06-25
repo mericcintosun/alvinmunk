@@ -1,98 +1,114 @@
-# Passkey Wiring Runbook (deferred — demo-day milestone)
+# Passkey Wiring Runbook
 
-_How to turn on real passkey/FaceID onboarding when the infra + a device are available.
-Until then the app runs on the testnet **dev wallet** (ephemeral Friendbot-funded
-keypair), which already drives the full vouch/quest/tip loop. Decision record below._
+_How real passkey/FaceID onboarding is wired, and the infra you (the human) still need to
+provision to turn it on. Until the env vars below are set, the app stays on the testnet
+**dev wallet** (ephemeral Friendbot-funded keypair), which already drives the full
+vouch/quest/tip loop._
 
-## Why it's deferred (not skipped)
+## Status (updated)
 
-A 6-persona review (Tyler/architecture, Justin/strategy, Kaan/UX, Nicole/PM) was
-unanimous: real passkey is **meaningful polish for the live jury demo, not on the
-critical path to the next belt**. The dev wallet already delivers ~90% of the
-onboarding "aha" (handle in → funded wallet + Genesis Stamp out, no seed phrase). The
-remaining belt gates are **traction** (10 outside testers → 50 real users), which the
-dev wallet supports today. So we keep a clean **adapter seam** and wire passkey only
-for the Blue/Black demo-day milestone (which is also gated behind the mandatory
-mentor + market-fit checkpoint).
+| Piece | State |
+| --- | --- |
+| **Vercel build blocker** | ✅ **SOLVED** — see below |
+| Wallet seam + `connectPasskey()` | ✅ implemented (`apps/web/src/lib/wallet.ts`) |
+| Contract calls via smart account | ✅ routed (`invoke` branch in `contracts.ts`) |
+| Genesis for passkey | ✅ handled (skipped; registry `claim` is the identity binding) |
+| Testnet infra (WASM hash + verifier) | ✅ **live OZ contracts, env pre-filled** (no deploy needed; relayer optional) |
+| Quests via passkey (`signMessage`) | ⏳ deferred follow-up (attester signer change) |
+| USDC trustline / tip-receiving for passkey | ⏳ deferred follow-up |
 
-## The seam (already complete)
+## ✅ The Vercel build blocker — how it was solved
 
-Every caller depends only on the `Wallet` interface in [`apps/web/src/lib/wallet.ts`](../apps/web/src/lib/wallet.ts):
+The old blocker: the legacy `passkey-kit` + `@creit.tech/stellar-wallets-kit` pulled
+**native node-gyp modules** (`node-hid`/`usb` for Ledger/Trezor) that compile C/C++ at
+`pnpm install` and failed Vercel's build.
+
+The fix — **switch to [`smart-account-kit`](https://github.com/kalepail/smart-account-kit)**
+(the current OpenZeppelin-Smart-Account SDK that supersedes `passkey-kit`):
+
+1. It ships **compiled ESM JS** (not raw TS) and has **zero native deps** — it added only
+   4 pure-JS packages (`@simplewebauthn/browser`, `base64url`, `smart-account-kit-bindings`).
+   So the node-gyp install-time break is gone **by construction**.
+2. It *lazy*-imports the **optional** external-wallet adapter
+   (`@creit-tech/stellar-wallets-kit`, hyphen scope) only when you connect a Freighter/LOBSTR
+   signer. We use the passkey path only, so that adapter is **stubbed to an empty module** in
+   [`apps/web/next.config.mjs`](../apps/web/next.config.mjs) (`resolve.alias … = false`).
+   We deliberately **do not install** it — installing would drag the native deps back.
+
+Proof: `pnpm --filter ./apps/web build` is green with `smart-account-kit` imported through
+`wallet.ts` (full route table, 11/11 static pages). This is the same `next build` Vercel runs.
+
+## The seam (how feature code stays untouched)
+
+Every caller depends only on the `Wallet` interface in
+[`apps/web/src/lib/wallet.ts`](../apps/web/src/lib/wallet.ts):
 
 ```ts
-interface Wallet { kind; address; sign(xdr); signMessage(message); }
+interface Wallet {
+  kind; address;
+  sign(xdr); signMessage(message);
+  invoke?(contractId, method, args);  // ← passkey-only: smart-account-mediated call
+}
 getWallet() // -> connectPasskey() when isPasskeyConfigured(), else getDevWallet()
 ```
 
-`connectPasskey()` is the **only** function to fill. No feature code changes when it
-lands — that's the point of the seam.
+A passkey wallet's `address` is a **contract** (`C…`), which can't be a classic tx source.
+So `contracts.ts › invokeAndWait` branches: if `wallet.invoke` exists, the call is built as an
+`AssembledTransaction`, the passkey signs the Soroban auth entry, and the **relayer** submits +
+sponsors the fee. Dev/Freighter wallets keep the classic build→sign→send path. **No feature
+file (registry/reputation/rewards/gate) changed** — they all go through `invokeAndWait`.
 
-## ⚠️ The Vercel blocker (the reason there's no dependency yet)
+Genesis (a classic `manageData` op) is **skipped for passkey** in `app/page.tsx` — the registry
+`claim` contract call is the real on-chain identity binding for every wallet kind.
 
-`passkey-kit` (and `@creit.tech/stellar-wallets-kit`) pull **native node-gyp modules**
-that compile C/C++ during `pnpm install`. That failed Vercel's build, so the packages
-were **removed** from `apps/web/package.json`. The break is **install-time**, so a
-`dynamic import` / `ssr:false` does NOT dodge it — the package compiles regardless of
-whether it's imported. Re-adding it raw to `dependencies` risks breaking the live
-deploy.
+## Required infra + env (what you provision)
 
-**Safe re-add options (pick one):**
+**On testnet you provision NOTHING** — OpenZeppelin keeps the smart-account WASM + the
+WebAuthn verifier deployed, and the kit pays fees from a shared, well-known deployer account
+(derived from the seed `"openzeppelin-smart-account-kit"`, kept funded on testnet). So a
+relayer is **optional** on testnet; just set the two values below (already filled in
+`apps/web/.env.local`), and add the same two to Vercel:
 
-1. **`pnpm.overrides`** — pin the offending transitive native dep to a pure-JS or
-   prebuilt-binary version so node-gyp never runs. Add to root `package.json`:
-   ```jsonc
-   "pnpm": { "overrides": { "<native-dep>": "<prebuilt-or-pure-js-version>" } }
-   ```
-2. **Isolate** passkey behind its own workspace package loaded via a thin runtime
-   boundary, so its install never enters the web app's Vercel build graph.
-
-Avoid `optionalDependencies` (a silent skip yields a broken passkey, not a safe
-fallback). After re-adding, do a throwaway Vercel preview deploy **before** prod.
-
-## Required infra + env
-
-Set ALL THREE (half-set = the app stays on the dev wallet by design — see
-`isPasskeyConfigured()`):
-
-| Env var | What it is | How to get it |
+| Env var | What it is | Testnet value (live, verified) |
 | --- | --- | --- |
-| `NEXT_PUBLIC_WALLET_WASM_HASH` | Deployed smart-wallet contract WASM hash | `stellar contract install` the wallet WASM on the target network |
-| `NEXT_PUBLIC_PASSKEY_FACTORY_ID` | Smart-account factory contract id (`C…`) | Deploy/locate the passkey factory on the target network |
-| `NEXT_PUBLIC_LAUNCHTUBE_URL` | Submitter endpoint for fee-sponsored txs | A launchtube instance (hosted or self-run) + its access token |
+| `NEXT_PUBLIC_SMART_ACCOUNT_WASM_HASH` | OZ smart-account WASM hash | `8537b8166c0078440a5324c12f6db48d6340d157c306a54c5ea81405abcc2611` |
+| `NEXT_PUBLIC_WEBAUTHN_VERIFIER_ID` | WebAuthn (secp256r1) verifier contract (`C…`) | `CCMR63YE5T7MPWREF3PC5XNTTGXFSB4GYUGUIT5POHP2UGCS65TBIUUU` |
+| `NEXT_PUBLIC_RELAYER_URL` _(optional)_ | Fee-sponsoring submitter | OZ Relayer **Channels** — testnet `https://channels.openzeppelin.com/testnet` (key at `/gen`). Required on **mainnet** (no shared deployer there). |
 
-Fee sponsorship also uses `NEXT_PUBLIC_SPONSOR_PUBLIC_KEY` (+ server-only
-`SPONSOR_SECRET_KEY`) if you sponsor outside launchtube.
+> Testnet values come from the smart-account-kit demo (`demo/.env.example`) and were verified
+> live with `stellar contract info` (the WASM hash resolves a spec; the verifier exposes
+> `fn verify`). Testnet resets periodically — if onboarding suddenly errors with
+> "contract/code not found", re-pull these from the kit's `demo/.env.example`.
 
-## Integration contract (fill `connectPasskey()`)
+> `NEXT_PUBLIC_*` are inlined at **build time** → after setting them on Vercel you must
+> **redeploy**. WebAuthn needs a secure context, but **localhost and https both qualify**, so
+> it tests on `localhost:3000` and on Vercel with no extra certs.
 
-Map passkey-kit onto the `Wallet` interface (already sketched in `wallet.ts`):
+With the two set, `isPasskeyConfigured()` flips true and `getWallet()` returns the passkey
+wallet automatically — onboarding becomes FaceID/passkey enroll → smart account (`C…`)
+created → handle claimed on-chain. No other code change needed.
 
-```ts
-const kit = new PasskeyKit({
-  rpcUrl: config.rpcUrl,
-  networkPassphrase,
-  walletWasmHash:    process.env.NEXT_PUBLIC_WALLET_WASM_HASH!,
-  factoryContractId: process.env.NEXT_PUBLIC_PASSKEY_FACTORY_ID!,
-});
-// First run: createWallet() (FaceID enroll). Return user: connectWallet().
-// Submit signed txs via launchtube (NEXT_PUBLIC_LAUNCHTUBE_URL) for sponsored fees.
-return {
-  kind: 'passkey',
-  address: contractId,                  // the C… smart-account address
-  sign: (xdr) => /* kit.sign -> launchtube.send -> signedXdr */,
-  signMessage: (m) => kit.signMessage(m), // used for the /api/attest ownership proof
-};
-```
+### Mainnet note
+There is no shared funded deployer on mainnet, so set `NEXT_PUBLIC_RELAYER_URL` (and deploy/point
+to a mainnet smart-account WASM + verifier) before going live. The dev wallet stays
+hard-disabled on mainnet, so passkey is the only mainnet provider.
 
-Note: `address` becomes a **contract** address (`C…`), not a `G…`. The `/api/attest`
-ownership proof currently verifies an ed25519 signature against a `G…` recipient — when
-passkey lands, extend the attester to verify the smart-account's signer (a known follow-up).
+## Deferred follow-ups (not blocking onboarding)
+
+1. **Quests via passkey** — the `/api/attest` ownership proof currently verifies an **ed25519
+   `G…`** signature. A passkey signer is **secp256r1 against the smart account (`C…`)**, so
+   `signMessage` throws a clear "use the in-app wallet" error for now (mirrors how Freighter
+   quests are deferred). To wire it: extend the attester to verify the smart-account signer
+   (via `kit.authenticatePasskey()` / the WebAuthn verifier), then implement `signMessage`.
+2. **USDC trustline / tip-receiving for passkey** — `enableUsdc` is a classic `changeTrust`
+   op; smart accounts hold SAC balances differently. Tip-**sending** routes through `invoke`;
+   tip-**receiving** needs the smart-account trustline path wired.
 
 ## Verification checklist (needs a real device)
 
-1. Throwaway Vercel preview builds green after the dep re-add.
-2. On a phone: FaceID enroll → smart account created → first on-chain action,
-   fees sponsored, in <15s. On screen: "Fees paid by app: $0.00" + a live timer.
-3. Returning user: FaceID → `connectWallet()` resolves the same `C…` address.
-4. Quest flow: `signMessage` proof accepted by `/api/attest` (after the signer change).
+1. Vercel preview build green (already true locally).
+2. On a phone: FaceID enroll → smart account (`C…`) created → handle claimed, fee sponsored,
+   in <15s.
+3. Returning user: FaceID → `connectWallet()` resolves the same `C…` address (silent restore).
+4. Vouch / claim / reward / gate all succeed through `invoke` (the smart-account path).
 5. Dev wallet still hard-disabled on mainnet; passkey is the only mainnet provider.
