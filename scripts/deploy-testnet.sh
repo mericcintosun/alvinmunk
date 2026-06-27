@@ -24,11 +24,11 @@ deploy () { # $1 = wasm filename
 }
 
 echo "==> Deploying reputation"
-REP_ID=$(deploy passport_reputation.wasm)
+REP_ID=$(deploy alvinmunk_reputation.wasm)
 echo "==> Deploying quest_registry"
-QUEST_ID=$(deploy passport_quest_registry.wasm)
+QUEST_ID=$(deploy alvinmunk_quest_registry.wasm)
 echo "==> Deploying rewards"
-REWARDS_ID=$(deploy passport_rewards.wasm)
+REWARDS_ID=$(deploy alvinmunk_rewards.wasm)
 
 inv () { stellar contract invoke --id "$1" --source "$ADMIN" --network "$NETWORK" -- "${@:2}"; }
 

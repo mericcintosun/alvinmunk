@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 /**
  * Pick-don't-build avatar selector — the 5 hand-drawn portrait stickers as a one-tap
  * choice (Kaan's onboarding rule: choose, never compose). Pairs with the deterministic
- * default so a passport always has a face even if the user skips this.
+ * default so a profile always has a face even if the user skips this.
  */
 export function AvatarPicker({
   value,
@@ -22,7 +22,7 @@ export function AvatarPicker({
   return (
     <div
       role="radiogroup"
-      aria-label="Pick your passport face"
+      aria-label="Pick your profile face"
       className={cn('flex flex-wrap justify-center gap-2.5', className)}
     >
       {FACE_IDS.map((id) => {

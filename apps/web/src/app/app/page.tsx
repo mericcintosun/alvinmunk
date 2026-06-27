@@ -70,7 +70,7 @@ export default function AppHome() {
 
   // Invisible wallet: one step. Pick a handle → we silently provision a testnet wallet,
   // fund it, and write the genesis tx. No "connect wallet", no "mint", no jargon.
-  async function createPassport() {
+  async function createProfile() {
     const h = normalizeHandle(handle);
     if (h.length < 3) {
       toast.error('Pick a handle — 3+ letters or numbers.');
@@ -79,7 +79,7 @@ export default function AppHome() {
     setCreating(true);
     try {
       const w = await connect();
-      // The handle becomes your PUBLIC passport ID, so it must be free on-chain.
+      // The handle becomes your PUBLIC profile ID, so it must be free on-chain.
       if (!(await isHandleAvailable(h))) {
         toast.error(`@${h} is taken — pick another.`);
         return;
@@ -97,11 +97,11 @@ export default function AppHome() {
         avatar: face ? { kind: 'face', id: face } : undefined,
       };
       setProfile(p);
-      toast.success(`Your passport is live — @${h} stamped on-chain.`);
+      toast.success(`Your profile is live — @${h} stamped on-chain.`);
     } catch (e) {
       // Surface the FULL error (diagnostic events name the failing contract/value) —
       // toasts truncate and console is noisy with wallet-extension logs.
-      console.error('🛑 createPassport failed →', e);
+      console.error('🛑 createProfile failed →', e);
       toast.error(humanizeError(e));
     } finally {
       setCreating(false);
@@ -118,13 +118,13 @@ export default function AppHome() {
           style={{ backgroundImage: `url(${asset('backgrounds/app-bg.png')})`, backgroundSize: 'cover', backgroundPosition: 'top' }}
         />
         <div className="text-center">
-          <h1 className="text-3xl font-semibold">Create your passport</h1>
+          <h1 className="text-3xl font-semibold">Create your profile</h1>
           <p className="mx-auto mt-2 max-w-xs text-sm text-muted-foreground text-balance">
             Pick a handle — we set everything up for you. Your first star is one tap away.
           </p>
         </div>
 
-        <Crest address={handle ? `passport-${handle}` : 'new-passport'} size={160} points={6} animate />
+        <Crest address={handle ? `profile-${handle}` : 'new-profile'} size={160} points={6} animate />
 
         <div className="flex flex-col items-center gap-2">
           <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
@@ -137,7 +137,7 @@ export default function AppHome() {
           className="flex w-full flex-col items-center gap-3"
           onSubmit={(e) => {
             e.preventDefault();
-            void createPassport();
+            void createProfile();
           }}
         >
           <Input
@@ -155,7 +155,7 @@ export default function AppHome() {
             {avail === 'taken' && <span className="text-destructive">@{normalizeHandle(handle)} is taken — try another</span>}
           </p>
           <Button type="submit" size="lg" disabled={creating || avail === 'taken'} className="w-full">
-            {creating ? 'Creating your passport…' : 'Create my passport'}
+            {creating ? 'Creating your profile…' : 'Create my profile'}
           </Button>
         </form>
 

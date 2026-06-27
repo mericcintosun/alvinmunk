@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { fetchLeaderboard } from '@/lib/leaderboard';
-import { type LeaderboardEntry } from '@passport/shared';
+import { type LeaderboardEntry } from '@alvinmunk/shared';
 import { loadProfile } from '@/lib/profile';
 import { reverseHandle } from '@/lib/registry';
 import { Crest } from '@/components/brand/crest';
@@ -15,7 +15,7 @@ import { cn, shortAddress } from '@/lib/utils';
 
 /**
  * Leaderboard — the night sky of the most-connected (faces over numbers), folded from
- * on-chain `social` events via RPC, polled every 5s. Technical-passport skin.
+ * on-chain `social` events via RPC, polled every 5s. Technical-profile skin.
  */
 export default function LeaderboardPage() {
   const [rows, setRows] = useState<LeaderboardEntry[]>([]);
@@ -68,7 +68,7 @@ export default function LeaderboardPage() {
         <p className="font-mono text-xs text-muted-foreground">
           social_score · clout_not_cash · poll=5s
         </p>
-        <ShareRow path="/leaderboard" text="The most-connected on Stellar Passport 🌌 — collect people, not points." />
+        <ShareRow path="/leaderboard" text="The most-connected on alvinmunk 🌌 — collect people, not points." />
       </div>
 
       <Frame label="ranking // social_xp" index={`${rows.length || '—'} entries`} className="mt-6">

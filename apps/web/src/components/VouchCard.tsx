@@ -1,10 +1,10 @@
 'use client';
 
-import { stampArt } from '@passport/shared';
+import { stampArt } from '@alvinmunk/shared';
 import { Sticker } from '@/components/ui/sticker';
 
 /**
- * The half-card — Stellar Passport's core viral artifact (00-strategy §3).
+ * The half-card — alvinmunk's core viral artifact (00-strategy §3).
  * One side filled (the voucher), the other a glowing empty socket until claimed.
  * The sigil is deterministic generative art seeded from the wallet address
  * (shared `stampArt`, the engine locked at White belt).

@@ -1,11 +1,11 @@
 'use client';
 
-import { stampArt } from '@passport/shared';
+import { stampArt } from '@alvinmunk/shared';
 import { Avatar } from '@/components/Avatar';
 
 /**
- * Passport Cover + Genesis Stamp (Sprint 1). Deterministic generative crest from the
- * wallet address — every passport is unique from second one. The first screenshot-able
+ * alvinmunk Cover + Genesis Stamp (Sprint 1). Deterministic generative crest from the
+ * wallet address — every profile is unique from second one. The first screenshot-able
  * artifact. Shape (vertex count) carries signal independent of color for a11y.
  */
 export function GenesisStamp({
@@ -28,7 +28,7 @@ export function GenesisStamp({
     <figure
       className="relative aspect-[1.6/1] w-full overflow-hidden rounded-2xl border border-white/10 shadow-2xl"
       style={{ background: `linear-gradient(135deg, hsl(${dna.hue} 70% 18%), hsl(${dna.hue2} 70% 12%))` }}
-      aria-label={`Genesis passport stamp for ${handle}, a ${dna.vertices}-point sigil`}
+      aria-label={`Genesis profile stamp for ${handle}, a ${dna.vertices}-point sigil`}
     >
       <svg viewBox="0 0 100 100" className="absolute right-3 top-3 h-20 w-20 opacity-90" role="img">
         <circle cx="50" cy="50" r="30" fill={`hsl(${dna.hue} 90% 60%)`} opacity="0.5" />
@@ -42,7 +42,7 @@ export function GenesisStamp({
 
       <figcaption className="absolute inset-0 flex flex-col justify-between p-4">
         <span className="text-[11px] uppercase tracking-widest text-white/40">
-          Stellar Passport
+          alvinmunk
         </span>
         <div className="flex items-center gap-3">
           <Avatar address={address} handle={handle} size={48} />

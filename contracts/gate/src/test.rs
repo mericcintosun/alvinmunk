@@ -1,7 +1,7 @@
 #![cfg(test)]
 //! Integration tests: Gate cross-reads the Reputation contract's Social/Earned tracks.
 use super::*;
-use passport_reputation::{ReputationContract, ReputationContractClient};
+use alvinmunk_reputation::{ReputationContract, ReputationContractClient};
 use soroban_sdk::{testutils::Address as _, Address, Bytes, Env, String};
 
 struct Fixture<'a> {

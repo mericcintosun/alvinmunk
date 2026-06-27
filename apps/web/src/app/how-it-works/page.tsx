@@ -34,7 +34,7 @@ export default function HowItWorks() {
         <Sticker name="doodle-spiral" size={30} className="hidden h-6 w-auto opacity-70 sm:block" />
       </h1>
       <p className="mt-5 max-w-xl text-lg text-muted-foreground text-balance">
-        Stellar Passport turns trust into something you can see — and other apps can read.
+        alvinmunk turns trust into something you can see — and other apps can read.
         Here&apos;s the whole machine, including the limits.
       </p>
 
@@ -83,7 +83,7 @@ export default function HowItWorks() {
         </div>
       </section>
 
-      {/* anti-sybil — passport data page */}
+      {/* anti-sybil — profile data page */}
       <section id="anti-sybil" className="mt-20 scroll-mt-24">
         <h2 className="border-b border-border/60 pb-3 font-display text-3xl font-semibold tracking-tight">
           Anti-sybil, honestly
@@ -119,7 +119,7 @@ export default function HowItWorks() {
           For developers
         </h2>
         <p className="mt-3 text-sm text-muted-foreground">
-          Passport emits a canonical attestation primitive. Any app can read a wallet&apos;s
+          alvinmunk emits a canonical attestation primitive. Any app can read a wallet&apos;s
           reputation with one call.
         </p>
         <div className="mt-6 border border-border/70 bg-background/70">

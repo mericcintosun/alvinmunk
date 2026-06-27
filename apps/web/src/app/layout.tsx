@@ -11,13 +11,13 @@ import { WalletProvider } from '@/components/wallet/wallet-provider';
 export const metadata: Metadata = {
   metadataBase: new URL('https://alvinmunk.vercel.app'),
   title: {
-    default: 'Stellar Passport — Collect people, not points',
-    template: '%s · Stellar Passport',
+    default: 'alvinmunk — Collect people, not points',
+    template: '%s · alvinmunk',
   },
   description:
     'A social proof-of-people reputation game on Stellar. Someone you trust vouches for you, and it becomes a star in your constellation.',
   openGraph: {
-    title: 'Stellar Passport — Collect people, not points',
+    title: 'alvinmunk — Collect people, not points',
     description: 'Someone vouched for you. Claim your half of the sky.',
     type: 'website',
     images: ['/assets/meta/og-default.png'],

@@ -27,7 +27,7 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
 
   useEffect(() => {
     try {
-      sessionStorage.setItem('passport.ref', handle); // dashboard nudges a vouch-back
+      sessionStorage.setItem('alvinmunk.ref', handle); // dashboard nudges a vouch-back
     } catch {
       /* storage unavailable */
     }
@@ -53,7 +53,7 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
         @{handle} wants you in their <AuroraText>constellation.</AuroraText>
       </h1>
       <p className="mt-3 text-muted-foreground text-balance">
-        Stellar Passport — collect people, not points. Make yours in two taps (no seed phrase, fees
+        alvinmunk — collect people, not points. Make yours in two taps (no seed phrase, fees
         sponsored), then vouch them back so your stars connect.
       </p>
 
@@ -79,7 +79,7 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
       <div className="mt-6">
         <span className="relative inline-flex overflow-hidden rounded-full">
           <Link href="/app" className={cn(buttonVariants({ variant: 'flow', size: 'lg' }))}>
-            Create your passport <ArrowRight className="size-4" />
+            Create your profile <ArrowRight className="size-4" />
           </Link>
           <BorderBeam size={60} duration={6} colorTo="hsl(var(--tertiary))" />
         </span>

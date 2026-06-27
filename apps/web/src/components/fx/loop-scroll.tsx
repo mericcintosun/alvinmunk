@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 const STEPS = [
   { n: '01', t: 'Vouch', tag: 'mint · one line', d: 'Pick someone you trust and add one line — why. No address needed; you get a share link that lights a star for them.' },
   { n: '02', t: 'Claim', tag: 'one tap · sponsored', d: 'They open the link, connect in a single tap (fees sponsored), and claim their half. Two halves become one card; both earn Social XP.' },
-  { n: '03', t: 'Constellation', tag: 'on-chain · forever', d: 'Every claimed vouch adds a star. Your passport is a living constellation that grows with the people who back you — readable by any app.' },
+  { n: '03', t: 'Constellation', tag: 'on-chain · forever', d: 'Every claimed vouch adds a star. Your profile is a living constellation that grows with the people who back you — readable by any app.' },
 ];
 
 /**

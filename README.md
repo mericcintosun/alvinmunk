@@ -1,4 +1,4 @@
-# 🛰️ Stellar Passport
+# 🛰️ alvinmunk
 
 > **Collect people, not points.** A social, gamified, non-betting *proof-of-people* reputation game on Stellar/Soroban — built for the Rise In **Stellar Journey to Mastery** belt program (White → Master).
 
@@ -116,7 +116,7 @@ Each TODO references the belt doc that owns it. Build order follows the belts/sp
 
 ## Two-project rule
 
-This repo (Passport) is the **Builder-Track / $20k** play and the user's **primary** project. A separate idea targets the Startup Track / SCF. Rule (`00-strategy §7`): **Passport ships a demonstrable belt-loop increment every week before any SCF hour.** Share infra so Passport work feeds the SCF project.
+This repo (alvinmunk) is the **Builder-Track / $20k** play and the user's **primary** project. A separate idea targets the Startup Track / SCF. Rule (`00-strategy §7`): **alvinmunk ships a demonstrable belt-loop increment every week before any SCF hour.** Share infra so alvinmunk work feeds the SCF project.
 
 ## License
 TBD.

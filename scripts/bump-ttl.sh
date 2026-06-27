@@ -5,10 +5,10 @@
 # daily cap, pause flag) is only bumped when those rarely-written keys change — so a keeper
 # must extend it on a schedule. Run this from cron (e.g. weekly) against the live IDs.
 #
-# Usage: SOURCE=passport-admin NETWORK=testnet ./scripts/bump-ttl.sh
+# Usage: SOURCE=alvinmunk-admin NETWORK=testnet ./scripts/bump-ttl.sh
 set -euo pipefail
 
-SOURCE="${SOURCE:-passport-admin}"
+SOURCE="${SOURCE:-alvinmunk-admin}"
 NETWORK="${NETWORK:-testnet}"
 LEDGERS="${LEDGERS:-535679}" # ~30 days at 5s/ledger (max bump is ~1y)
 

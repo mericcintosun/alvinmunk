@@ -5,7 +5,7 @@ import { Copy, Check, Share2 } from 'lucide-react';
 import { getWallet } from '@/lib/wallet';
 import { mintVouch } from '@/lib/reputation';
 import { addMyVouch } from '@/lib/myvouches';
-import { buildClaimUrl } from '@passport/shared';
+import { buildClaimUrl } from '@alvinmunk/shared';
 import { Frame } from '@/components/fx/frame';
 import { BorderBeam } from '@/components/fx/border-beam';
 import { Button } from '@/components/ui/button';

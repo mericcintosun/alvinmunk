@@ -1,5 +1,5 @@
 /**
- * Avatar identity. A passport's face is one of the hand-drawn portrait stickers. The
+ * Avatar identity. A profile's face is one of the hand-drawn portrait stickers. The
  * choice is stored on the Profile; absent a choice, a DETERMINISTIC default is derived
  * from the address so the same wallet always shows the same face — on the dashboard AND
  * in the (node-runtime) OG card. The geometric Crest remains the fallback identity for
@@ -40,7 +40,7 @@ export interface KitAvatar {
   bg: number | null; // 1..5
 }
 
-/** What a passport stores about its face. Versioned by `kind` for safe migration. */
+/** What a profile stores about its face. Versioned by `kind` for safe migration. */
 export type AvatarConfig = FaceAvatar | KitAvatar;
 
 /** Option counts per portrait-kit category (folder file counts). */
@@ -82,7 +82,7 @@ export function kitSrc(cat: KitCategory, n: number): string {
 
 /** A deterministic starter kit from an address — every field seeded so it varies. */
 export function defaultKit(address: string): KitAvatar {
-  let h = seedFromAddress(address || 'passport');
+  let h = seedFromAddress(address || 'profile');
   const next = (mod: number) => {
     h = (Math.imul(h, 1103515245) + 12345) >>> 0;
     return (h % mod) + 1;
@@ -124,7 +124,7 @@ function seedFromAddress(address: string): number {
 
 /** The deterministic face for an address with no explicit choice. */
 export function defaultAvatarId(address: string): FaceId {
-  return FACE_IDS[seedFromAddress(address || 'passport') % FACE_IDS.length];
+  return FACE_IDS[seedFromAddress(address || 'profile') % FACE_IDS.length];
 }
 
 /** Resolve the face to render: explicit valid choice wins, else the deterministic default. */

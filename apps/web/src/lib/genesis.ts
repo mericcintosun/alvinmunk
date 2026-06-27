@@ -15,7 +15,7 @@ export async function recordGenesis(wallet: Wallet, handle: string): Promise<str
   const tx = new TransactionBuilder(account, { fee: FEE, networkPassphrase })
     .addOperation(
       Operation.manageData({
-        name: 'passport:genesis',
+        name: 'alvinmunk:genesis',
         value: handle.slice(0, 28), // manageData value <= 64 bytes; handle is short
       }),
     )

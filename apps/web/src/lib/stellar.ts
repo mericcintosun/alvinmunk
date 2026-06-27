@@ -4,7 +4,7 @@
  * (belts/00-strategy: defer the indexer until scale demands it).
  */
 import { Horizon, rpc, Networks } from '@stellar/stellar-sdk';
-import { readNetworkConfig } from '@passport/shared';
+import { readNetworkConfig } from '@alvinmunk/shared';
 
 // Next.js only inlines LITERAL `process.env.NEXT_PUBLIC_*` member expressions into the
 // client bundle — passing the whole `process.env` object would leave these undefined in

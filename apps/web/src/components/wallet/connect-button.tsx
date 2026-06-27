@@ -11,7 +11,7 @@ import { cn, shortAddress } from '@/lib/utils';
 
 /**
  * Navbar identity. No profile → a primary "Open app" CTA (onboarding lives in /app).
- * Connected → a crest+handle chip that opens an account menu (View passport, Copy
+ * Connected → a crest+handle chip that opens an account menu (View profile, Copy
  * address, Disconnect) — the disconnect path that was previously missing.
  */
 export function ConnectButton() {
@@ -76,7 +76,7 @@ export function ConnectButton() {
           </div>
           <div className="my-1 h-px bg-border" />
           <Link href={`/u/${profile.handle}`} role="menuitem" onClick={() => setOpen(false)} className={item}>
-            <User /> View passport
+            <User /> View profile
           </Link>
           <button role="menuitem" onClick={copyAddress} className={item}>
             <Copy /> Copy address
@@ -87,7 +87,7 @@ export function ConnectButton() {
             onClick={() => {
               disconnect();
               setOpen(false);
-              toast('Disconnected — your passport stays on-chain.');
+              toast('Disconnected — your profile stays on-chain.');
             }}
             className={cn(item, 'text-destructive hover:bg-destructive/10')}
           >

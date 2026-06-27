@@ -1,4 +1,4 @@
-import { stampArt } from '@passport/shared';
+import { stampArt } from '@alvinmunk/shared';
 import { cn } from '@/lib/utils';
 
 /**
@@ -22,7 +22,7 @@ export function Crest({
   animate?: boolean;
   className?: string;
 }) {
-  const dna = stampArt(address || 'passport', pointCount);
+  const dna = stampArt(address || 'profile', pointCount);
   const stars = dna.points.split(' ').map((p) => {
     const [x, y] = p.split(',').map(Number);
     return { x, y };

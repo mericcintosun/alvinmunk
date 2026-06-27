@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils';
 
 /**
- * Stamp — a rotated ink-stamp mark (passport metaphor). For "verified on-chain" style
+ * Stamp — a rotated ink-stamp mark (profile metaphor). For "verified on-chain" style
  * seals: distressed-looking mono caps inside a double border, slightly askew.
  */
 export function Stamp({

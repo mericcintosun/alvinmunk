@@ -10,11 +10,11 @@ export interface Profile {
   address: string;
   createdAt: number;
   genesisTx?: string;
-  /** Chosen passport face. Absent → a deterministic default is derived from address. */
+  /** Chosen profile face. Absent → a deterministic default is derived from address. */
   avatar?: AvatarConfig;
 }
 
-const KEY = 'passport.profile';
+const KEY = 'alvinmunk.profile';
 
 export function loadProfile(): Profile | null {
   if (typeof localStorage === 'undefined') return null;

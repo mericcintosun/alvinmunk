@@ -1,10 +1,10 @@
-import { stampArt, shortAddr } from '@passport/shared';
+import { stampArt, shortAddr } from '@alvinmunk/shared';
 import { resolveHandle } from './registry';
 import { getScores } from './reputation';
 import { loadPngDataUri } from './og-assets';
 import { faceFile, type FaceId } from './avatar';
 
-// Shared passport-card renderer for the OG image routes (/u and /v). Resolves the handle
+// Shared profile-card renderer for the OG image routes (/u and /v). Resolves the handle
 // on-chain and returns Satori-compatible JSX. Literal colors (Satori has no CSS vars).
 
 const BG = '#0B0512';
@@ -31,12 +31,12 @@ export async function ogResolve(handle: string): Promise<{
   return { address, scores };
 }
 
-export function passportCard(opts: {
+export function ogCard(opts: {
   handle: string;
   address: string | null;
   scores: { social: number; earned: number };
   invite?: boolean;
-  /** The passport face to render. When set (claimed handle), shows the portrait sticker;
+  /** The profile face to render. When set (claimed handle), shows the portrait sticker;
    *  otherwise falls back to the deterministic constellation. */
   avatarId?: FaceId;
 }) {
@@ -63,7 +63,7 @@ export function passportCard(opts: {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px', color: MUTED, fontSize: '24px', letterSpacing: '6px' }}>
           <div style={{ width: '14px', height: '14px', borderRadius: '50%', background: GOLD }} />
-          STELLAR PASSPORT
+          ALVINMUNK
         </div>
         <div style={{ display: 'flex', color: invite ? GOLD : GREEN, fontSize: '22px', letterSpacing: '4px' }}>
           {invite ? 'INVITED YOU' : '● LIVE'}
@@ -118,7 +118,7 @@ export function passportCard(opts: {
       </div>
 
       <div style={{ display: 'flex', color: MUTED, fontSize: '20px', letterSpacing: '8px', opacity: 0.5 }}>
-        {`P<STELLAR<PASSPORT<<${handle.toUpperCase()}<<COLLECT<PEOPLE<NOT<POINTS<<<<`.slice(0, 62)}
+        {`A<ALVINMUNK<<${handle.toUpperCase()}<<COLLECT<PEOPLE<NOT<POINTS<<<<<<<<`.slice(0, 62)}
       </div>
     </div>
   );

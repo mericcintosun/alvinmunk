@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
-import { shortAddr } from '@passport/shared';
+import { shortAddr } from '@alvinmunk/shared';
 import { useWallet } from '@/components/wallet/wallet-provider';
 import { claimVouch, getVouch, VOUCH_TTL_SECS, type VouchView } from '@/lib/reputation';
 import { Crest } from '@/components/brand/crest';
@@ -243,7 +243,7 @@ function ClaimInner({ params }: { params: { id: string } }) {
               </>
             )}
             <p className="max-w-xs text-xs text-muted-foreground text-balance">
-              Nothing to install — we set up your passport, fees sponsored on testnet. No seed phrase.
+              Nothing to install — we set up your profile, fees sponsored on testnet. No seed phrase.
             </p>
           </div>
         ) : (
@@ -254,11 +254,11 @@ function ClaimInner({ params }: { params: { id: string } }) {
             </div>
             <Stamp accent="secondary">✦ STAR IGNITED</Stamp>
             <Link href="/app" className={cn(buttonVariants({ variant: 'flow', size: 'lg' }))}>
-              {profile ? 'Now vouch someone back' : 'Create your passport'} <ArrowRight className="size-4" />
+              {profile ? 'Now vouch someone back' : 'Create your profile'} <ArrowRight className="size-4" />
             </Link>
             {profile && (
               <Link href={`/u/${profile.handle}`} className="font-mono text-xs text-muted-foreground underline">
-                view_your_passport →
+                view_your_profile →
               </Link>
             )}
           </div>

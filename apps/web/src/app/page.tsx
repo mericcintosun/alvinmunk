@@ -11,7 +11,7 @@ import { AuroraText } from '@/components/fx/shiny-text';
 import { Meteors } from '@/components/fx/meteors';
 import { Sticker } from '@/components/ui/sticker';
 import { buttonVariants } from '@/components/ui/button';
-import { asset, BRAND, type StickerName } from '@/lib/assets';
+import { asset, type StickerName } from '@/lib/assets';
 import { cn } from '@/lib/utils';
 
 // Small sticker icons cycle through the live vouch ticker — heart=vouch, coin=tip, eye=seen.
@@ -45,7 +45,7 @@ const STATS = [
 const STEPS = [
   { n: '01', t: 'Vouch', tag: 'mint · 1 line', d: 'Pick someone you trust, add one line — why. You light a star for them.' },
   { n: '02', t: 'Claim', tag: 'one tap · sponsored', d: 'They open your link, connect in a tap, and claim their half. Two halves become one card.' },
-  { n: '03', t: 'Constellation', tag: 'on-chain · forever', d: 'Every vouch adds a star. Your passport grows with the people who back you.' },
+  { n: '03', t: 'Constellation', tag: 'on-chain · forever', d: 'Every vouch adds a star. Your profile grows with the people who back you.' },
 ];
 
 const FEATURES = [
@@ -63,17 +63,6 @@ export default function LandingPage() {
         <HeroBackdrop className="absolute inset-0 -z-10" />
         <div className="absolute inset-0 -z-10 bg-gradient-to-r from-background via-background/75 to-transparent" aria-hidden />
         <div className="absolute inset-x-0 bottom-0 -z-10 h-40 bg-gradient-to-t from-background to-transparent" aria-hidden />
-
-        {/* The passport centerpiece — a warm, physical object beside the cosmic field (md+). */}
-        <img
-          src={asset(BRAND.centerpiece.file)}
-          alt=""
-          aria-hidden
-          width={460}
-          height={459}
-          draggable={false}
-          className="pointer-events-none absolute -right-10 top-1/2 hidden -translate-y-1/2 select-none opacity-90 motion-safe:animate-float lg:block xl:right-6"
-        />
 
         <div className="container py-28 md:py-40">
           <div className="max-w-2xl">
@@ -134,7 +123,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ───────────── Stats (passport data row) ───────────── */}
+      {/* ───────────── Stats (profile data row) ───────────── */}
       <section className="container py-14">
         <Reveal>
           <Frame label="on-chain // facts" index="00">
@@ -186,7 +175,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ───────────── Why different (passport data page) ───────────── */}
+      {/* ───────────── Why different (profile data page) ───────────── */}
       <section className="container py-12">
         <Reveal>
           <Frame label="why_different" index="01" tilt>

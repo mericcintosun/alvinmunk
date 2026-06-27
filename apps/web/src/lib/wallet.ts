@@ -50,7 +50,7 @@ function u8ToB64(u8: Uint8Array): string {
   return btoa(s);
 }
 
-const DEV_SECRET_KEY = 'passport.devSecret';
+const DEV_SECRET_KEY = 'alvinmunk.devSecret';
 
 /**
  * Is the passkey smart-wallet infra configured? The only client-visible gate is the wallet
@@ -204,8 +204,8 @@ export async function connectAlbedo(): Promise<Wallet> {
 // by setting NEXT_PUBLIC_PASSKEY_WALLET_WASM_HASH (+ the server-side relayer key); otherwise the
 // app stays on the dev wallet.
 
-const PK_KEYID = 'passport.passkey.keyId';
-const PK_CONTRACT = 'passport.passkey.contractId';
+const PK_KEYID = 'alvinmunk.passkey.keyId';
+const PK_CONTRACT = 'alvinmunk.passkey.contractId';
 
 // Placeholder source for ASSEMBLING a passkey contract call (so simulation can populate the
 // footprint + the unsigned auth entry). The relayer re-sources the call on a channel account
@@ -287,7 +287,7 @@ export async function connectPasskey(): Promise<Wallet> {
     keyId = res.keyIdBase64;
     contractId = res.contractId;
   } else {
-    const created = await kit.createWallet('Stellar Passport', 'passport');
+    const created = await kit.createWallet('alvinmunk', 'alvinmunk');
     const hash = await relayerPost({ xdr: created.signedTx.toXDR() });
     await waitForPasskeyTx(hash);
     keyId = created.keyIdBase64;

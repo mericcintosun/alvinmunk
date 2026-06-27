@@ -14,7 +14,7 @@ export function InviteNudge() {
 
   useEffect(() => {
     try {
-      setRef(sessionStorage.getItem('passport.ref'));
+      setRef(sessionStorage.getItem('alvinmunk.ref'));
     } catch {
       /* storage unavailable */
     }
@@ -24,7 +24,7 @@ export function InviteNudge() {
 
   function dismiss() {
     try {
-      sessionStorage.removeItem('passport.ref');
+      sessionStorage.removeItem('alvinmunk.ref');
     } catch {
       /* noop */
     }

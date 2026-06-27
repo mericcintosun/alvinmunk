@@ -1,5 +1,5 @@
 /**
- * @passport/shared — single source of truth for contract interfaces, event
+ * @alvinmunk/shared — single source of truth for contract interfaces, event
  * schemas, and schema ids shared by the web app and (future) indexer.
  *
  * Keep the EVENT shapes in lockstep with the Soroban contracts. The canonical

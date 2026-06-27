@@ -8,7 +8,7 @@ import { type TapeCorner } from '@/lib/assets';
 /**
  * Technical Frame — the brand's anti-template container. Sharp corners, a hairline
  * border with CORNER BRACKETS, and an optional monospace field header (label + index),
- * like a passport data page / spec sheet. Replaces generic rounded glass "AI cards".
+ * like a profile data page / spec sheet. Replaces generic rounded glass "AI cards".
  * Keeps the live spotlight + optional tilt, but the SKIN is editorial/technical.
  */
 export function Frame({

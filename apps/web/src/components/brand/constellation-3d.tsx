@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Stars, Html, Line } from '@react-three/drei';
 import * as THREE from 'three';
-import { shortAddr } from '@passport/shared';
+import { shortAddr } from '@alvinmunk/shared';
 import { fetchVouchersOf, timeAgo, addrHue, type VoucherStar } from '@/lib/constellation';
 import { Star, OrbitRing, useGlow, fibonacciSphere, reducedMotion } from './constellation-parts';
 

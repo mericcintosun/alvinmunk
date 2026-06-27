@@ -18,7 +18,7 @@ import { type FaceId, type KitAvatar } from '@/lib/avatar';
 import { cn } from '@/lib/utils';
 
 /**
- * Identity bar — your @handle as the passport ID, with inline claim/edit (re-stamps the
+ * Identity bar — your @handle as the profile ID, with inline claim/edit (re-stamps the
  * handle on-chain) + share + public-profile link. The handle was claimed at onboarding;
  * editing renames it on the registry.
  */
@@ -133,11 +133,11 @@ export function IdentityBar() {
       </div>
       <div className="flex shrink-0 items-center gap-3">
         <Link href={`/u/${profile.handle}`} className="font-mono text-xs text-primary hover:underline">
-          public_passport →
+          public_profile →
         </Link>
         <ShareRow
           path={`/u/${profile.handle}`}
-          text="My constellation on Stellar Passport — collect people, not points."
+          text="My constellation on alvinmunk — collect people, not points."
         />
       </div>
     </div>

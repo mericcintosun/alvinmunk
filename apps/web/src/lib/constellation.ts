@@ -4,7 +4,7 @@
  * render real faces/stars, not numbers. Wallet-free — reads RPC events + the on-chain
  * get_vouch view (durable indexer deferred to Blue/Black, belts/00-strategy).
  */
-import { EVENTS } from '@passport/shared';
+import { EVENTS } from '@alvinmunk/shared';
 import { fetchReputationEvents } from './events';
 import { getVouch } from './reputation';
 

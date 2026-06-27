@@ -3,7 +3,7 @@ import { resolveAvatarId, faceSrc, type AvatarConfig } from '@/lib/avatar';
 import { KitFace } from '@/components/KitFace';
 
 /**
- * A passport's face. Renders either a chosen/default portrait sticker (`kind:'face'`) or
+ * A profile's face. Renders either a chosen/default portrait sticker (`kind:'face'`) or
  * a remixed portrait-kit composite (`kind:'kit'`), cropped into a circle. Pairs with —
  * never replaces — the geometric Crest, which stays the leaderboard / dev identity.
  */
@@ -26,7 +26,7 @@ export function Avatar({
   return (
     <span
       role="img"
-      aria-label={handle ? `@${handle}'s passport face` : 'passport face'}
+      aria-label={handle ? `@${handle}'s profile face` : 'profile face'}
       className={cn(
         'relative inline-block shrink-0 overflow-hidden rounded-full bg-surface-2',
         ring && 'ring-2 ring-lime/40',

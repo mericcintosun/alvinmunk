@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { shortAddr } from '@passport/shared';
+import { shortAddr } from '@alvinmunk/shared';
 import { fetchActivity, type FeedItem } from '@/lib/feed';
 import { reverseHandle } from '@/lib/registry';
 import { Frame } from '@/components/fx/frame';

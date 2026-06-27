@@ -7,7 +7,7 @@
  *
  * Anchors also harden the economy: an anchor deposit is the ideal proof-of-funding
  * signal for the payout gate (belts/08) — the cheapest real uniqueness signal short of
- * heavy KYC. So anchors both receive our users and harden Passport's treasury.
+ * heavy KYC. So anchors both receive our users and harden alvinmunk's treasury.
  */
 export interface AnchorConfig {
   /** SEP-1 stellar.toml host, e.g. "anchor.example.com" */

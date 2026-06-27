@@ -28,8 +28,8 @@ const COLS = [
   },
 ];
 
-// Passport machine-readable zone — a real-document flourish, brand voice encoded.
-const MRZ1 = 'P<STELLAR<PASSPORT<<COLLECT<PEOPLE<NOT<POINTS<<<<<<<<<<<<<<<<<<<<<<';
+// alvinmunk machine-readable zone — a real-document flourish, brand voice encoded.
+const MRZ1 = 'A<STELLAR<ALVINMUNK<<COLLECT<PEOPLE<NOT<POINTS<<<<<<<<<<<<<<<<<<<<';
 const MRZ2 = 'STELLAR<<TESTNET<<<2026<<<PROOF<OF<PEOPLE<<REPUTATION<HAS<A<FACE<<0';
 
 export function Footer() {
@@ -90,7 +90,7 @@ export function Footer() {
       </div>
 
       <div className="container flex flex-col items-center justify-between gap-2 border-t border-border/40 py-6 font-mono text-[11px] text-muted-foreground sm:flex-row">
-        <span>© 2026 STELLAR_PASSPORT</span>
+        <span>© 2026 ALVINMUNK</span>
         <span>collect_people · not_points</span>
       </div>
     </footer>

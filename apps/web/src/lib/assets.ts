@@ -70,7 +70,6 @@ export const BRAND = {
   wordmark: { file: 'brand/wordmark.png', w: 555, h: 193 },
   'wordmark-dark': { file: 'brand/wordmark-dark.png', w: 640, h: 285 },
   'logo-mark': { file: 'brand/logo-mark.png', w: 134, h: 191 },
-  centerpiece: { file: 'centerpieces/centerpiece-passport.png', w: 612, h: 611 },
   'og-default': { file: 'meta/og-default.png', w: 317, h: 128 },
   favicon: { file: 'meta/favicon-32.png', w: 27, h: 37 },
   cursor: { file: 'cursors/sticker-default.png', w: 28, h: 27 },

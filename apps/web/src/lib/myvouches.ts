@@ -3,7 +3,7 @@
  * the dashboard can resurface UNCLAIMED half-cards: the re-engagement hook (your stake
  * gets slashed if nobody claims within the window — re-share the link).
  */
-import { buildClaimUrl } from '@passport/shared';
+import { buildClaimUrl } from '@alvinmunk/shared';
 import { getVouch, VOUCH_TTL_SECS } from './reputation';
 
 export interface MyVouch {
@@ -13,7 +13,7 @@ export interface MyVouch {
   created: number; // unix seconds
 }
 
-const KEY = 'passport.myVouches';
+const KEY = 'alvinmunk.myVouches';
 
 export function getMyVouches(): MyVouch[] {
   if (typeof localStorage === 'undefined') return [];

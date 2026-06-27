@@ -4,7 +4,7 @@
  *   - #7 RPC retention (~24h): paginate the window AND persist a localStorage snapshot
  *     so scores survive once seen (no standing indexer needed yet).
  *   - #5 sybil: flag reciprocal vouch pairs (A↔B). Full clustering lands at Blue.
- * The fold/merge/ring logic is the pure, tested code in @passport/shared.
+ * The fold/merge/ring logic is the pure, tested code in @alvinmunk/shared.
  */
 import {
   rankLeaderboard,
@@ -14,10 +14,10 @@ import {
   type SocialRecord,
   type VouchPair,
   type LeaderboardEntry,
-} from '@passport/shared';
+} from '@alvinmunk/shared';
 import { fetchReputationEvents } from './events';
 
-const SNAPSHOT_KEY = 'passport.leaderboard.snapshot';
+const SNAPSHOT_KEY = 'alvinmunk.leaderboard.snapshot';
 
 function loadSnapshot(): SocialRecord[] {
   if (typeof localStorage === 'undefined') return [];

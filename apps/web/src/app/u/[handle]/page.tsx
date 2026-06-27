@@ -15,7 +15,7 @@ import { buttonVariants } from '@/components/ui/button';
 import { cn, shortAddress } from '@/lib/utils';
 
 /**
- * Public passport. The handle is resolved ON-CHAIN via the registry, so ANY claimed
+ * Public profile. The handle is resolved ON-CHAIN via the registry, so ANY claimed
  * @handle renders for anyone (the share-link target). Falls back to an honest "unclaimed"
  * state for free handles.
  */
@@ -46,7 +46,7 @@ export default function ProfilePage({ params }: { params: { handle: string } }) 
   if (address === undefined) {
     return (
       <div className="container max-w-2xl py-14">
-        <Frame label={`passport // @${handle}`} index="…">
+        <Frame label={`profile // @${handle}`} index="…">
           <div className="flex items-center gap-6 p-8">
             <Skeleton className="size-32 rounded-full" />
             <div className="flex-1 space-y-3">
@@ -62,14 +62,14 @@ export default function ProfilePage({ params }: { params: { handle: string } }) 
   if (address === null) {
     return (
       <div className="container max-w-md py-24">
-        <Frame label={`passport // @${handle}`} index="FREE">
+        <Frame label={`profile // @${handle}`} index="FREE">
           <div className="flex flex-col items-center gap-4 p-8 text-center">
             <Crest address={`unclaimed-${handle}`} size={120} points={5} />
             <h1 className="font-display text-2xl font-semibold">@{handle}</h1>
             <p className="font-mono text-xs uppercase tracking-wider text-secondary">available</p>
             <p className="text-sm text-muted-foreground text-balance">
               This handle isn&apos;t claimed yet. Open the app, pick it, and it stamps to chain as
-              your passport ID.
+              your profile ID.
             </p>
             <Link href="/app" className={cn(buttonVariants({ variant: 'flow' }))}>
               Claim @{handle}
@@ -84,7 +84,7 @@ export default function ProfilePage({ params }: { params: { handle: string } }) 
 
   return (
     <div className="container max-w-2xl py-14">
-      <Frame label={`passport // @${handle}`} index="ID" tilt>
+      <Frame label={`profile // @${handle}`} index="ID" tilt>
         <div className="grid gap-6 p-7 sm:grid-cols-[auto_1fr] sm:items-center sm:p-8">
           <Avatar
             address={address}
@@ -119,8 +119,8 @@ export default function ProfilePage({ params }: { params: { handle: string } }) 
           path={`/u/${handle}`}
           text={
             isMe
-              ? 'My constellation on Stellar Passport — collect people, not points.'
-              : `@${handle} on Stellar Passport — collect people, not points.`
+              ? 'My constellation on alvinmunk — collect people, not points.'
+              : `@${handle} on alvinmunk — collect people, not points.`
           }
         />
       </div>

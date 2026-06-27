@@ -3,7 +3,7 @@
 //! (`claim_reward` gates USDC payout on `get_earned`) + the USDC SAC transfer +
 //! the on-chain reward registry (caller can never dictate the payout amount).
 use super::*;
-use passport_reputation::{ReputationContract, ReputationContractClient};
+use alvinmunk_reputation::{ReputationContract, ReputationContractClient};
 use soroban_sdk::{testutils::Address as _, token, Env};
 
 struct Fixture<'a> {

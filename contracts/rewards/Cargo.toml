@@ -1,5 +1,5 @@
 [package]
-name = "passport-rewards"
+name = "alvinmunk-rewards"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -13,5 +13,5 @@ soroban-sdk = { workspace = true, features = ["alloc"] }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
-passport-reputation = { path = "../reputation" }
+alvinmunk-reputation = { path = "../reputation" }
 proptest = "1"

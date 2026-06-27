@@ -5,7 +5,7 @@
 extern crate std;
 use super::*;
 use ed25519_dalek::{Signer, SigningKey};
-use passport_reputation::{ReputationContract, ReputationContractClient};
+use alvinmunk_reputation::{ReputationContract, ReputationContractClient};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
     BytesN, Env,

@@ -3,7 +3,7 @@
  * star for @y". Social proof of life on the dashboard, even when you're idle. RPC-direct
  * (durable indexer deferred); newest-first, capped.
  */
-import { EVENTS } from '@passport/shared';
+import { EVENTS } from '@alvinmunk/shared';
 import { fetchReputationEvents } from './events';
 
 export interface FeedItem {
