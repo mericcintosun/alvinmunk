@@ -63,7 +63,7 @@ North-star metric: **Verified Value Loops / week** — a vouch staked & redeemed
 - **Rust stable** + `wasm32-unknown-unknown` target
 - **Stellar CLI**: `cargo install --locked stellar-cli` (or `brew install stellar-cli`)
 
-> ⚠️ **Pin versions before first build.** The dependency versions in `contracts/Cargo.toml` (`soroban-sdk`) and `apps/web/package.json` (`@stellar/stellar-sdk`, `passkey-kit`, `@creit.tech/stellar-wallets-kit`) are best-effort and should be verified against the latest releases — these libraries move fast.
+> ⚠️ **Pin versions before first build.** The dependency versions in `contracts/Cargo.toml` (`soroban-sdk`) and `apps/web/package.json` (`@stellar/stellar-sdk`, `smart-account-kit` for passkey, `@stellar/freighter-api` + `@albedo-link/intent` for the `/wallet` connect modal) are best-effort and should be verified against the latest releases — these libraries move fast.
 
 ### 1. Install JS deps
 ```bash

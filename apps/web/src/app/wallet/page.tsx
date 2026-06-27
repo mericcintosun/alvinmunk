@@ -1,13 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { connectFreighter, type Wallet } from '@/lib/wallet';
+import { type Wallet } from '@/lib/wallet';
 import { getXlmBalance, txExplorerUrl } from '@/lib/stellar';
 import { sendXlm, type PaymentResult } from '@/lib/payments';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { ConnectWalletModal } from '@/components/wallet/connect-wallet-modal';
 import { shortAddress } from '@/lib/utils';
 
 /**
@@ -22,22 +23,15 @@ export default function WalletPage() {
   const [result, setResult] = useState<PaymentResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const validAddr = /^G[A-Z2-7]{55}$/.test(to.trim());
   const validAmount = Number(amount) > 0;
 
-  async function connect() {
+  async function onConnected(w: Wallet) {
     setError(null);
-    setBusy(true);
-    try {
-      const w = await connectFreighter();
-      setWallet(w);
-      setBalance(await getXlmBalance(w.address));
-    } catch (e) {
-      setError(msg(e));
-    } finally {
-      setBusy(false);
-    }
+    setWallet(w);
+    setBalance(await getXlmBalance(w.address).catch(() => '0'));
   }
 
   async function refresh() {
@@ -71,8 +65,8 @@ export default function WalletPage() {
       </p>
 
       {!wallet ? (
-        <Button size="lg" onClick={connect} disabled={busy}>
-          {busy ? 'Connecting…' : 'Connect Freighter'}
+        <Button size="lg" onClick={() => setPickerOpen(true)}>
+          Connect a Wallet
         </Button>
       ) : (
         <div className="flex flex-col gap-4">
@@ -146,6 +140,12 @@ export default function WalletPage() {
       )}
 
       {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
+
+      <ConnectWalletModal
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onConnected={onConnected}
+      />
     </div>
   );
 }

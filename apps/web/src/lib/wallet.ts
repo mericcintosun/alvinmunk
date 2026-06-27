@@ -20,7 +20,7 @@ import {
 } from '@stellar/freighter-api';
 import { config, networkPassphrase, waitForAccountReady, server } from './stellar';
 
-export type WalletKind = 'passkey' | 'dev' | 'freighter';
+export type WalletKind = 'passkey' | 'dev' | 'freighter' | 'albedo';
 
 export interface Wallet {
   kind: WalletKind;
@@ -171,6 +171,28 @@ export async function connectFreighter(): Promise<Wallet> {
 /** Freighter has no programmatic disconnect; apps clear their own connection state. */
 export function disconnectFreighter(): void {
   /* state is held in React; the caller clears it. Kept for API symmetry. */
+}
+
+// ── Albedo provider (web wallet, no extension) ──
+// Albedo is a hosted web wallet (popup to albedo.link) — works without any extension,
+// so it's a light, build-safe second option for the multi-wallet connect modal. Tiny,
+// zero-dependency SDK; dynamic-imported so it stays out of the marketing bundle.
+
+export async function connectAlbedo(): Promise<Wallet> {
+  const albedo = (await import('@albedo-link/intent')).default;
+  const net = config.network === 'mainnet' ? 'public' : 'testnet';
+  const { pubkey } = await albedo.publicKey({});
+  return {
+    kind: 'albedo',
+    address: pubkey,
+    sign: async (xdr: string) => {
+      const res = await albedo.tx({ xdr, network: net, pubkey });
+      return res.signed_envelope_xdr;
+    },
+    signMessage: async () => {
+      throw new Error('Quests via Albedo not supported yet — use the in-app wallet.');
+    },
+  };
 }
 
 // ── Passkey provider (production) ──

@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 const LINKS = [
   { href: '/how-it-works', label: 'How it works' },
   { href: '/leaderboard', label: 'Leaderboard' },
+  { href: '/wallet', label: 'Wallet' },
 ];
 
 export function Navbar() {

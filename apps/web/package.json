@@ -13,6 +13,7 @@
     "clean": "rm -rf .next .turbo node_modules/.cache"
   },
   "dependencies": {
+    "@albedo-link/intent": "^0.13.0",
     "@passport/shared": "workspace:*",
     "@react-three/drei": "^9.114.0",
     "@react-three/fiber": "^8.18.0",
