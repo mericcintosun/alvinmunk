@@ -119,6 +119,13 @@ impl ReputationContract {
         env.storage().instance().set(&DataKey::Admin, &admin);
     }
 
+    /// Admin-gated WASM upgrade — same contract instance + storage, new code. Lets us
+    /// iterate/season without a new address or state migration (mainnet de-risk).
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        Self::admin(&env).require_auth();
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+    }
+
     // --- Attester allowlist (admin-gated) ---
 
     pub fn add_attester(env: Env, attester: Address) {

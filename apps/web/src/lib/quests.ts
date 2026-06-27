@@ -10,6 +10,7 @@
  */
 import { invokeAndWait, readContract, args, questId as questRegistryId } from './contracts';
 import { humanizeError } from './utils';
+import type { EvidenceType } from './attest';
 import type { Wallet } from './wallet';
 
 // QuestRegistry contract error codes → friendly copy (mirrors contracts/quest_registry Error enum).
@@ -48,7 +49,7 @@ export async function getStreak(addr: string, source: string): Promise<Streak> {
   };
 }
 
-export type Evidence = { type: 'github_pr' | 'referral_tx'; ref: string };
+export type Evidence = { type: EvidenceType; ref: string };
 
 function hexToBytes(hex: string): Uint8Array {
   const clean = hex.startsWith('0x') ? hex.slice(2) : hex;

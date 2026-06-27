@@ -12,7 +12,7 @@
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short, Address,
-    Env, IntoVal, String, Symbol, Vec,
+    BytesN, Env, IntoVal, String, Symbol, Vec,
 };
 
 const BUMP_THRESHOLD: u32 = 17_280; // ~1 day
@@ -67,6 +67,13 @@ impl GateContract {
         env.storage()
             .instance()
             .set(&DataKey::Reputation, &reputation);
+    }
+
+    /// Admin-gated WASM upgrade — same contract instance + storage, new code. Lets us
+    /// iterate/season without a new address or state migration (mainnet de-risk).
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        Self::admin(&env).require_auth();
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
     }
 
     /// Admin defines/updates a gate. `track` must be Social(0) or Earned(1).

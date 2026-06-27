@@ -15,11 +15,15 @@ export const MAX_REF_LEN = 200; // evidence.ref upper bound (anti-abuse)
 export const MAX_QUEST_ID = 1_000_000;
 export const MAX_BODY_BYTES = 4_096; // request body upper bound
 
-export type EvidenceType = 'github_pr' | 'referral_tx';
+export type EvidenceType = 'github_pr' | 'referral_tx' | 'invite_converts' | 'vouch_back';
 export interface AttestEvidence {
   type: EvidenceType;
+  /** Meaning by type: github_pr → "owner/repo#n"; referral_tx/invite_converts → a Stellar
+   * address; vouch_back → unused (the recipient's own mint history is checked). */
   ref: string;
 }
+/** Vouch-back threshold: how many distinct people you must have vouched for to earn it. */
+export const VOUCH_BACK_MIN = 3;
 export interface AttestClaim {
   questId: number;
   recipient: string;
@@ -35,6 +39,11 @@ export interface AttestContext {
 const G_ADDRESS = /^G[A-Z2-7]{55}$/;
 export function isGAddress(s: unknown): boolean {
   return typeof s === 'string' && G_ADDRESS.test(s);
+}
+
+const STELLAR_ADDRESS = /^[GC][A-Z2-7]{55}$/; // classic (G…) or smart-wallet (C…)
+export function isStellarAddress(s: unknown): boolean {
+  return typeof s === 'string' && STELLAR_ADDRESS.test(s);
 }
 
 /**
@@ -70,11 +79,15 @@ export function validateEvidence(
   ev: AttestEvidence | undefined,
   recipient: string,
 ): { ok: true } | { ok: false; reason: string } {
-  if (!ev || (ev.type !== 'github_pr' && ev.type !== 'referral_tx')) {
+  const KNOWN: EvidenceType[] = ['github_pr', 'referral_tx', 'invite_converts', 'vouch_back'];
+  if (!ev || !KNOWN.includes(ev.type)) {
     return { ok: false, reason: 'unknown or missing evidence type' };
   }
-  if (typeof ev.ref !== 'string' || ev.ref.length === 0 || ev.ref.length > MAX_REF_LEN) {
-    return { ok: false, reason: 'evidence ref missing or too long' };
+  // vouch_back checks the recipient's own on-chain mint history — no ref needed.
+  if (ev.type !== 'vouch_back') {
+    if (typeof ev.ref !== 'string' || ev.ref.length === 0 || ev.ref.length > MAX_REF_LEN) {
+      return { ok: false, reason: 'evidence ref missing or too long' };
+    }
   }
   if (ev.type === 'github_pr' && !/^[\w.-]+\/[\w.-]+#\d+$/.test(ev.ref)) {
     return { ok: false, reason: 'ref must be owner/repo#number' };
@@ -82,6 +95,10 @@ export function validateEvidence(
   if (ev.type === 'referral_tx') {
     if (!isGAddress(ev.ref)) return { ok: false, reason: 'ref must be a G address' };
     if (ev.ref === recipient) return { ok: false, reason: 'cannot refer yourself' };
+  }
+  if (ev.type === 'invite_converts') {
+    if (!isStellarAddress(ev.ref)) return { ok: false, reason: 'ref must be a Stellar address' };
+    if (ev.ref === recipient) return { ok: false, reason: 'cannot invite yourself' };
   }
   return { ok: true };
 }

@@ -74,6 +74,13 @@ impl QuestRegistryContract {
             .set(&DataKey::Reputation, &reputation);
     }
 
+    /// Admin-gated WASM upgrade — same contract instance + storage, new code. Lets us
+    /// iterate/season without a new address or state migration (mainnet de-risk).
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        Self::admin(&env).require_auth();
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+    }
+
     pub fn add_attester(env: Env, attester: Address) {
         Self::admin(&env).require_auth();
         env.storage()

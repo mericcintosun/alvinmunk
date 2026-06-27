@@ -13,7 +13,7 @@
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short, token,
-    Address, Env, Symbol, Vec,
+    Address, BytesN, Env, Symbol, Vec,
 };
 
 // ~30 / ~60 days of ledgers (5s) — keep registered rewards + claim guards alive.
@@ -81,6 +81,13 @@ impl RewardsContract {
             .instance()
             .set(&DataKey::Reputation, &reputation);
         env.storage().instance().set(&DataKey::Paused, &false);
+    }
+
+    /// Admin-gated WASM upgrade — same contract instance + storage, new code. Lets us
+    /// iterate/season without a new address or state migration (mainnet de-risk).
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        Self::admin(&env).require_auth();
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
     }
 
     /// Direct USDC tip. `from` pays `to`; mints a social "thank-you" event.

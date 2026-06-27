@@ -15,26 +15,39 @@ import { Sticker } from '@/components/ui/sticker';
 import { cn, humanizeError } from '@/lib/utils';
 import { toast } from '@/components/ui/toaster';
 
-// The demo quest id is configurable so the attester-allowlisted quest can change per
-// deployment without a code edit. Falls back to quest #2 (the seeded referral quest).
-const DEFAULT_QUEST_ID = Number(process.env.NEXT_PUBLIC_DEFAULT_QUEST_ID ?? '2');
+// Quest ids are admin-created on the QuestRegistry; env-configurable so they can change per
+// deployment without a code edit. Defaults: 2 = refer, 3 = invite-converts, 4 = vouch-back.
+const REFERRAL_QUEST_ID = Number(process.env.NEXT_PUBLIC_DEFAULT_QUEST_ID ?? '2');
+const INVITE_QUEST_ID = Number(process.env.NEXT_PUBLIC_INVITE_QUEST_ID ?? '3');
+const VOUCHBACK_QUEST_ID = Number(process.env.NEXT_PUBLIC_VOUCHBACK_QUEST_ID ?? '4');
+const VOUCH_BACK_MIN = 3; // mirrors attest.ts VOUCH_BACK_MIN (UI copy only)
+
+type Evidence =
+  | { type: 'referral_tx'; ref: string }
+  | { type: 'invite_converts'; ref: string }
+  | { type: 'vouch_back'; ref: string };
 
 /**
  * Verified quests (Earned XP — the cashable track). The wallet owner proves ownership,
  * the attester verifies proof + on-chain activity, then grants Earned XP. Earned ≠ Social.
+ * Three auto-verifiable quests: refer an active wallet, invite-converts (someone you invited
+ * got vouched for), and vouch-back (you've vouched for ≥N people) — all feed the viral loop.
  */
 export function Quests({ address }: { address: string }) {
   const [earned, setEarned] = useState<number | null>(null);
   const [streak, setStreak] = useState<{ weeks: number; best: number } | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<null | 'referral' | 'invite' | 'vouchback'>(null);
   const [ref, setRef] = useState('');
+  const [invite, setInvite] = useState('');
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // The referral quest verifies a DIFFERENT, on-chain-active Stellar account (you can't
-  // refer yourself; the attester checks the address has real activity).
+  // Referral verifies a DIFFERENT, on-chain-active classic account; invite-converts accepts a
+  // classic (G…) or smart-wallet (C…) address you invited (neither can be yourself).
   const refTrim = ref.trim();
+  const inviteTrim = invite.trim();
   const validRef = /^G[A-Z2-7]{55}$/.test(refTrim) && refTrim !== address;
+  const validInvite = /^[GC][A-Z2-7]{55}$/.test(inviteTrim) && inviteTrim !== address;
 
   useEffect(() => {
     getEarnedScore(address, address).then(setEarned).catch(() => setEarned(0));
@@ -43,14 +56,13 @@ export function Quests({ address }: { address: string }) {
       .catch(() => setStreak({ weeks: 0, best: 0 }));
   }, [address]);
 
-  async function onComplete() {
-    if (!validRef) return;
-    setBusy(true);
+  async function run(kind: 'referral' | 'invite' | 'vouchback', questId: number, evidence: Evidence) {
+    setBusy(kind);
     setError(null);
     setDone(false);
     try {
       const wallet = await getWallet();
-      const r = await completeQuest(wallet, DEFAULT_QUEST_ID, { type: 'referral_tx', ref: refTrim });
+      const r = await completeQuest(wallet, questId, evidence);
       if (!r.ok) throw new Error(r.error);
       setDone(true);
       toast.success('Quest verified — Earned XP added 🎉');
@@ -62,7 +74,7 @@ export function Quests({ address }: { address: string }) {
       setError(msg);
       toast.error(msg);
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -109,6 +121,7 @@ export function Quests({ address }: { address: string }) {
             </span>
           </div>
         )}
+        {/* Quest 1 — refer an active wallet */}
         <div className="mt-4">
           <label htmlFor="quest-ref" className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
             refer a friend&apos;s wallet
@@ -128,21 +141,68 @@ export function Quests({ address }: { address: string }) {
                 ? 'That doesn’t look like a Stellar address (G…).'
                 : 'A friend who’s already active on Stellar. Earns Earned XP (cashable).'}
           </p>
+          <Button
+            variant="onchain"
+            onClick={() => run('referral', REFERRAL_QUEST_ID, { type: 'referral_tx', ref: refTrim })}
+            disabled={busy !== null || !validRef}
+            className="mt-2 w-full"
+          >
+            {busy === 'referral' ? 'Verifying…' : 'Verify a quest'}
+          </Button>
         </div>
 
-        <Button
-          variant="onchain"
-          onClick={onComplete}
-          disabled={busy || !validRef}
-          className="mt-3 w-full"
-        >
-          {busy ? 'Verifying…' : 'Verify a quest'}
-        </Button>
+        {/* Quest 2 — invite-converts: someone you invited opened a profile + got vouched for */}
+        <div className="mt-4 border-t border-border/60 pt-4">
+          <label htmlFor="quest-invite" className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+            invite who converted
+          </label>
+          <Input
+            id="quest-invite"
+            value={invite}
+            onChange={(e) => setInvite(e.target.value)}
+            placeholder="their address (G… or C…)"
+            className="mt-1.5 font-mono text-xs"
+            aria-describedby="quest-invite-hint"
+          />
+          <p id="quest-invite-hint" className="mt-1 text-[11px] text-muted-foreground">
+            {inviteTrim && inviteTrim === address
+              ? 'You can’t invite yourself.'
+              : inviteTrim && !validInvite
+                ? 'That doesn’t look like a Stellar address.'
+                : 'Someone you brought in — earns once they’ve been vouched for. The growth loop.'}
+          </p>
+          <Button
+            variant="onchain"
+            onClick={() => run('invite', INVITE_QUEST_ID, { type: 'invite_converts', ref: inviteTrim })}
+            disabled={busy !== null || !validInvite}
+            className="mt-2 w-full"
+          >
+            {busy === 'invite' ? 'Verifying…' : 'Claim invite reward'}
+          </Button>
+        </div>
+
+        {/* Quest 3 — vouch-back: you've vouched for ≥N people */}
+        <div className="mt-4 border-t border-border/60 pt-4">
+          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+            vouch-back streak
+          </span>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Vouch for {VOUCH_BACK_MIN} people, then claim — rewards backing others, not just being backed.
+          </p>
+          <Button
+            variant="onchain"
+            onClick={() => run('vouchback', VOUCHBACK_QUEST_ID, { type: 'vouch_back', ref: '' })}
+            disabled={busy !== null}
+            className="mt-2 w-full"
+          >
+            {busy === 'vouchback' ? 'Verifying…' : `Claim vouch-back (${VOUCH_BACK_MIN}+ vouches)`}
+          </Button>
+        </div>
 
         {done && (
           <div className="mt-3 flex flex-col items-center">
             <StateArt kind="quest-complete" size={120} className="motion-safe:animate-ignite" />
-            <p className="mt-1 text-center text-xs text-secondary">verified on-chain → +30 Earned XP</p>
+            <p className="mt-1 text-center text-xs text-secondary">verified on-chain → Earned XP added</p>
           </div>
         )}
         {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
