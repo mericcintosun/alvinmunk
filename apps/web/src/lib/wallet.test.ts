@@ -3,18 +3,17 @@ import { isPasskeyConfigured } from './wallet';
 
 describe('isPasskeyConfigured', () => {
   afterEach(() => {
-    delete process.env.NEXT_PUBLIC_SMART_ACCOUNT_WASM_HASH;
-    delete process.env.NEXT_PUBLIC_WEBAUTHN_VERIFIER_ID;
+    delete process.env.NEXT_PUBLIC_PASSKEY_WALLET_WASM_HASH;
   });
 
-  it('is false when infra env is unset (falls back to dev wallet)', () => {
+  it('is false when the wallet WASM hash is unset (falls back to dev wallet)', () => {
     expect(isPasskeyConfigured()).toBe(false);
   });
 
-  it('needs BOTH wasm hash + verifier — half-set stays on the dev wallet', () => {
-    process.env.NEXT_PUBLIC_SMART_ACCOUNT_WASM_HASH = 'deadbeef';
-    expect(isPasskeyConfigured()).toBe(false); // missing verifier
-    process.env.NEXT_PUBLIC_WEBAUTHN_VERIFIER_ID = 'CVERIFIER';
-    expect(isPasskeyConfigured()).toBe(true); // relayer is optional on testnet
+  it('is true once the passkey wallet WASM hash is set', () => {
+    // The relayer URL + key are SERVER-only secrets (checked in /api/passkey-send), so the
+    // client gate is the wallet WASM hash alone.
+    process.env.NEXT_PUBLIC_PASSKEY_WALLET_WASM_HASH = 'ecd990f0';
+    expect(isPasskeyConfigured()).toBe(true);
   });
 });

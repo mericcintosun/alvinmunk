@@ -56,8 +56,12 @@ export async function getUsdcBalance(address: string, source: string): Promise<b
   }
 }
 
-/** Does this classic account already trust the USDC asset? */
+/** Does this account already trust the USDC asset (i.e. can it receive)? */
 export async function hasUsdcTrustline(address: string): Promise<boolean> {
+  // Contract (C…) accounts — passkey smart wallets — hold SAC tokens directly in contract
+  // storage and need no classic trustline; Horizon's /accounts endpoint also rejects C… ids
+  // (400). Treat them as always able to receive.
+  if (address.startsWith('C')) return true;
   try {
     const acct = await horizon.loadAccount(address);
     return acct.balances.some((b) => 'asset_code' in b && b.asset_code === 'USDC');
@@ -68,6 +72,9 @@ export async function hasUsdcTrustline(address: string): Promise<boolean> {
 
 /** Establish the USDC trustline so the wallet can receive tips and rewards. */
 export async function enableUsdc(wallet: Wallet): Promise<string> {
+  // Smart wallets (C…) hold the SAC directly and can't author a classic `changeTrust`; no
+  // trustline is needed, so this is a no-op for them.
+  if (wallet.address.startsWith('C')) return '';
   const asset = await getUsdcAsset(wallet.address);
   const account = await server.getAccount(wallet.address);
   const tx = new TransactionBuilder(account, { fee: '1000', networkPassphrase })

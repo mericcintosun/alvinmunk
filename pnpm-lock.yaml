@@ -26,6 +26,9 @@ importers:
       '@albedo-link/intent':
         specifier: ^0.13.0
         version: 0.13.0
+      '@openzeppelin/relayer-plugin-channels':
+        specifier: ^0.5.0
+        version: 0.5.0
       '@passport/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -59,15 +62,15 @@ importers:
       next:
         specifier: ^14.2.5
         version: 14.2.35(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      passkey-kit:
+        specifier: ^0.12.0
+        version: 0.12.0
       react:
         specifier: ^18.3.1
         version: 18.3.1
       react-dom:
         specifier: ^18.3.1
         version: 18.3.1(react@18.3.1)
-      smart-account-kit:
-        specifier: ^0.2.10
-        version: 0.2.10(@stellar/stellar-sdk@16.0.1)
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -125,6 +128,12 @@ importers:
         version: 2.1.9(@types/node@20.19.43)(jsdom@25.0.1)
 
 packages:
+
+  '@actions/exec@1.1.1':
+    resolution: {integrity: sha512-+sCcHHbVdk93a0XT19ECtO/gIXoxvdsgQLzb2fE2/5sIZmWQuluYyjPQtrtTHdU1YzTZ7bAPN4sITq2xi1679w==}
+
+  '@actions/io@1.1.3':
+    resolution: {integrity: sha512-wi9JjgKLYS7U/z8PPbco+PvTb/nRWjeoFlJ1Qer83k/3C5PHQi28hiVdeE2kHXmIL99mQFawx8qt/JPjZilJ8Q==}
 
   '@albedo-link/intent@0.13.0':
     resolution: {integrity: sha512-A8CBXqGQEBMXhwxNXj5inC6HLjyx5Do7jW99NOFeecYd1nPUq8gfM0tvoNoR8H8JQ11aTl9tyQBuu/+l3xeBnQ==}
@@ -437,8 +446,16 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@noble/curves@1.9.7':
+    resolution: {integrity: sha512-gbKGcRUYIjA3/zCCNaWDciTMFI0dCkvou3TL8Zmy5Nc7sJ47a0jtOeZoTaMxkuqRo9cRhjOdZJXegxYE5FN/xw==}
+    engines: {node: ^14.21.3 || >=16}
+
   '@noble/ed25519@3.1.0':
     resolution: {integrity: sha512-pfcObRY3CtvwfaG9Mt5XqZdKmAQppl37tHUeuBhDUbiwJBCVY4/A4lbMvb1xKhMDx96AqAqZpMWuBX1HulhX4g==}
+
+  '@noble/hashes@1.8.0':
+    resolution: {integrity: sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==}
+    engines: {node: ^14.21.3 || >=16}
 
   '@noble/hashes@2.2.0':
     resolution: {integrity: sha512-IYqDGiTXab6FniAgnSdZwgWbomxpy9FtYvLKs7wCUs2a8RkITG+DFGO1DM9cr+E3/RgADRpFjrKVaJ1z6sjtEg==}
@@ -459,6 +476,14 @@ packages:
   '@nolyfill/is-core-module@1.0.39':
     resolution: {integrity: sha512-nn5ozdjYQpUCZlWGuxcJY/KpxkWQs4DcbMCmKojjyrYDEAGy4Ce19NN4v5MduafTwJlbKc99UA8YhSVqq9yPZA==}
     engines: {node: '>=12.4.0'}
+
+  '@openzeppelin/relayer-plugin-channels@0.5.0':
+    resolution: {integrity: sha512-mn8TklTFwwqKVVOjYQtJGGX/8IKJwg4hbwfAsz7kvb5L5EhjJzwCjgfT84TL6ZVmHb7DoQ6h2lPgNussDiHy5g==}
+    engines: {node: '>=22.18.0', npm: use pnpm, pnpm: '>=9', yarn: use pnpm}
+
+  '@openzeppelin/relayer-sdk@1.10.0':
+    resolution: {integrity: sha512-C7v4C63VnFR4keISicpcDf4Ix646sa1OdokzddFeSPEGlJIY2b/XJ9sIWiXOBVJVGzbB+RdX3/fbkygAPhcVNw==}
+    engines: {node: '>=22.14.0', npm: use pnpm, pnpm: '>=9', yarn: use pnpm}
 
   '@pkgjs/parseargs@0.11.0':
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
@@ -665,9 +690,22 @@ packages:
   '@stellar/freighter-api@6.0.1':
     resolution: {integrity: sha512-eqwakEqSg+zoLuPpSbKyrX0pG8DQFzL/J5GtbfuMCmJI+h+oiC9pQ5C6QLc80xopZQKdGt8dUAFCmDMNdAG95w==}
 
+  '@stellar/js-xdr@3.1.2':
+    resolution: {integrity: sha512-VVolPL5goVEIsvuGqDc5uiKxV03lzfWdvYg1KikvwheDmTBO68CKDji3bAZ/kppZrx5iTA8z3Ld5yuytcvhvOQ==}
+
   '@stellar/js-xdr@4.0.0':
     resolution: {integrity: sha512-+NmNa7Tk5BI5XFdy/6xGTqAN4J9a9KgCrCGhj2uEUTCBhLkch0M+QbKzNH8zEnejWe0p8w+0q5hUVX6L3OzoVA==}
     engines: {node: '>=20.0.0', pnpm: '>=9.0.0'}
+
+  '@stellar/stellar-base@14.1.0':
+    resolution: {integrity: sha512-A8kFli6QGy22SRF45IjgPAJfUNGjnI+R7g4DF5NZYVsD1kGf7B4ITyc4OPclLV9tqNI4/lXxafGEw0JEUbHixw==}
+    engines: {node: '>=20.0.0'}
+    deprecated: This package is now rolled into @stellar/stellar-sdk. Please use @stellar/stellar-sdk to continue receiving updates and support.
+
+  '@stellar/stellar-sdk@14.6.1':
+    resolution: {integrity: sha512-A1rQWDLdUasXkMXnYSuhgep+3ZZzyuXJKdt5/KAIc0gkmSp906HTvUpbT4pu+bVr41tu0+J4Ugz9J4BQAGGytg==}
+    engines: {node: '>=20.0.0'}
+    hasBin: true
 
   '@stellar/stellar-sdk@16.0.1':
     resolution: {integrity: sha512-bxKohaiyKVqoudRhbOOHeHhHIaeYV5Zab4rCjxhP4Ty1h1ozTLBOv8lWFnZz9ilBzXG8Bb7usQI3rlEcfvUynA==}
@@ -1122,6 +1160,9 @@ packages:
   bignumber.js@11.1.4:
     resolution: {integrity: sha512-AJ9dSeaUGj2xu7tEwmdqb51dqdb633xo4njI9K8ZFfcLrNr0XN8/EPkkZUNaF9fkCblGt2zVwZymesUdGynEkQ==}
 
+  bignumber.js@9.3.1:
+    resolution: {integrity: sha512-Ko0uX15oIUS7wJ3Rb30Fs6SkVbLmPBAKdlm7q9+ak9bbIeFf0MwuBsQV6z7+X768/cHsfg+WlysDWJcmthjsjQ==}
+
   binary-extensions@2.3.0:
     resolution: {integrity: sha512-Ceh+7ox5qe7LJuLHoY0feh3pHuUDHAcRUeyL2VYghZwfpkNIy/+8Ocg0a3UuSoYzavmylwuLWQOf3hl0jjMMIw==}
     engines: {node: '>=8'}
@@ -1521,6 +1562,10 @@ packages:
   eventsource-parser@3.1.0:
     resolution: {integrity: sha512-kJezFj9YFAMLeORyi7aCLxLbD5/qWMQnoMVlVPyHIll7lgRJCc3JVln9Vgl9nwQi0YkMnhdGTMNn7CkRRAptMg==}
     engines: {node: '>=18.0.0'}
+
+  eventsource@2.0.2:
+    resolution: {integrity: sha512-IzUmBGPR3+oUG9dUeXynyNmf91/3zUSJg1lCktzKw47OXuhco54U3r9B7O4XX+Rb1Itm9OZ2b0RkTs10bICOxA==}
+    engines: {node: '>=12.0.0'}
 
   eventsource@4.1.0:
     resolution: {integrity: sha512-2GuF51iuHX6A9xdTccMTsNb7VO0lHZihApxhvQzJB5A03DvHDd2FQepodbMaztPBmBcE/ox7o2gqaxGhYB9LhQ==}
@@ -2219,6 +2264,12 @@ packages:
   parse5@7.3.0:
     resolution: {integrity: sha512-IInvU7fabl34qmi9gY8XOVxhYyMyuH2xUNpb2q8/Y+7552KlejkRvqvD19nMoUW/uQGGbqNpA6Tufu5FL5BZgw==}
 
+  passkey-kit-sdk@0.7.2:
+    resolution: {integrity: sha512-+JwND3tUfygT1zw+MdAmqO8NpaATJFo9+1spEkwv1tiFX+/DIJjQXyw8M54hrhQIEiIFevLpOXSQXMTV78m2wQ==}
+
+  passkey-kit@0.12.0:
+    resolution: {integrity: sha512-7FB0TCPepwdiR+lotnE8LvmJzRLLk8Y68mWmvTNjUhrcI7XA2eB5agrDzd2SAs+hqvH4MbSXUnTpQq+qxoJw7w==}
+
   path-exists@4.0.0:
     resolution: {integrity: sha512-ak9Qy5Q7jYb2Wwcey5Fpvg2KoAc/ZIhLSLOSBmRmygPsGwkVVt0fZa0qrtMz+m6tJTAHfZQ8FnmB4MG4LWy7/w==}
     engines: {node: '>=8'}
@@ -2358,6 +2409,9 @@ packages:
   queue-microtask@1.2.3:
     resolution: {integrity: sha512-NuaNSa6flKT5JaSYQzJok04JzTL1CA6aGhv5rfLW3PgqA+M2ChpZQnAC8h8i4ZFkBS8X5RqkDBHA7r4hej3K9A==}
 
+  randombytes@2.1.0:
+    resolution: {integrity: sha512-vYl3iOX+4CKUWuxGi9Ukhie6fsqXqS9FE2Zaic4tNFD2N2QQaXOMFbuKK4QmDHC0JO6B1Zp41J0LpT0oR68amQ==}
+
   react-composer@5.0.3:
     resolution: {integrity: sha512-1uWd07EME6XZvMfapwZmc7NgCZqDemcvicRi3wMJzXsQLvZ3L7fTHVyPy1bZdnWXM4iPjYuNE+uJ41MLKeTtnA==}
     peerDependencies:
@@ -2449,9 +2503,15 @@ packages:
   run-parallel@1.2.0:
     resolution: {integrity: sha512-5l4VyZR86LZ/lDxZTR6jqL8AFE2S0IFLMP26AbjsLVADxHdhB/c0GUsH+y39UfCi3dzz8OlQuPmnaJOMoDHQBA==}
 
+  sac-sdk@0.4.2:
+    resolution: {integrity: sha512-zi6z1wgkK4XmZnyPssmAlN1Lb0s+LW1imkD3IZH20C3DjGH6VwsgElHqvfHZVuwDzmcPlcJq2FWQCuTaSQPgCQ==}
+
   safe-array-concat@1.1.4:
     resolution: {integrity: sha512-wtZlHyOje6OZTGqAoaDKxFkgRtkF9CnHAVnCHKfuj200wAgL+bSJhdsCD2l0Qx/2ekEXjPWcyKkfGb5CPboslg==}
     engines: {node: '>=0.4'}
+
+  safe-buffer@5.2.1:
+    resolution: {integrity: sha512-rp3So07KcdmmKbGvgaNxQSJr7bGVSVk5S9Eq1F+ppbRo70+YeaDxkw5Dd8NPN+GD6bjnYm2VuPuCXmpuYvmCXQ==}
 
   safe-push-apply@1.0.0:
     resolution: {integrity: sha512-iKE9w/Z7xCzUMIZqdBsp6pEQvwuEebH4vdpjcDWnyzaI6yl6O9FHvVpmGelvEHNsoY6wGblkxR6Zty/h00WiSA==}
@@ -2500,6 +2560,11 @@ packages:
     resolution: {integrity: sha512-RJRdvCo6IAnPdsvP/7m6bsQqNnn1FCBX5ZNtFL98MmFF/4xAIJTIg1YbHW5DC2W5SKZanrC6i4HsJqlajw/dZw==}
     engines: {node: '>= 0.4'}
 
+  sha.js@2.4.12:
+    resolution: {integrity: sha512-8LzC5+bvI45BjpfXU8V5fdU2mfeKiQe1D1gIMn7XUlF3OTUrpdJpPPH4EMAnF0DsHHdSZqCdSss5qCmJKuiO3w==}
+    engines: {node: '>= 0.10'}
+    hasBin: true
+
   shebang-command@2.0.0:
     resolution: {integrity: sha512-kHxr2zZpYtdmrN1qDjrrX/Z1rR1kG8Dx+gkpK1G4eXmvXswmcE1hTWBWYUzlraYw1/yZp6YuDY77YtvbN0dmDA==}
     engines: {node: '>=8'}
@@ -2530,21 +2595,6 @@ packages:
   signal-exit@4.1.0:
     resolution: {integrity: sha512-bzyZ1e88w9O1iNJbKnOlvYTrWPDl46O1bG0D3XInv+9tkPrxrN8jUUTiFlDkkmKWgn1M6CfIA13SuGqOa9Korw==}
     engines: {node: '>=14'}
-
-  smart-account-kit-bindings@0.1.2:
-    resolution: {integrity: sha512-2P9IBk/KPutkkVUhTOLvaaRIIaAmJHBCbHUod/0K+zEHLbzQKjL6SSesFK+hO7OPOi2vn4mzZCs6J/vPVXRDCQ==}
-    peerDependencies:
-      '@stellar/stellar-sdk': '>=14.0.0'
-
-  smart-account-kit@0.2.10:
-    resolution: {integrity: sha512-3XmgpmiOUfjBfZjOpDAN8DhniVG+mEHBS0h9m4oVa9eUzUBR6080mzfQvCcYPislsmBzJnFmAc6uTPl2ylD45Q==}
-    engines: {node: '>=22.0.0', pnpm: '>=10.0.0'}
-    peerDependencies:
-      '@creit-tech/stellar-wallets-kit': '>=2.0.0'
-      '@stellar/stellar-sdk': '>=14.0.0'
-    peerDependenciesMeta:
-      '@creit-tech/stellar-wallets-kit':
-        optional: true
 
   smol-toml@1.6.1:
     resolution: {integrity: sha512-dWUG8F5sIIARXih1DTaQAX4SsiTXhInKf1buxdY9DIg4ZYPZK5nGM1VRIYmEbDbsHt7USo99xSLFu5Q1IqTmsg==}
@@ -2728,9 +2778,16 @@ packages:
     resolution: {integrity: sha512-WMi/OQ2axVTf/ykqCQgXiIct+mSQDFdH2fkwhPwgEwvJ1kSzZRiinb0zF2Xb8u4+OqPChmyI6MEu4EezNJz+FQ==}
     hasBin: true
 
+  to-buffer@1.2.2:
+    resolution: {integrity: sha512-db0E3UJjcFhpDhAF4tLo03oli3pwl3dbnzXOUIlRKrp+ldk/VUxzpWYZENsw2SZiuBjHAk7DfB0VU7NKdpb6sw==}
+    engines: {node: '>= 0.4'}
+
   to-regex-range@5.0.1:
     resolution: {integrity: sha512-65P7iz6X5yEr1cwcgvQxbbIw7Uk3gOy5dIdtZ4rDveLqhrdJP+Li/Hx6tyK0NEb+2GCyneCMJiGqrADCSNk8sQ==}
     engines: {node: '>=8.0'}
+
+  toml@3.0.0:
+    resolution: {integrity: sha512-y/mWCZinnvxjTKYhJ+pYxwD0mRLVvOtdS2Awbgxln6iEnt4rk0yBxeSBHkGJcPucRiG0e55mwWp+g/05rsrd6w==}
 
   tough-cookie@5.1.2:
     resolution: {integrity: sha512-FVDYdxtnj0G6Qm/DhNPSb8Ju59ULcup3tuJxkFb5K8Bv2pUXILbf0xZWU8PX8Ov19OXljbUyveOFwRMwkXzO+A==}
@@ -2826,6 +2883,9 @@ packages:
 
   uri-js@4.4.1:
     resolution: {integrity: sha512-7rKUyy33Q1yc98pQ1DAmLtwX109F7TIfWlW1Ydo8Wl1ii1SeHieeh0HHfPeL2fMXK6z0s8ecKs9frCuLJvndBg==}
+
+  urijs@1.19.11:
+    resolution: {integrity: sha512-HXgFDgDommxn5/bIv0cnQZsPhHDA90NPHD6+c/v21U5+Sx5hoP8+dP9IZXBU1gIfvdRfhG8cel9QNPeionfcCQ==}
 
   use-sync-external-store@1.6.0:
     resolution: {integrity: sha512-Pp6GSwGP/NrPIrxVFAIkOQeyw8lFenOHijQWkUTrDvrF4ALqylP2C/KCkeS9dpUM3KvYRQhna5vt7IL95+ZQ9w==}
@@ -3034,6 +3094,12 @@ packages:
         optional: true
 
 snapshots:
+
+  '@actions/exec@1.1.1':
+    dependencies:
+      '@actions/io': 1.1.3
+
+  '@actions/io@1.1.3': {}
 
   '@albedo-link/intent@0.13.0': {}
 
@@ -3259,7 +3325,13 @@ snapshots:
   '@next/swc-win32-x64-msvc@14.2.33':
     optional: true
 
+  '@noble/curves@1.9.7':
+    dependencies:
+      '@noble/hashes': 1.8.0
+
   '@noble/ed25519@3.1.0': {}
+
+  '@noble/hashes@1.8.0': {}
 
   '@noble/hashes@2.2.0': {}
 
@@ -3276,6 +3348,23 @@ snapshots:
       fastq: 1.20.1
 
   '@nolyfill/is-core-module@1.0.39': {}
+
+  '@openzeppelin/relayer-plugin-channels@0.5.0':
+    dependencies:
+      '@actions/exec': 1.1.1
+      '@openzeppelin/relayer-sdk': 1.10.0
+      '@stellar/stellar-sdk': 14.6.1
+      axios: 1.16.1
+    transitivePeerDependencies:
+      - debug
+      - supports-color
+
+  '@openzeppelin/relayer-sdk@1.10.0':
+    dependencies:
+      axios: 1.16.1
+    transitivePeerDependencies:
+      - debug
+      - supports-color
 
   '@pkgjs/parseargs@0.11.0':
     optional: true
@@ -3454,7 +3543,33 @@ snapshots:
       buffer: 6.0.3
       semver: 7.7.1
 
+  '@stellar/js-xdr@3.1.2': {}
+
   '@stellar/js-xdr@4.0.0': {}
+
+  '@stellar/stellar-base@14.1.0':
+    dependencies:
+      '@noble/curves': 1.9.7
+      '@stellar/js-xdr': 3.1.2
+      base32.js: 0.1.0
+      bignumber.js: 9.3.1
+      buffer: 6.0.3
+      sha.js: 2.4.12
+
+  '@stellar/stellar-sdk@14.6.1':
+    dependencies:
+      '@stellar/stellar-base': 14.1.0
+      axios: 1.16.1
+      bignumber.js: 9.3.1
+      commander: 14.0.3
+      eventsource: 2.0.2
+      feaxios: 0.0.23
+      randombytes: 2.1.0
+      toml: 3.0.0
+      urijs: 1.19.11
+    transitivePeerDependencies:
+      - debug
+      - supports-color
 
   '@stellar/stellar-sdk@16.0.1':
     dependencies:
@@ -3925,6 +4040,8 @@ snapshots:
       require-from-string: 2.0.2
 
   bignumber.js@11.1.4: {}
+
+  bignumber.js@9.3.1: {}
 
   binary-extensions@2.3.0: {}
 
@@ -4493,6 +4610,8 @@ snapshots:
   esutils@2.0.3: {}
 
   eventsource-parser@3.1.0: {}
+
+  eventsource@2.0.2: {}
 
   eventsource@4.1.0:
     dependencies:
@@ -5203,6 +5322,27 @@ snapshots:
     dependencies:
       entities: 6.0.1
 
+  passkey-kit-sdk@0.7.2:
+    dependencies:
+      '@stellar/stellar-sdk': 14.6.1
+      buffer: 6.0.3
+    transitivePeerDependencies:
+      - debug
+      - supports-color
+
+  passkey-kit@0.12.0:
+    dependencies:
+      '@openzeppelin/relayer-plugin-channels': 0.5.0
+      '@simplewebauthn/browser': 13.3.0
+      '@stellar/stellar-sdk': 14.6.1
+      base64url: 3.0.1
+      buffer: 6.0.3
+      passkey-kit-sdk: 0.7.2
+      sac-sdk: 0.4.2
+    transitivePeerDependencies:
+      - debug
+      - supports-color
+
   path-exists@4.0.0: {}
 
   path-is-absolute@1.0.1: {}
@@ -5305,6 +5445,10 @@ snapshots:
   punycode@2.3.1: {}
 
   queue-microtask@1.2.3: {}
+
+  randombytes@2.1.0:
+    dependencies:
+      safe-buffer: 5.2.1
 
   react-composer@5.0.3(react@18.3.1):
     dependencies:
@@ -5430,6 +5574,14 @@ snapshots:
     dependencies:
       queue-microtask: 1.2.3
 
+  sac-sdk@0.4.2:
+    dependencies:
+      '@stellar/stellar-sdk': 14.6.1
+      buffer: 6.0.3
+    transitivePeerDependencies:
+      - debug
+      - supports-color
+
   safe-array-concat@1.1.4:
     dependencies:
       call-bind: 1.0.9
@@ -5437,6 +5589,8 @@ snapshots:
       get-intrinsic: 1.3.0
       has-symbols: 1.1.0
       isarray: 2.0.5
+
+  safe-buffer@5.2.1: {}
 
   safe-push-apply@1.0.0:
     dependencies:
@@ -5491,6 +5645,12 @@ snapshots:
       es-errors: 1.3.0
       es-object-atoms: 1.1.2
 
+  sha.js@2.4.12:
+    dependencies:
+      inherits: 2.0.4
+      safe-buffer: 5.2.1
+      to-buffer: 1.2.2
+
   shebang-command@2.0.0:
     dependencies:
       shebang-regex: 3.0.0
@@ -5528,18 +5688,6 @@ snapshots:
   siginfo@2.0.0: {}
 
   signal-exit@4.1.0: {}
-
-  smart-account-kit-bindings@0.1.2(@stellar/stellar-sdk@16.0.1):
-    dependencies:
-      '@stellar/stellar-sdk': 16.0.1
-      buffer: 6.0.3
-
-  smart-account-kit@0.2.10(@stellar/stellar-sdk@16.0.1):
-    dependencies:
-      '@simplewebauthn/browser': 13.3.0
-      '@stellar/stellar-sdk': 16.0.1
-      base64url: 3.0.1
-      smart-account-kit-bindings: 0.1.2(@stellar/stellar-sdk@16.0.1)
 
   smol-toml@1.6.1: {}
 
@@ -5749,9 +5897,17 @@ snapshots:
     dependencies:
       tldts-core: 6.1.86
 
+  to-buffer@1.2.2:
+    dependencies:
+      isarray: 2.0.5
+      safe-buffer: 5.2.1
+      typed-array-buffer: 1.0.3
+
   to-regex-range@5.0.1:
     dependencies:
       is-number: 7.0.0
+
+  toml@3.0.0: {}
 
   tough-cookie@5.1.2:
     dependencies:
@@ -5895,6 +6051,8 @@ snapshots:
   uri-js@4.4.1:
     dependencies:
       punycode: 2.3.1
+
+  urijs@1.19.11: {}
 
   use-sync-external-store@1.6.0(react@18.3.1):
     dependencies:

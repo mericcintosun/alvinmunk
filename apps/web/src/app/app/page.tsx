@@ -99,6 +99,9 @@ export default function AppHome() {
       setProfile(p);
       toast.success(`Your passport is live — @${h} stamped on-chain.`);
     } catch (e) {
+      // Surface the FULL error (diagnostic events name the failing contract/value) —
+      // toasts truncate and console is noisy with wallet-extension logs.
+      console.error('🛑 createPassport failed →', e);
       toast.error(humanizeError(e));
     } finally {
       setCreating(false);

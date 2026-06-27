@@ -12,6 +12,15 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { StateArt } from '@/components/ui/state-art';
 import { Sticker } from '@/components/ui/sticker';
+import { humanizeError } from '@/lib/utils';
+import { toast } from '@/components/ui/toaster';
+
+// Reputation contract error codes that can surface on mint_vouch (mirrors the Error enum).
+const VOUCH_ERRORS: Record<number, string> = {
+  6: 'You can’t vouch for yourself.',
+  9: 'You’ve hit today’s vouch limit — try again tomorrow.',
+  11: 'You need a little more Social XP to stake this vouch.',
+};
 
 /**
  * Vouch compose — the async half-card mint. You write one line and get a shareable link
@@ -39,8 +48,11 @@ export function VouchCompose() {
       // The claim-secret rides in the URL fragment (#s=…), which browsers NEVER send to
       // the server — so it can't leak into access logs, the Referer header, or analytics.
       setLink(`${buildClaimUrl(origin, id)}#s=${secret}`);
+      toast.success('Their star is lit — share the link to send it ✨');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'mint failed');
+      const msg = humanizeError(e, VOUCH_ERRORS);
+      setError(msg);
+      toast.error(msg);
     } finally {
       setBusy(false);
     }

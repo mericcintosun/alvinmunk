@@ -25,9 +25,22 @@ export function contractErrorCode(e: unknown): number | null {
  * to the first line of the message (never the scary diagnostic-event dump).
  */
 export function humanizeError(e: unknown, codeMap: Record<number, string> = {}): string {
+  const raw = e instanceof Error ? e.message : String(e ?? 'Something went wrong');
+  // Host-level signals first — they're clearer than a contract code AND dodge code
+  // collisions (e.g. a token SAC's own #10 "insufficient balance" vs a contract's #10).
+  const lower = raw.toLowerCase();
+  if (
+    lower.includes('not sufficient') ||
+    lower.includes('insufficient') ||
+    lower.includes('zero balance')
+  ) {
+    return "You don't have enough USDC to cover that — claim a reward or get test USDC first.";
+  }
+  if (lower.includes('trustline')) {
+    return "The recipient hasn't enabled this USDC, so they can't receive the tip yet. Try another passkey wallet, or someone who's enabled USDC.";
+  }
   const code = contractErrorCode(e);
   if (code != null && codeMap[code]) return codeMap[code];
-  const raw = e instanceof Error ? e.message : String(e ?? 'Something went wrong');
   // Drop Soroban's "Event log (newest first): …" diagnostic tail and take the first line.
   const firstLine = raw.split(/Event log|\n/)[0].trim();
   // Unknown contract code → always give the user a next step, never a dead end.

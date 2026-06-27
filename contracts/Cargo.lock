@@ -958,6 +958,7 @@ dependencies = [
 name = "passport-quest-registry"
 version = "0.1.0"
 dependencies = [
+ "ed25519-dalek",
  "passport-reputation",
  "soroban-sdk",
 ]

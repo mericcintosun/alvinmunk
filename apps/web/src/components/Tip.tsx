@@ -18,7 +18,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { StateArt } from '@/components/ui/state-art';
-import { withTimeout } from '@/lib/utils';
+import { withTimeout, humanizeError } from '@/lib/utils';
+import { toast } from '@/components/ui/toaster';
+
+// Rewards contract error codes that can surface on tip (mirrors contracts/rewards Error enum).
+// An insufficient-USDC failure (the SAC's own error) is caught by humanizeError directly.
+const TIP_ERRORS: Record<number, string> = {
+  5: 'Tips are paused right now — try again later.',
+  10: 'This account is under review and can’t tip right now.',
+};
 
 /**
  * USDC tip rail (Green belt). A tip is a real wallet -> wallet USDC transfer. USDC is a
@@ -54,9 +62,19 @@ export function Tip({ address }: { address: string }) {
     try {
       const h = await fn();
       if (typeof h === 'string' && h) setHash(h);
+      // Success feedback — `tip` returns void (no hash), so without this it looked silent.
+      toast.success(
+        kind === 'tip'
+          ? 'Tip sent 🎉'
+          : kind === 'faucet'
+            ? '5 test USDC added to your wallet'
+            : 'USDC enabled — you can receive tips now',
+      );
       refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'action failed');
+      const msg = humanizeError(e, TIP_ERRORS);
+      setError(msg);
+      toast.error(msg);
     } finally {
       setBusy(null);
     }
@@ -100,7 +118,7 @@ export function Tip({ address }: { address: string }) {
             <Input
               value={to}
               onChange={(e) => setTo(e.target.value.trim())}
-              placeholder="Recipient G… address"
+              placeholder="Recipient address (G… or C…)"
               className="font-mono text-xs"
             />
             <div className="flex gap-2">
@@ -118,7 +136,7 @@ export function Tip({ address }: { address: string }) {
                     await tip(wallet, to, usdcToStroops(amount));
                   })
                 }
-                disabled={busy !== null || !/^G[A-Z2-7]{55}$/.test(to)}
+                disabled={busy !== null || !/^[GC][A-Z2-7]{55}$/.test(to)}
                 className="flex-1"
               >
                 {busy === 'tip' ? 'Sending…' : 'Send tip'}

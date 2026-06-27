@@ -11,7 +11,19 @@ import { NumberTicker } from '@/components/fx/number-ticker';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { withTimeout } from '@/lib/utils';
+import { withTimeout, humanizeError } from '@/lib/utils';
+import { toast } from '@/components/ui/toaster';
+
+// Rewards contract error codes → friendly copy (mirrors contracts/rewards Error enum).
+const REWARD_ERRORS: Record<number, string> = {
+  3: 'You need more Earned XP to unlock this reward.',
+  4: 'You’ve already claimed this reward.',
+  5: 'Rewards are paused right now — try again later.',
+  7: 'This reward isn’t active.',
+  9: 'The daily reward limit was reached — try again tomorrow.',
+  10: 'This account is under review and can’t claim right now.',
+  12: 'You need to receive funds first before claiming (mainnet rule).',
+};
 
 /**
  * Rank -> reward unlock table (Green belt). Each reward is admin-registered on-chain
@@ -58,8 +70,11 @@ export function Rewards({ address }: { address: string }) {
       const wallet = await getWallet();
       await claimReward(wallet, id);
       await refresh();
+      toast.success('Reward claimed — USDC is in your wallet 🎉');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'claim failed');
+      const msg = humanizeError(e, REWARD_ERRORS);
+      setError(msg);
+      toast.error(msg);
     } finally {
       setBusy(null);
     }

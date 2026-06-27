@@ -7,8 +7,8 @@
 //! Reputation.award_xp. NO decentralized oracle.
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short, Address,
-    Env, IntoVal, Symbol,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short,
+    xdr::ToXdr, Address, Bytes, BytesN, Env, IntoVal, Symbol, Val, Vec,
 };
 
 const BUMP_THRESHOLD: u32 = 17_280;
@@ -31,11 +31,12 @@ pub enum Error {
 #[derive(Clone)]
 pub enum DataKey {
     Admin,
-    Reputation,            // Address of the Reputation contract
-    Attester(Address),     // allowlist flag
-    Quest(u32),            // QuestConfig
-    Claimed(u32, Address), // replay guard: (quest_id, recipient) -> bool
-    Streak(Address),       // weekly retention streak per player
+    Reputation,             // Address of the Reputation contract
+    Attester(Address),      // legacy address allowlist flag (kept for back-compat)
+    AttesterKey(BytesN<32>), // ed25519 pubkey allowlist — the signature-verified attester
+    Quest(u32),             // QuestConfig
+    Claimed(u32, Address),  // replay guard: (quest_id, recipient) -> bool
+    Streak(Address),        // weekly retention streak per player
 }
 
 #[contracttype]
@@ -87,6 +88,23 @@ impl QuestRegistryContract {
             .remove(&DataKey::Attester(attester));
     }
 
+    /// Allowlist an attester by its ed25519 PUBLIC KEY (32 bytes). `award_quest` verifies
+    /// a signature from this key instead of an on-chain `require_auth`, so the off-chain
+    /// attester grants Earned XP with a single signature — no tx, no fee, no source account.
+    pub fn add_attester_key(env: Env, key: BytesN<32>) {
+        Self::admin(&env).require_auth();
+        env.storage()
+            .persistent()
+            .set(&DataKey::AttesterKey(key), &true);
+    }
+
+    pub fn remove_attester_key(env: Env, key: BytesN<32>) {
+        Self::admin(&env).require_auth();
+        env.storage()
+            .persistent()
+            .remove(&DataKey::AttesterKey(key));
+    }
+
     pub fn create_quest(env: Env, id: u32, schema_id: u32, xp: u64) {
         Self::admin(&env).require_auth();
         let q = QuestConfig {
@@ -118,12 +136,36 @@ impl QuestRegistryContract {
             .extend_ttl(&DataKey::Quest(id), BUMP_THRESHOLD, BUMP_EXTEND);
     }
 
-    /// Allowlisted attester awards a verified quest to `recipient`. Replay-guarded.
-    pub fn award_quest(env: Env, attester: Address, quest_id: u32, recipient: Address) {
-        attester.require_auth();
-        if !Self::is_attester(&env, &attester) {
+    /// The canonical message an attester signs to authorize a quest award — exposed so the
+    /// off-chain attester signs EXACTLY what the contract verifies (no byte-mismatch risk).
+    pub fn quest_payload(env: Env, quest_id: u32, recipient: Address) -> Bytes {
+        Self::payload(&env, quest_id, &recipient)
+    }
+
+    /// Award a verified quest to `recipient`. Replay-guarded. Dual authorization:
+    ///   1. `attester` (an allowlisted ed25519 PUBKEY) signs the canonical payload — it
+    ///      alone can mint Earned XP (the anti-sybil keystone). A signature, not an on-chain
+    ///      tx, so the serverless attester stays stateless.
+    ///   2. `recipient.require_auth()` proves on-chain ownership of the credited wallet —
+    ///      works uniformly for classic (G…) and passkey smart-account (C…) wallets.
+    pub fn award_quest(
+        env: Env,
+        attester: BytesN<32>,
+        sig: BytesN<64>,
+        quest_id: u32,
+        recipient: Address,
+    ) {
+        if !env
+            .storage()
+            .persistent()
+            .get(&DataKey::AttesterKey(attester.clone()))
+            .unwrap_or(false)
+        {
             panic_with_error!(&env, Error::NotAuthorized);
         }
+        let message = Self::payload(&env, quest_id, &recipient);
+        env.crypto().ed25519_verify(&attester, &message, &sig);
+        recipient.require_auth();
 
         let quest: QuestConfig = env
             .storage()
@@ -186,6 +228,16 @@ impl QuestRegistryContract {
 
     // --- internal ---
 
+    /// Canonical signing payload: XDR of [quest_id, recipient, this_contract]. Binding the
+    /// contract address stops a signature being replayed against another deployment.
+    fn payload(env: &Env, quest_id: u32, recipient: &Address) -> Bytes {
+        let mut parts: Vec<Val> = Vec::new(env);
+        parts.push_back(quest_id.into_val(env));
+        parts.push_back(recipient.clone().into_val(env));
+        parts.push_back(env.current_contract_address().into_val(env));
+        parts.to_xdr(env)
+    }
+
     fn current_week(env: &Env) -> u64 {
         env.ledger().timestamp() / WEEK_SECS
     }
@@ -218,14 +270,6 @@ impl QuestRegistryContract {
             .extend_ttl(&key, BUMP_THRESHOLD, BUMP_EXTEND);
         env.events()
             .publish((symbol_short!("streak"), player.clone()), (s.weeks, s.best));
-    }
-
-    // private helper (refs) — NOT a contract export, so `&Env`/`&Address` are fine.
-    fn is_attester(env: &Env, who: &Address) -> bool {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Attester(who.clone()))
-            .unwrap_or(false)
     }
 
     fn admin(env: &Env) -> Address {

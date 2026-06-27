@@ -1,8 +1,14 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
   // @passport/shared ships raw TS; let Next transpile it from the workspace.
-  transpilePackages: ['@passport/shared'],
+  // passkey-kit (+ its sibling SDKs) also ship raw, uncompiled TS → transpile them too.
+  transpilePackages: ['@passport/shared', 'passkey-kit', 'passkey-kit-sdk', 'sac-sdk'],
   experimental: {
     // stellar-sdk pulls some node-ish deps; keep server externals tidy.
     serverComponentsExternalPackages: ['@stellar/stellar-sdk'],
@@ -12,16 +18,17 @@ const nextConfig = {
     // recompression so every sticker/illustration stays pixel-for-pixel lossless.
     unoptimized: true,
   },
-  webpack: (config) => {
-    // smart-account-kit lazy-imports the OPTIONAL external-wallet adapter
-    // (@creit-tech/stellar-wallets-kit) only when connecting a Freighter/LOBSTR signer.
-    // We use the passkey path only, so stub it to an empty module — actually installing
-    // it would drag back the native node-hid/usb deps that broke the Vercel build.
-    config.resolve.alias = {
-      ...config.resolve.alias,
-      '@creit-tech/stellar-wallets-kit': false,
-      '@creit-tech/stellar-wallets-kit/modules/utils': false,
-    };
+  webpack: (config, { webpack }) => {
+    // @stellar/stellar-sdk@14 (pulled in transitively by passkey-kit's `/minimal` barrel)
+    // ships `minimal/bindings/config.js`, which does `require('../../package.json')` via a
+    // path webpack can't resolve. That file is the `contract bindings` codegen CLI helper —
+    // never used at runtime — so replace it with a no-op stub so the bundle builds.
+    config.plugins.push(
+      new webpack.NormalModuleReplacementPlugin(
+        /[\\/]minimal[\\/]bindings[\\/]config(\.js)?$/,
+        path.resolve(__dirname, 'stubs/stellar-bindings-config.cjs'),
+      ),
+    );
     return config;
   },
 };

@@ -49,7 +49,13 @@ export async function readContract<T>(
   sourceAccount: string,
 ): Promise<T> {
   requireDeployed(contractId, method);
-  const account = await server.getAccount(sourceAccount);
+  // Read-only simulation needs only a well-formed source envelope, not a real on-chain
+  // account. A passkey wallet's address is a CONTRACT (C…), which isn't a classic account
+  // (`getAccount(C…)` 404s), so synthesize a throwaway source for it; any G… source is used
+  // directly to keep behavior unchanged.
+  const account = sourceAccount.startsWith('C')
+    ? new Account(Keypair.random().publicKey(), '0')
+    : await server.getAccount(sourceAccount);
   const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase })
     .addOperation(new Contract(contractId).call(method, ...callArgs))
     .setTimeout(30)
