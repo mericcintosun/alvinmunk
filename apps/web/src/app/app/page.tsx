@@ -16,6 +16,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { IdentityBar } from '@/components/IdentityBar';
 import { InviteNudge } from '@/components/InviteNudge';
+import { FirstStarNudge } from '@/components/FirstStarNudge';
+import { VouchClaimedNotice } from '@/components/VouchClaimedNotice';
 import { PendingHalfCards } from '@/components/PendingHalfCards';
 import { ActivityFeed } from '@/components/ActivityFeed';
 import { VouchCompose } from '@/components/VouchCompose';
@@ -23,6 +25,12 @@ import { Quests } from '@/components/Quests';
 import { Unlockables } from '@/components/Unlockables';
 import { Tip } from '@/components/Tip';
 import { Rewards } from '@/components/Rewards';
+
+// FOCUS MODE (roundtable: validate the core vouch→claim→ignite loop before exposing the rest).
+// When on (the default), the dashboard shows ONLY the social loop and hides the cashable
+// surface (verified quests / Earned XP / composable gate / USDC tips + rank rewards) until the
+// loop is proven. Flip it off to reveal everything: NEXT_PUBLIC_FOCUS_MODE=false.
+const FOCUS_MODE = process.env.NEXT_PUBLIC_FOCUS_MODE !== 'false';
 
 // three.js stays out of SSR + the marketing bundle — lazy, client-only.
 const ConstellationHero3D = dynamic(() => import('@/components/brand/constellation-3d'), {
@@ -174,8 +182,12 @@ export default function AppHome() {
 
       {/* HERO — your living 3D constellation */}
       <ConstellationHero3D address={profile.address} handle={profile.handle} />
+      {/* Loop-closing notice: toasts when a vouch you minted gets claimed (in-app only) */}
+      <VouchClaimedNotice />
 
       <div className="mt-8 grid gap-4">
+        {/* FIRST RUN — vouch-first: brand-new profiles start by GIVING a vouch */}
+        <FirstStarNudge />
         {/* INVITE — if you arrived via /v/<handle>, vouch your inviter back */}
         <InviteNudge />
         {/* RE-ENGAGEMENT — your unclaimed half-cards (stake at risk) */}
@@ -184,18 +196,23 @@ export default function AppHome() {
         <ActivityFeed />
         {/* PRIMARY — vouch = the viral install loop */}
         <VouchCompose />
-        <Quests address={profile.address} />
-        {/* CAPABILITY — reputation unlocks access (composable gates) */}
-        <Unlockables address={profile.address} />
-        <div className="mt-2">
-          <p className="mb-3 px-1 text-xs font-medium uppercase tracking-wide text-muted-foreground/70">
-            Spend
-          </p>
-          <div className="grid gap-4">
-            <Tip address={profile.address} />
-            <Rewards address={profile.address} />
-          </div>
-        </div>
+        {/* Cashable / capability surface — hidden in focus mode until the loop is proven. */}
+        {!FOCUS_MODE && (
+          <>
+            <Quests address={profile.address} />
+            {/* CAPABILITY — reputation unlocks access (composable gates) */}
+            <Unlockables address={profile.address} />
+            <div className="mt-2">
+              <p className="mb-3 px-1 text-xs font-medium uppercase tracking-wide text-muted-foreground/70">
+                Spend
+              </p>
+              <div className="grid gap-4">
+                <Tip address={profile.address} />
+                <Rewards address={profile.address} />
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

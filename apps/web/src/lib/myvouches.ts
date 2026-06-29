@@ -55,3 +55,47 @@ export async function getPendingVouches(origin: string): Promise<PendingVouch[]>
   );
   return out.sort((a, b) => a.daysLeft - b.daysLeft);
 }
+
+const SEEN_CLAIMED_KEY = 'alvinmunk.seenClaimed';
+
+function getSeenClaimed(): { ids: number[]; baselined: boolean } {
+  if (typeof localStorage === 'undefined') return { ids: [], baselined: true };
+  try {
+    const raw = localStorage.getItem(SEEN_CLAIMED_KEY);
+    if (raw === null) return { ids: [], baselined: false };
+    return { ids: JSON.parse(raw) as number[], baselined: true };
+  } catch {
+    return { ids: [], baselined: true };
+  }
+}
+
+/**
+ * The one in-app notification that matters (Nicole/roundtable): your vouch to someone was
+ * CLAIMED — their star ignited. Returns vouches claimed SINCE the last check (empty on the
+ * first ever run, which just baselines so old claims don't flood). Marks them seen.
+ *
+ * NOTE: this is in-session only. True push (bring-them-back) needs web-push infra
+ * (service worker + VAPID + a server subscription store) — deliberately deferred.
+ */
+export async function pollNewlyClaimed(): Promise<{ id: number; note: string }[]> {
+  const mine = getMyVouches();
+  if (mine.length === 0) return [];
+  const { ids: seenIds, baselined } = getSeenClaimed();
+  const seen = new Set(seenIds);
+  const claimedNow: number[] = [];
+  const fresh: { id: number; note: string }[] = [];
+  await Promise.all(
+    mine.slice(0, 25).map(async (m) => {
+      const v = await getVouch(m.id).catch(() => null);
+      if (!v?.claimed) return;
+      claimedNow.push(m.id);
+      if (baselined && !seen.has(m.id)) fresh.push({ id: m.id, note: m.note });
+    }),
+  );
+  if (typeof localStorage !== 'undefined') {
+    // Persist the union so a claim is reported once; first run only baselines (no toasts).
+    const next = Array.from(new Set([...seenIds, ...claimedNow]));
+    localStorage.setItem(SEEN_CLAIMED_KEY, JSON.stringify(next));
+  }
+  return baselined ? fresh : [];
+}

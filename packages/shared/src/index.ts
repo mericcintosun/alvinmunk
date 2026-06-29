@@ -16,7 +16,7 @@ export type SchemaId = (typeof SCHEMA)[keyof typeof SCHEMA];
 // ── Canonical on-chain event topics (Symbol values in the contracts) ──
 // FROZEN at Yellow belt (belts/02 + 00-strategy §4). Changing a shape breaks indexing.
 export const EVENTS = {
-  /** topics ('att_set', addr) · data (issuer, schema_id, amount, ts) — fundable primitive (Earned) */
+  /** topics ('att_set', addr) · data v1 (schema_version, issuer, schema_id, amount, ts) — versioned fundable primitive (Earned) */
   ATTESTATION_SET: 'att_set',
   /** topics ('xp', addr) · data (amount, newTotal) — Earned track total */
   XP: 'xp',

@@ -476,10 +476,14 @@ impl ReputationContract {
             .persistent()
             .extend_ttl(&att_key, BUMP_THRESHOLD, BUMP_EXTEND);
 
+        // Canonical attestation event — the fundable primitive's stable, VERSIONED API
+        // (00-strategy §4). `schema_version` is field 0 so any future B2B consumer reads the
+        // version first and can evolve safely; v1 data = (issuer, schema_id, amount, ts).
         const ATTESTATION_SET: Symbol = symbol_short!("att_set");
+        const ATT_SCHEMA_VERSION: u32 = 1;
         env.events().publish(
             (ATTESTATION_SET, to.clone()),
-            (issuer.clone(), schema_id, amount, ts),
+            (ATT_SCHEMA_VERSION, issuer.clone(), schema_id, amount, ts),
         );
         env.events()
             .publish((symbol_short!("xp"), to.clone()), (amount, next));

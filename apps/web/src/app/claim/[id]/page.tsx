@@ -253,8 +253,29 @@ function ClaimInner({ params }: { params: { id: string } }) {
               <Sticker name="stamp-verified" size={88} rotate={-8} className="absolute -right-1 top-0 motion-safe:animate-ignite" />
             </div>
             <Stamp accent="secondary">✦ STAR IGNITED</Stamp>
-            <Link href="/app" className={cn(buttonVariants({ variant: 'flow', size: 'lg' }))}>
-              {profile ? 'Now vouch someone back' : 'Create your profile'} <ArrowRight className="size-4" />
+            {/* The peak emotional moment → the share. People share a nice thing said ABOUT them,
+                not a number. Carry the praise line + link to their public constellation (OG card). */}
+            {vouch?.note && (
+              <p className="max-w-xs text-sm italic text-foreground/85">&ldquo;{vouch.note}&rdquo;</p>
+            )}
+            <a
+              href={`https://twitter.com/intent/tweet?${new URLSearchParams({
+                text: vouch?.note
+                  ? `Someone just vouched for me on alvinmunk 🌟 "${vouch.note}" — reputation has a face, not a number. Collect people, not points:`
+                  : 'My star just ignited on alvinmunk 🌟 — reputation has a face. Collect people, not points:',
+                url: `${typeof window !== 'undefined' ? window.location.origin : ''}${profile ? `/u/${profile.handle}` : '/'}`,
+              }).toString()}`}
+              target="_blank"
+              rel="noreferrer"
+              className={cn(buttonVariants({ variant: 'flow', size: 'lg' }))}
+            >
+              Share your star 🌟
+            </a>
+            <Link
+              href="/app"
+              className={cn(buttonVariants({ variant: 'secondary', size: 'lg' }))}
+            >
+              {profile ? 'Now light someone else’s star' : 'Create your profile'} <ArrowRight className="size-4" />
             </Link>
             {profile && (
               <Link href={`/u/${profile.handle}`} className="font-mono text-xs text-muted-foreground underline">

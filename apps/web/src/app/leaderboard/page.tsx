@@ -21,6 +21,10 @@ export default function LeaderboardPage() {
   const [rows, setRows] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [handles, setHandles] = useState<Record<string, string | null>>({});
+  // The leaderboard is the only piece that depends on the off-chain event read — the core
+  // loop (vouch/claim/ignite) is tx-driven and never touches it. Surface read freshness so a
+  // silent RPC/indexer failure is VISIBLE here instead of quietly showing stale scores.
+  const [stale, setStale] = useState(false);
   const me = loadProfile()?.address;
 
   // Reverse-lookup @handles for any new addresses (incremental — never re-fetch known).
@@ -41,7 +45,12 @@ export default function LeaderboardPage() {
     const tick = async () => {
       try {
         const r = await fetchLeaderboard();
-        if (alive) setRows(r);
+        if (alive) {
+          setRows(r);
+          setStale(false);
+        }
+      } catch {
+        if (alive) setStale(true); // read failed — mark stale so it's not silently wrong
       } finally {
         if (alive) setLoading(false);
       }
@@ -59,9 +68,20 @@ export default function LeaderboardPage() {
       <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-primary/80">{'// the_night_sky'}</p>
       <div className="mt-4 flex items-end justify-between border-b border-border/60 pb-3">
         <h1 className="font-display text-4xl font-semibold tracking-tight">The most-connected</h1>
-        <span className="inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.15em] text-secondary/80">
-          <span className="size-1.5 rounded-full bg-secondary motion-safe:animate-glow-pulse" />
-          live
+        <span
+          className={cn(
+            'inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.15em]',
+            stale ? 'text-amber-400/90' : 'text-secondary/80',
+          )}
+          title={stale ? 'Couldn’t refresh from the chain — scores may be behind.' : 'Live from the chain.'}
+        >
+          <span
+            className={cn(
+              'size-1.5 rounded-full',
+              stale ? 'bg-amber-400' : 'bg-secondary motion-safe:animate-glow-pulse',
+            )}
+          />
+          {stale ? 'sync delayed' : 'live'}
         </span>
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
