@@ -132,8 +132,8 @@ export function IdentityBar() {
         )}
       </div>
       <div className="flex shrink-0 items-center gap-3">
-        <Link href={`/u/${profile.handle}`} className="font-mono text-xs text-primary hover:underline">
-          public_profile →
+        <Link href={`/u/${profile.handle}`} className="text-sm text-primary hover:underline">
+          View profile →
         </Link>
         <ShareRow
           path={`/u/${profile.handle}`}

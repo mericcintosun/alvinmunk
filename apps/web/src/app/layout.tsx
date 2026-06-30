@@ -4,7 +4,7 @@ import { fontVars } from '@/lib/fonts';
 import { Starfield } from '@/components/brand/starfield';
 import { SmoothScroll } from '@/components/smooth-scroll';
 import { Navbar } from '@/components/layout/navbar';
-import { Footer } from '@/components/layout/footer';
+import { SiteFooter } from '@/components/layout/site-footer';
 import { Toaster } from '@/components/ui/toaster';
 import { WalletProvider } from '@/components/wallet/wallet-provider';
 
@@ -35,7 +35,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Starfield />
           <Navbar />
           <main className="min-h-[calc(100dvh-4rem)]">{children}</main>
-          <Footer />
+          <SiteFooter />
           <Toaster />
         </WalletProvider>
       </body>
