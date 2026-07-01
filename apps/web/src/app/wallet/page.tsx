@@ -2,18 +2,19 @@
 
 import { useState } from 'react';
 import { type Wallet } from '@/lib/wallet';
+import { connectViaKit } from '@/lib/wallet-kit';
 import { getXlmBalance, txExplorerUrl } from '@/lib/stellar';
 import { sendXlm, type PaymentResult } from '@/lib/payments';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { ConnectWalletModal } from '@/components/wallet/connect-wallet-modal';
 import { shortAddress } from '@/lib/utils';
 
 /**
- * White-belt Level-1 demo: Freighter connect/disconnect, balance, and a testnet XLM
- * payment with success/failure + tx-hash feedback. Maps 1:1 to the L1 checklist.
+ * Level 1 + 2 multi-wallet demo: connect via the Stellar Wallets Kit picker (Freighter,
+ * xBull, Albedo, Rabet, LOBSTR, Hana), show the balance, and send a testnet XLM payment
+ * with pending/success/failure + tx-hash feedback. Maps 1:1 to the belt checklist.
  */
 export default function WalletPage() {
   const [wallet, setWallet] = useState<Wallet | null>(null);
@@ -22,16 +23,24 @@ export default function WalletPage() {
   const [amount, setAmount] = useState('1');
   const [result, setResult] = useState<PaymentResult | null>(null);
   const [busy, setBusy] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
 
   const validAddr = /^G[A-Z2-7]{55}$/.test(to.trim());
   const validAmount = Number(amount) > 0;
 
-  async function onConnected(w: Wallet) {
+  async function connect() {
     setError(null);
-    setWallet(w);
-    setBalance(await getXlmBalance(w.address).catch(() => '0'));
+    setConnecting(true);
+    try {
+      const w = await connectViaKit();
+      setWallet(w);
+      setBalance(await getXlmBalance(w.address).catch(() => '0'));
+    } catch (e) {
+      setError(msg(e));
+    } finally {
+      setConnecting(false);
+    }
   }
 
   async function refresh() {
@@ -65,8 +74,8 @@ export default function WalletPage() {
       </p>
 
       {!wallet ? (
-        <Button size="lg" onClick={() => setPickerOpen(true)}>
-          Connect a Wallet
+        <Button size="lg" onClick={connect} disabled={connecting}>
+          {connecting ? 'Connecting…' : 'Connect a Wallet'}
         </Button>
       ) : (
         <div className="flex flex-col gap-4">
@@ -140,12 +149,6 @@ export default function WalletPage() {
       )}
 
       {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
-
-      <ConnectWalletModal
-        open={pickerOpen}
-        onClose={() => setPickerOpen(false)}
-        onConnected={onConnected}
-      />
     </div>
   );
 }

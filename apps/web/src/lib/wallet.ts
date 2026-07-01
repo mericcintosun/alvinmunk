@@ -20,7 +20,7 @@ import {
 } from '@stellar/freighter-api';
 import { config, networkPassphrase, waitForAccountReady, server } from './stellar';
 
-export type WalletKind = 'passkey' | 'dev' | 'freighter' | 'albedo';
+export type WalletKind = 'passkey' | 'dev' | 'freighter' | 'albedo' | 'kit';
 
 export interface Wallet {
   kind: WalletKind;

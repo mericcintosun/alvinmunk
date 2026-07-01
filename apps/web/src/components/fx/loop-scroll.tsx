@@ -23,7 +23,7 @@ export function LoopScroll() {
     <div className="relative grid gap-6 md:grid-cols-2 md:gap-10">
       {/* sticky scrollytelling panel — desktop only (mobile uses the stacked blocks) */}
       <div className="hidden md:sticky md:top-28 md:block md:h-[64vh] md:self-start">
-        <Frame label="the_loop" index={`0${active + 1} / 03`} className="flex h-full flex-col justify-center p-8 md:p-10">
+        <Frame index={`0${active + 1} / 03`} className="flex h-full flex-col justify-center p-8 md:p-10">
           <span className="font-mono text-xs uppercase tracking-[0.2em] text-primary/60">step {STEPS[active].n}</span>
           <motion.h3
             key={active}
@@ -59,7 +59,11 @@ export function LoopScroll() {
           <motion.div
             key={s.n}
             onViewportEnter={() => setActive(i)}
-            viewport={{ margin: '-45% 0px -45% 0px', amount: 0.2 }}
+            // A thin center band (±5% of the viewport) is the trigger zone: a step activates
+            // when its block reaches the middle of the screen. NO `amount` threshold — a 72vh
+            // block can only ever fill ~14% of a 10vh band, so any non-trivial `amount` is
+            // unreachable and the scene stays stuck on step 01.
+            viewport={{ margin: '-45% 0px -45% 0px' }}
             className="flex min-h-0 flex-col justify-center border-l border-border/50 py-7 pl-6 md:min-h-[72vh] md:py-0 md:pl-8"
           >
             <span className="font-display text-7xl font-semibold leading-none text-primary/15">{s.n}</span>
