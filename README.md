@@ -64,6 +64,48 @@ A real `mint_vouch` call on the Reputation contract (reproduce with `node script
 
 ---
 
+## Orange Belt (Level 3) — submission
+
+**Live demo:** https://alvinmunk.vercel.app
+
+A complete end-to-end Stellar dApp: five Soroban contracts that talk to each other, live event streaming into the UI, a CI/CD pipeline that runs contract + frontend tests on every push, a mobile-responsive frontend, and error/loading states throughout.
+
+### Screenshots
+
+| Mobile responsive | CI/CD pipeline running | Test output (3+ passing) |
+| :---: | :---: | :---: |
+| ![mobile responsive](./orange-mobile.png) | ![CI pipeline green](./orange-ci.png) | ![tests passing](./orange-tests.png) |
+
+### Deployment & interaction (verifiable on-chain)
+
+- **Contract addresses (testnet):** the five contracts in the [Yellow Belt table above](#deployed-contracts-stellar-testnet).
+- **Transaction hash:** `mint_vouch` call → [`aa69c8555db3027501f248a5d7a245bb3bf9b404a791e2b5053b31a2e6c2d178`](https://stellar.expert/explorer/testnet/tx/aa69c8555db3027501f248a5d7a245bb3bf9b404a791e2b5053b31a2e6c2d178)
+
+### Requirements → where they live
+
+| Requirement | Implementation |
+| --- | --- |
+| Advanced smart contract development | 5 contracts: two-track reputation (async vouch mint/claim, first-pair guard, `att_set` versioning), signature-verified quest registry, USDC rewards with treasury circuit breaker, reputation gate, handle registry |
+| **Inter-contract communication** | `gate.check`/`unlock` cross-reads `reputation.get_score`/`get_earned` (`gate/src/lib.rs:196`); `quest_registry.award_quest` cross-calls `reputation.award_xp` (`quest_registry/src/lib.rs:200`); `rewards` moves USDC via the SAC `token::Client` |
+| **Event streaming & real-time updates** | Every contract publishes events (`social`, `xp`, `tipped`, `reward`, `unlocked`, `streak`, …); the leaderboard + activity feed poll RPC `getEvents` every 5s (`lib/events.ts`, `app/leaderboard/page.tsx`) |
+| **CI/CD pipeline** | `.github/workflows/ci.yml` — contracts job (`cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`) + web job (`pnpm typecheck`, `pnpm lint`, `pnpm test`) on every push/PR |
+| Smart contract deployment workflow | `scripts/deploy-testnet.sh` (build → deploy → init → cross-wire all 5 contracts); `contracts/Makefile` |
+| Mobile responsive frontend | Tailwind responsive layout across all routes — see screenshot above |
+| Error handling & loading states | `utils.ts` `humanizeError` (insufficient / trustline / timeout / rejected), toast + pending/success/fail status on every contract call |
+| Writing tests for contracts and frontend | **134 tests green** — 57 contract (`cargo test`, incl. property/fuzz) + 59 web + 18 shared (`vitest`) |
+| Production-ready architecture | pnpm/turbo monorepo, frozen-lockfile installs, shared types package, no standing backend (RPC-direct) — see [Architecture](#architecture-and-the-no-standing-backend-decision) |
+
+### Reproduce the tests locally
+
+```bash
+cd contracts && cargo test      # 57 contract tests
+pnpm test                       # 59 web + 18 shared tests (vitest)
+```
+
+**Demo video (1–2 min):** _<add your link here>_
+
+---
+
 ## Architecture (and the "no standing backend" decision)
 
 ```
@@ -156,7 +198,7 @@ Copy the printed `NEXT_PUBLIC_*` ids into `apps/web/.env.local` (template: [`.en
 | Handle → address resolution | 🟡 vouch is address-based for now (Orange) |
 | Indexer | ⏸ deferred (RPC-direct for MVP) |
 
-Each TODO references the belt doc that owns it. Build order follows the belts/sprints: see [`docs/SPRINTS.md`](./docs/SPRINTS.md). **Sprints 0–2 done; Orange + Green code complete** — all 3 contracts deployed + cross-contract verified on-chain, claim-secret vouch loop, real serverless attester (GitHub PR / referral tx), anti-sybil (claim-secret + per-day cap + asymmetric + first-pair + ring-flag), USDC tip rail + faucet, on-chain rank→reward table with treasury circuit breaker (daily cap + frozen set + proof-of-funding toggle), weekly streak, leaderboard snapshot cache. **61 tests green** (31 contract incl. property/fuzz + 30 web/shared). Remaining for Orange/Green: public testers + 2-week live retention.
+Each TODO references the belt doc that owns it. Build order follows the belts/sprints: see [`docs/SPRINTS.md`](./docs/SPRINTS.md). **Sprints 0–2 done; Orange + Green code complete** — all 3 contracts deployed + cross-contract verified on-chain, claim-secret vouch loop, real serverless attester (GitHub PR / referral tx), anti-sybil (claim-secret + per-day cap + asymmetric + first-pair + ring-flag), USDC tip rail + faucet, on-chain rank→reward table with treasury circuit breaker (daily cap + frozen set + proof-of-funding toggle), weekly streak, leaderboard snapshot cache. **134 tests green** (57 contract incl. property/fuzz + 59 web + 18 shared). Remaining for Orange/Green: public testers + 2-week live retention.
 
 ---
 

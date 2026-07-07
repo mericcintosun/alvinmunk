@@ -31,12 +31,12 @@ pub enum Error {
 #[derive(Clone)]
 pub enum DataKey {
     Admin,
-    Reputation,             // Address of the Reputation contract
-    Attester(Address),      // legacy address allowlist flag (kept for back-compat)
+    Reputation,              // Address of the Reputation contract
+    Attester(Address),       // legacy address allowlist flag (kept for back-compat)
     AttesterKey(BytesN<32>), // ed25519 pubkey allowlist — the signature-verified attester
-    Quest(u32),             // QuestConfig
-    Claimed(u32, Address),  // replay guard: (quest_id, recipient) -> bool
-    Streak(Address),        // weekly retention streak per player
+    Quest(u32),              // QuestConfig
+    Claimed(u32, Address),   // replay guard: (quest_id, recipient) -> bool
+    Streak(Address),         // weekly retention streak per player
 }
 
 #[contracttype]

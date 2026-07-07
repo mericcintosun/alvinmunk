@@ -4,8 +4,8 @@
 //! on-chain attester auth) and the on-chain `recipient.require_auth()` ownership proof.
 extern crate std;
 use super::*;
-use ed25519_dalek::{Signer, SigningKey};
 use alvinmunk_reputation::{ReputationContract, ReputationContractClient};
+use ed25519_dalek::{Signer, SigningKey};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
     BytesN, Env,

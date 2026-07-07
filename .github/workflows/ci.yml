@@ -13,7 +13,9 @@ jobs:
         working-directory: contracts
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      # Pin the toolchain (matches contracts/rust-toolchain.toml) so `cargo fmt --check`
+      # is reproducible — a floating @stable drifts rustfmt and fails the format gate.
+      - uses: dtolnay/rust-toolchain@1.96.0
         with:
           targets: wasm32-unknown-unknown
           components: clippy, rustfmt
@@ -25,9 +27,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # No `version:` here — pnpm is pinned via package.json "packageManager" (pnpm@9.7.0).
+      # Specifying both makes pnpm/action-setup fail with ERR_PNPM_BAD_PM_VERSION.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -35,3 +37,4 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
+      - run: pnpm test

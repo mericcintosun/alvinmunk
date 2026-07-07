@@ -1,3 +1,5 @@
 [toolchain]
-channel = "stable"
+# Pinned (not "stable") so CI's rustfmt/clippy match local exactly — a floating channel
+# drifts formatting and fails `cargo fmt --check` in CI. Bump deliberately when upgrading.
+channel = "1.96.0"
 targets = ["wasm32-unknown-unknown"]
