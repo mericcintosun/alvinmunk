@@ -102,7 +102,7 @@ cd contracts && cargo test      # 57 contract tests
 pnpm test                       # 59 web + 18 shared tests (vitest)
 ```
 
-**Demo video (1–2 min):** _<add your link here>_
+**Demo video (1–2 min):** https://youtu.be/3FANRKLM6PI
 
 ---
 
