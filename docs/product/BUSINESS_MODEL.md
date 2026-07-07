@@ -1,6 +1,6 @@
 # Business Model
 
-_How Stellar Passport sustains itself without becoming a faucet for sybils. The economics
+_How alvinmunk sustains itself without becoming a faucet for sybils. The economics
 are the anti-sybil model (belts/08) read as a business: **every cashable dollar is backed
 by real external value.** Honest stage note: today = testnet, zero revenue; this is the
 path, not a claim._
@@ -26,13 +26,13 @@ Ordered by how soon they're realistic.
 
 1. **Sponsored quest / bounty pools (primary).** A community, brand, or protocol funds a
    pool to reward verified actions (referrals, merged PRs, event attendance, on-chain
-   tasks). Passport takes a **platform fee** (e.g. 5–10%) on funded pools. The sponsor gets
-   sybil-resistant distribution; Passport's payout is fully pre-funded → no faucet risk.
+   tasks). alvinmunk takes a **platform fee** (e.g. 5–10%) on funded pools. The sponsor gets
+   sybil-resistant distribution; alvinmunk's payout is fully pre-funded → no faucet risk.
    *This is the wedge revenue: cohort leaders/sponsors already want exactly this.*
 2. **Tipping rail fee.** USDC tips wallet→wallet (already built) can carry a thin fee or a
    "boost" upsell. Small per-unit, but it's real value movement and it's on by design.
 3. **Anchor off-ramp partnership (Black-belt).** When earned USDC is cashed out via a
-   Stellar **SEP-24 anchor**, Passport can earn a referral/rev-share, and the anchor gains a
+   Stellar **SEP-24 anchor**, alvinmunk can earn a referral/rev-share, and the anchor gains a
    consumer funnel that already holds USDC. Anchors also *harden* the economy (anchor
    deposits are the cheapest real proof-of-funding signal).
 4. **Reputation-as-a-primitive (later / Master).** The `att_set` attestation + `get_score`/

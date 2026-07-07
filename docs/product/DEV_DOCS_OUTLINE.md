@@ -11,7 +11,7 @@ under 60 seconds, then learns to build on the attestation primitive. Tool: **Fum
 ```
 /docs
   Get Started
-    - What is Stellar Passport       # 3 sentences + the constellation idea
+    - What is alvinmunk       # 3 sentences + the constellation idea
     - Read a score in 60 seconds     # copy-paste quickstart (the "wow")
     - Networks & contract IDs        # testnet now, mainnet later
   The Reputation Primitive
@@ -36,7 +36,7 @@ under 60 seconds, then learns to build on the attestation primitive. Tool: **Fum
 
 ## 2. The quickstart (the wow — fits one screen)
 
-> **Stellar Passport turns trust into a number other apps can read. Here's how to read it.**
+> **alvinmunk turns trust into a number other apps can read. Here's how to read it.**
 
 ```ts
 import { Contract, TransactionBuilder, Address, scValToNative, rpc, Networks } from "@stellar/stellar-sdk";
@@ -72,6 +72,6 @@ developer trusts docs that admit limits.
 
 ## 5. Where it sits in the product
 
-The for-devs surface is **part of the product, not a phase-gate** — it's how Passport
+The for-devs surface is **part of the product, not a phase-gate** — it's how alvinmunk
 becomes "reputation other apps can read" (the Master/SCF and partner story). It also doubles
 as credibility for the consumer side ("this is real, on-chain, and open").

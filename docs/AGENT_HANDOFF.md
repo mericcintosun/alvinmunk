@@ -1,9 +1,9 @@
-# Agent Handoff — alvinmunk / Stellar Passport
+# Agent Handoff — alvinmunk / alvinmunk
 
 _For the next AI agent session. Read this first, then `belts/00-strategy.md` and `belts/08-anti-sybil.md`._
 
 ## 1. What this project is
-**alvinmunk** (repo/package name) ships **Stellar Passport** (product name): a social, non-betting
+**alvinmunk** (repo/package name) ships **alvinmunk** (product name): a social, non-betting
 *proof-of-people* reputation game on Stellar/Soroban, built for the Rise In "Stellar Journey to
 Mastery" belt program ($20k, White→Master, Builder Track). You earn reputation through mutual/social
 actions (vouch, verified quests, tips); reputation is spendable. Core viral loop = an async

@@ -62,7 +62,7 @@ shared URL — minimal chrome, maximum funnel.
 
 ## 3. Navbar & Footer (exact contents)
 
-**Navbar — marketing (desktop):** left logo (crest + "Passport") · center `How it works`
+**Navbar — marketing (desktop):** left logo (crest + "alvinmunk") · center `How it works`
 · `Leaderboard` · `Docs` · right `Open app →` (primary). **Mobile:** logo + hamburger;
 sheet menu with the same links + full-width `Open app` pinned bottom.
 

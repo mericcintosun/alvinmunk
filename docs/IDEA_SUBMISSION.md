@@ -1,19 +1,19 @@
-# Idea Submission — Stellar Passport
+# Idea Submission — alvinmunk
 
-_For the Rise In Builder-Track Idea Submission stage (after Orange). The official prompt favors ideas that **resonate with Stellar Anchors** — this document states Passport's concept and its concrete anchor angle._
+_For the Rise In Builder-Track Idea Submission stage (after Orange). The official prompt favors ideas that **resonate with Stellar Anchors** — this document states alvinmunk's concept and its concrete anchor angle._
 
 ## One-liner
-**Stellar Passport — collect people, not points.** A social, non-betting *proof-of-people* reputation game: you earn portable on-chain reputation through mutual/social actions (vouch, verified quests, tips), and reputation is spendable.
+**alvinmunk — collect people, not points.** A social, non-betting *proof-of-people* reputation game: you earn portable on-chain reputation through mutual/social actions (vouch, verified quests, tips), and reputation is spendable.
 
 ## The gap it fills
-Web3 "reputation/quest" products are one-time-mint graveyards (Galxe/Layer3): no repeat loop, no human warmth, trivially sybil-farmed. Stellar's community unit is the **individual** (ambassador/builder/creator), whose contribution is locked in web2 silos (non-portable, non-verifiable). Passport makes reputation **on-chain, human-referencing, and spendable** — and is engineered against sybil from day one (two-track Social/Earned, claim-secret vouches, first-pair-only, per-day cap, asymmetric rewards, proof-of-funding payout).
+Web3 "reputation/quest" products are one-time-mint graveyards (Galxe/Layer3): no repeat loop, no human warmth, trivially sybil-farmed. Stellar's community unit is the **individual** (ambassador/builder/creator), whose contribution is locked in web2 silos (non-portable, non-verifiable). alvinmunk makes reputation **on-chain, human-referencing, and spendable** — and is engineered against sybil from day one (two-track Social/Earned, claim-secret vouches, first-pair-only, per-day cap, asymmetric rewards, proof-of-funding payout).
 
 ## 🪝 Anchor angle (why this resonates with Stellar Anchors)
-Passport touches anchors on **two** concrete surfaces — not as decoration:
+alvinmunk touches anchors on **two** concrete surfaces — not as decoration:
 
 1. **Reward off-ramp via SEP-24 anchors.** Earned rewards and USDC tips are spendable; a user can **cash out to local fiat through a Stellar anchor** (SEP-24 interactive deposit/withdraw). This turns "reputation you earned" into "money in your local currency", which is exactly the anchor value proposition — and gives anchors a fresh, consumer-side funnel of users who arrive already holding USDC.
 
-2. **Anchors as the anti-sybil proof-of-funding signal.** Our payout gate (belts/08-anti-sybil) requires a wallet to have **received external value once** before it can cash out — the cheapest real uniqueness signal that isn't heavy KYC. An **anchor deposit** (the user on-ramped real money via a regulated anchor) is the ideal proof-of-funding source. So anchors don't just receive Passport's users; they **harden** Passport's economy.
+2. **Anchors as the anti-sybil proof-of-funding signal.** Our payout gate (belts/08-anti-sybil) requires a wallet to have **received external value once** before it can cash out — the cheapest real uniqueness signal that isn't heavy KYC. An **anchor deposit** (the user on-ramped real money via a regulated anchor) is the ideal proof-of-funding source. So anchors don't just receive alvinmunk's users; they **harden** alvinmunk's economy.
 
 3. **(Future) Reputation as an anchor onboarding signal.** Portable on-chain reputation (the `att_set` attestation primitive we already emit) can feed an anchor's SEP-12 KYC tiering as a *signal* (not a replacement) — a returning, well-vouched user is lower-friction to onboard.
 

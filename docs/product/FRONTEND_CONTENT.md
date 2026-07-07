@@ -123,7 +123,7 @@ caps and a daily circuit breaker bound every payout."*
 | Already claimed | **This star is already lit.** |
 | Rate-limited | **Easy — give it a minute.** |
 | Frozen account | **This wallet is flagged for review.** |
-| Dev intro | **Stellar Passport turns trust into a number other apps can read.** |
+| Dev intro | **alvinmunk turns trust into a number other apps can read.** |
 | Footer manifesto | **Reputation should name humans, not hoard points. Lit on Stellar.** |
 
 **Voice checks (every string):** plain? honest? active? hype-free? same voice for users

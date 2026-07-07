@@ -1,6 +1,6 @@
 # Passkey Integration — Handoff for the Next Agent
 
-_Stellar Passport (alvinmunk monorepo). Status as of this session. Read this fully before touching the passkey code._
+_alvinmunk (alvinmunk monorepo). Status as of this session. Read this fully before touching the passkey code._
 
 ---
 
@@ -52,7 +52,7 @@ the user explicitly asked for it.
 ```ts
 const account = new PasskeyKit({ rpcUrl, networkPassphrase, walletWasmHash });
 // first run (FaceID enroll + build deploy tx):
-const { keyId, keyIdBase64, contractId, signedTx } = await account.createWallet('Stellar Passport', user);
+const { keyId, keyIdBase64, contractId, signedTx } = await account.createWallet('alvinmunk', user);
 // returning user:
 await account.connectWallet({ keyId, getContractId });   // getContractId: (keyId)=>Promise<string|undefined>
 // sign a contract call's auth entries with the passkey:

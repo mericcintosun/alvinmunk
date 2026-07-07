@@ -1,4 +1,4 @@
-# 🧭 Stellar Passport — Strategy & Decisions (source of truth)
+# 🧭 alvinmunk — Strategy & Decisions (source of truth)
 
 This document holds the cross-cutting decisions that tie together all the belt files (01–07). In case of conflict, **this document prevails.**
 
@@ -8,12 +8,12 @@ This document holds the cross-cutting decisions that tie together all the belt f
 
 - **$20,000 prize pool = Builder Track / Belt Progression** (White→Master). **NO category restriction** — "build & ship real apps".
 - The priority categories (Payments, Stablecoins, RWA, Cross-border, Wallet infra, Financial tooling, AI+Blockchain, Anchor) belong **only to the separate Startup Track** and its separate money (InstaAward $15k / SCF $150k).
-- **Passport = a pure Builder-Track/$20k consumer play.** It does not fall into any priority category, and **it does not need to.**
-- ✅ **CONFIRMED (official FAQ):** The same person **cannot enter TWO tracks / two projects in the same month** — one month, one track, one project. So "Passport=Builder + a separate SCF project in parallel" is **INVALID.**
-- ✅ **The path to SCF = Master Belt (L7).** Official table: *"Master Belt = Startup track with SCF grants and InstaAward."* So it is not a separate project; **taking Passport to Master** is the SCF gateway. Focus on the single project; a separate SCF idea would at most become a **mentor-approved pivot** next month.
+- **alvinmunk = a pure Builder-Track/$20k consumer play.** It does not fall into any priority category, and **it does not need to.**
+- ✅ **CONFIRMED (official FAQ):** The same person **cannot enter TWO tracks / two projects in the same month** — one month, one track, one project. So "alvinmunk=Builder + a separate SCF project in parallel" is **INVALID.**
+- ✅ **The path to SCF = Master Belt (L7).** Official table: *"Master Belt = Startup track with SCF grants and InstaAward."* So it is not a separate project; **taking alvinmunk to Master** is the SCF gateway. Focus on the single project; a separate SCF idea would at most become a **mentor-approved pivot** next month.
 - Do **not build** an "infra/SDK/partner-portal" product surface — the belt jury doesn't care about composable primitives; that tug-of-war brings "death by two audiences". (But keep emitting the `att_set` event from day 1 — it's free for Master/SCF.)
 - ⚠️ **Mentor & Market-Fit checkpoint MANDATORY:** at L5 (Blue) and L6 (Black), get technical + market-fit approval from a mentor BEFORE onboarding users. Users onboarded without approval **DO NOT COUNT** toward the belt.
-- ⚠️ **Idea Submission (after Orange):** the official text says *"ideas that resonate with Stellar Anchors"*. Passport doesn't touch an anchor → add an **anchor angle** at Orange (reward cash-out via an anchor, or reputation as an anchor onboarding signal).
+- ⚠️ **Idea Submission (after Orange):** the official text says *"ideas that resonate with Stellar Anchors"*. alvinmunk doesn't touch an anchor → add an **anchor angle** at Orange (reward cash-out via an anchor, or reputation as an anchor onboarding signal).
 
 ---
 
@@ -59,8 +59,8 @@ Put a **real iPhone** in the jury's hands → passkey **FaceID** → first on-ch
 
 ## 7. Single-project rule (UPDATED — official FAQ)
 
-- ❌ The old "two-project (Passport + a separate SCF)" plan is **cancelled** — two tracks/projects in the same month are forbidden.
-- ✅ **ONE project: Passport. ONE track: Builder.** All focus on Passport. SCF opens up once you reach Master Belt (L7 = Startup track + SCF/InstaAward).
+- ❌ The old "two-project (alvinmunk + a separate SCF)" plan is **cancelled** — two tracks/projects in the same month are forbidden.
+- ✅ **ONE project: alvinmunk. ONE track: Builder.** All focus on alvinmunk. SCF opens up once you reach Master Belt (L7 = Startup track + SCF/InstaAward).
 - "The belt chain must not break": each month the highest **valid** belt is rewarded; if you skip an intermediate belt, you get rewarded from where the chain broke. So each belt must genuinely be met.
 - "You can't resubmit the same version" → each belt requires **meaningful new commits/progress** (git history matters).
 
@@ -69,6 +69,6 @@ Put a **real iPhone** in the jury's hands → passkey **FaceID** → first on-ch
 ## 8. Belt-winning priority (Justin's ranking)
 
 1. **Demo polish / live working proof** (highest weight).
-2. **Traction signal** (20 real users > a polished mock). Passport's *weak* spot — invest here.
+2. **Traction signal** (20 real users > a polished mock). alvinmunk's *weak* spot — invest here.
 3. **Narrative coherence** (one sentence; strong if it stays consumer-pure).
 4. **Novelty** (least decisive; "tap/vouch social reputation" is fresh enough, don't over-invest).

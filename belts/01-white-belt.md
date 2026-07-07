@@ -34,7 +34,7 @@
 ## 🎨 UX / Frontend (Kaan)
 - **Screens:** passkey onboarding (FaceID, zero seed-phrase), wallet home with a single live balance, "send your first tx" flow, post-tx receipt.
 - **Delight mechanic:** The first transaction mints a **"Genesis Stamp"** — deterministic generative art derived from the wallet address (color/shape DNA), so every passport is unique from the second second onward.
-- **Share surface:** a "Passport Cover" card (generative crest + handle + join date) + one-tap "Save image" — the first screenshottable artifact.
+- **Share surface:** a "alvinmunk Cover" card (generative crest + handle + join date) + one-tap "Save image" — the first screenshottable artifact.
 - **Onboarding:** max 3 taps — FaceID → pick handle → land on a funded testnet wallet; skeleton shimmer, never an empty balance.
 - **Empty state:** before the first tx, a dashed "ghost stamp" placeholder on home: "Your first stamp will land here".
 - **Accessibility:** thumb-zone CTA, 44px+ targets, biometric → PIN fallback; color-DNA must also encode **shape** (color-only fails for color-blind users).

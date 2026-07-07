@@ -1,4 +1,4 @@
-# Brand & Design — Stellar Passport
+# Brand & Design — alvinmunk
 
 _The identity. Everything visual and verbal flows from here. Tokens that implement this
 live in [DESIGN_SYSTEM_TOKENS.md](./DESIGN_SYSTEM_TOKENS.md)._
@@ -9,7 +9,7 @@ live in [DESIGN_SYSTEM_TOKENS.md](./DESIGN_SYSTEM_TOKENS.md)._
 
 **Collect people, not points.**
 
-Stellar Passport is where a community recognizes its own. Someone you trust *vouches*
+alvinmunk is where a community recognizes its own. Someone you trust *vouches*
 for you — they put their reputation behind yours — and that moment becomes a small piece
 of on-chain art. The more people vouch for you, the brighter your **constellation**.
 
@@ -48,7 +48,7 @@ on-chain* (a claim confirms, an attestation lands). Don't let violet compete wit
 
 ## 4. Logo & marks
 
-- **Wordmark:** "Passport" in the display face; the dot/▲ of the mark is a small star.
+- **Wordmark:** "alvinmunk" in the display face; the dot/▲ of the mark is a small star.
 - **Crest mark:** a 5–7 point constellation derived from the wallet seed (we already
   generate this in `GenesisStamp`). It doubles as favicon, avatar, and OG anchor.
 - **Never** a generic blockchain cube/hexagon. The mark is always a constellation.
@@ -86,7 +86,7 @@ Signature lines:
 - Tagline: **"Collect people, not points."**
 - Hero: **"Someone vouched for you. Claim your half of the sky."**
 - Manifesto (footer): **"Reputation should name humans, not hoard points. Lit on Stellar."**
-- Dev intro: **"Stellar Passport turns trust into a number other apps can read."**
+- Dev intro: **"alvinmunk turns trust into a number other apps can read."**
 
 ## 8. Feelings & anti-patterns
 

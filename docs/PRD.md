@@ -1,4 +1,4 @@
-# Stellar Passport — Product Requirements Document (PRD)
+# alvinmunk — Product Requirements Document (PRD)
 
 _Owner: Nicole (PM). Source-of-truth decisions live in [`belts/00-strategy.md`](../belts/00-strategy.md) and [`belts/08-anti-sybil.md`](../belts/08-anti-sybil.md); this PRD operationalizes them._
 
@@ -7,7 +7,7 @@ Status: **v1 (MVP through White→Green belts)** · Last updated: 2026-06-22 —
 ---
 
 ## 1. Vision & one-liner
-**Collect people, not points.** Stellar Passport is a social, gamified, non-betting *proof-of-people* reputation game. You earn reputation through mutual/social actions — not solo grinding — and reputation is **spendable**. Badges name *other humans* and auto-generate a shareable card, so the product grows by people pulling in the people they name.
+**Collect people, not points.** alvinmunk is a social, gamified, non-betting *proof-of-people* reputation game. You earn reputation through mutual/social actions — not solo grinding — and reputation is **spendable**. Badges name *other humans* and auto-generate a shareable card, so the product grows by people pulling in the people they name.
 
 ## 2. Problem
 - Web3 "reputation/quest" products are a graveyard of one-time mints (Galxe/Layer3): no repeat-use loop, no human warmth, easily sybil-farmed.
@@ -91,4 +91,4 @@ mint_vouch (async half-card)  →  share link = install funnel  →  claim_vouch
 - **Sybil farming** → two-track + caps + ring detection + proof-of-funding (belts/08).
 - **Retention** (mint-and-forget) → tip-rail-first D7 gate at Green; rank must *buy* something.
 - **Two-audience dilution** (consumer vs infra) → stay consumer-pure; attester read-view is gravy, not a product surface.
-- **Resource split** (separate SCF project) → Passport is primary; weekly increment rule (belts/00-strategy §7).
+- **Resource split** (separate SCF project) → alvinmunk is primary; weekly increment rule (belts/00-strategy §7).

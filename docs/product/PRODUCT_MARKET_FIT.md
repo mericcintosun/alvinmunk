@@ -11,7 +11,7 @@ a credible wedge and a testable riskiest assumption.**_
 **Do NOT** sell "on-chain reputation for everyone." That generic framing is the
 Galxe/Lens graveyard — nobody wakes up wanting "general reputation."
 
-**Position:** *Stellar Passport is the game where a community gets to know its own —
+**Position:** *alvinmunk is the game where a community gets to know its own —
 members vouch for each other, and recognition becomes a shared, on-chain constellation.*
 
 One-sentence pitch: **"A cohort's proof-of-people: vouch for the humans you trust, earn a

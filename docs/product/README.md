@@ -1,11 +1,11 @@
-# Stellar Passport — Product & Design Package
+# alvinmunk — Product & Design Package
 
 This folder turns the belt-driven build into a **product**. It's the single source of
 truth for brand, frontend, content, design tokens, go-to-market, and business model —
 synthesized from a 6-persona working session (Justin, Nicole, Kaan, Tyler, Elliot, Bri)
 plus 2026 frontend research.
 
-> **One line:** *Collect people, not points.* Stellar Passport is a social
+> **One line:** *Collect people, not points.* alvinmunk is a social
 > "proof-of-people" reputation game where a community vouches for each other. Your
 > passport is a **constellation** — every person who vouches for you is a star.
 
