@@ -35,6 +35,7 @@ import {
   validateEvidence,
   type AttestEvidence,
 } from '../../../lib/attest';
+import { getPostHogClient } from '../../../lib/posthog-server';
 
 export const runtime = 'nodejs';
 
@@ -118,6 +119,13 @@ export async function POST(req: Request): Promise<Response> {
   try {
     const signed = await signQuestPayload(secret, body.questId, body.recipient);
     logEvent({ route: 'attest', outcome: 'ok', questId: body.questId, ms: Date.now() - now });
+    const posthog = getPostHogClient();
+    posthog.capture({
+      distinctId: body.recipient,
+      event: 'quest_attested',
+      properties: { questId: body.questId, evidenceType: body.evidence?.type },
+    });
+    await posthog.shutdown();
     return json({ ok: true, ...signed, recipient: body.recipient, questId: body.questId });
   } catch (e) {
     logEvent({ route: 'attest', outcome: 'error', questId: body.questId, ms: Date.now() - now });

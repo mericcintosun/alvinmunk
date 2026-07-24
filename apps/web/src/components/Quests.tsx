@@ -14,6 +14,7 @@ import { StateArt } from '@/components/ui/state-art';
 import { Sticker } from '@/components/ui/sticker';
 import { cn, humanizeError } from '@/lib/utils';
 import { toast } from '@/components/ui/toaster';
+import { track, trackError } from '@/lib/track';
 
 // Quest ids are admin-created on the QuestRegistry; env-configurable so they can change per
 // deployment without a code edit. Defaults: 2 = refer, 3 = invite-converts, 4 = vouch-back.
@@ -65,6 +66,7 @@ export function Quests({ address }: { address: string }) {
       const r = await completeQuest(wallet, questId, evidence);
       if (!r.ok) throw new Error(r.error);
       setDone(true);
+      track('quest_completed', { questKind: kind, questId, walletKind: wallet.kind });
       toast.success('Quest verified — Earned XP added 🎉');
       setEarned(await getEarnedScore(address, address));
       const s = await getStreak(address, address);
@@ -72,6 +74,7 @@ export function Quests({ address }: { address: string }) {
     } catch (e) {
       const msg = humanizeError(e);
       setError(msg);
+      trackError(e, { flow: 'complete_quest', questKind: kind, questId });
       toast.error(msg);
     } finally {
       setBusy(null);

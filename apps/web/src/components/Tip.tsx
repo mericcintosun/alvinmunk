@@ -20,6 +20,7 @@ import { Badge } from '@/components/ui/badge';
 import { StateArt } from '@/components/ui/state-art';
 import { withTimeout, humanizeError } from '@/lib/utils';
 import { toast } from '@/components/ui/toaster';
+import { track, trackError } from '@/lib/track';
 
 // Rewards contract error codes that can surface on tip (mirrors contracts/rewards Error enum).
 // An insufficient-USDC failure (the SAC's own error) is caught by humanizeError directly.
@@ -70,10 +71,13 @@ export function Tip({ address }: { address: string }) {
             ? '5 test USDC added to your wallet'
             : 'USDC enabled — you can receive tips now',
       );
+      if (kind === 'tip') track('tip_sent', { amountUsdc: amount });
+      else if (kind === 'enable') track('usdc_enabled');
       refresh();
     } catch (e) {
       const msg = humanizeError(e, TIP_ERRORS);
       setError(msg);
+      trackError(e, { flow: kind === 'tip' ? 'send_tip' : kind === 'enable' ? 'enable_usdc' : 'request_faucet' });
       toast.error(msg);
     } finally {
       setBusy(null);

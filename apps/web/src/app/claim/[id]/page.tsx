@@ -15,6 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { StateArt } from '@/components/ui/state-art';
 import { Sticker } from '@/components/ui/sticker';
 import { cn, humanizeError, withTimeout } from '@/lib/utils';
+import { track, trackError } from '@/lib/track';
 
 /** Read the claim-secret from the URL fragment (#s=…), falling back to the legacy ?s=
  *  query for links shared before the switch. The fragment never reaches the server. */
@@ -97,9 +98,11 @@ function ClaimInner({ params }: { params: { id: string } }) {
       const wallet = await connect();
       await claimVouch(wallet, vid, secret);
       setState('done');
+      track('vouch_claimed', { vouchId: vid, walletKind: wallet.kind, hasNote: Boolean(vouch?.note) });
     } catch (e) {
       setError(humanizeError(e, CLAIM_ERRORS));
       setState('error');
+      trackError(e, { flow: 'claim_vouch', vouchId: vid });
     }
   }
 

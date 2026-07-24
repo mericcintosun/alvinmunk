@@ -19,6 +19,7 @@ import {
   nativeToScVal,
   rpc,
 } from '@stellar/stellar-sdk';
+import { getPostHogClient } from '../../../lib/posthog-server';
 
 export const runtime = 'nodejs';
 
@@ -100,6 +101,9 @@ export async function POST(req: Request): Promise<Response> {
       }
       funded.add(recipient);
       logEvent({ route: 'faucet', outcome: 'ok', amount: DRIP, kind: 'sac-mint', ms: Date.now() - now });
+      const phSac = getPostHogClient();
+      phSac.capture({ distinctId: recipient, event: 'faucet_dispensed', properties: { amountUsdc: DRIP, kind: 'sac-mint' } });
+      await phSac.shutdown();
       return json({ ok: true, hash: sent.hash, amount: DRIP });
     } catch (e) {
       logEvent({ route: 'faucet', outcome: 'error', kind: 'sac-mint', ms: Date.now() - now });
@@ -132,6 +136,9 @@ export async function POST(req: Request): Promise<Response> {
     const res = await server.submitTransaction(tx);
     funded.add(recipient);
     logEvent({ route: 'faucet', outcome: 'ok', amount: DRIP, ms: Date.now() - now });
+    const phClassic = getPostHogClient();
+    phClassic.capture({ distinctId: recipient, event: 'faucet_dispensed', properties: { amountUsdc: DRIP, kind: 'classic-payment' } });
+    await phClassic.shutdown();
     return json({ ok: true, hash: res.hash, amount: DRIP });
   } catch (e) {
     logEvent({ route: 'faucet', outcome: 'error', ms: Date.now() - now });

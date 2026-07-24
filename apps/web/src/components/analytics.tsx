@@ -14,7 +14,7 @@ import posthog from 'posthog-js';
  *    and forks stay clean and the build never depends on a key.
  */
 const PH_KEY = process.env.NEXT_PUBLIC_POSTHOG_KEY;
-const PH_HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com';
+const PH_HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST || 'https://eu.posthog.com';
 
 let inited = false;
 
@@ -23,11 +23,22 @@ export function AnalyticsProvider() {
 
   // Init once, on the client, only when a key is configured.
   useEffect(() => {
-    if (!PH_KEY || inited || typeof window === 'undefined') return;
+    if (inited || typeof window === 'undefined') return;
+    if (!PH_KEY) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error(
+          'NEXT_PUBLIC_POSTHOG_KEY variable required by PostHog is missing or un-configured, this causes events to be silently missed. This error stops appearing once NEXT_PUBLIC_POSTHOG_KEY is configured',
+        );
+      }
+      return;
+    }
     posthog.init(PH_KEY, {
-      api_host: PH_HOST,
+      api_host: '/ingest',
+      ui_host: PH_HOST,
+      defaults: '2026-01-30',
       capture_pageview: false, // we send pageviews on route change below
       capture_pageleave: true,
+      capture_exceptions: true,
       autocapture: true,
       person_profiles: 'identified_only',
     });

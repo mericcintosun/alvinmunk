@@ -8,6 +8,7 @@ import { useWallet } from './wallet-provider';
 import { Crest } from '@/components/brand/crest';
 import { buttonVariants } from '@/components/ui/button';
 import { cn, shortAddress } from '@/lib/utils';
+import { track } from '@/lib/track';
 
 /**
  * Navbar identity. No profile → a primary "Open app" CTA (onboarding lives in /app).
@@ -85,6 +86,7 @@ export function ConnectButton() {
           <button
             role="menuitem"
             onClick={() => {
+              track('wallet_disconnected');
               disconnect();
               setOpen(false);
               toast('Disconnected — your profile stays on-chain.');
