@@ -13,16 +13,9 @@
  * never touches feature code.
  */
 import { Keypair, TransactionBuilder, scValToNative } from '@stellar/stellar-sdk';
-import {
-  isConnected as freighterIsConnected,
-  requestAccess as freighterRequestAccess,
-  signTransaction as freighterSign,
-  signMessage as freighterSignMessage,
-
-} from '@stellar/freighter-api';
 import { config, networkPassphrase, waitForAccountReady, server } from './stellar';
 
-export type WalletKind = 'passkey' | 'dev' | 'freighter' | 'albedo' | 'kit';
+export type WalletKind = 'passkey' | 'dev' | 'kit';
 
 export interface Wallet {
   kind: WalletKind;
@@ -135,80 +128,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-// ── Freighter provider (browser extension) ──
-// Satisfies the White-belt Level-1 rubric: Freighter connect/disconnect + signing.
 
-export async function connectFreighter(): Promise<Wallet> {
-  const conn = await freighterIsConnected();
-  if (!conn.isConnected) {
-    throw new Error('Freighter not detected. Install it from freighter.app, then retry.');
-  }
-  const access = await freighterRequestAccess();
-  if ('error' in access && access.error) {
-    throw new Error(String(access.error));
-  }
-  const address = access.address;
-  return {
-    kind: 'freighter',
-    address,
-    sign: async (xdr: string) => {
-      const res = await freighterSign(xdr, {
-        address,
-        networkPassphrase,
-      });
-      if ('error' in res && res.error) {
-        const e = res.error as string | { message?: string };
-        throw new Error(typeof e === 'string' ? e : (e?.message ?? JSON.stringify(e)));
-      }
-      return res.signedTxXdr;
-    },
-    signMessage: async (message: string) => {
-      const res = await freighterSignMessage(message, { address, networkPassphrase });
-      if ('error' in res && res.error) {
-        const e = res.error as string | { message?: string };
-        throw new Error(typeof e === 'string' ? e : (e?.message ?? JSON.stringify(e)));
-      }
-      const { signedMessage } = res;
-      // Freighter returns a base64 string in current versions; normalize defensively in
-      // case a wallet build returns raw bytes instead (same pattern as wallet-kit.ts's
-      // SWK normalization), so callers can always treat Wallet.signMessage as string-in/out.
-      return typeof signedMessage === 'string'
-        ? signedMessage
-        : u8ToB64(new Uint8Array(signedMessage as unknown as ArrayBufferLike));
-    },
-  };
-}
-
-/** Freighter has no programmatic disconnect; apps clear their own connection state. */
-export function disconnectFreighter(): void {
-  /* state is held in React; the caller clears it. Kept for API symmetry. */
-}
-
-// ── Albedo provider (web wallet, no extension) ──
-// Albedo is a hosted web wallet (popup to albedo.link) — works without any extension,
-// so it's a light, build-safe second option for the multi-wallet connect modal. Tiny,
-// zero-dependency SDK; dynamic-imported so it stays out of the marketing bundle.
-
-export async function connectAlbedo(): Promise<Wallet> {
-  const albedo = (await import('@albedo-link/intent')).default;
-  const net = config.network === 'mainnet' ? 'public' : 'testnet';
-  const { pubkey } = await albedo.publicKey({});
-  return {
-    kind: 'albedo',
-    address: pubkey,
-    sign: async (xdr: string) => {
-      const res = await albedo.tx({ xdr, network: net, pubkey });
-      return res.signed_envelope_xdr;
-    },
-    signMessage: async (message: string) => {
-      // Albedo's sign_message intent signs under Albedo's own message envelope (not the
-      // same raw bytes the dev wallet signs directly) — see note in wallet.ts header re:
-      // signing schemes if this is ever consumed by an off-chain verifier.
-      const res = await albedo.signMessage({ message, pubkey });
-      return res.signed_message;
-    },
-  };
-}
 
 // ── Passkey provider (production) ──
 //
