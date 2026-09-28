@@ -262,3 +262,61 @@ fn resolve_does_not_extend_the_handle() {
         BUMP_EXTEND - DAY_LEDGERS * 3
     );
 }
+
+// ── reverse_many tests ────────────────────────────────────────────────────────
+
+#[test]
+fn reverse_many_returns_handles_in_input_order() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let carol = Address::generate(&env);
+    client.claim(&alice, &symbol_short!("alice"));
+    client.claim(&bob, &symbol_short!("bob"));
+    // carol has no handle
+    let result = client.reverse_many(&vec![&env, alice.clone(), carol.clone(), bob.clone()]);
+    assert_eq!(result.len(), 3);
+    assert_eq!(result.get(0).unwrap(), Some(symbol_short!("alice")));
+    assert_eq!(result.get(1).unwrap(), None);
+    assert_eq!(result.get(2).unwrap(), Some(symbol_short!("bob")));
+}
+
+#[test]
+fn reverse_many_returns_none_for_unclaimed_addresses() {
+    let (env, client, _admin) = setup();
+    let ghost = Address::generate(&env);
+    let result = client.reverse_many(&vec![&env, ghost]);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result.get(0).unwrap(), None);
+}
+
+#[test]
+fn reverse_many_empty_input_returns_empty_vec() {
+    let (env, client, _admin) = setup();
+    let result = client.reverse_many(&vec![&env]);
+    assert_eq!(result.len(), 0);
+}
+
+#[test]
+#[should_panic]
+fn reverse_many_over_cap_reverts() {
+    let (env, client, _admin) = setup();
+    // Build a vec of REVERSE_MANY_CAP + 1 addresses to trigger TooMany
+    let mut addrs = vec![&env];
+    for _ in 0..=REVERSE_MANY_CAP {
+        addrs.push_back(Address::generate(&env));
+    }
+    client.reverse_many(&addrs); // panics: TooMany
+}
+
+#[test]
+fn reverse_many_at_cap_does_not_revert() {
+    let (env, client, _admin) = setup();
+    let mut addrs = vec![&env];
+    for _ in 0..REVERSE_MANY_CAP {
+        addrs.push_back(Address::generate(&env));
+    }
+    // Exactly at cap — must not panic
+    let result = client.reverse_many(&addrs);
+    assert_eq!(result.len(), REVERSE_MANY_CAP);
+}

@@ -12,7 +12,7 @@
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short, Address,
-    BytesN, Env, Symbol,
+    BytesN, Env, Symbol, Vec,
 };
 
 // TTLs in ledgers (5s). `extend_ttl(key, threshold, extend_to)` does nothing unless the
@@ -33,7 +33,12 @@ pub enum Error {
     AlreadyInitialized = 2,
     HandleTaken = 3,
     NoHandle = 4,
+    TooMany = 5,
 }
+
+/// Maximum number of addresses accepted by `reverse_many` in a single call.
+/// Keeps the per-transaction ledger-entry footprint well inside protocol limits.
+pub const REVERSE_MANY_CAP: u32 = 50;
 
 #[contracttype]
 #[derive(Clone)]
@@ -114,6 +119,22 @@ impl RegistryContract {
     /// address -> handle (label addresses in the feed / leaderboard / profile).
     pub fn reverse(env: Env, addr: Address) -> Option<Symbol> {
         env.storage().persistent().get(&DataKey::Rev(addr))
+    }
+
+    /// Batch address -> handle lookup. Returns results in the same order as `addrs`;
+    /// `None` for every address that has not claimed a handle. Pure read — no TTL
+    /// bumps, no auth. Reverts with `Error::TooMany` when `addrs.len() > REVERSE_MANY_CAP`
+    /// to keep the per-transaction entry footprint within protocol limits.
+    pub fn reverse_many(env: Env, addrs: Vec<Address>) -> Vec<Option<Symbol>> {
+        if addrs.len() > REVERSE_MANY_CAP {
+            panic_with_error!(&env, Error::TooMany);
+        }
+        let mut out: Vec<Option<Symbol>> = Vec::new(&env);
+        for addr in addrs.iter() {
+            let handle: Option<Symbol> = env.storage().persistent().get(&DataKey::Rev(addr));
+            out.push_back(handle);
+        }
+        out
     }
 
     /// Release the caller's own handle (frees it for re-claim).
