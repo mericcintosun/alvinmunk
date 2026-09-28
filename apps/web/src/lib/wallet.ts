@@ -358,7 +358,7 @@ export async function connectPasskey(): Promise<Wallet> {
         func: op.func.toXDR('base64'),
         auth: (op.auth ?? []).map((e) => e.toXDR('base64')),
       });
-      return waitForPasskeyTx(hash);
+      return { hash, value: await waitForPasskeyTx(hash) };
     },
     sign: async () => {
       // Passkey wallets author actions via `invoke` (Soroban auth), never raw classic XDR.

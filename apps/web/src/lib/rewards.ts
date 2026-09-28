@@ -11,7 +11,7 @@
  * social/vouch XP is never cashable.
  */
 import { Asset, Operation, TransactionBuilder } from '@stellar/stellar-sdk';
-import { invokeAndWait, readContract, args, rewardsId } from './contracts';
+import { invokeAndWait, invokeAndWaitHash, readContract, args, rewardsId } from './contracts';
 import { server, horizon, networkPassphrase, config } from './stellar';
 import type { Wallet } from './wallet';
 
@@ -130,6 +130,39 @@ export async function getRewards(source: string): Promise<RewardEntry[]> {
   return (v ?? []).filter((r) => r.active);
 }
 
+/** Full admin table, including inactive entries. Public reward views should use getRewards. */
+export async function getAllRewards(source: string): Promise<RewardEntry[]> {
+  const v = await readContract<RewardEntry[]>(rewardsId(), 'get_rewards', [], source);
+  return v ?? [];
+}
+
+export async function addReward(
+  wallet: Wallet,
+  id: number,
+  threshold: number,
+  amount: bigint,
+): Promise<string> {
+  return invokeAndWaitHash(
+    rewardsId(),
+    'add_reward',
+    [args.u32(id), args.u64(threshold), args.i128(amount)],
+    wallet,
+  );
+}
+
+export async function setRewardActive(
+  wallet: Wallet,
+  id: number,
+  active: boolean,
+): Promise<string> {
+  return invokeAndWaitHash(
+    rewardsId(),
+    'set_reward_active',
+    [args.u32(id), args.bool(active)],
+    wallet,
+  );
+}
+
 /** Per-reward supply counters (a fixed-size pool's cap + running claim count). */
 export interface RewardStats {
   claims: number;
@@ -149,7 +182,14 @@ export async function getRewardStats(rewardId: number, source: string): Promise<
 
 /** Has this wallet already claimed `rewardId`? */
 export async function isClaimed(rewardId: number, who: string, source: string): Promise<boolean> {
-  return (await readContract<boolean>(rewardsId(), 'is_claimed', [args.u32(rewardId), args.addr(who)], source)) ?? false;
+  return (
+    (await readContract<boolean>(
+      rewardsId(),
+      'is_claimed',
+      [args.u32(rewardId), args.addr(who)],
+      source,
+    )) ?? false
+  );
 }
 
 /**

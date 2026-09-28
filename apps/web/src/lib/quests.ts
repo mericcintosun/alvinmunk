@@ -8,7 +8,14 @@
  * Ownership is thus proven ON-CHAIN — no off-chain ownership signature, and it works for
  * passkey smart accounts (C…) as well as classic (G…) wallets.
  */
-import { invokeAndWait, readContract, readPublic, args, questId as questRegistryId } from './contracts';
+import {
+  invokeAndWait,
+  invokeAndWaitHash,
+  readContract,
+  readPublic,
+  args,
+  questId as questRegistryId,
+} from './contracts';
 import { humanizeError } from './utils';
 import type { EvidenceType } from './attest';
 import type { Wallet } from './wallet';
@@ -25,6 +32,37 @@ export interface QuestResult {
   ok: boolean;
   hash?: string;
   error?: string;
+}
+
+export interface AdminQuest {
+  id: number;
+  schemaId: number;
+  xp: number;
+  active: boolean;
+}
+
+/** Create/toggle calls are typed here; the current registry exposes no list getter. */
+export async function createQuest(
+  wallet: Wallet,
+  id: number,
+  schemaId: number,
+  xp: number,
+): Promise<string> {
+  return invokeAndWaitHash(
+    questRegistryId(),
+    'create_quest',
+    [args.u32(id), args.u32(schemaId), args.u64(xp)],
+    wallet,
+  );
+}
+
+export async function setQuestActive(wallet: Wallet, id: number, active: boolean): Promise<string> {
+  return invokeAndWaitHash(
+    questRegistryId(),
+    'set_quest_active',
+    [args.u32(id), args.bool(active)],
+    wallet,
+  );
 }
 
 /** Weekly retention streak (Green belt) — consecutive weeks with a completed quest. */

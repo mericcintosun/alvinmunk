@@ -2,7 +2,7 @@
  * Gate client — reputation as a capability. Lists access gates, checks/records unlocks.
  * The composable bit: `check(addr, id)` is a pure on-chain read any app can call.
  */
-import { invokeAndWait, readPublic, args, gateId } from './contracts';
+import { invokeAndWait, invokeAndWaitHash, readPublic, args, gateId } from './contracts';
 import type { Wallet } from './wallet';
 
 export const TRACK = { SOCIAL: 0, EARNED: 1 } as const;
@@ -50,4 +50,23 @@ export async function isUnlocked(address: string, id: number): Promise<boolean> 
 
 export async function unlockGate(wallet: Wallet, id: number): Promise<void> {
   await invokeAndWait(gateId(), 'unlock', [args.addr(wallet.address), args.u32(id)], wallet);
+}
+
+export async function createGate(
+  wallet: Wallet,
+  id: number,
+  track: number,
+  min: number,
+  label: string,
+): Promise<string> {
+  return invokeAndWaitHash(
+    gateId(),
+    'create_gate',
+    [args.u32(id), args.u32(track), args.u64(min), args.str(label)],
+    wallet,
+  );
+}
+
+export async function setGateActive(wallet: Wallet, id: number, active: boolean): Promise<string> {
+  return invokeAndWaitHash(gateId(), 'set_gate_active', [args.u32(id), args.bool(active)], wallet);
 }

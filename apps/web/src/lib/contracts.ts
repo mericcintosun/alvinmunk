@@ -35,6 +35,7 @@ export const args = {
   u32: (n: number) => nativeToScVal(n, { type: 'u32' }),
   u64: (n: number | bigint) => nativeToScVal(n, { type: 'u64' }),
   i128: (n: bigint) => nativeToScVal(n, { type: 'i128' }),
+  bool: (b: boolean) => nativeToScVal(b, { type: 'bool' }),
   str: (s: string) => nativeToScVal(s, { type: 'string' }),
   sym: (s: string) => nativeToScVal(s, { type: 'symbol' }),
   // Bytes / BytesN<32> (claim hash, secret) — the host checks fixed length where needed.
@@ -109,7 +110,12 @@ export async function invokeAndWait<T = unknown>(
   // Passkey (smart-account) wallets can't be a classic tx source: the call is
   // authorized by the passkey and submitted via the relayer inside wallet.invoke.
   if (wallet.invoke) {
-    return (await wallet.invoke(contractId, method, callArgs)) as T;
+    const result = await wallet.invoke(contractId, method, callArgs);
+    return (
+      result && typeof result === 'object' && 'value' in result
+        ? (result as { value: unknown }).value
+        : result
+    ) as T;
   }
 
   const account = await server.getAccount(wallet.address);
@@ -130,6 +136,38 @@ export async function invokeAndWait<T = unknown>(
   const result = await pollTransaction(sent.hash);
   const retval = result.returnValue;
   return (retval ? scValToNative(retval) : undefined) as T;
+}
+
+/** State-changing call that returns the confirmed transaction hash for UI receipts. */
+export async function invokeAndWaitHash(
+  contractId: string,
+  method: string,
+  callArgs: xdr.ScVal[],
+  wallet: Wallet,
+): Promise<string> {
+  requireDeployed(contractId, method);
+
+  if (wallet.invoke) {
+    const result = await wallet.invoke(contractId, method, callArgs);
+    return result && typeof result === 'object' && 'hash' in result
+      ? String((result as { hash: string }).hash)
+      : '';
+  }
+
+  const account = await server.getAccount(wallet.address);
+  const built = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase })
+    .addOperation(new Contract(contractId).call(method, ...callArgs))
+    .setTimeout(60)
+    .build();
+  const prepared = await server.prepareTransaction(built);
+  const signedXdr = await wallet.sign(prepared.toXDR());
+  const signed = TransactionBuilder.fromXDR(signedXdr, networkPassphrase);
+  const sent = await server.sendTransaction(signed);
+  if (sent.status === 'ERROR') {
+    throw new Error(`send ${method} failed: ${JSON.stringify(sent.errorResult)}`);
+  }
+  await pollTransaction(sent.hash);
+  return sent.hash;
 }
 
 /**
