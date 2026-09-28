@@ -86,8 +86,6 @@ fn rename_frees_the_old_handle() {
     let (env, client, _admin) = setup();
     let alice = Address::generate(&env);
     client.claim(&alice, &symbol_short!("old"));
-    let prev_events = env.events().all().len();
-
     client.claim(&alice, &symbol_short!("new"));
     // the freed handle is announced first, then the new claim
     assert_eq!(
@@ -102,18 +100,6 @@ fn rename_frees_the_old_handle() {
     assert_eq!(client.resolve(&symbol_short!("old")), None);
     assert_eq!(client.resolve(&symbol_short!("new")), Some(alice.clone()));
     assert_eq!(client.reverse(&alice), Some(symbol_short!("new")));
-
-    let events = env.events().all();
-    assert_eq!(events.len(), prev_events + 2);
-    
-    use soroban_sdk::IntoVal;
-    let ev1 = events.get(events.len() - 2).unwrap();
-    assert_eq!(ev1.1, (symbol_short!("handle"), symbol_short!("released")).into_val(&env));
-    assert_eq!(ev1.2, (alice.clone(), symbol_short!("old")).into_val(&env));
-
-    let ev2 = events.get(events.len() - 1).unwrap();
-    assert_eq!(ev2.1, (symbol_short!("handle"), symbol_short!("claimed")).into_val(&env));
-    assert_eq!(ev2.2, (alice.clone(), symbol_short!("new")).into_val(&env));
 }
 
 #[test]
