@@ -221,6 +221,13 @@ impl QuestRegistryContract {
         Self::current_week(&env)
     }
 
+    /// Returns the start and end of the current streak week as UTC timestamps.
+    pub fn get_week_bounds(env: Env) -> (u64, u64) {
+        let start = Self::current_week(&env) * WEEK_SECS;
+        let end = start + WEEK_SECS - 1;
+        (start, end)
+    }
+
     /// A player's weekly streak (consecutive weeks with ≥1 completed quest).
     pub fn get_streak(env: Env, player: Address) -> Streak {
         let mut s: Streak = env.storage()
@@ -252,6 +259,8 @@ impl QuestRegistryContract {
         parts.to_xdr(env)
     }
 
+    /// The current weekly epoch (timestamp / WEEK_SECS).
+    /// Unix time 0 is a Thursday, so weeks run from Thursday 00:00 to Wednesday 23:59:59 UTC.
     fn current_week(env: &Env) -> u64 {
         env.ledger().timestamp() / WEEK_SECS
     }
