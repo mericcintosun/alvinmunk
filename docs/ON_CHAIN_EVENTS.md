@@ -36,7 +36,7 @@ first and can evolve safely.
 | 0 | `u32` | `schema_version` (currently `1`) |
 | 1 | `Address` | `issuer` — the allowlisted attester contract/account |
 | 2 | `u32` | `schema_id` — off-chain agreed namespace, passed through from `award_xp`. Every deployed quest uses `2` (QUEST). `1` is reserved and never emitted: vouches credit only the Social track, so they never produce `att_set` |
-| 3 | `u64` | `amount` — XP amount credited |
+| 3 | `u64` | `amount` — XP credited by this award (a delta, not the running total; for the per-schema total read [`get_attestation`](#attestation)) |
 | 4 | `u64` | `timestamp` — ledger timestamp at emission |
 
 **Contract source**: `reputation/src/lib.rs` → `fn add_earned()`
@@ -530,14 +530,33 @@ read via `get_attestation()`, `get_vouch()`, etc.
 
 ### `Attestation`
 
+`get_attestation(addr, schema_id)` returns `Option<Attestation>` — one record per
+`(addr, schema_id)`, `None` until the first award under that schema. Every award
+(`award_xp`) updates it in place:
+
 ```rust
 pub struct Attestation {
-    pub issuer: Address,
-    pub value: i128,       // XP amount (stored as i128, interpret as u64)
-    pub timestamp: u64,
-    pub revoked: bool,
+    pub issuer: Address,   // attester of the most recent award under this schema
+    pub value: i128,       // running total of every award under this schema (a u64 XP sum)
+    pub timestamp: u64,    // ledger timestamp of the most recent award
+    pub revoked: bool,     // always false — there is no revoke path yet
 }
 ```
+
+- `value` is the subject's standing under the schema, not the last award. Two quests
+  of 50 and 25 XP under schema `2` read `value: 75`. The add is checked in `u64`: an
+  award that would overflow reverts with `Overflow` (#7), leaving the record as it was.
+- `issuer` and `timestamp` describe only the latest award. For who issued each award
+  and when, fold the [`att_set`](#att_set-attestation-set) events for the subject and
+  schema; each one's `amount` is that award's delta.
+- Summed over every schema, the `value`s equal `get_earned(addr)` (but see the next
+  point).
+- **Records from before accumulation (issue #123).** Before the upgrade that made the
+  record accumulate, each award overwrote it, so an entry written then holds only its
+  last award. It decodes unchanged (same four fields) and counts on from that value at
+  its next award. For a subject with such a record, `value` stays below the true
+  per-schema total and the sum over schemas stays below `get_earned`. The full history
+  is in the `att_set` events; `get_earned` is always the subject's exact Earned total.
 
 ### `Vouch`
 
