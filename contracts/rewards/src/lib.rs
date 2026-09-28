@@ -16,9 +16,15 @@ use soroban_sdk::{
     Address, BytesN, Env, Symbol, Vec,
 };
 
-// ~30 / ~60 days of ledgers (5s) — keep registered rewards + claim guards alive.
-const BUMP_THRESHOLD: u32 = 518_400;
-const BUMP_EXTEND: u32 = 1_036_800;
+// TTLs in ledgers (5s). `extend_ttl(key, threshold, extend_to)` does nothing unless the
+// entry's TTL is at or below `threshold`, and then sets it to `extend_to`. New persistent
+// entries start at the network's min_persistent_ttl (120,960 on testnet, 2,073,600 on
+// mainnet), so the threshold sits one day under the target: the bump after a write lifts
+// the entry to BUMP_EXTEND unless it already ran within the last day. BUMP_EXTEND must stay
+// above mainnet's minimum and below max_entry_ttl (3,110,400).
+const DAY_LEDGERS: u32 = 17_280; // ~1 day
+const BUMP_EXTEND: u32 = 2_592_000; // ~150 days
+const BUMP_THRESHOLD: u32 = BUMP_EXTEND - DAY_LEDGERS;
 const DAY_SECS: u64 = 86_400;
 
 #[contracterror]
@@ -39,6 +45,9 @@ pub enum Error {
     NotFunded = 12, // proof-of-funding gate (belts/08): no external value received
     RewardExhausted = 13, // the reward's fixed supply (`max_claims`) is used up
     InvalidSupply = 14, // a supply cap below the claims already paid
+    InvalidThreshold = 15, // zero threshold bypasses the Earned-XP gate
+    AmountExceedsCap = 16, // payout above the daily cap can never be claimed
+    CapBelowActiveReward = 17, // new cap would strand an active reward
 }
 
 /// One row of the rank->reward unlock table.
@@ -129,11 +138,13 @@ impl RewardsContract {
 
     /// Register or update a reward. Admin-only. `amount` is the STORED payout — claimers
     /// can never set it, so the treasury can't be drained via an attacker-chosen amount.
+    /// Rejects `threshold == 0` (it would bypass the Earned-XP gate) and, when a daily cap
+    /// is set, an `amount` above it (such a reward could never be claimed). The treasury
+    /// balance is not checked: it moves with funding and claims, so a reward can be
+    /// registered before the treasury is funded.
     pub fn add_reward(env: Env, reward_id: u32, threshold: u64, amount: i128) {
         Self::admin(&env).require_auth();
-        if amount <= 0 {
-            panic_with_error!(&env, Error::InvalidAmount);
-        }
+        Self::validate_reward(&env, threshold, amount);
         let is_new = !env.storage().persistent().has(&DataKey::Reward(reward_id));
         let entry = RewardEntry {
             id: reward_id,
@@ -166,7 +177,8 @@ impl RewardsContract {
             .publish((symbol_short!("rwd_set"), reward_id), (threshold, amount));
     }
 
-    /// Enable/disable a reward without removing it from the table. Admin-only.
+    /// Enable/disable a reward without removing it from the table. Admin-only. Enabling
+    /// re-checks the amount against the current daily cap (`AmountExceedsCap`).
     pub fn set_reward_active(env: Env, reward_id: u32, active: bool) {
         Self::admin(&env).require_auth();
         let mut entry: RewardEntry = env
@@ -174,6 +186,9 @@ impl RewardsContract {
             .persistent()
             .get(&DataKey::Reward(reward_id))
             .unwrap_or_else(|| panic_with_error!(&env, Error::RewardNotFound));
+        if active {
+            Self::assert_amount_within_cap(&env, entry.amount);
+        }
         entry.active = active;
         env.storage()
             .persistent()
@@ -318,9 +333,12 @@ impl RewardsContract {
         env.storage().instance().set(&DataKey::Paused, &paused);
     }
 
-    /// Set the max treasury payout per UTC day (0 = unlimited). Admin-only.
+    /// Set the max treasury payout per UTC day (0 = unlimited). Admin-only. A positive cap
+    /// below an active reward's amount is rejected (`CapBelowActiveReward`): lower or
+    /// deactivate that reward first. 0 is always accepted.
     pub fn set_daily_cap(env: Env, cap: i128) {
         Self::admin(&env).require_auth();
+        Self::assert_cap_covers_active_rewards(&env, cap);
         env.storage().instance().set(&DataKey::DailyCap, &cap);
     }
 
@@ -465,6 +483,53 @@ impl RewardsContract {
         }
     }
 
+    /// Reject reward rows that could never pay out or that bypass the Earned-XP gate.
+    fn validate_reward(env: &Env, threshold: u64, amount: i128) {
+        if amount <= 0 {
+            panic_with_error!(env, Error::InvalidAmount);
+        }
+        if threshold == 0 {
+            panic_with_error!(env, Error::InvalidThreshold);
+        }
+        Self::assert_amount_within_cap(env, amount);
+    }
+
+    /// A payout larger than the daily cap can never be claimed: `charge_daily` refuses any
+    /// single claim above it. So while a cap is set (> 0) every ACTIVE reward must pay at
+    /// most the cap. `add_reward` and re-enabling check the row against the current cap,
+    /// and `set_daily_cap` checks a new cap against the active rows. Inactive rows may
+    /// exceed it until they are re-enabled. A cap of 0 or below is unlimited.
+    fn assert_amount_within_cap(env: &Env, amount: i128) {
+        let cap: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::DailyCap)
+            .unwrap_or(0);
+        if cap > 0 && amount > cap {
+            panic_with_error!(env, Error::AmountExceedsCap);
+        }
+    }
+
+    /// A positive cap must cover every active reward's amount (0 = unlimited).
+    fn assert_cap_covers_active_rewards(env: &Env, cap: i128) {
+        if cap <= 0 {
+            return;
+        }
+        let ids: Vec<u32> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::RewardIds)
+            .unwrap_or_else(|| Vec::new(env));
+        for id in ids.iter() {
+            let entry: Option<RewardEntry> = env.storage().persistent().get(&DataKey::Reward(id));
+            if let Some(e) = entry {
+                if e.active && e.amount > cap {
+                    panic_with_error!(env, Error::CapBelowActiveReward);
+                }
+            }
+        }
+    }
+
     /// Accumulate today's treasury outflow and enforce the daily cap (0 = unlimited).
     fn charge_daily(env: &Env, amount: i128) {
         let cap: i128 = env
@@ -482,9 +547,11 @@ impl RewardsContract {
             panic_with_error!(env, Error::DailyCapExceeded);
         }
         env.storage().temporary().set(&key, &next);
+        // ~2 days outlives the UTC day it counts. Not BUMP_*: a temporary entry extended
+        // past max_entry_ttl traps instead of clamping.
         env.storage()
             .temporary()
-            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_THRESHOLD * 2);
+            .extend_ttl(&key, DAY_LEDGERS, DAY_LEDGERS * 2);
     }
 
     fn admin(env: &Env) -> Address {

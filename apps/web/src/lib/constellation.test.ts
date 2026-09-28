@@ -1,5 +1,15 @@
-import { describe, it, expect } from 'vitest';
-import { addrHue, timeAgo } from './constellation';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { RepEvent } from './events';
+
+const { getCountsMock, fetchEventsMock } = vi.hoisted(() => ({
+  getCountsMock: vi.fn(),
+  fetchEventsMock: vi.fn(),
+}));
+
+vi.mock('./reputation', () => ({ getCounts: getCountsMock, getVouch: vi.fn() }));
+vi.mock('./events', () => ({ fetchReputationEvents: fetchEventsMock }));
+
+import { addrHue, getPeopleCounts, timeAgo } from './constellation';
 
 const NOW = Math.floor(Date.now() / 1000);
 
@@ -37,5 +47,54 @@ describe('timeAgo', () => {
     expect(timeAgo(NOW - 14 * 86_400)).toBe('2 weeks ago');
     expect(timeAgo(NOW - 7 * 86_400)).toBe('1 week ago');
     expect(timeAgo(NOW - 60 * 86_400)).toBe('2 months ago');
+  });
+});
+
+const ME = 'G'.padEnd(56, 'M');
+const A = 'G'.padEnd(56, 'A');
+const B = 'G'.padEnd(56, 'B');
+const C = 'G'.padEnd(56, 'C');
+
+const claimed = (id: number, from: string, claimer: string): RepEvent => ({
+  topics: ['vouch', 'claimed'],
+  data: [id, from, claimer],
+  ledger: id,
+});
+
+describe('getPeopleCounts', () => {
+  beforeEach(() => {
+    getCountsMock.mockReset();
+    fetchEventsMock.mockReset();
+  });
+
+  it('keeps the durable counters when they exceed the recent window', async () => {
+    getCountsMock.mockResolvedValue({ vouchedBy: 4, backed: 2 });
+    fetchEventsMock.mockResolvedValue([claimed(1, A, ME)]);
+    expect(await getPeopleCounts(ME)).toEqual({ vouchedBy: 4, backed: 2 });
+  });
+
+  it('fills a counter that is still 0 from the recent claim events', async () => {
+    getCountsMock.mockResolvedValue({ vouchedBy: 3, backed: 0 });
+    fetchEventsMock.mockResolvedValue([claimed(1, ME, A), claimed(2, ME, B), claimed(3, C, ME)]);
+    expect(await getPeopleCounts(ME)).toEqual({ vouchedBy: 3, backed: 2 });
+  });
+
+  it('never reads lower than the distinct people in the window', async () => {
+    // A repeat of a pair first claimed before the counters existed: the counter skips it.
+    getCountsMock.mockResolvedValue({ vouchedBy: 1, backed: 0 });
+    fetchEventsMock.mockResolvedValue([claimed(1, A, ME), claimed(2, B, ME), claimed(3, B, ME)]);
+    expect(await getPeopleCounts(ME)).toEqual({ vouchedBy: 2, backed: 0 });
+  });
+
+  it('falls back to events when the deployed contract has no get_counts', async () => {
+    getCountsMock.mockResolvedValue(null);
+    fetchEventsMock.mockResolvedValue([claimed(1, A, ME), claimed(2, B, ME), claimed(3, ME, C)]);
+    expect(await getPeopleCounts(ME)).toEqual({ vouchedBy: 2, backed: 1 });
+  });
+
+  it('reads 0 for a wallet with no vouches anywhere', async () => {
+    getCountsMock.mockResolvedValue({ vouchedBy: 0, backed: 0 });
+    fetchEventsMock.mockResolvedValue([claimed(1, A, B)]);
+    expect(await getPeopleCounts(ME)).toEqual({ vouchedBy: 0, backed: 0 });
   });
 });

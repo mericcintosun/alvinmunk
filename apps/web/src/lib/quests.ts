@@ -8,7 +8,7 @@
  * Ownership is thus proven ON-CHAIN — no off-chain ownership signature, and it works for
  * passkey smart accounts (C…) as well as classic (G…) wallets.
  */
-import { invokeAndWait, readContract, args, questId as questRegistryId } from './contracts';
+import { invokeAndWait, readContract, readPublic, args, questId as questRegistryId } from './contracts';
 import { humanizeError } from './utils';
 import type { EvidenceType } from './attest';
 import type { Wallet } from './wallet';
@@ -34,18 +34,65 @@ export interface Streak {
   lastWeek: number;
 }
 
-/** Read a player's weekly streak from the QuestRegistry. */
-export async function getStreak(addr: string, source: string): Promise<Streak> {
-  const v = await readContract<{ weeks: number; best: number; last_week: bigint }>(
-    questRegistryId(),
-    'get_streak',
-    [args.addr(addr)],
-    source,
-  );
+/** Read a player's weekly streak from the QuestRegistry. Omit `source` for a wallet-free
+ *  read (public profiles — no source-account lookup). */
+export async function getStreak(addr: string, source?: string): Promise<Streak> {
+  type Raw = { weeks: number; best: number; last_week: bigint };
+  const call = [args.addr(addr)];
+  const v = source
+    ? await readContract<Raw>(questRegistryId(), 'get_streak', call, source)
+    : await readPublic<Raw>(questRegistryId(), 'get_streak', call);
   return {
     weeks: Number(v?.weeks ?? 0),
     best: Number(v?.best ?? 0),
     lastWeek: Number(v?.last_week ?? 0),
+  };
+}
+
+/** The current streak week in UTC unix seconds: `start` is its first second and `end` its
+ *  last (inclusive), so the week resets at `end + 1`. Weeks are aligned on the Unix epoch
+ *  and run Thursday 00:00 to Wednesday 23:59:59 UTC. */
+export interface WeekBounds {
+  start: number;
+  end: number;
+}
+
+/** Read `get_week_bounds` from the QuestRegistry. Resolves `null` when the read fails —
+ *  including a deployed contract that predates the view — or returns something that isn't
+ *  a week, so the UI hides the countdown instead of guessing. Omit `source` for a
+ *  wallet-free read. */
+export async function getWeekBounds(source?: string): Promise<WeekBounds | null> {
+  type Raw = [bigint, bigint] | undefined;
+  try {
+    const v = source
+      ? await readContract<Raw>(questRegistryId(), 'get_week_bounds', [], source)
+      : await readPublic<Raw>(questRegistryId(), 'get_week_bounds', []);
+    if (!Array.isArray(v) || v.length !== 2) return null;
+    const start = Number(v[0]);
+    const end = Number(v[1]);
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || end <= start) return null;
+    return { start, end };
+  } catch {
+    return null;
+  }
+}
+
+export interface TimeLeft {
+  days: number;
+  hours: number;
+  minutes: number;
+}
+
+/** Time left until the week resets (`end + 1`), split for display. Rounds up to the
+ *  minute so it never reads "0m" while time remains; `null` once the reset has passed. */
+export function timeUntilReset(bounds: WeekBounds, nowSecs: number): TimeLeft | null {
+  const left = bounds.end + 1 - nowSecs;
+  if (left <= 0) return null;
+  const totalMinutes = Math.ceil(left / 60);
+  return {
+    days: Math.floor(totalMinutes / 1440),
+    hours: Math.floor((totalMinutes % 1440) / 60),
+    minutes: totalMinutes % 60,
   };
 }
 

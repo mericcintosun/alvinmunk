@@ -4,7 +4,13 @@
 //! the on-chain reward registry (caller can never dictate the payout amount).
 use super::*;
 use alvinmunk_reputation::{ReputationContract, ReputationContractClient};
-use soroban_sdk::{testutils::Address as _, token, Env};
+use soroban_sdk::{
+    testutils::{
+        storage::{Persistent as _, Temporary as _},
+        Address as _, Ledger as _,
+    },
+    token, Env,
+};
 
 struct Fixture<'a> {
     env: Env,
@@ -16,7 +22,10 @@ struct Fixture<'a> {
 }
 
 fn setup() -> Fixture<'static> {
-    let env = Env::default();
+    setup_in(Env::default())
+}
+
+fn setup_in(env: Env) -> Fixture<'static> {
     env.mock_all_auths();
     let admin = Address::generate(&env);
     let attester = Address::generate(&env);
@@ -227,7 +236,7 @@ proptest! {
     /// (threshold ≤ earned, amount). Treasury is funded with 1_000 in setup().
     #[test]
     fn claim_pays_exactly_registered_amount(
-        threshold in 0u64..200, extra in 0u64..300, amount in 1i128..=1000
+        threshold in 1u64..200, extra in 0u64..300, amount in 1i128..=1000
     ) {
         let f = setup();
         let user = Address::generate(&f.env);
@@ -251,12 +260,38 @@ proptest! {
         let mut paid = 0i128;
         for (i, a) in amounts.iter().enumerate() {
             let id = (i as u32) + 1;
-            f.rewards.add_reward(&id, &0u64, a);
+            let a = (*a).min(cap); // an amount above the cap is now rejected at registration
+            f.rewards.add_reward(&id, &1u64, &a);
             let user = Address::generate(&f.env);
+            f.rep.award_xp(&f.attester, &user, &2u32, &1u64); // clear the threshold
             if f.rewards.try_claim_reward(&user, &id).is_ok() {
-                paid += *a;
+                paid += a;
             }
             prop_assert!(paid <= cap);
+        }
+    }
+
+    /// Invariant (#146): `add_reward` only accepts rows that can pay out. It refuses a zero
+    /// threshold and, while a cap is set, an amount above it; anything it accepts pays its
+    /// stored amount to a wallet that clears the threshold.
+    #[test]
+    fn every_accepted_reward_can_pay_out(
+        cap in prop_oneof![Just(0i128), 1i128..=1000],
+        threshold in 0u64..20,
+        amount in 1i128..=1000
+    ) {
+        let f = setup();
+        f.rewards.set_daily_cap(&cap);
+        let res = f.rewards.try_add_reward(&1u32, &threshold, &amount);
+        if threshold == 0 {
+            prop_assert_eq!(res, Err(Ok(contract_err(Error::InvalidThreshold))));
+        } else if cap > 0 && amount > cap {
+            prop_assert_eq!(res, Err(Ok(contract_err(Error::AmountExceedsCap))));
+        } else {
+            prop_assert_eq!(res, Ok(Ok(())));
+            let user = earner(&f, threshold);
+            f.rewards.claim_reward(&user, &1u32);
+            prop_assert_eq!(token::TokenClient::new(&f.env, &f.usdc).balance(&user), amount);
         }
     }
 }
@@ -391,4 +426,217 @@ fn supply_for_an_unknown_reward_reverts() {
         f.rewards.try_set_reward_supply(&9u32, &5u32),
         Err(Ok(contract_err(Error::RewardNotFound)))
     );
+}
+
+// --- add_reward / set_daily_cap validation (#146) ---
+
+fn row(f: &Fixture, id: u32) -> Option<(u64, i128, bool)> {
+    f.rewards
+        .get_reward(&id)
+        .map(|r| (r.threshold, r.amount, r.active))
+}
+
+#[test]
+fn add_reward_rejects_zero_threshold() {
+    let f = setup();
+    let res = f.rewards.try_add_reward(&1u32, &0u64, &50i128);
+    assert_eq!(res, Err(Ok(contract_err(Error::InvalidThreshold))));
+    assert_eq!(row(&f, 1), None);
+    assert_eq!(f.rewards.get_rewards().len(), 0);
+}
+
+#[test]
+fn add_reward_still_rejects_a_non_positive_amount() {
+    let f = setup();
+    for amount in [0i128, -1] {
+        assert_eq!(
+            f.rewards.try_add_reward(&1u32, &10u64, &amount),
+            Err(Ok(contract_err(Error::InvalidAmount)))
+        );
+    }
+}
+
+#[test]
+fn add_reward_rejects_amount_above_cap() {
+    let f = setup();
+    f.rewards.set_daily_cap(&100i128);
+    let res = f.rewards.try_add_reward(&1u32, &10u64, &200i128);
+    assert_eq!(res, Err(Ok(contract_err(Error::AmountExceedsCap))));
+    assert_eq!(row(&f, 1), None);
+}
+
+#[test]
+fn a_reward_equal_to_the_cap_registers_and_pays_out() {
+    let f = setup();
+    f.rewards.set_daily_cap(&100i128);
+    assert_eq!(
+        f.rewards.try_add_reward(&1u32, &10u64, &100i128),
+        Ok(Ok(()))
+    );
+    let user = earner(&f, 10);
+    f.rewards.claim_reward(&user, &1u32);
+    let token_c = token::TokenClient::new(&f.env, &f.usdc);
+    assert_eq!(token_c.balance(&user), 100);
+}
+
+#[test]
+fn add_reward_ignores_cap_when_unlimited() {
+    let f = setup(); // cap defaults to 0 = unlimited
+    assert_eq!(
+        f.rewards.try_add_reward(&1u32, &10u64, &1_000_000i128),
+        Ok(Ok(()))
+    );
+    assert_eq!(row(&f, 1), Some((10, 1_000_000, true)));
+}
+
+#[test]
+fn a_rejected_update_leaves_the_existing_row_intact() {
+    let f = setup();
+    f.rewards.add_reward(&1u32, &30u64, &50i128);
+    f.rewards.set_daily_cap(&100i128);
+    assert_eq!(
+        f.rewards.try_add_reward(&1u32, &0u64, &50i128),
+        Err(Ok(contract_err(Error::InvalidThreshold)))
+    );
+    assert_eq!(
+        f.rewards.try_add_reward(&1u32, &30u64, &200i128),
+        Err(Ok(contract_err(Error::AmountExceedsCap)))
+    );
+    assert_eq!(row(&f, 1), Some((30, 50, true)));
+    assert_eq!(f.rewards.get_rewards().len(), 1);
+
+    // The valid row still pays its stored amount.
+    let user = earner(&f, 30);
+    f.rewards.claim_reward(&user, &1u32);
+    let token_c = token::TokenClient::new(&f.env, &f.usdc);
+    assert_eq!(token_c.balance(&user), 50);
+}
+
+#[test]
+fn set_daily_cap_rejects_cap_below_active_reward() {
+    let f = setup();
+    f.rewards.add_reward(&1u32, &10u64, &50i128);
+    f.rewards.add_reward(&2u32, &10u64, &200i128);
+    f.rewards.set_daily_cap(&500i128);
+    let res = f.rewards.try_set_daily_cap(&199i128);
+    assert_eq!(res, Err(Ok(contract_err(Error::CapBelowActiveReward))));
+    assert_eq!(f.rewards.get_daily_cap(), 500); // unchanged
+                                                // A cap equal to the largest active payout is fine.
+    assert_eq!(f.rewards.try_set_daily_cap(&200i128), Ok(Ok(())));
+    assert_eq!(f.rewards.get_daily_cap(), 200);
+}
+
+#[test]
+fn set_daily_cap_ignores_inactive_rewards() {
+    let f = setup();
+    f.rewards.add_reward(&1u32, &10u64, &200i128);
+    f.rewards.set_reward_active(&1u32, &false);
+    assert_eq!(f.rewards.try_set_daily_cap(&100i128), Ok(Ok(())));
+    assert_eq!(f.rewards.get_daily_cap(), 100);
+}
+
+#[test]
+fn set_daily_cap_zero_is_always_allowed() {
+    let f = setup();
+    f.rewards.add_reward(&1u32, &10u64, &200i128);
+    f.rewards.set_daily_cap(&200i128);
+    assert_eq!(f.rewards.try_set_daily_cap(&0i128), Ok(Ok(())));
+    assert_eq!(f.rewards.get_daily_cap(), 0);
+}
+
+#[test]
+fn reactivating_a_reward_above_the_cap_is_rejected() {
+    let f = setup();
+    f.rewards.add_reward(&1u32, &10u64, &200i128);
+    f.rewards.set_reward_active(&1u32, &false);
+    f.rewards.set_daily_cap(&100i128); // allowed: the only oversized row is inactive
+    let res = f.rewards.try_set_reward_active(&1u32, &true);
+    assert_eq!(res, Err(Ok(contract_err(Error::AmountExceedsCap))));
+    assert_eq!(row(&f, 1), Some((10, 200, false)));
+    // Re-registering it within the cap is the way back.
+    f.rewards.add_reward(&1u32, &10u64, &100i128);
+    assert_eq!(row(&f, 1), Some((10, 100, true)));
+}
+
+#[test]
+fn reactivating_a_reward_within_the_cap_is_allowed() {
+    let f = setup();
+    f.rewards.add_reward(&1u32, &10u64, &50i128);
+    f.rewards.set_reward_active(&1u32, &false);
+    f.rewards.set_daily_cap(&100i128);
+    assert_eq!(f.rewards.try_set_reward_active(&1u32, &true), Ok(Ok(())));
+    assert_eq!(row(&f, 1), Some((10, 50, true)));
+}
+
+// --- Storage TTLs ---
+
+/// Live `state_archival` settings from `stellar network settings` (checked 2026-09-28):
+/// (min_persistent_ttl, min_temporary_ttl, max_entry_ttl).
+const TESTNET_TTLS: (u32, u32, u32) = (120_960, 720, 3_110_400);
+const MAINNET_TTLS: (u32, u32, u32) = (2_073_600, 17_280, 3_110_400);
+
+/// `setup()` on a ledger with the given network TTL limits, set before registration so the
+/// instances get the same TTLs as on the network.
+fn setup_with_ttls((min_persistent, min_temp, max_ttl): (u32, u32, u32)) -> Fixture<'static> {
+    let env = Env::default();
+    env.ledger().with_mut(|l| {
+        l.sequence_number = 1_000;
+        l.min_persistent_entry_ttl = min_persistent;
+        l.min_temp_entry_ttl = min_temp;
+        l.max_entry_ttl = max_ttl;
+    });
+    setup_in(env)
+}
+
+fn ttl(f: &Fixture, key: &DataKey) -> u32 {
+    f.env
+        .as_contract(&f.rewards_id, || f.env.storage().persistent().get_ttl(key))
+}
+
+#[test]
+fn writes_extend_reward_entries_to_bump_extend() {
+    for ttls in [TESTNET_TTLS, MAINNET_TTLS] {
+        let f = setup_with_ttls(ttls);
+        let user = earner(&f, 100);
+        let flagged = Address::generate(&f.env);
+        f.rewards.add_reward(&1u32, &50u64, &200i128);
+        f.rewards.set_reward_supply(&1u32, &5u32);
+        f.rewards.set_frozen(&flagged, &true);
+        f.rewards.set_funded(&user, &true);
+        f.rewards.claim_reward(&user, &1u32);
+
+        for key in [
+            DataKey::Reward(1),
+            DataKey::RewardIds,
+            DataKey::RewardStats(1),
+            DataKey::RewardClaimed(1, user.clone()),
+            DataKey::Frozen(flagged.clone()),
+            DataKey::Funded(user.clone()),
+        ] {
+            assert_eq!(ttl(&f, &key), BUMP_EXTEND);
+        }
+
+        // Days later, an admin edit tops the reward row back up.
+        f.env
+            .ledger()
+            .with_mut(|l| l.sequence_number += DAY_LEDGERS * 3);
+        f.rewards.set_reward_active(&1u32, &true);
+        assert_eq!(ttl(&f, &DataKey::Reward(1)), BUMP_EXTEND);
+    }
+}
+
+/// The per-day payout counter is temporary and lives ~2 days, not the persistent target
+/// (which is past max_entry_ttl when doubled, and would trap the claim).
+#[test]
+fn daily_paid_counter_lives_two_days() {
+    for ttls in [TESTNET_TTLS, MAINNET_TTLS] {
+        let f = setup_with_ttls(ttls);
+        let user = earner(&f, 100);
+        f.rewards.add_reward(&1u32, &50u64, &200i128);
+        f.rewards.claim_reward(&user, &1u32);
+        let paid_ttl = f.env.as_contract(&f.rewards_id, || {
+            f.env.storage().temporary().get_ttl(&DataKey::DailyPaid(0))
+        });
+        assert_eq!(paid_ttl, DAY_LEDGERS * 2);
+    }
 }
