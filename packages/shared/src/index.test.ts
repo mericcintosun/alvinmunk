@@ -58,8 +58,15 @@ describe('readNetworkConfig', () => {
 });
 
 describe('SCHEMA', () => {
-  it('namespaces vouch vs quest distinctly', () => {
-    expect(SCHEMA.VOUCH).not.toBe(SCHEMA.QUEST);
+  it('gives every namespace a distinct id', () => {
+    const ids = Object.values(SCHEMA);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('keeps QUEST at 2 (the id every deployed quest passes) and 1 reserved', () => {
+    expect(SCHEMA.QUEST).toBe(2);
+    expect(SCHEMA.RESERVED).toBe(1);
+    expect(SCHEMA).not.toHaveProperty('VOUCH');
   });
 });
 

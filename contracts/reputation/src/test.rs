@@ -1,7 +1,10 @@
 #![cfg(test)]
 use super::*;
 use soroban_sdk::{
-    testutils::{Address as _, Ledger as _},
+    testutils::{
+        storage::{Persistent as _, Temporary as _},
+        Address as _, Ledger as _,
+    },
     Bytes, BytesN, Env, String,
 };
 
@@ -369,4 +372,118 @@ fn non_admin_upgrade_reverts() {
     client.init(&admin);
     let hash = soroban_sdk::BytesN::from_array(&env, &[1; 32]);
     client.upgrade(&hash);
+}
+
+// --- Storage TTLs ---
+
+/// Live `state_archival` settings from `stellar network settings` (checked 2026-09-28):
+/// (min_persistent_ttl, min_temporary_ttl, max_entry_ttl).
+const TESTNET_TTLS: (u32, u32, u32) = (120_960, 720, 3_110_400);
+const MAINNET_TTLS: (u32, u32, u32) = (2_073_600, 17_280, 3_110_400);
+
+/// `setup()` on a ledger with the given network TTL limits. The limits are set before the
+/// contract is registered so its instance gets the same TTLs as on the network.
+fn setup_with_ttls(
+    (min_persistent, min_temp, max_ttl): (u32, u32, u32),
+) -> (Env, ReputationContractClient<'static>) {
+    let env = Env::default();
+    env.ledger().with_mut(|l| {
+        l.sequence_number = 1_000;
+        l.min_persistent_entry_ttl = min_persistent;
+        l.min_temp_entry_ttl = min_temp;
+        l.max_entry_ttl = max_ttl;
+    });
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let id = env.register(ReputationContract, ());
+    let client = ReputationContractClient::new(&env, &id);
+    client.init(&admin);
+    (env, client)
+}
+
+fn ttl(env: &Env, client: &ReputationContractClient, key: &DataKey) -> u32 {
+    env.as_contract(&client.address, || env.storage().persistent().get_ttl(key))
+}
+
+fn temp_ttl(env: &Env, client: &ReputationContractClient, key: &DataKey) -> u32 {
+    env.as_contract(&client.address, || env.storage().temporary().get_ttl(key))
+}
+
+/// A new entry starts at the network's min_persistent_ttl; the bump right after each write
+/// must still lift it to BUMP_EXTEND, on testnet and on mainnet.
+#[test]
+fn writes_extend_persistent_entries_to_bump_extend() {
+    for ttls in [TESTNET_TTLS, MAINNET_TTLS] {
+        let (env, client) = setup_with_ttls(ttls);
+        let alice = Address::generate(&env);
+        let bob = Address::generate(&env);
+        let attester = Address::generate(&env);
+        client.add_attester(&attester);
+        let (secret, h) = secret_and_hash(&env, 7);
+
+        let id = client.mint_vouch(&alice, &h, &String::from_str(&env, "hi"));
+        client.claim_vouch(&bob, &id, &secret);
+        // Bob is not verified yet, so Alice's 2nd-order bonus is queued under Pending(bob).
+        assert_eq!(
+            ttl(&env, &client, &DataKey::Pending(bob.clone())),
+            BUMP_EXTEND
+        );
+        client.award_xp(&attester, &bob, &2u32, &40u64);
+
+        for key in [
+            DataKey::Vouch(id),
+            DataKey::Started(alice.clone()),
+            DataKey::Social(alice.clone()),
+            DataKey::Started(bob.clone()),
+            DataKey::Social(bob.clone()),
+            DataKey::Seen(alice.clone(), bob.clone()),
+            DataKey::Earned(bob.clone()),
+            DataKey::Attestation(bob.clone(), 2),
+            DataKey::Verified(bob.clone()),
+        ] {
+            assert_eq!(ttl(&env, &client, &key), BUMP_EXTEND);
+        }
+    }
+}
+
+/// The per-day vouch counter is temporary and lives ~2 days, not the persistent target.
+#[test]
+fn daily_vouch_counter_lives_two_days() {
+    for ttls in [TESTNET_TTLS, MAINNET_TTLS] {
+        let (env, client) = setup_with_ttls(ttls);
+        let alice = Address::generate(&env);
+        let (_s, h) = secret_and_hash(&env, 7);
+        client.mint_vouch(&alice, &h, &String::from_str(&env, "hi"));
+        let key = DataKey::DailyCount(alice.clone(), 0);
+        assert_eq!(temp_ttl(&env, &client, &key), DAY_LEDGERS * 2);
+    }
+}
+
+/// A later write tops an entry back up once a day has passed, and a write within the same
+/// day leaves it alone (no rent paid for a few ledgers at a time).
+#[test]
+fn later_writes_top_the_ttl_back_up() {
+    let (env, client) = setup_with_ttls(TESTNET_TTLS);
+    let alice = Address::generate(&env);
+    let (_s1, h1) = secret_and_hash(&env, 1);
+    let (_s2, h2) = secret_and_hash(&env, 2);
+    let (_s3, h3) = secret_and_hash(&env, 3);
+    let social = DataKey::Social(alice.clone());
+
+    let first = client.mint_vouch(&alice, &h1, &String::from_str(&env, "a"));
+    env.ledger().with_mut(|l| l.sequence_number += 100);
+    client.mint_vouch(&alice, &h2, &String::from_str(&env, "b"));
+    assert_eq!(ttl(&env, &client, &social), BUMP_EXTEND - 100);
+
+    env.ledger().with_mut(|l| {
+        l.sequence_number += DAY_LEDGERS * 3;
+        l.timestamp += DAY_SECS * 3;
+    });
+    client.mint_vouch(&alice, &h3, &String::from_str(&env, "c"));
+    assert_eq!(ttl(&env, &client, &social), BUMP_EXTEND);
+    // The first half-card was not written again, so it kept ageing.
+    assert_eq!(
+        ttl(&env, &client, &DataKey::Vouch(first)),
+        BUMP_EXTEND - 100 - DAY_LEDGERS * 3
+    );
 }

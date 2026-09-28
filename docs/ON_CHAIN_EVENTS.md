@@ -35,7 +35,7 @@ first and can evolve safely.
 |-------|------|-------------|
 | 0 | `u32` | `schema_version` (currently `1`) |
 | 1 | `Address` | `issuer` — the allowlisted attester contract/account |
-| 2 | `u32` | `schema_id` — off-chain agreed namespace (1=VOUCH, 2=QUEST) |
+| 2 | `u32` | `schema_id` — off-chain agreed namespace, passed through from `award_xp`. Every deployed quest uses `2` (QUEST). `1` is reserved and never emitted: vouches credit only the Social track, so they never produce `att_set` |
 | 3 | `u64` | `amount` — XP amount credited |
 | 4 | `u64` | `timestamp` — ledger timestamp at emission |
 
@@ -98,7 +98,7 @@ event-sourced leaderboard until they first act.
 
 | Index | Type | Description |
 |-------|------|-------------|
-| 0 | `u64` | `amount` — the delta (always positive for add, positive for sub — caller deduces sign from context) |
+| 0 | `u64` | `amount` — an unsigned magnitude. The direction comes from comparing `newTotal` with the previous total (the address's prior `social` event, or the silent `STARTER_SOCIAL` balance for its first one): higher is a credit, lower is a debit |
 | 1 | `u64` | `newTotal` — the new running total |
 
 **Contract source**: `reputation/src/lib.rs` → `fn add_social()` / `fn sub_social()`
@@ -291,7 +291,10 @@ env.events().publish(
 
 ### `handle` / `claimed`
 
-A wallet claims or renames to a handle.
+A wallet takes a handle, either its first one or as a rename. On a rename the
+old handle is announced with `handle` / `released` in the same transaction,
+immediately before this event. Re-claiming the handle the wallet already holds
+changes nothing and emits no event.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -307,7 +310,9 @@ A wallet claims or renames to a handle.
 
 ### `handle` / `released`
 
-A wallet voluntarily releases its handle.
+A handle is freed: the wallet released it (`release()`), or renamed away from
+it (`claim()` with a different handle, emitted right before the new `claimed`).
+Either way the handle no longer resolves and anyone may claim it.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -318,12 +323,21 @@ A wallet voluntarily releases its handle.
 
 | Index | Type | Description |
 |-------|------|-------------|
-| 0 | `Address` | `caller` — the releasing wallet |
-| 1 | `Symbol` | `handle` — the released handle |
+| 0 | `Address` | `caller` — the wallet that held the handle |
+| 1 | `Symbol` | `handle` — the freed handle |
+
+An indexer keyed by handle stays in sync by applying both sub-types in event
+order: `claimed` sets `handle → caller`, `released` deletes `handle`. The one
+gap is `admin_release()` (see the note below).
 
 **Contract source**: `registry/src/lib.rs` → `fn claim()` / `fn release()`
 
 ```rust
+// Rename (inside claim, before the claimed event):
+env.events().publish(
+    (symbol_short!("handle"), symbol_short!("released")),
+    (caller.clone(), old));
+
 // Claim:
 env.events().publish(
     (symbol_short!("handle"), symbol_short!("claimed")),
@@ -404,6 +418,11 @@ A direct USDC transfer from one wallet to another, with a social
 | Type | Description |
 |------|-------------|
 | `i128` | `amount` — USDC stroops transferred |
+
+> **Reading it**: RPC `getEvents` topic filters only match events with exactly as many
+> topics as filter segments, so a 2-segment `['*', '*']` scan never returns `tipped`. Use a
+> 3-segment filter such as `[tipped, <from>, '*']` (`apps/web/src/lib/events.ts` →
+> `fetchTipsSent`).
 
 ### `rwd_set` (Reward Registered/Updated)
 
@@ -610,7 +629,7 @@ mirrored TypeScript types and constants. Keep these in lockstep with the
 Rust contract definitions:
 
 ```typescript
-export const SCHEMA = { VOUCH: 1, QUEST: 2 } as const;
+export const SCHEMA = { RESERVED: 1, QUEST: 2 } as const; // 1 is never emitted
 
 export const EVENTS = {
   ATTESTATION_SET: 'att_set',
@@ -620,7 +639,7 @@ export const EVENTS = {
   QUEST: 'quest',
   TIPPED: 'tipped',
   REWARD: 'reward',
-  // handle, gate, unlocked, streak, rwd_set, attester are not yet mirrored
+  // handle, gate, unlocked, streak, rwd_set, rwd_cap, attester are not yet mirrored
 } as const;
 ```
 

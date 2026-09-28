@@ -8,7 +8,7 @@
  * Ownership is thus proven ON-CHAIN — no off-chain ownership signature, and it works for
  * passkey smart accounts (C…) as well as classic (G…) wallets.
  */
-import { invokeAndWait, readContract, args, questId as questRegistryId } from './contracts';
+import { invokeAndWait, readContract, readPublic, args, questId as questRegistryId } from './contracts';
 import { humanizeError } from './utils';
 import type { EvidenceType } from './attest';
 import type { Wallet } from './wallet';
@@ -34,14 +34,14 @@ export interface Streak {
   lastWeek: number;
 }
 
-/** Read a player's weekly streak from the QuestRegistry. */
-export async function getStreak(addr: string, source: string): Promise<Streak> {
-  const v = await readContract<{ weeks: number; best: number; last_week: bigint }>(
-    questRegistryId(),
-    'get_streak',
-    [args.addr(addr)],
-    source,
-  );
+/** Read a player's weekly streak from the QuestRegistry. Omit `source` for a wallet-free
+ *  read (public profiles — no source-account lookup). */
+export async function getStreak(addr: string, source?: string): Promise<Streak> {
+  type Raw = { weeks: number; best: number; last_week: bigint };
+  const call = [args.addr(addr)];
+  const v = source
+    ? await readContract<Raw>(questRegistryId(), 'get_streak', call, source)
+    : await readPublic<Raw>(questRegistryId(), 'get_streak', call);
   return {
     weeks: Number(v?.weeks ?? 0),
     best: Number(v?.best ?? 0),

@@ -1,11 +1,13 @@
 /**
- * Shared reputation-event reader. `constellation`, `feed`, and `leaderboard` all need the
- * same RPC `getEvents` window + ScVal decode — this is the one place that knows how to pull
- * and decode them, so the durable-indexer swap (Blue/Black, belts/00-strategy) is a
- * one-file change instead of three. RPC-direct for the MVP; degrades to [] on any failure.
+ * Shared contract-event reader. `constellation`, `feed`, `leaderboard` and `badges` all need
+ * the same RPC `getEvents` window + ScVal decode — this is the one place that knows how to
+ * pull and decode them, so the durable-indexer swap (Blue/Black, belts/00-strategy) is a
+ * one-file change. RPC-direct for the MVP; degrades to [] on any failure.
  */
-import { scValToNative, xdr } from '@stellar/stellar-sdk';
+import { Address, scValToNative, xdr } from '@stellar/stellar-sdk';
+import { EVENTS } from '@alvinmunk/shared';
 import { server, config } from './stellar';
+import { shareInFlight } from './utils';
 
 /**
  * RPC event retention is ~24h; staying within ~9000 ledgers keeps `getEvents` returning
@@ -37,10 +39,39 @@ export function decodeScVal(v: xdr.ScVal | string): unknown {
 /**
  * Recent reputation-contract events (decoded), in RPC order (oldest-first). Returns [] if
  * the contract isn't deployed or RPC is unavailable so every caller degrades gracefully.
+ * Concurrent callers (feed, constellation, badges mounting together) share one scan.
  */
 export async function fetchReputationEvents(limit = 1000): Promise<RepEvent[]> {
-  if (!config.contracts.reputation) return [];
+  return fetchContractEvents(config.contracts.reputation, ['*', '*'], limit);
+}
 
+/**
+ * `tipped` events SENT by `from` (topics ('tipped', from, to) · data amount), oldest-first.
+ * RPC topic filters only match events with exactly as many topics as segments, so the
+ * 2-segment wildcard above never sees these 3-topic events; filtering on the sender here
+ * also keeps the read to one wallet's tips instead of the whole rewards contract.
+ */
+export async function fetchTipsSent(from: string, limit = 1): Promise<RepEvent[]> {
+  let sender: string;
+  try {
+    sender = new Address(from).toScVal().toXDR('base64');
+  } catch {
+    return []; // not a valid G…/C… address
+  }
+  const tipped = xdr.ScVal.scvSymbol(EVENTS.TIPPED).toXDR('base64');
+  return fetchContractEvents(config.contracts.rewards, [tipped, sender, '*'], limit);
+}
+
+const pendingScans = new Map<string, Promise<RepEvent[]>>();
+
+function fetchContractEvents(contractId: string, topics: string[], limit: number): Promise<RepEvent[]> {
+  if (!contractId) return Promise.resolve([]);
+  return shareInFlight(pendingScans, `${contractId}|${topics.join(',')}|${limit}`, () =>
+    scanContractEvents(contractId, topics, limit),
+  );
+}
+
+async function scanContractEvents(contractId: string, topics: string[], limit: number): Promise<RepEvent[]> {
   let startLedger: number;
   try {
     const latest = await server.getLatestLedger();
@@ -52,9 +83,7 @@ export async function fetchReputationEvents(limit = 1000): Promise<RepEvent[]> {
   try {
     const res = await server.getEvents({
       startLedger,
-      filters: [
-        { type: 'contract', contractIds: [config.contracts.reputation], topics: [['*', '*']] },
-      ],
+      filters: [{ type: 'contract', contractIds: [contractId], topics: [topics] }],
       limit,
     });
     return res.events.map((ev) => ({

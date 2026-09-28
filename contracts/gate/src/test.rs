@@ -2,7 +2,10 @@
 //! Integration tests: Gate cross-reads the Reputation contract's Social/Earned tracks.
 use super::*;
 use alvinmunk_reputation::{ReputationContract, ReputationContractClient};
-use soroban_sdk::{testutils::Address as _, Address, Bytes, Env, String};
+use soroban_sdk::{
+    testutils::{storage::Persistent as _, Address as _, Ledger as _},
+    Address, Bytes, Env, String,
+};
 
 struct Fixture<'a> {
     env: Env,
@@ -12,7 +15,10 @@ struct Fixture<'a> {
 }
 
 fn setup() -> Fixture<'static> {
-    let env = Env::default();
+    setup_in(Env::default())
+}
+
+fn setup_in(env: Env) -> Fixture<'static> {
     env.mock_all_auths();
     let admin = Address::generate(&env);
     let attester = Address::generate(&env);
@@ -179,4 +185,56 @@ fn non_admin_upgrade_reverts() {
     client.init(&admin, &rep);
     let hash = soroban_sdk::BytesN::from_array(&env, &[1; 32]);
     client.upgrade(&hash);
+}
+
+// --- Storage TTLs ---
+
+/// Live `state_archival` settings from `stellar network settings` (checked 2026-09-28):
+/// (min_persistent_ttl, min_temporary_ttl, max_entry_ttl).
+const TESTNET_TTLS: (u32, u32, u32) = (120_960, 720, 3_110_400);
+const MAINNET_TTLS: (u32, u32, u32) = (2_073_600, 17_280, 3_110_400);
+
+/// `setup()` on a ledger with the given network TTL limits, set before registration so the
+/// instances get the same TTLs as on the network.
+fn setup_with_ttls((min_persistent, min_temp, max_ttl): (u32, u32, u32)) -> Fixture<'static> {
+    let env = Env::default();
+    env.ledger().with_mut(|l| {
+        l.sequence_number = 1_000;
+        l.min_persistent_entry_ttl = min_persistent;
+        l.min_temp_entry_ttl = min_temp;
+        l.max_entry_ttl = max_ttl;
+    });
+    setup_in(env)
+}
+
+fn ttl(f: &Fixture, key: &DataKey) -> u32 {
+    f.env.as_contract(&f.gate.address, || {
+        f.env.storage().persistent().get_ttl(key)
+    })
+}
+
+#[test]
+fn writes_extend_gate_entries_to_bump_extend() {
+    for ttls in [TESTNET_TTLS, MAINNET_TTLS] {
+        let f = setup_with_ttls(ttls);
+        let user = Address::generate(&f.env);
+        f.gate
+            .create_gate(&1u32, &TRACK_EARNED, &30u64, &String::from_str(&f.env, "a"));
+        f.rep.award_xp(&f.attester, &user, &2u32, &50u64);
+        f.gate.unlock(&user, &1u32);
+        for key in [
+            DataKey::Gate(1),
+            DataKey::GateIds,
+            DataKey::Unlocked(user.clone(), 1),
+        ] {
+            assert_eq!(ttl(&f, &key), BUMP_EXTEND);
+        }
+
+        // Days later, an admin edit tops the gate back up.
+        f.env
+            .ledger()
+            .with_mut(|l| l.sequence_number += DAY_LEDGERS * 3);
+        f.gate.set_gate_active(&1u32, &false);
+        assert_eq!(ttl(&f, &DataKey::Gate(1)), BUMP_EXTEND);
+    }
 }
