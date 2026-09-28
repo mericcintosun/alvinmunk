@@ -69,6 +69,15 @@ describe('getProfile', () => {
     const p = await getProfile('GADDR');
     expect(p).toEqual({ social: 0, earned: 0, verified: false });
   });
+
+  it('shares one get_profile read between widgets asking at the same time', async () => {
+    readPublicMock.mockResolvedValue({ social: 1n, earned: 2n, verified: true });
+    const [a, b] = await Promise.all([getProfile('GADDR'), getProfile('GADDR')]);
+    expect(a).toEqual(b);
+    expect(readPublicMock).toHaveBeenCalledTimes(1);
+    await getProfile('GADDR'); // settled → the next read is fresh
+    expect(readPublicMock).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('getScores', () => {

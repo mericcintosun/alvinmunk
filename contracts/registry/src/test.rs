@@ -2,8 +2,8 @@
 use super::*;
 use soroban_sdk::{
     symbol_short,
-    testutils::{storage::Persistent as _, Address as _, Ledger as _},
-    Address, Env,
+    testutils::{storage::Persistent as _, Address as _, Events as _, Ledger as _},
+    vec, Address, Env, IntoVal, Symbol, Val, Vec,
 };
 
 fn setup() -> (Env, RegistryContractClient<'static>, Address) {
@@ -14,6 +14,21 @@ fn setup() -> (Env, RegistryContractClient<'static>, Address) {
     let client = RegistryContractClient::new(&env, &id);
     client.init(&admin);
     (env, client, admin)
+}
+
+/// A `handle/<kind> (who, handle)` event as `env.events().all()` reports it.
+fn handle_event(
+    client: &RegistryContractClient,
+    kind: &str,
+    who: &Address,
+    handle: &str,
+) -> (Address, Vec<Val>, Val) {
+    let env = &client.env;
+    (
+        client.address.clone(),
+        (symbol_short!("handle"), Symbol::new(env, kind)).into_val(env),
+        (who.clone(), Symbol::new(env, handle)).into_val(env),
+    )
 }
 
 #[test]
@@ -44,12 +59,26 @@ fn claim_taken_by_other_reverts() {
 }
 
 #[test]
+fn first_claim_emits_claimed() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    client.claim(&alice, &symbol_short!("alice"));
+    assert_eq!(
+        env.events().all(),
+        vec![&env, handle_event(&client, "claimed", &alice, "alice")]
+    );
+}
+
+#[test]
 fn reclaim_same_handle_is_idempotent() {
     let (env, client, _admin) = setup();
     let alice = Address::generate(&env);
     client.claim(&alice, &symbol_short!("alice"));
-    client.claim(&alice, &symbol_short!("alice")); // no-op, no panic
-    assert_eq!(client.resolve(&symbol_short!("alice")), Some(alice));
+    // no-op, no panic; `all()` holds the last invocation's events, so it announced nothing
+    client.claim(&alice, &symbol_short!("alice"));
+    assert_eq!(env.events().all(), vec![&env]);
+    assert_eq!(client.resolve(&symbol_short!("alice")), Some(alice.clone()));
+    assert_eq!(client.reverse(&alice), Some(symbol_short!("alice")));
 }
 
 #[test]
@@ -58,10 +87,35 @@ fn rename_frees_the_old_handle() {
     let alice = Address::generate(&env);
     client.claim(&alice, &symbol_short!("old"));
     client.claim(&alice, &symbol_short!("new"));
+    // the freed handle is announced first, then the new claim
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            handle_event(&client, "released", &alice, "old"),
+            handle_event(&client, "claimed", &alice, "new"),
+        ]
+    );
     // old handle is freed; new one points to alice; reverse reflects the new one.
     assert_eq!(client.resolve(&symbol_short!("old")), None);
     assert_eq!(client.resolve(&symbol_short!("new")), Some(alice.clone()));
     assert_eq!(client.reverse(&alice), Some(symbol_short!("new")));
+}
+
+#[test]
+fn renamed_away_handle_is_reclaimable_by_another() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    client.claim(&alice, &symbol_short!("old"));
+    client.claim(&alice, &symbol_short!("new"));
+    client.claim(&bob, &symbol_short!("old"));
+    assert_eq!(
+        env.events().all(),
+        vec![&env, handle_event(&client, "claimed", &bob, "old")]
+    );
+    assert_eq!(client.resolve(&symbol_short!("old")), Some(bob));
+    assert_eq!(client.resolve(&symbol_short!("new")), Some(alice));
 }
 
 #[test]

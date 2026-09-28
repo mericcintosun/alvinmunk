@@ -3,6 +3,7 @@
 import { useWallet } from '@/components/wallet/wallet-provider';
 import { IdentityBar } from '@/components/IdentityBar';
 import { StatStrip } from '@/components/app/stat-strip';
+import { BadgeGallery } from '@/components/BadgeGallery';
 import { AppTabs } from '@/components/app/app-tabs';
 import { VouchClaimedNotice } from '@/components/VouchClaimedNotice';
 
@@ -21,6 +22,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <IdentityBar />
       <div className="mt-4">
         <StatStrip address={profile.address} />
+      </div>
+      {/* Milestone badges — always visible; each session gets its next goal */}
+      <div className="mt-4">
+        <BadgeGallery address={profile.address} />
       </div>
       <div className="mt-5">
         <AppTabs />
