@@ -147,3 +147,36 @@ fn get_gates_lists_and_dedupes_updates() {
     assert_eq!(gs.len(), 2);
     assert_eq!(gs.get(0).unwrap().min, 10); // reflects the update
 }
+
+/// Release build of this contract, committed so the upgrade path can be tested without a
+/// wasm build step in CI. Refresh with `make upgrade-fixtures` after changing the contract.
+const GATE_WASM: &[u8] = include_bytes!("../testdata/alvinmunk_gate.wasm");
+
+#[test]
+fn upgrade_to_identical_wasm_preserves_gates() {
+    let f = setup();
+    f.gate
+        .create_gate(&1u32, &TRACK_SOCIAL, &5u64, &String::from_str(&f.env, "a"));
+
+    let hash = f.env.deployer().upload_contract_wasm(GATE_WASM);
+    f.gate.upgrade(&hash);
+
+    // Calls now run the uploaded wasm against the storage written before the upgrade.
+    let g = f.gate.get_gate(&1u32).unwrap();
+    assert_eq!((g.track, g.min, g.active), (TRACK_SOCIAL, 5, true));
+    assert_eq!(g.label, String::from_str(&f.env, "a"));
+    assert_eq!(f.gate.get_gates().len(), 1);
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn non_admin_upgrade_reverts() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let rep = Address::generate(&env);
+    let id = env.register(GateContract, ());
+    let client = GateContractClient::new(&env, &id);
+    client.init(&admin, &rep);
+    let hash = soroban_sdk::BytesN::from_array(&env, &[1; 32]);
+    client.upgrade(&hash);
+}

@@ -5,6 +5,8 @@ import { Flame } from 'lucide-react';
 import { getWallet } from '@/lib/wallet';
 import { completeQuest, getStreak } from '@/lib/quests';
 import { getEarnedScore } from '@/lib/reputation';
+import { resolveHandle } from '@/lib/registry';
+import { normalizeHandle } from '@/lib/profile';
 import { Frame } from '@/components/fx/frame';
 import { NumberTicker } from '@/components/fx/number-ticker';
 import { Button } from '@/components/ui/button';
@@ -12,7 +14,8 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { StateArt } from '@/components/ui/state-art';
 import { Sticker } from '@/components/ui/sticker';
-import { cn, humanizeError } from '@/lib/utils';
+import { Avatar } from '@/components/Avatar';
+import { cn, humanizeError, shortAddress } from '@/lib/utils';
 import { toast } from '@/components/ui/toaster';
 
 // Quest ids are admin-created on the QuestRegistry; env-configurable so they can change per
@@ -27,6 +30,9 @@ type Evidence =
   | { type: 'invite_converts'; ref: string }
   | { type: 'vouch_back'; ref: string };
 
+const RAW_ADDR = /^[GC][A-Z2-7]{55}$/;
+const RAW_G_ADDR = /^G[A-Z2-7]{55}$/;
+
 /**
  * Verified quests (Earned XP — the cashable track). The wallet owner proves ownership,
  * the attester verifies proof + on-chain activity, then grants Earned XP. Earned ≠ Social.
@@ -38,16 +44,78 @@ export function Quests({ address }: { address: string }) {
   const [streak, setStreak] = useState<{ weeks: number; best: number } | null>(null);
   const [busy, setBusy] = useState<null | 'referral' | 'invite' | 'vouchback'>(null);
   const [ref, setRef] = useState('');
+  const [resolvedRef, setResolvedRef] = useState<string | null>(null);
+  const [resolvingRef, setResolvingRef] = useState(false);
   const [invite, setInvite] = useState('');
+  const [resolvedInvite, setResolvedInvite] = useState<string | null>(null);
+  const [resolvingInvite, setResolvingInvite] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Referral verifies a DIFFERENT, on-chain-active classic account; invite-converts accepts a
-  // classic (G…) or smart-wallet (C…) address you invited (neither can be yourself).
   const refTrim = ref.trim();
   const inviteTrim = invite.trim();
-  const validRef = /^G[A-Z2-7]{55}$/.test(refTrim) && refTrim !== address;
-  const validInvite = /^[GC][A-Z2-7]{55}$/.test(inviteTrim) && inviteTrim !== address;
+  const validRef = resolvedRef && RAW_G_ADDR.test(resolvedRef) && resolvedRef !== address;
+  const validInvite = resolvedInvite && RAW_ADDR.test(resolvedInvite) && resolvedInvite !== address;
+
+  useEffect(() => {
+    if (RAW_ADDR.test(refTrim)) {
+      setResolvedRef(refTrim);
+      setResolvingRef(false);
+      return;
+    }
+    const handle = normalizeHandle(refTrim.replace(/^@/, ''));
+    if (handle.length < 3) {
+      setResolvedRef(null);
+      setResolvingRef(false);
+      return;
+    }
+    let alive = true;
+    setResolvingRef(true);
+    const t = setTimeout(() => {
+      resolveHandle(handle)
+        .catch(() => null)
+        .then((addr) => {
+          if (alive) {
+            setResolvedRef(addr);
+            setResolvingRef(false);
+          }
+        });
+    }, 400);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [refTrim]);
+
+  useEffect(() => {
+    if (RAW_ADDR.test(inviteTrim)) {
+      setResolvedInvite(inviteTrim);
+      setResolvingInvite(false);
+      return;
+    }
+    const handle = normalizeHandle(inviteTrim.replace(/^@/, ''));
+    if (handle.length < 3) {
+      setResolvedInvite(null);
+      setResolvingInvite(false);
+      return;
+    }
+    let alive = true;
+    setResolvingInvite(true);
+    const t = setTimeout(() => {
+      resolveHandle(handle)
+        .catch(() => null)
+        .then((addr) => {
+          if (alive) {
+            setResolvedInvite(addr);
+            setResolvingInvite(false);
+          }
+        });
+    }, 400);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [inviteTrim]);
 
   useEffect(() => {
     getEarnedScore(address, address).then(setEarned).catch(() => setEarned(0));
@@ -130,21 +198,35 @@ export function Quests({ address }: { address: string }) {
             id="quest-ref"
             value={ref}
             onChange={(e) => setRef(e.target.value)}
-            placeholder="their Stellar address (G…)"
+            placeholder="@handle or address (G…)"
             className="mt-1.5 font-mono text-xs"
             aria-describedby="quest-ref-hint"
           />
+          {!RAW_ADDR.test(refTrim) && refTrim.length > 0 && (
+            <div className="mt-1 flex items-center text-xs text-muted-foreground">
+              {resolvingRef ? (
+                'Looking up handle…'
+              ) : resolvedRef ? (
+                <span className="flex items-center text-secondary">
+                  → <Avatar address={resolvedRef} size={16} ring={false} className="mx-1.5" />
+                  {shortAddress(resolvedRef, 6, 6)}
+                </span>
+              ) : (
+                <span className="text-destructive">No wallet found for that handle</span>
+              )}
+            </div>
+          )}
           <p id="quest-ref-hint" className="mt-1 text-[11px] text-muted-foreground">
-            {refTrim && refTrim === address
+            {resolvedRef && resolvedRef === address
               ? 'You can’t refer yourself — paste a different wallet.'
-              : refTrim && !validRef
-                ? 'That doesn’t look like a Stellar address (G…).'
+              : refTrim && !resolvingRef && !validRef
+                ? 'That doesn’t look like a Stellar address (G…) or handle.'
                 : 'A friend who’s already active on Stellar. Earns Earned XP (cashable).'}
           </p>
           <Button
             variant="onchain"
-            onClick={() => run('referral', REFERRAL_QUEST_ID, { type: 'referral_tx', ref: refTrim })}
-            disabled={busy !== null || !validRef}
+            onClick={() => run('referral', REFERRAL_QUEST_ID, { type: 'referral_tx', ref: resolvedRef! })}
+            disabled={busy !== null || !validRef || resolvingRef}
             className="mt-2 w-full"
           >
             {busy === 'referral' ? 'Verifying…' : 'Verify a quest'}
@@ -160,21 +242,35 @@ export function Quests({ address }: { address: string }) {
             id="quest-invite"
             value={invite}
             onChange={(e) => setInvite(e.target.value)}
-            placeholder="their address (G… or C…)"
+            placeholder="@handle or address (G… or C…)"
             className="mt-1.5 font-mono text-xs"
             aria-describedby="quest-invite-hint"
           />
+          {!RAW_ADDR.test(inviteTrim) && inviteTrim.length > 0 && (
+            <div className="mt-1 flex items-center text-xs text-muted-foreground">
+              {resolvingInvite ? (
+                'Looking up handle…'
+              ) : resolvedInvite ? (
+                <span className="flex items-center text-secondary">
+                  → <Avatar address={resolvedInvite} size={16} ring={false} className="mx-1.5" />
+                  {shortAddress(resolvedInvite, 6, 6)}
+                </span>
+              ) : (
+                <span className="text-destructive">No wallet found for that handle</span>
+              )}
+            </div>
+          )}
           <p id="quest-invite-hint" className="mt-1 text-[11px] text-muted-foreground">
-            {inviteTrim && inviteTrim === address
+            {resolvedInvite && resolvedInvite === address
               ? 'You can’t invite yourself.'
-              : inviteTrim && !validInvite
-                ? 'That doesn’t look like a Stellar address.'
+              : inviteTrim && !resolvingInvite && !validInvite
+                ? 'That doesn’t look like a Stellar address or handle.'
                 : 'Someone you brought in — earns once they’ve been vouched for. The growth loop.'}
           </p>
           <Button
             variant="onchain"
-            onClick={() => run('invite', INVITE_QUEST_ID, { type: 'invite_converts', ref: inviteTrim })}
-            disabled={busy !== null || !validInvite}
+            onClick={() => run('invite', INVITE_QUEST_ID, { type: 'invite_converts', ref: resolvedInvite! })}
+            disabled={busy !== null || !validInvite || resolvingInvite}
             className="mt-2 w-full"
           >
             {busy === 'invite' ? 'Verifying…' : 'Claim invite reward'}

@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { StateArt } from '@/components/ui/state-art';
+import { Avatar } from '@/components/Avatar';
 import { withTimeout, humanizeError, shortAddress } from '@/lib/utils';
 import { toast } from '@/components/ui/toaster';
 
@@ -165,17 +166,18 @@ export function Tip({ address }: { address: string }) {
             />
             {/* Resolution feedback: confirm who a handle points to before sending. */}
             {!RAW_ADDR.test(to.trim()) && to.trim().length > 0 && (
-              <p className="-mt-1 text-xs text-muted-foreground">
+              <div className="-mt-1 flex items-center text-xs text-muted-foreground">
                 {resolving ? (
                   'Looking up handle…'
                 ) : resolved ? (
-                  <span className="text-secondary">
-                    → {shortAddress(resolved, 6, 6)}
+                  <span className="flex items-center text-secondary">
+                    → <Avatar address={resolved} size={16} ring={false} className="mx-1.5" />
+                    {shortAddress(resolved, 6, 6)}
                   </span>
                 ) : (
                   <span className="text-destructive">No wallet found for that handle</span>
                 )}
-              </p>
+              </div>
             )}
             <div className="flex gap-2">
               <Input

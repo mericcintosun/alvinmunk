@@ -336,3 +336,37 @@ proptest! {
         prop_assert_eq!(client.get_score(&user), 0);
     }
 }
+
+/// Release build of this contract, committed so the upgrade path can be tested without a
+/// wasm build step in CI. Refresh with `make upgrade-fixtures` after changing the contract.
+const REPUTATION_WASM: &[u8] = include_bytes!("../testdata/alvinmunk_reputation.wasm");
+
+#[test]
+fn upgrade_to_identical_wasm_preserves_scores_and_attesters() {
+    let (env, client, _admin) = setup();
+    let attester = Address::generate(&env);
+    client.add_attester(&attester);
+    let user = Address::generate(&env);
+    client.award_xp(&attester, &user, &2u32, &30u64);
+
+    let hash = env.deployer().upload_contract_wasm(REPUTATION_WASM);
+    client.upgrade(&hash);
+
+    assert_eq!(client.get_earned(&user), 30);
+    assert!(client.is_attester(&attester));
+    // The allowlist still works on the upgraded code.
+    client.award_xp(&attester, &user, &2u32, &20u64);
+    assert_eq!(client.get_earned(&user), 50);
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn non_admin_upgrade_reverts() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let id = env.register(ReputationContract, ());
+    let client = ReputationContractClient::new(&env, &id);
+    client.init(&admin);
+    let hash = soroban_sdk::BytesN::from_array(&env, &[1; 32]);
+    client.upgrade(&hash);
+}

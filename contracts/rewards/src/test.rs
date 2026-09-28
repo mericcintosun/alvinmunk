@@ -260,3 +260,41 @@ proptest! {
         }
     }
 }
+
+/// Release build of this contract, committed so the upgrade path can be tested without a
+/// wasm build step in CI. Refresh with `make upgrade-fixtures` after changing the contract.
+const REWARDS_WASM: &[u8] = include_bytes!("../testdata/alvinmunk_rewards.wasm");
+
+#[test]
+fn upgrade_to_identical_wasm_preserves_reward_table_and_treasury() {
+    let f = setup();
+    f.rewards.add_reward(&1u32, &30u64, &50i128);
+
+    let hash = f.env.deployer().upload_contract_wasm(REWARDS_WASM);
+    f.rewards.upgrade(&hash);
+
+    let r = f.rewards.get_reward(&1u32).unwrap();
+    assert_eq!((r.threshold, r.amount, r.active), (30, 50, true));
+
+    // The upgraded contract still pays the stored amount from the same treasury.
+    let user = Address::generate(&f.env);
+    f.rep.award_xp(&f.attester, &user, &2u32, &30u64);
+    f.rewards.claim_reward(&user, &1u32);
+    let token_c = token::TokenClient::new(&f.env, &f.usdc);
+    assert_eq!(token_c.balance(&user), 50);
+    assert_eq!(token_c.balance(&f.rewards_id), 950);
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn non_admin_upgrade_reverts() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let usdc = Address::generate(&env);
+    let rep = Address::generate(&env);
+    let id = env.register(RewardsContract, ());
+    let client = RewardsContractClient::new(&env, &id);
+    client.init(&admin, &usdc, &rep);
+    let hash = soroban_sdk::BytesN::from_array(&env, &[1; 32]);
+    client.upgrade(&hash);
+}

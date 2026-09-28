@@ -102,3 +102,32 @@ fn admin_release_clears_a_squatted_handle() {
     client.claim(&real, &symbol_short!("brand"));
     assert_eq!(client.resolve(&symbol_short!("brand")), Some(real));
 }
+
+/// Release build of this contract, committed so the upgrade path can be tested without a
+/// wasm build step in CI. Refresh with `make upgrade-fixtures` after changing the contract.
+const REGISTRY_WASM: &[u8] = include_bytes!("../testdata/alvinmunk_registry.wasm");
+
+#[test]
+fn upgrade_to_identical_wasm_preserves_handles() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    client.claim(&alice, &symbol_short!("alice"));
+
+    let hash = env.deployer().upload_contract_wasm(REGISTRY_WASM);
+    client.upgrade(&hash);
+
+    assert_eq!(client.resolve(&symbol_short!("alice")), Some(alice.clone()));
+    assert_eq!(client.reverse(&alice), Some(symbol_short!("alice")));
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn non_admin_upgrade_reverts() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let id = env.register(RegistryContract, ());
+    let client = RegistryContractClient::new(&env, &id);
+    client.init(&admin);
+    let hash = soroban_sdk::BytesN::from_array(&env, &[1; 32]);
+    client.upgrade(&hash);
+}
