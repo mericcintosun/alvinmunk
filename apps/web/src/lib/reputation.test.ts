@@ -16,7 +16,7 @@ vi.mock('./contracts', () => ({
   },
 }));
 
-import { fromHex, toHex, getProfile, getScores } from './reputation';
+import { fromHex, toHex, getCounts, getPending, getProfile, getScores } from './reputation';
 
 function expectBytes(actual: Uint8Array, expected: number[]) {
   expect(Array.from(actual)).toEqual(expected);
@@ -98,5 +98,51 @@ describe('getScores', () => {
     const s = await getScores('GADDR');
     expect(s).toEqual({ social: 12, earned: 8 });
     expect(readPublicMock).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('getCounts', () => {
+  beforeEach(() => readPublicMock.mockReset());
+
+  it('maps the (vouched_by, backed) tuple', async () => {
+    readPublicMock.mockResolvedValueOnce([3, 1]);
+    expect(await getCounts('GADDR')).toEqual({ vouchedBy: 3, backed: 1 });
+    expect(readPublicMock).toHaveBeenCalledWith('CREPID', 'get_counts', expect.any(Array));
+  });
+
+  it('is null, not zero, when the contract predates get_counts', async () => {
+    readPublicMock.mockRejectedValueOnce(new Error('simulate get_counts failed: MissingValue'));
+    expect(await getCounts('GADDR')).toBeNull();
+  });
+
+  it('is null for an empty return value', async () => {
+    readPublicMock.mockResolvedValueOnce(undefined);
+    expect(await getCounts('GADDR')).toBeNull();
+  });
+});
+
+describe('getPending', () => {
+  beforeEach(() => readPublicMock.mockReset());
+
+  it('maps the queued PendingBonus entries', async () => {
+    readPublicMock.mockResolvedValueOnce([
+      { voucher: 'GALICE', amount: 5n },
+      { voucher: 'GCAROL', amount: 5n },
+    ]);
+    expect(await getPending('GBOB')).toEqual([
+      { voucher: 'GALICE', amount: 5 },
+      { voucher: 'GCAROL', amount: 5 },
+    ]);
+    expect(readPublicMock).toHaveBeenCalledWith('CREPID', 'get_pending', expect.any(Array));
+  });
+
+  it('is empty once the claimer has verified', async () => {
+    readPublicMock.mockResolvedValueOnce([]);
+    expect(await getPending('GBOB')).toEqual([]);
+  });
+
+  it('rejects when the contract predates get_pending, instead of reading as nothing owed', async () => {
+    readPublicMock.mockRejectedValueOnce(new Error('simulate get_pending failed: MissingValue'));
+    await expect(getPending('GBOB')).rejects.toThrow('get_pending');
   });
 });

@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { StateArt } from '@/components/ui/state-art';
 import { Sticker } from '@/components/ui/sticker';
 import { Avatar } from '@/components/Avatar';
+import { WeekReset } from '@/components/WeekReset';
 import { cn, humanizeError, shortAddress } from '@/lib/utils';
 import { toast } from '@/components/ui/toaster';
 
@@ -124,6 +125,15 @@ export function Quests({ address }: { address: string }) {
       .catch(() => setStreak({ weeks: 0, best: 0 }));
   }, [address]);
 
+  // A run can lapse when the week rolls over, so the countdown re-reads the streak then.
+  function reloadStreak() {
+    getStreak(address, address)
+      .then((s) => setStreak({ weeks: s.weeks, best: s.best }))
+      .catch(() => {
+        /* keep the last streak */
+      });
+  }
+
   async function run(kind: 'referral' | 'invite' | 'vouchback', questId: number, evidence: Evidence) {
     setBusy(kind);
     setError(null);
@@ -187,6 +197,7 @@ export function Quests({ address }: { address: string }) {
                 <span className="text-muted-foreground/60"> · best {streak.best}</span>
               )}
             </span>
+            <WeekReset address={address} onRollover={reloadStreak} className="ml-auto" />
           </div>
         )}
         {/* Quest 1 — refer an active wallet */}

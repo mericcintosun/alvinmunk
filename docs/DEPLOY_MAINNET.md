@@ -53,24 +53,65 @@ stellar keys generate attester --network mainnet   # fund minimally
 
 **USDC on mainnet:** do NOT issue your own. Use Circle's canonical mainnet USDC and its SAC address as `NEXT_PUBLIC_USDC_SAC_ID`. Verify the issuer `GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN` on stellar.expert before wiring it.
 
-**Deploy the five contracts.** The testnet script (`scripts/deploy-testnet.sh`) already builds, deploys, initializes, and cross-wires all five (reputation → quest_registry → rewards → registry → gate, plus `add_attester` and reward-table seeding). Make a `scripts/deploy-mainnet.sh` copy of it that:
-1. Uses `--network mainnet`.
-2. Uses the mainnet USDC SAC id (Circle), not a self-issued asset.
-3. Turns `rewards.set_require_funding(true)` ON (proof-of-funding gate for real money).
-4. Sets a conservative `rewards.set_daily_cap` (treasury circuit breaker).
+**Deploy the five contracts** with `scripts/deploy-mainnet.sh`, a dedicated script (never an edited copy of the testnet one). Before it submits anything it passes three gates, and it aborts at the first one that fails:
+
+1. **Passphrase gate.** The `mainnet` network must resolve to `Public Global Stellar Network ; September 2015` in three places: the CLI config (`stellar network ls --long`), the CLI's actual resolution at run time (it derives the native XLM SAC id, which only matches under the mainnet passphrase; `STELLAR_RPC_URL` + `STELLAR_NETWORK_PASSPHRASE` in the environment or in a `.env` file in the repo or a parent directory override `--network`), and the passphrase the RPC server itself reports (`stellar network info`). A testnet passphrase anywhere aborts.
+2. **USDC gate.** It derives Circle's SAC with `stellar contract id asset --asset USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN --network mainnet` and requires `USDC_SAC` to equal it (`CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75`).
+3. **Operator gate.** After printing the plan (commit, admin, attester key, USDC SAC, daily cap in stroops and USDC, seed data, wasm hashes) it asks you to type `mainnet`. The answer is read from the terminal, not stdin, so it cannot be piped or scripted; without a terminal a real run stops here.
+
+It also checks, before any network call: every input is present and well-formed, `ADMIN` and `ATTESTER` are identity names (never secret keys), the attester is a different key from the admin, and `contracts/` has no uncommitted changes, so the logged commit is the code that ships (a dry run only warns).
+
+Then it:
+- builds with `stellar contract build --locked` into a fresh temporary directory and records each wasm's sha256;
+- for each contract in order (reputation, quest_registry, rewards, registry, gate): uploads the wasm (checking the on-chain hash equals the local sha256), deploys it, and calls `init` straight away, because `init` is open to anyone until it has run. `init` is never retried: if it fails, someone may have initialized the contract first, so never use that id;
+- sets `rewards.set_daily_cap(DAILY_CAP)` and `rewards.set_require_funding(true)`;
+- wires the attesters: `reputation.add_attester(quest_registry)` and `quest_registry.add_attester_key(<attester ed25519 key>)`, the key `/api/attest` signs with;
+- seeds the same quests (ids 1-4), reward table (ids 1-3: 30 / 60 / 100 Earned XP pays 0.5 / 1 / 2 USDC) and gates (1, 2) as `scripts/redeploy-all.sh`;
+- reads back `get_require_funding`, `get_daily_cap` and `is_attester(quest_registry)`;
+- appends the commit SHA, deployer (admin) public key, attester key, USDC SAC, daily cap, CLI version, and every contract id + wasm hash to `deployment-log.md`.
+
+It never calls friendbot or the faucet and never moves USDC. If it fails or is interrupted after creating contracts, it appends an `INCOMPLETE (failed during: <step>)` entry with the ids created so far; don't wire the app to them.
+
+### Usage
+
+**Dry run first.** It runs every check (reading from the RPC) and the build, prints each transaction a real run would submit, and submits nothing; `deployment-log.md` is not touched.
 
 ```bash
-stellar contract build   # wasm32v1-none, optimized
-
-USDC_SAC=<circle_mainnet_usdc_sac> ADMIN=admin ATTESTER=attester \
+DRY_RUN=1 ADMIN=admin ATTESTER=attester \
+  USDC_SAC=CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75 \
+  DAILY_CAP=500000000 \
   ./scripts/deploy-mainnet.sh
 ```
 
-After deploy:
+**Real deployment** (same inputs, no `DRY_RUN`; type `mainnet` when asked):
+
+```bash
+ADMIN=admin ATTESTER=attester \
+  USDC_SAC=CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75 \
+  DAILY_CAP=500000000 \
+  ./scripts/deploy-mainnet.sh
+```
+
+**Inputs** (env vars only; the script takes no arguments besides `--help`):
+
+| Variable | Required | Meaning |
+| --- | --- | --- |
+| `ADMIN` | yes | `stellar keys` identity name of the funded mainnet deployer. It becomes admin of all five contracts and signs every transaction. |
+| `ATTESTER` | yes | Identity name or `G...` public key of the off-chain attester (its secret goes in `ATTESTER_SECRET_KEY` on the server). Must differ from `ADMIN`. |
+| `USDC_SAC` | yes | Circle's mainnet USDC SAC, `CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75`. Anything else aborts at the USDC gate. |
+| `DAILY_CAP` | yes | Max treasury payout per UTC day, in USDC stroops (1 USDC = `10000000`, so `500000000` = 50 USDC). Must be positive: `0` would mean no cap. Must also be at least the largest reward in the table (`20000000` = 2 USDC), because `add_reward` rejects a payout above the cap. |
+| `DRY_RUN` | no | `1` for a dry run, `0` or unset for a real run. Any other value aborts. |
+
+Needs `stellar` (with `strkey decode`), `jq` and `git`. Offline tests for the gates and the dry run: `bash scripts/deploy-mainnet.test.sh` (stubs the CLI; needs `python3`).
+
+### After deploy
+
+- [ ] Commit the new `deployment-log.md` entry and add the mainnet contract ids to the README.
+- [ ] Set `ATTESTER_SECRET_KEY` (server-only) to the attester key the script allowlisted.
 - [ ] Read a view method from each contract on mainnet RPC to confirm it responds.
 - [ ] Run the e2e smoke (a single vouch + claim) against the mainnet ids with a throwaway funded account.
-- [ ] Record each contract id + WASM hash + deployer fingerprint + commit SHA in `deployment-log.md` and the README.
-- [ ] Open each on `stellar.expert/explorer/public/contract/<ID>` and confirm.
+- [ ] Only then fund the treasury: transfer USDC to the rewards contract id by hand. With proof-of-funding on, a claim reverts with `NotFunded` until the funding verifier has called `rewards.set_funded` for the claimer.
+- [ ] Open each contract on `stellar.expert/explorer/public/contract/<ID>` (links are in `deployment-log.md`) and confirm.
 
 ---
 

@@ -57,7 +57,8 @@ pub struct QuestConfig {
 
 /// Weekly retention streak (Green belt). `weeks` = current consecutive-week run;
 /// `last_week` = the epoch (timestamp / WEEK_SECS) of the most recent completion;
-/// `best` = the all-time high (a rank input that survives a miss).
+/// `best` = the all-time high (a rank input that survives a miss). Storage keeps `weeks`
+/// until the next award; `get_streak` reports a lapsed run as 0.
 #[contracttype]
 #[derive(Clone)]
 pub struct Streak {
@@ -223,21 +224,38 @@ impl QuestRegistryContract {
         );
     }
 
-    /// The current weekly epoch (timestamp / WEEK_SECS) — the UI's "this week".
+    /// The current weekly epoch (timestamp / WEEK_SECS) — the UI's "this week". Weeks run
+    /// Thursday 00:00:00 to Wednesday 23:59:59 UTC; `get_week_bounds` gives the timestamps.
     pub fn get_week(env: Env) -> u64 {
         Self::current_week(&env)
     }
 
-    /// A player's weekly streak (consecutive weeks with ≥1 completed quest).
+    /// The current streak week as UTC unix timestamps `(start, end)`: `start` is its first
+    /// second and `end` its last (inclusive), so the week resets at `end + 1`. The client
+    /// counts down to that without re-deriving the week formula.
+    pub fn get_week_bounds(env: Env) -> (u64, u64) {
+        let start = Self::current_week(&env) * WEEK_SECS;
+        (start, start.saturating_add(WEEK_SECS - 1))
+    }
+
+    /// A player's weekly streak (consecutive weeks with ≥1 completed quest), as of now.
+    /// The stored run only changes on the next award, so a run whose last completion is
+    /// older than last week reads as `weeks = 0` here — it can no longer be extended.
+    /// `last_week` and `best` are returned as stored. Read-only: storage is not rewritten.
     pub fn get_streak(env: Env, player: Address) -> Streak {
-        env.storage()
+        let mut s: Streak = env
+            .storage()
             .persistent()
             .get(&DataKey::Streak(player))
             .unwrap_or(Streak {
                 weeks: 0,
                 last_week: 0,
                 best: 0,
-            })
+            });
+        if s.weeks > 0 && s.last_week.saturating_add(1) < Self::current_week(&env) {
+            s.weeks = 0;
+        }
+        s
     }
 
     // --- internal ---
@@ -252,6 +270,11 @@ impl QuestRegistryContract {
         parts.to_xdr(env)
     }
 
+    /// Weeks are aligned on the Unix epoch, and 1970-01-01 was a Thursday, so every week
+    /// runs Thursday 00:00:00 to Wednesday 23:59:59 UTC. Do not re-align this (e.g. to
+    /// Monday): every stored `Streak.last_week` is an index in this epoch, so a new formula
+    /// would break live streaks. A different alignment needs a versioned epoch and a
+    /// migration.
     fn current_week(env: &Env) -> u64 {
         env.ledger().timestamp() / WEEK_SECS
     }
