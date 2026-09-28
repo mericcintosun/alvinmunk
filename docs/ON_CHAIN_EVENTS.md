@@ -350,8 +350,62 @@ env.events().publish(
     (caller, handle));
 ```
 
-> **Note**: `admin_release()` does **not** emit an event (admin-only
-> operation that cleans up state silently).
+> **Note**: `admin_release()` does **not** emit a `handle` event (admin-only
+> operation that cleans up state silently). It does emit `meta` / `cleared` when
+> the holder had a profile.
+
+### `meta` / `set`
+
+A handle holder publishes its profile face and bio (`set_meta()`), replacing any
+earlier ones. Only an address that holds a handle can set one; a rename keeps it.
+The stored shape is [`ProfileMeta`](#profilemeta-get_meta).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol("meta")` | Event discriminator |
+| **topics[1]** | `Symbol("set")` | Sub-type |
+
+**Data tuple**:
+
+| Index | Type | Description |
+|-------|------|-------------|
+| 0 | `Address` | `caller` — the handle holder |
+| 1 | `u64` | `avatar` — the packed face (layout under `ProfileMeta`) |
+| 2 | `String` | `bio` — plain text, may be empty |
+
+### `meta` / `cleared`
+
+An address's profile is deleted because it gave up its handle: `release()`
+(right after `handle` / `released`) or `admin_release()`. Emitted only when there
+was a profile to delete. Meta is keyed by address, so whoever claims the freed
+handle next starts with none.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol("meta")` | Event discriminator |
+| **topics[1]** | `Symbol("cleared")` | Sub-type |
+
+**Data**:
+
+| Type | Description |
+|------|-------------|
+| `Address` | The address whose profile was deleted |
+
+An indexer keyed by address folds both in order: `set` replaces the profile,
+`cleared` deletes it.
+
+**Contract source**: `registry/src/lib.rs` → `fn set_meta()` / `fn clear_meta()`
+
+```rust
+// Set:
+env.events().publish(
+    (symbol_short!("meta"), symbol_short!("set")),
+    (caller, avatar, bio));
+
+// Cleared (from release / admin_release):
+env.events().publish(
+    (symbol_short!("meta"), symbol_short!("cleared")), addr);
+```
 
 ---
 
@@ -521,6 +575,7 @@ Quick-reference table of all event discriminators and their sub-types.
 | `quest` | `created`, `awarded` | QuestRegistry | [↑](#2-questregistry-contract) |
 | `streak` | *(none)* | QuestRegistry | [↑](#streak-weekly-retention) |
 | `handle` | `claimed`, `released` | Registry | [↑](#3-registry-contract-handles) |
+| `meta` | `set`, `cleared` | Registry | [↑](#meta--set) |
 | `gate` | `created` | Gate | [↑](#4-gate-contract) |
 | `unlocked` | *(none)* | Gate | [↑](#unlocked) |
 | `tipped` | *(none)* | Rewards | [↑](#tipped) |
@@ -644,6 +699,41 @@ time and never queued. At most `MAX_PENDING` (64) entries; bonuses past the cap 
 dropped. Keyed by claimer only: "what am I owed" means reading `get_pending` for each
 person you vouched and keeping the entries whose `voucher` is you.
 
+### `ProfileMeta` (`get_meta`)
+
+`get_meta(addr) -> Option<ProfileMeta>` returns the profile `addr` published with
+`set_meta` (`DataKey::Meta(addr)`), or `None` if it never set one or has since given
+up its handle. A registry deployed before `set_meta` has no `get_meta`, so treat a
+failed call as "no profile" and show the default face.
+
+```rust
+pub struct ProfileMeta {
+    pub avatar: u64,  // packed face, below
+    pub bio: String,  // <= 80 BYTES of UTF-8, no control characters
+}
+```
+
+`set_meta` reverts with `BioTooLong` (#5) past 80 bytes (not characters: `ş` is 2
+bytes, most emoji 4), `BadBio` (#6) for text that isn't UTF-8 or contains a control
+character (C0, DEL, C1), U+2028/U+2029, or a bidi embedding/override/isolate mark
+(U+202A–U+202E, U+2066–U+2069), and `BadAvatar` (#7) for any `avatar` outside this
+layout — one byte per field, every unlisted byte zero:
+
+| Byte | Face (`byte 7 = 0`) | Kit (`byte 7 = 1`) |
+|------|---------------------|--------------------|
+| 7 | kind `0` | kind `1` |
+| 5 | — | `skin` 1–6 |
+| 4 | — | `hair` 1–10 |
+| 3 | — | `eyes` 1–10 |
+| 2 | — | `mouth` 1–9 |
+| 1 | — | `acc` 0–13 (0 = none) |
+| 0 | face number 1–5 (`face-01`…`face-05`) | `bg` 0–5 (0 = none) |
+
+So `face-03` is `0x0000000000000003` and the kit skin 3 / hair 7 / eyes 5 / mouth 4 /
+acc 9 / bg 2 is `0x0100030705040902`. The ranges are the portrait assets the web app
+ships (`FACE_IDS` / `KIT_COUNTS` in `apps/web/src/lib/avatar.ts`, which packs with
+`encodeAvatar`); adding assets means upgrading the contract to accept them.
+
 ### `QuestConfig`
 
 ```rust
@@ -757,7 +847,7 @@ export const EVENTS = {
   QUEST: 'quest',
   TIPPED: 'tipped',
   REWARD: 'reward',
-  // handle, gate, unlocked, streak, rwd_set, rwd_cap, attester are not yet mirrored
+  // handle, meta, gate, unlocked, streak, rwd_set, rwd_cap, attester are not yet mirrored
 } as const;
 ```
 

@@ -235,5 +235,19 @@
   "badges.generous.name": "Generous",
   "badges.generous.by": "first tip to {name}",
   "badges.generous.desc": "First tip sent",
-  "badges.generous.next": "No tip sent yet"
+  "badges.generous.next": "No tip sent yet",
+
+  "identity.bio.label": "Bio",
+  "identity.bio.placeholder": "One line about you — plain text",
+  "identity.bio.bytesHint": "Counted in bytes: accented letters take 2, most emoji 4.",
+  "identity.bio.save": "save",
+  "identity.bio.cancel": "Cancel bio edit",
+  "identity.bio.add": "add a bio…",
+  "identity.bio.edit": "Edit bio",
+  "identity.meta.saving": "saving on-chain…",
+  "identity.meta.saved": "Saved on-chain — anyone opening your profile sees it.",
+  "identity.meta.unsupported": "Saved on this device. Public faces and bios aren't live on this network yet.",
+  "identity.meta.error.noHandle": "Claim your @handle on-chain first — then your face and bio can go public.",
+  "identity.meta.error.bio": "That bio can't be saved — keep it to one line of plain text, 80 bytes max.",
+  "identity.meta.error.avatar": "The registry doesn't know that face yet — pick another."
 }
