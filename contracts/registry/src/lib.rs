@@ -56,8 +56,9 @@ impl RegistryContract {
     }
 
     /// Claim `handle` for `caller` (first-come). If `caller` already holds a different
-    /// handle, this RENAMES (frees the old one). Reverts if the handle is held by
-    /// someone else. Idempotent if `caller` re-claims the same handle.
+    /// handle, this RENAMES: the old one is freed and `released` is published for it
+    /// before `claimed`. Reverts if the handle is held by someone else. Re-claiming the
+    /// handle `caller` already holds is a no-op (no writes, no event; TTLs are refreshed).
     pub fn claim(env: Env, caller: Address, handle: Symbol) {
         caller.require_auth();
 
@@ -68,12 +69,23 @@ impl RegistryContract {
             }
         }
 
-        // rename: free the caller's previous handle (if any, and different)
         let rkey = DataKey::Rev(caller.clone());
         if let Some(old) = env.storage().persistent().get::<DataKey, Symbol>(&rkey) {
-            if old != handle {
-                env.storage().persistent().remove(&DataKey::Fwd(old));
+            if old == handle {
+                // already held: nothing changed, so nothing to write or announce
+                Self::bump(&env, &fkey);
+                Self::bump(&env, &rkey);
+                return;
             }
+            // rename: free the previous handle and announce it, so handle-keyed
+            // indexers drop `old -> caller` before someone else takes `old`
+            env.storage()
+                .persistent()
+                .remove(&DataKey::Fwd(old.clone()));
+            env.events().publish(
+                (symbol_short!("handle"), symbol_short!("released")),
+                (caller.clone(), old),
+            );
         }
 
         env.storage().persistent().set(&fkey, &caller);

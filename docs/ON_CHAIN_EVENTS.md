@@ -291,7 +291,10 @@ env.events().publish(
 
 ### `handle` / `claimed`
 
-A wallet claims a new handle. (On a rename, a `released` event for the old handle is emitted immediately before this). Re-claiming an already-held handle is a silent no-op.
+A wallet takes a handle, either its first one or as a rename. On a rename the
+old handle is announced with `handle` / `released` in the same transaction,
+immediately before this event. Re-claiming the handle the wallet already holds
+changes nothing and emits no event.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -307,7 +310,9 @@ A wallet claims a new handle. (On a rename, a `released` event for the old handl
 
 ### `handle` / `released`
 
-A wallet voluntarily releases its handle.
+A handle is freed: the wallet released it (`release()`), or renamed away from
+it (`claim()` with a different handle, emitted right before the new `claimed`).
+Either way the handle no longer resolves and anyone may claim it.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -318,12 +323,21 @@ A wallet voluntarily releases its handle.
 
 | Index | Type | Description |
 |-------|------|-------------|
-| 0 | `Address` | `caller` — the releasing wallet |
-| 1 | `Symbol` | `handle` — the released handle |
+| 0 | `Address` | `caller` — the wallet that held the handle |
+| 1 | `Symbol` | `handle` — the freed handle |
+
+An indexer keyed by handle stays in sync by applying both sub-types in event
+order: `claimed` sets `handle → caller`, `released` deletes `handle`. The one
+gap is `admin_release()` (see the note below).
 
 **Contract source**: `registry/src/lib.rs` → `fn claim()` / `fn release()`
 
 ```rust
+// Rename (inside claim, before the claimed event):
+env.events().publish(
+    (symbol_short!("handle"), symbol_short!("released")),
+    (caller.clone(), old));
+
 // Claim:
 env.events().publish(
     (symbol_short!("handle"), symbol_short!("claimed")),
