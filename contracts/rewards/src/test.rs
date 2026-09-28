@@ -227,7 +227,7 @@ proptest! {
     /// (threshold ≤ earned, amount). Treasury is funded with 1_000 in setup().
     #[test]
     fn claim_pays_exactly_registered_amount(
-        threshold in 0u64..200, extra in 0u64..300, amount in 1i128..=1000
+        threshold in 1u64..200, extra in 0u64..300, amount in 1i128..=1000
     ) {
         let f = setup();
         let user = Address::generate(&f.env);
@@ -251,10 +251,12 @@ proptest! {
         let mut paid = 0i128;
         for (i, a) in amounts.iter().enumerate() {
             let id = (i as u32) + 1;
-            f.rewards.add_reward(&id, &0u64, a);
+            let a = (*a).min(cap); // an amount above the cap is now rejected at registration
+            f.rewards.add_reward(&id, &1u64, &a);
             let user = Address::generate(&f.env);
+            f.rep.award_xp(&f.attester, &user, &2u32, &1u64); // clear the threshold
             if f.rewards.try_claim_reward(&user, &id).is_ok() {
-                paid += *a;
+                paid += a;
             }
             prop_assert!(paid <= cap);
         }
@@ -391,4 +393,79 @@ fn supply_for_an_unknown_reward_reverts() {
         f.rewards.try_set_reward_supply(&9u32, &5u32),
         Err(Ok(contract_err(Error::RewardNotFound)))
     );
+}
+
+// --- add_reward / set_daily_cap validation (#146) ---
+
+#[test]
+fn add_reward_rejects_zero_threshold() {
+    let f = setup();
+    let res = f.rewards.try_add_reward(&1u32, &0u64, &50i128);
+    assert_eq!(res, Err(Ok(contract_err(Error::InvalidThreshold))));
+}
+
+#[test]
+fn add_reward_rejects_amount_above_cap() {
+    let f = setup();
+    f.rewards.set_daily_cap(&100i128);
+    let res = f.rewards.try_add_reward(&1u32, &10u64, &200i128);
+    assert_eq!(res, Err(Ok(contract_err(Error::AmountExceedsCap))));
+}
+
+#[test]
+fn add_reward_accepts_amount_equal_to_cap() {
+    let f = setup();
+    f.rewards.set_daily_cap(&100i128);
+    assert!(f.rewards.try_add_reward(&1u32, &10u64, &100i128).is_ok());
+}
+
+#[test]
+fn add_reward_ignores_cap_when_unlimited() {
+    let f = setup(); // cap defaults to 0 = unlimited
+    assert!(f
+        .rewards
+        .try_add_reward(&1u32, &10u64, &1_000_000i128)
+        .is_ok());
+}
+
+#[test]
+fn set_daily_cap_rejects_cap_below_active_reward() {
+    let f = setup();
+    f.rewards.add_reward(&1u32, &10u64, &200i128);
+    let res = f.rewards.try_set_daily_cap(&100i128);
+    assert_eq!(res, Err(Ok(contract_err(Error::CapBelowActiveReward))));
+}
+
+#[test]
+fn set_daily_cap_ignores_inactive_rewards() {
+    let f = setup();
+    f.rewards.add_reward(&1u32, &10u64, &200i128);
+    f.rewards.set_reward_active(&1u32, &false);
+    assert!(f.rewards.try_set_daily_cap(&100i128).is_ok());
+}
+
+#[test]
+fn set_daily_cap_zero_is_always_allowed() {
+    let f = setup();
+    f.rewards.add_reward(&1u32, &10u64, &200i128);
+    assert!(f.rewards.try_set_daily_cap(&0i128).is_ok());
+}
+
+#[test]
+fn reactivating_a_reward_above_the_cap_is_rejected() {
+    let f = setup();
+    f.rewards.add_reward(&1u32, &10u64, &200i128);
+    f.rewards.set_reward_active(&1u32, &false);
+    f.rewards.set_daily_cap(&100i128); // allowed: the only oversized row is inactive
+    let res = f.rewards.try_set_reward_active(&1u32, &true);
+    assert_eq!(res, Err(Ok(contract_err(Error::AmountExceedsCap))));
+}
+
+#[test]
+fn reactivating_a_reward_within_the_cap_is_allowed() {
+    let f = setup();
+    f.rewards.add_reward(&1u32, &10u64, &50i128);
+    f.rewards.set_reward_active(&1u32, &false);
+    f.rewards.set_daily_cap(&100i128);
+    assert!(f.rewards.try_set_reward_active(&1u32, &true).is_ok());
 }

@@ -39,6 +39,9 @@ pub enum Error {
     NotFunded = 12, // proof-of-funding gate (belts/08): no external value received
     RewardExhausted = 13, // the reward's fixed supply (`max_claims`) is used up
     InvalidSupply = 14, // a supply cap below the claims already paid
+    InvalidThreshold = 15, // zero threshold bypasses the Earned-XP gate
+    AmountExceedsCap = 16, // payout above the daily cap can never be claimed
+    CapBelowActiveReward = 17, // new cap would strand an active reward
 }
 
 /// One row of the rank->reward unlock table.
@@ -129,11 +132,11 @@ impl RewardsContract {
 
     /// Register or update a reward. Admin-only. `amount` is the STORED payout — claimers
     /// can never set it, so the treasury can't be drained via an attacker-chosen amount.
+    /// Rejects `threshold == 0` (it would bypass the Earned-XP gate) and, when a daily cap
+    /// is set, an `amount` above it (such a reward could never be claimed).
     pub fn add_reward(env: Env, reward_id: u32, threshold: u64, amount: i128) {
         Self::admin(&env).require_auth();
-        if amount <= 0 {
-            panic_with_error!(&env, Error::InvalidAmount);
-        }
+        Self::validate_reward(&env, threshold, amount);
         let is_new = !env.storage().persistent().has(&DataKey::Reward(reward_id));
         let entry = RewardEntry {
             id: reward_id,
@@ -174,6 +177,9 @@ impl RewardsContract {
             .persistent()
             .get(&DataKey::Reward(reward_id))
             .unwrap_or_else(|| panic_with_error!(&env, Error::RewardNotFound));
+        if active {
+            Self::assert_amount_within_cap(&env, entry.amount);
+        }
         entry.active = active;
         env.storage()
             .persistent()
@@ -318,9 +324,11 @@ impl RewardsContract {
         env.storage().instance().set(&DataKey::Paused, &paused);
     }
 
-    /// Set the max treasury payout per UTC day (0 = unlimited). Admin-only.
+    /// Set the max treasury payout per UTC day (0 = unlimited). Admin-only. A positive cap
+    /// is rejected if any active reward pays more than it.
     pub fn set_daily_cap(env: Env, cap: i128) {
         Self::admin(&env).require_auth();
+        Self::assert_cap_covers_active_rewards(&env, cap);
         env.storage().instance().set(&DataKey::DailyCap, &cap);
     }
 
@@ -462,6 +470,49 @@ impl RewardsContract {
             .unwrap_or(false)
         {
             panic_with_error!(env, Error::Frozen);
+        }
+    }
+
+    /// Reject reward rows that could never pay out or that bypass the Earned-XP gate.
+    fn validate_reward(env: &Env, threshold: u64, amount: i128) {
+        if amount <= 0 {
+            panic_with_error!(env, Error::InvalidAmount);
+        }
+        if threshold == 0 {
+            panic_with_error!(env, Error::InvalidThreshold);
+        }
+        Self::assert_amount_within_cap(env, amount);
+    }
+
+    /// A payout larger than the daily cap can never be claimed (0 = unlimited).
+    fn assert_amount_within_cap(env: &Env, amount: i128) {
+        let cap: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::DailyCap)
+            .unwrap_or(0);
+        if cap > 0 && amount > cap {
+            panic_with_error!(env, Error::AmountExceedsCap);
+        }
+    }
+
+    /// A positive cap must cover every active reward's amount (0 = unlimited).
+    fn assert_cap_covers_active_rewards(env: &Env, cap: i128) {
+        if cap <= 0 {
+            return;
+        }
+        let ids: Vec<u32> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::RewardIds)
+            .unwrap_or_else(|| Vec::new(env));
+        for id in ids.iter() {
+            let entry: Option<RewardEntry> = env.storage().persistent().get(&DataKey::Reward(id));
+            if let Some(e) = entry {
+                if e.active && e.amount > cap {
+                    panic_with_error!(env, Error::CapBelowActiveReward);
+                }
+            }
         }
     }
 
