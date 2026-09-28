@@ -2,13 +2,17 @@
  * Push-subscription storage — shared by /api/push/subscribe and /api/push/notify.
  *
  * Storage strategy (order of preference):
- *   1. Upstash Redis (if KV_REST_API_URL + KV_REST_API_TOKEN are set)
+ *   1. Upstash Redis / Vercel KV (if KV_REST_API_URL + KV_REST_API_TOKEN are set)
  *   2. In-memory Map (single warm serverless instance — fine for testnet demos)
+ *
+ * KV key schema: `sub:<endpoint>` → StoredSubscription, and `wallet:<lowercased address>` →
+ * set of endpoints registered for that wallet.
  *
  * Lives in lib/ (not inside a route file) because Next.js route modules may only export
  * route handlers; both push routes import this shared store so they see the same state.
  */
 
+// Static import so Next's output file tracing copies the client into the function bundle.
 import { Redis } from '@upstash/redis';
 
 export interface StoredSubscription {
@@ -20,49 +24,57 @@ export interface StoredSubscription {
   updatedAt: number;
 }
 
-/** Cached client — created once per warm instance. */
-let _redis: Redis | null | 'uninitialized' = 'uninitialized';
-
-/**
- * Return a thin KV interface backed by Upstash Redis, or null when KV is not configured.
- * If KV_REST_API_URL is set but the client fails to initialize, logs an error once and
- * returns null so callers can fall back to in-memory storage.
- */
-export function getKv(): {
+type KvStore = {
   get: (key: string) => Promise<StoredSubscription | null>;
   set: (key: string, value: StoredSubscription) => Promise<void>;
   del: (key: string) => Promise<void>;
   smembers: (key: string) => Promise<string[]>;
   sadd: (key: string, member: string) => Promise<void>;
   srem: (key: string, member: string) => Promise<void>;
-} | null {
-  if (_redis === 'uninitialized') {
-    const url = process.env.KV_REST_API_URL;
-    const token = process.env.KV_REST_API_TOKEN;
+};
 
-    if (!url) {
-      _redis = null;
-    } else {
-      try {
-        _redis = new Redis({ url, token: token ?? '' });
-      } catch (err) {
-        console.error('[push-store] KV is configured but failed to initialise:', err);
-        _redis = null;
-      }
-    }
+/** Cap endpoint length to avoid KV key blowup. */
+const MAX_ENDPOINT = 512;
+
+/** The store built for the last-seen env config, reused while that config is unchanged. */
+let cached: { url: string; token: string; store: KvStore | null } | null = null;
+
+/**
+ * Return a KV store backed by Upstash Redis, or null when KV is not configured. The env is
+ * read on every call; a config that is set but unusable logs an error once and returns null,
+ * so callers fall back to the in-memory store.
+ */
+export function getKv(): KvStore | null {
+  const url = process.env.KV_REST_API_URL ?? '';
+  const token = process.env.KV_REST_API_TOKEN ?? '';
+  if (!url && !token) return null;
+  if (cached?.url !== url || cached.token !== token) {
+    cached = { url, token, store: createKvStore(url, token) };
   }
+  return cached.store;
+}
 
-  if (!_redis) return null;
-
-  const redis = _redis;
+function createKvStore(url: string, token: string): KvStore | null {
+  if (!url || !token) {
+    console.error(
+      '[push-store] KV needs both KV_REST_API_URL and KV_REST_API_TOKEN — using the in-memory store',
+    );
+    return null;
+  }
+  let redis: Redis;
+  try {
+    redis = new Redis({ url, token });
+  } catch (err) {
+    console.error('[push-store] KV is configured but unusable — using the in-memory store:', err);
+    return null;
+  }
   return {
-    get: (key: string) => redis.get<StoredSubscription>(key),
-    set: (key: string, value: StoredSubscription) =>
-      redis.set(key, value).then(() => undefined),
-    del: (key: string) => redis.del(key).then(() => undefined),
-    smembers: (key: string) => redis.smembers(key),
-    sadd: (key: string, member: string) => redis.sadd(key, member).then(() => undefined),
-    srem: (key: string, member: string) => redis.srem(key, member).then(() => undefined),
+    get: (key) => redis.get<StoredSubscription>(key),
+    set: (key, value) => redis.set(key, value).then(() => undefined),
+    del: (key) => redis.del(key).then(() => undefined),
+    smembers: (key) => redis.smembers(key),
+    sadd: (key, member) => redis.sadd(key, member).then(() => undefined),
+    srem: (key, member) => redis.srem(key, member).then(() => undefined),
   };
 }
 
@@ -89,18 +101,52 @@ export function memDel(key: string): void {
   memStore.delete(key);
 }
 
-/** Remove a subscription by endpoint (used to prune revoked endpoints on 410/404). */
+/**
+ * Upsert the subscription for `subscription.endpoint` and add `vouchId` to the vouch IDs it
+ * is notified about (used by POST /api/push/subscribe).
+ */
+export async function saveSubscription(
+  subscription: PushSubscriptionJSON,
+  walletAddress: string,
+  vouchId: number,
+): Promise<void> {
+  if (!subscription.endpoint) throw new Error('[push-store] subscription has no endpoint');
+  const endpoint = subscription.endpoint.slice(0, MAX_ENDPOINT);
+  const key = `sub:${endpoint}`;
+  const wallet = walletAddress.toLowerCase();
+  const kv = getKv();
+
+  const existing = kv ? await kv.get(key) : memGet(key);
+  const record: StoredSubscription = {
+    endpoint,
+    subscription,
+    walletAddress: wallet,
+    vouchIds: Array.from(new Set([...(existing?.vouchIds ?? []), vouchId])),
+    updatedAt: Date.now(),
+  };
+
+  if (kv) {
+    await kv.set(key, record);
+    // Maintain wallet → endpoint index.
+    await kv.sadd(`wallet:${wallet}`, endpoint);
+  } else {
+    memSet(key, record);
+  }
+}
+
+/**
+ * Remove a subscription by endpoint, including its wallet-index entry (used by
+ * DELETE /api/push/subscribe and to prune revoked endpoints on 410/404).
+ */
 export async function removeSubscription(endpoint: string): Promise<void> {
-  const key = `sub:${endpoint.slice(0, 512)}`;
+  const ep = endpoint.slice(0, MAX_ENDPOINT);
+  const key = `sub:${ep}`;
   const kv = getKv();
   if (kv) {
-    // Fetch wallet address before deleting so we can srem from the index.
+    // Read the owning wallet before deleting so the endpoint can leave its index too.
     const existing = await kv.get(key);
     await kv.del(key);
-    if (existing) {
-      const wallet = existing.walletAddress.toLowerCase();
-      await kv.srem(`wallet:${wallet}`, endpoint.slice(0, 512));
-    }
+    if (existing) await kv.srem(`wallet:${existing.walletAddress.toLowerCase()}`, ep);
   } else {
     memDel(key);
   }
