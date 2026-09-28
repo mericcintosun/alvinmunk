@@ -1,10 +1,12 @@
 /**
  * My minted vouches — kept locally (the claim-secret only ever exists client-side) so
  * the dashboard can resurface UNCLAIMED half-cards: the re-engagement hook (your stake
- * gets slashed if nobody claims within the window — re-share the link).
+ * gets slashed if nobody claims within the window — re-share the link). The claimed ones
+ * also surface the voucher bonus still waiting on each claimer (`getOwedBonuses`).
  */
 import { buildClaimUrl } from '@alvinmunk/shared';
-import { getVouch, VOUCH_TTL_SECS } from './reputation';
+import { getPending, getVouch, VOUCH_TTL_SECS } from './reputation';
+import { reverseHandle } from './registry';
 import { subscribeToPush } from './push';
 
 export interface MyVouch {
@@ -58,6 +60,48 @@ export async function getPendingVouches(origin: string): Promise<PendingVouch[]>
     }),
   );
   return out.sort((a, b) => a.daysLeft - b.daysLeft);
+}
+
+/** A voucher bonus you're still owed — waiting on one person you vouched to verify. */
+export interface OwedBonus {
+  claimer: string;
+  /** their @handle, when they claimed one */
+  handle: string | null;
+  /** the note on your latest vouch for them */
+  note: string;
+  /** Social XP owed to you, released on their first verified quest */
+  amount: number;
+}
+
+/**
+ * The 2nd-order bonuses `me` is still owed (belts/08 §1): for each vouch minted here by `me`
+ * that has been claimed, read `get_pending(claimer)` and keep the entries whose voucher is
+ * `me`. One row per person, largest first. A claimer who verified has an empty queue, so
+ * their row drops out. A failed read for one person (including a deployed contract that
+ * predates `get_pending`) drops that row, never the whole list.
+ */
+export async function getOwedBonuses(me: string): Promise<OwedBonus[]> {
+  const mine = getMyVouches();
+  const chain = await Promise.all(mine.map((m) => getVouch(m.id).catch(() => null)));
+
+  // Unique claimers of MY claimed vouches (this browser may hold another wallet's too).
+  const claimers = new Map<string, string>(); // claimer -> note of the newest vouch
+  chain.forEach((v, i) => {
+    if (!v?.claimed || !v.claimer || v.from !== me) return;
+    if (!claimers.has(v.claimer)) claimers.set(v.claimer, mine[i].note);
+  });
+
+  const rows = await Promise.all(
+    [...claimers].map(async ([claimer, note]): Promise<OwedBonus | null> => {
+      const pending = await getPending(claimer).catch(() => null);
+      if (!pending) return null;
+      const amount = pending.filter((p) => p.voucher === me).reduce((sum, p) => sum + p.amount, 0);
+      if (amount <= 0) return null;
+      const handle = await reverseHandle(claimer).catch(() => null);
+      return { claimer, handle, note, amount };
+    }),
+  );
+  return rows.filter((r): r is OwedBonus => r !== null).sort((a, b) => b.amount - a.amount);
 }
 
 const SEEN_CLAIMED_KEY = 'alvinmunk.seenClaimed';

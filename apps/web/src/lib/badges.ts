@@ -9,8 +9,11 @@
  * Faces over numbers: a badge tied to one person carries that person — the first voucher
  * for First Star ("lit by @alice"), the first tip recipient for Generous.
  *
- * Sources (the durable on-chain people counters are #273; until then, events):
- *   - `vouch:claimed` events → distinct people on each side of the address
+ * Sources:
+ *   - get_counts              → the durable on-chain people counters (first-pair claims)
+ *   - `vouch:claimed` events → distinct people on each side of the address, and who was
+ *                              first (the counters can't name anyone, and miss pairs
+ *                              claimed before they existed)
  *   - `tipped` events         → first tip sent (Generous)
  *   - get_profile.verified    → Verified
  *   - get_streak.best         → Four Weeks
@@ -20,7 +23,7 @@
 import { EVENTS } from '@alvinmunk/shared';
 import type { StickerName } from './assets';
 import { fetchReputationEvents, fetchTipsSent, type RepEvent } from './events';
-import { getProfile } from './reputation';
+import { getCounts, getProfile } from './reputation';
 import { getStreak } from './quests';
 import { reverseHandle } from './registry';
 
@@ -227,16 +230,18 @@ async function personOf(address: string | undefined): Promise<BadgePerson | unde
 /**
  * Read everything the badges need for `address` — the PROFILE OWNER, never the viewer —
  * and compute them. All reads run in parallel and reuse what the page is already fetching:
- * the event scan and get_profile are shared with concurrent callers, and the tip read is
- * filtered to this sender on the RPC side. The event and streak reads fail soft; a failed
- * get_profile rejects, so the gallery shows an error instead of fake all-locked badges.
+ * the event scan, get_profile and get_counts are shared with concurrent callers, and the tip
+ * read is filtered to this sender on the RPC side. The event, streak and counter reads fail
+ * soft; a failed get_profile rejects, so the gallery shows an error instead of fake
+ * all-locked badges.
  */
 export async function getBadges(address: string): Promise<Badge[]> {
-  const [events, tips, profile, streak] = await Promise.all([
+  const [events, tips, profile, streak, counts] = await Promise.all([
     fetchReputationEvents(),
     fetchTipsSent(address),
     getProfile(address),
     getStreak(address).catch(() => ({ best: 0 })),
+    getCounts(address),
   ]);
 
   const seen = mergeBadgeSnapshot(readBadgeSnapshot(address), {
@@ -247,9 +252,11 @@ export async function getBadges(address: string): Promise<Badge[]> {
 
   const [firstVoucher, firstTipTo] = await Promise.all([personOf(seen.firstVoucher), personOf(seen.firstTipTo)]);
 
+  // Both are lower bounds on the same number — the counters miss pre-upgrade pairs, the
+  // snapshot misses whatever this browser never saw — so the larger one wins.
   return computeBadges({
-    vouchedBy: seen.vouchedBy.length,
-    vouchedFor: seen.vouchedFor.length,
+    vouchedBy: Math.max(seen.vouchedBy.length, counts?.vouchedBy ?? 0),
+    vouchedFor: Math.max(seen.vouchedFor.length, counts?.backed ?? 0),
     verified: profile.verified,
     streakBest: streak.best,
     tipped: seen.tipped,

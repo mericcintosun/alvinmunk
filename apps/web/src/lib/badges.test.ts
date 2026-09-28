@@ -1,20 +1,27 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EVENTS } from '@alvinmunk/shared';
 
-const { fetchReputationEventsMock, fetchTipsSentMock, getProfileMock, getStreakMock, reverseHandleMock } =
-  vi.hoisted(() => ({
-    fetchReputationEventsMock: vi.fn(),
-    fetchTipsSentMock: vi.fn(),
-    getProfileMock: vi.fn(),
-    getStreakMock: vi.fn(),
-    reverseHandleMock: vi.fn(),
-  }));
+const {
+  fetchReputationEventsMock,
+  fetchTipsSentMock,
+  getProfileMock,
+  getCountsMock,
+  getStreakMock,
+  reverseHandleMock,
+} = vi.hoisted(() => ({
+  fetchReputationEventsMock: vi.fn(),
+  fetchTipsSentMock: vi.fn(),
+  getProfileMock: vi.fn(),
+  getCountsMock: vi.fn(),
+  getStreakMock: vi.fn(),
+  reverseHandleMock: vi.fn(),
+}));
 
 vi.mock('./events', () => ({
   fetchReputationEvents: fetchReputationEventsMock,
   fetchTipsSent: fetchTipsSentMock,
 }));
-vi.mock('./reputation', () => ({ getProfile: getProfileMock }));
+vi.mock('./reputation', () => ({ getProfile: getProfileMock, getCounts: getCountsMock }));
 vi.mock('./quests', () => ({ getStreak: getStreakMock }));
 vi.mock('./registry', () => ({ reverseHandle: reverseHandleMock }));
 
@@ -242,6 +249,7 @@ describe('getBadges', () => {
     fetchReputationEventsMock.mockReset().mockResolvedValue([]);
     fetchTipsSentMock.mockReset().mockResolvedValue([]);
     getProfileMock.mockReset().mockResolvedValue({ social: 0, earned: 0, verified: false });
+    getCountsMock.mockReset().mockResolvedValue(null); // contract predates get_counts
     getStreakMock.mockReset().mockResolvedValue({ weeks: 0, best: 0, lastWeek: 0 });
     reverseHandleMock.mockReset().mockResolvedValue(null);
   });
@@ -293,6 +301,24 @@ describe('getBadges', () => {
       tipped: false,
       firstTipTo: undefined,
     });
+  });
+
+  it('counts people from the on-chain counters when they exceed what the events show', async () => {
+    // Older vouches are out of the RPC window and this browser never saw them.
+    fetchReputationEventsMock.mockResolvedValue([claimed('GALICE', 'ME')]);
+    getCountsMock.mockResolvedValue({ vouchedBy: 10, backed: 4 });
+    const badges = await getBadges('ME');
+    expect(getCountsMock).toHaveBeenCalledWith('ME');
+    expect(find(badges, 'constellation').earned).toBe(true);
+    expect(find(badges, 'connector')).toMatchObject({ earned: false, remaining: 1 });
+    expect(find(badges, 'firstStar').person?.address).toBe('GALICE');
+  });
+
+  it('keeps the event count when the counters started later and read lower', async () => {
+    fetchReputationEventsMock.mockResolvedValue(['P1', 'P2', 'P3'].map((p) => claimed(p, 'ME')));
+    getCountsMock.mockResolvedValue({ vouchedBy: 1, backed: 0 });
+    const badges = await getBadges('ME');
+    expect(find(badges, 'constellation').remaining).toBe(THRESHOLDS.CONSTELLATION - 3);
   });
 
   it('treats a failed streak read as no streak', async () => {

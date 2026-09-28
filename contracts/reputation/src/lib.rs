@@ -76,6 +76,8 @@ pub enum DataKey {
     Started(Address),          // got the starter Social XP (bool)
     Verified(Address),         // did ≥1 Earned action -> releases pending voucher bonuses (bool)
     Pending(Address),          // claimer -> Vec<PendingBonus> (2nd-order voucher bonuses owed)
+    VouchedBy(Address),        // u32 — distinct people who vouched for this address
+    Backed(Address),           // u32 — distinct people this address vouched for
 }
 
 /// Async half-card vouch. `from` mints it bound to `claim_hash = sha256(secret)`.
@@ -241,6 +243,7 @@ impl ReputationContract {
     /// (if the claim is within `VOUCH_TTL_SECS`), and the voucher's 2nd-order bonus is
     /// released now if the claimer is already verified — otherwise it is queued until
     /// the claimer performs a verified (Earned) action. Vouches never touch Earned.
+    /// A fresh pair also moves both people counters (see `get_counts`).
     pub fn claim_vouch(env: Env, claimer: Address, vouch_id: u64, secret: Bytes) {
         claimer.require_auth();
         let mut vouch: Vouch = env
@@ -297,6 +300,10 @@ impl ReputationContract {
             } else {
                 Self::queue_bonus(&env, &claimer, &vouch.from, BONUS_VOUCHER);
             }
+            // On-chain people counters — increment only on a fresh first-pair claim so
+            // repeat vouches and re-claims never inflate the counts.
+            Self::inc_count(&env, &DataKey::VouchedBy(claimer.clone()));
+            Self::inc_count(&env, &DataKey::Backed(vouch.from.clone()));
         }
 
         env.events().publish(
@@ -369,6 +376,17 @@ impl ReputationContract {
             .get(&DataKey::Attestation(addr, schema_id))
     }
 
+    /// The 2nd-order voucher bonuses queued on `claimer`: one entry per voucher whose
+    /// first-pair claim is waiting on the claimer's first verified (Earned) action.
+    /// Empty once the claimer verifies (the queue is paid out and removed) and for any
+    /// address with nothing queued. At most `MAX_PENDING` entries.
+    pub fn get_pending(env: Env, claimer: Address) -> Vec<PendingBonus> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Pending(claimer))
+            .unwrap_or_else(|| Vec::new(&env))
+    }
+
     /// A half-card by id — for the claim preview and the expiry keeper.
     pub fn get_vouch(env: Env, vouch_id: u64) -> Option<Vouch> {
         env.storage().persistent().get(&DataKey::Vouch(vouch_id))
@@ -381,6 +399,31 @@ impl ReputationContract {
             .persistent()
             .get(&DataKey::Verified(addr))
             .unwrap_or(false)
+    }
+
+    /// On-chain people counts for `addr`: `(vouched_by, backed)`.
+    ///   - `vouched_by` — distinct people who vouched FOR `addr`
+    ///   - `backed`     — distinct people `addr` has vouched for
+    ///
+    /// Both only move on a fresh first-pair claim, so repeat vouches between the same two
+    /// people never inflate them. They start counting at the upgrade that introduced them
+    /// and cannot be backfilled: a wallet whose vouches all predate it reads 0 here, so
+    /// apps should fall back to the `vouch`/`claimed` event history for that case.
+    ///
+    /// Kept separate from `get_profile` on purpose — `Profile` is a frozen integration
+    /// shape, and adding fields to it would break every caller that decodes it.
+    pub fn get_counts(env: Env, addr: Address) -> (u32, u32) {
+        let vouched_by: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::VouchedBy(addr.clone()))
+            .unwrap_or(0);
+        let backed: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Backed(addr))
+            .unwrap_or(0);
+        (vouched_by, backed)
     }
 
     /// Aggregate profile view — social + earned + verified in ONE call. Purely
@@ -447,6 +490,16 @@ impl ReputationContract {
         env.storage()
             .persistent()
             .extend_ttl(&key, BUMP_THRESHOLD, BUMP_EXTEND);
+    }
+
+    /// Increment a u32 people-counter (VouchedBy or Backed) with saturation at u32::MAX.
+    fn inc_count(env: &Env, key: &DataKey) {
+        let cur: u32 = env.storage().persistent().get(key).unwrap_or(0);
+        let next = cur.saturating_add(1);
+        env.storage().persistent().set(key, &next);
+        env.storage()
+            .persistent()
+            .extend_ttl(key, BUMP_THRESHOLD, BUMP_EXTEND);
     }
 
     /// Social XP — vouches only. No attestation (vouches are noise, not the primitive).
