@@ -5,10 +5,18 @@ import { getWallet } from '@/lib/wallet';
 import { txExplorerUrl } from '@/lib/stellar';
 import { getEarnedScore } from '@/lib/reputation';
 import { claimReward, getRewards, getUsdcBalance, isClaimed, stroopsToUsdc, usdcToStroops, type RewardEntry } from '@/lib/rewards';
-import { getAnchorConfig, fetchAnchorToml, getWithdrawalStatus, startWithdrawal, type Withdrawal } from '@/lib/anchor';
+import {
+  getAnchorConfig,
+  getWithdrawalStatus,
+  isTerminalStatus,
+  sendWithdrawalPayment,
+  startWithdrawal,
+  type WithdrawalSession,
+} from '@/lib/anchor';
 import { Frame } from '@/components/fx/frame';
 import { NumberTicker } from '@/components/fx/number-ticker';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { withTimeout, humanizeError } from '@/lib/utils';
@@ -146,73 +154,137 @@ export function Rewards({ address }: { address: string }) {
 }
 
 /**
- * Anchor off-ramp affordance: authenticate, start an interactive SEP-24 withdrawal,
- * open the anchor's hosted flow, and keep its status visible while it settles.
+ * Anchor off-ramp (SEP-24): authenticate with SEP-10, start an interactive withdrawal,
+ * open the anchor's hosted flow, then — once the anchor reports
+ * `pending_user_transfer_start` — send it the USDC with its memo. The status is polled
+ * until the anchor reaches a terminal state.
  */
 function AnchorCashout({ address }: { address: string }) {
   const anchor = getAnchorConfig();
   const anchorDomain = anchor?.homeDomain;
   const [amount, setAmount] = useState('');
   const [balance, setBalance] = useState<bigint | null>(null);
-  const [withdrawal, setWithdrawal] = useState<Withdrawal | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [session, setSession] = useState<WithdrawalSession | null>(null);
+  const [busy, setBusy] = useState<null | 'start' | 'send'>(null);
+  const [paidHash, setPaidHash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (anchorDomain) void getUsdcBalance(address, address).then(setBalance);
   }, [address, anchorDomain]);
 
+  const withdrawalId = session?.withdrawal.id;
+  const status = session?.withdrawal.status;
+  const token = session?.token;
+  const transferServer = session?.toml.transferServer;
+
+  // Poll while the withdrawal is open. Depends on the id/status only, so updating the
+  // session with each poll result doesn't restart the timer.
   useEffect(() => {
-    if (!withdrawal || ['completed', 'refunded', 'failed'].includes(withdrawal.status) || !anchorDomain) return;
+    if (!withdrawalId || !token || !transferServer || !status || isTerminalStatus(status)) return;
     let cancelled = false;
     const poll = async () => {
       try {
-        const metadata = await fetchAnchorToml();
-        const token = withdrawal.token;
-        if (!token) return;
-        const next = await getWithdrawalStatus(withdrawal.id, token, metadata.transferServer);
-        if (!cancelled) setWithdrawal({ ...next, token });
+        const next = await getWithdrawalStatus(withdrawalId, token, transferServer);
+        if (!cancelled) setSession((s) => (s ? { ...s, withdrawal: next } : s));
       } catch {
         // A transient anchor outage should not erase the last known status.
       }
     };
-    void poll();
     const timer = window.setInterval(() => void poll(), 10_000);
-    return () => { cancelled = true; window.clearInterval(timer); };
-  }, [anchorDomain, withdrawal]);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [withdrawalId, status, token, transferServer]);
 
   async function cashOut() {
-    setBusy(true);
+    setBusy('start');
     setError(null);
     try {
-      const wallet = await getWallet();
       if (balance !== null && usdcToStroops(amount) > balance) {
         throw new Error('The withdrawal amount exceeds your available USDC.');
       }
+      const wallet = await getWallet();
       const next = await startWithdrawal(wallet, amount);
-      setWithdrawal(next);
+      setSession(next);
+      setPaidHash(null);
       setAmount('');
-      if (next.url) window.open(next.url, '_blank', 'noopener,noreferrer');
+      if (next.withdrawal.url) window.open(next.withdrawal.url, '_blank', 'noopener,noreferrer');
     } catch (e) {
       setError(humanizeError(e));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
+
+  async function sendToAnchor() {
+    if (!session) return;
+    setBusy('send');
+    setError(null);
+    try {
+      const wallet = await getWallet();
+      setPaidHash(await sendWithdrawalPayment(wallet, session.withdrawal, session.toml.usdcIssuer));
+    } catch (e) {
+      setError(humanizeError(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const w = session?.withdrawal;
+  const awaitingTransfer = w?.status === 'pending_user_transfer_start' && !paidHash;
 
   return (
     <div className="mt-4 border-t border-border pt-3">
       {anchor ? (
         <>
-          <p className="mb-2 text-xs text-muted-foreground">Cash out USDC to local currency via {anchor.homeDomain}</p>
+          <label htmlFor="cashout-amount" className="mb-2 block text-xs text-muted-foreground">
+            Cash out USDC to local currency via {anchor.homeDomain}
+          </label>
           <div className="flex gap-2">
-            <input className="h-9 min-w-0 flex-1 rounded-full border border-border bg-card px-3 text-sm" inputMode="decimal" placeholder="USDC amount" value={amount} onChange={(e) => setAmount(e.target.value)} />
-            <Button size="sm" variant="onchain" onClick={() => void cashOut()} disabled={busy || !amount}>
-              {busy ? 'Starting…' : 'Cash out'}
+            <Input
+              id="cashout-amount"
+              className="h-9 min-w-0 flex-1"
+              inputMode="decimal"
+              placeholder="USDC amount"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+            <Button size="sm" variant="onchain" onClick={() => void cashOut()} disabled={busy !== null || !amount}>
+              {busy === 'start' ? 'Starting…' : 'Cash out'}
             </Button>
           </div>
-          {balance !== null && <p className="mt-1 text-xs text-muted-foreground">Available: {stroopsToUsdc(balance)} USDC</p>}
-          {withdrawal && <p className="mt-2 text-xs text-secondary">Withdrawal {withdrawal.status.replaceAll('_', ' ')}{withdrawal.message ? ` — ${withdrawal.message}` : ''}</p>}
+          {balance !== null && (
+            <p className="mt-1 text-xs text-muted-foreground">Available: {stroopsToUsdc(balance)} USDC</p>
+          )}
+          {w && (
+            <p className="mt-2 text-xs text-secondary" aria-live="polite">
+              Withdrawal {w.status.replaceAll('_', ' ')}
+              {w.message ? ` — ${w.message}` : ''}
+            </p>
+          )}
+          {awaitingTransfer && (
+            <Button
+              size="sm"
+              variant="onchain"
+              className="mt-2"
+              onClick={() => void sendToAnchor()}
+              disabled={busy !== null}
+            >
+              {busy === 'send' ? 'Sending…' : `Send ${w?.amountIn} USDC to ${anchor.homeDomain}`}
+            </Button>
+          )}
+          {paidHash && (
+            <a
+              href={txExplorerUrl(paidHash)}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-2 block text-xs text-secondary underline"
+            >
+              Payment sent — view transaction →
+            </a>
+          )}
           {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
         </>
       ) : (
