@@ -214,14 +214,25 @@ async function expectRevert(code, fn) {
   });
 
   // ── NEGATIVE: circuit breaker (mutates config → reset after) ──
+  await test('negative: cap below an active reward reverts (#17 CapBelowActiveReward)', async () => {
+    try {
+      await expectRevert(17, () => invoke(ADMIN, REWARDS, 'set_daily_cap', [i128(1n)]));
+    } finally {
+      await invoke(ADMIN, REWARDS, 'set_daily_cap', [i128(500000000n)]);
+    }
+  });
   await test('negative: daily cap blocks over-cap payout (#9), then reset', async () => {
     // C earns more so it qualifies for reward #2 (threshold 60): quest 2 = +30 → 80
     await invoke(ATTESTER, QUEST, 'award_quest', [A(ATTESTER.publicKey()), u32(2), A(Cw.publicKey())]);
-    await invoke(ADMIN, REWARDS, 'set_daily_cap', [i128(1n)]);
+    // The cap can't go below an active payout, so switch off #3 (2 USDC) and cap at #2's own
+    // 1 USDC: C's 0.5 USDC claim of #1 earlier today pushes #2 over it.
+    await invoke(ADMIN, REWARDS, 'set_reward_active', [u32(3), nativeToScVal(false, { type: 'bool' })]);
     try {
+      await invoke(ADMIN, REWARDS, 'set_daily_cap', [i128(10000000n)]);
       await expectRevert(9, () => invoke(Cw, REWARDS, 'claim_reward', [A(Cw.publicKey()), u32(2)]));
     } finally {
       await invoke(ADMIN, REWARDS, 'set_daily_cap', [i128(500000000n)]);
+      await invoke(ADMIN, REWARDS, 'set_reward_active', [u32(3), nativeToScVal(true, { type: 'bool' })]);
     }
   });
 

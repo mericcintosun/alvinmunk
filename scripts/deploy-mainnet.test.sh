@@ -200,6 +200,9 @@ rejects "missing DAILY_CAP" "DAILY_CAP is required" ADMIN=admin ATTESTER=atteste
 for cap in 0 -5 50USDC 1000000000000000000; do
   rejects "DAILY_CAP=$cap" "positive whole number" "${BASE[@]}" DAILY_CAP=$cap
 done
+rejects "DAILY_CAP below a reward" "DAILY_CAP must be at least 20000000 stroops: reward 3" "${BASE[@]}" DAILY_CAP=19999999
+fresh_repo && exec_script "${BASE[@]}" DRY_RUN=1 DAILY_CAP=20000000
+check "DAILY_CAP equal to the largest reward is accepted" [ "$RC" = 0 ]
 for dr in true yes 2; do rejects "DRY_RUN=$dr" "DRY_RUN must be 0 or 1" "${BASE[@]}" DRY_RUN=$dr; done
 rejects "ADMIN secret key" "never a secret key" "${BASE[@]}" ADMIN=$SECRET
 check "ADMIN secret key is not echoed" out_lacks "$SECRET"
