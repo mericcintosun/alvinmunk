@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Flame } from 'lucide-react';
 import { getWallet } from '@/lib/wallet';
-import { completeQuest, getStreak } from '@/lib/quests';
+import { completeQuest, getStreak, getWeekBounds } from '@/lib/quests';
 import { getEarnedScore } from '@/lib/reputation';
 import { resolveHandle } from '@/lib/registry';
 import { normalizeHandle } from '@/lib/profile';
@@ -42,6 +42,8 @@ const RAW_G_ADDR = /^G[A-Z2-7]{55}$/;
 export function Quests({ address }: { address: string }) {
   const [earned, setEarned] = useState<number | null>(null);
   const [streak, setStreak] = useState<{ weeks: number; best: number } | null>(null);
+  const [weekBounds, setWeekBounds] = useState<{ start: number; end: number } | null>(null);
+  const [timeRemaining, setTimeRemaining] = useState<string | null>(null);
   const [busy, setBusy] = useState<null | 'referral' | 'invite' | 'vouchback'>(null);
   const [ref, setRef] = useState('');
   const [resolvedRef, setResolvedRef] = useState<string | null>(null);
@@ -122,7 +124,29 @@ export function Quests({ address }: { address: string }) {
     getStreak(address, address)
       .then((s) => setStreak({ weeks: s.weeks, best: s.best }))
       .catch(() => setStreak({ weeks: 0, best: 0 }));
+    getWeekBounds(address).then(setWeekBounds).catch(() => setWeekBounds(null));
   }, [address]);
+
+  useEffect(() => {
+    if (!weekBounds) return;
+    const update = () => {
+      const now = Math.floor(Date.now() / 1000);
+      const remaining = weekBounds.end - now;
+      if (remaining <= 0) {
+        setTimeRemaining('resets now');
+        return;
+      }
+      const days = Math.floor(remaining / 86400);
+      const hours = Math.floor((remaining % 86400) / 3600);
+      const mins = Math.floor((remaining % 3600) / 60);
+      if (days > 0) setTimeRemaining(`resets in ${days}d ${hours}h`);
+      else if (hours > 0) setTimeRemaining(`resets in ${hours}h ${mins}m`);
+      else setTimeRemaining(`resets in ${mins}m`);
+    };
+    update();
+    const t = setInterval(update, 60000);
+    return () => clearInterval(t);
+  }, [weekBounds]);
 
   async function run(kind: 'referral' | 'invite' | 'vouchback', questId: number, evidence: Evidence) {
     setBusy(kind);
@@ -187,6 +211,11 @@ export function Quests({ address }: { address: string }) {
                 <span className="text-muted-foreground/60"> · best {streak.best}</span>
               )}
             </span>
+            {timeRemaining && (
+              <span className="font-mono text-[10px] text-muted-foreground ml-auto">
+                {timeRemaining}
+              </span>
+            )}
           </div>
         )}
         {/* Quest 1 — refer an active wallet */}

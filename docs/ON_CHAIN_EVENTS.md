@@ -552,7 +552,7 @@ pub struct QuestConfig {
 ```rust
 pub struct Streak {
     pub weeks: u32,   // current consecutive-week run
-    pub last_week: u64, // epoch (timestamp / WEEK_SECS) of most recent completion
+    pub last_week: u64, // epoch (timestamp / WEEK_SECS) of most recent completion. Unix epoch 0 is a Thursday, so weeks run Thu-Wed.
     pub best: u32,    // all-time high
 }
 ```

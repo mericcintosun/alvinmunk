@@ -49,6 +49,21 @@ export async function getStreak(addr: string, source: string): Promise<Streak> {
   };
 }
 
+/** Read the current week's start and end UTC timestamps. */
+export async function getWeekBounds(source: string): Promise<{ start: number; end: number }> {
+  const v = await readContract<[bigint, bigint]>(
+    questRegistryId(),
+    'get_week_bounds',
+    [],
+    source,
+  );
+  if (!v) return { start: 0, end: 0 };
+  return {
+    start: Number(v[0]),
+    end: Number(v[1]),
+  };
+}
+
 export type Evidence = { type: EvidenceType; ref: string };
 
 function hexToBytes(hex: string): Uint8Array {

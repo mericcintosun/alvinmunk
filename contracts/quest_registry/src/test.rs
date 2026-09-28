@@ -157,6 +157,23 @@ fn weekly_streak_increments_then_resets_on_a_gap() {
 }
 
 #[test]
+fn get_week_bounds_matches_current_week() {
+    let f = setup();
+    
+    // Check bounds for week 1
+    f.env.ledger().with_mut(|l| l.timestamp = WEEK_SECS + 5);
+    let bounds = f.quest.get_week_bounds();
+    assert_eq!(bounds.0, WEEK_SECS);
+    assert_eq!(bounds.1, 2 * WEEK_SECS - 1);
+
+    // Check bounds right at a boundary (start of week 2)
+    f.env.ledger().with_mut(|l| l.timestamp = 2 * WEEK_SECS);
+    let bounds2 = f.quest.get_week_bounds();
+    assert_eq!(bounds2.0, 2 * WEEK_SECS);
+    assert_eq!(bounds2.1, 3 * WEEK_SECS - 1);
+}
+
+#[test]
 fn get_streak_view_normalizes_skipped_weeks() {
     let f = setup();
     let user = Address::generate(&f.env);
