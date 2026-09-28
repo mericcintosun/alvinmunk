@@ -4,10 +4,10 @@
  * Validate/normalize the handle with normalizeHandle() BEFORE calling claim.
  */
 import { invokeAndWait, readPublic, args, registryId } from './contracts';
-import { Address, nativeToScVal } from '@stellar/stellar-sdk';
 import type { Wallet } from './wallet';
 import { encodeAvatar, decodeAvatar, type AvatarConfig } from './avatar';
 import { sanitizeBio } from './profile';
+import { shareInFlight } from './utils';
 
 /** Resolve `@handle` → address (public, wallet-free). null if unclaimed/unconfigured. */
 export async function resolveHandle(handle: string): Promise<string | null> {
@@ -27,60 +27,52 @@ export async function reverseHandle(address: string): Promise<string | null> {
   return v ?? null;
 }
 
-/**
- * Maximum addresses per `reverse_many` contract call — mirrors `REVERSE_MANY_CAP` in
- * the contract. Callers with more addresses get chunked automatically.
- */
+/** Most addresses per `reverse_many` call; mirrors `REVERSE_MANY_CAP` in the contract. */
 const REVERSE_MANY_CAP = 50;
 
+const pendingReverse = new Map<string, Promise<(string | null)[]>>();
+
 /**
- * Batch reverse-resolve addresses → handles in ⌈N / REVERSE_MANY_CAP⌉ contract calls
- * instead of one per address.
- *
- * Tries the `reverse_many` contract view first. If the deployed contract predates this
- * view (simulation error), falls back to parallel individual `reverse` calls — the same
- * graceful-degradation pattern as `getScores` in reputation.ts.
- *
- * Returns a `Record<address, handle | null>` — `null` means the address has no handle.
+ * Batched `reverseHandle`: address → `@handle` for every distinct input address, in
+ * ⌈N / REVERSE_MANY_CAP⌉ `reverse_many` simulations instead of N `reverse` ones. Every
+ * input address gets an entry (null = no handle, or it couldn't be read), so a caller that
+ * merges the result into its label map never asks again for the same address.
  */
-export async function reverseHandles(
-  addresses: string[],
-): Promise<Record<string, string | null>> {
-  if (!registryId() || addresses.length === 0) return {};
-
-  // Chunk into groups of REVERSE_MANY_CAP and fire one call per chunk.
+export async function reverseHandles(addresses: string[]): Promise<Record<string, string | null>> {
+  const unique = [...new Set(addresses)];
+  const out: Record<string, string | null> = Object.fromEntries(unique.map((a) => [a, null]));
+  if (!registryId()) return out;
+  // sorted, so a re-render that reorders the same rows asks for the same chunks
+  const todo = unique.filter(Boolean).sort();
   const chunks: string[][] = [];
-  for (let i = 0; i < addresses.length; i += REVERSE_MANY_CAP) {
-    chunks.push(addresses.slice(i, i + REVERSE_MANY_CAP));
+  for (let i = 0; i < todo.length; i += REVERSE_MANY_CAP) {
+    chunks.push(todo.slice(i, i + REVERSE_MANY_CAP));
   }
+  await Promise.all(
+    chunks.map(async (chunk) => {
+      const handles = await reverseChunk(chunk);
+      for (let i = 0; i < chunk.length; i++) out[chunk[i]] = handles[i];
+    }),
+  );
+  return out;
+}
 
-  try {
-    const chunkResults = await Promise.all(
-      chunks.map((chunk) => {
-        const vecArg = nativeToScVal(
-          chunk.map((a) => new Address(a)),
-          { type: 'vec' },
-        );
-        return readPublic<(string | null)[]>(registryId(), 'reverse_many', [vecArg]);
-      }),
-    );
-
-    const out: Record<string, string | null> = {};
-    for (let ci = 0; ci < chunks.length; ci++) {
-      const chunk = chunks[ci];
-      const results = chunkResults[ci];
-      for (let i = 0; i < chunk.length; i++) {
-        out[chunk[i]] = results[i] ?? null;
-      }
+/**
+ * One `reverse_many` read for up to REVERSE_MANY_CAP addresses; a list view re-rendering
+ * mid-read shares it. A registry that predates the view gets one `reverse` per address
+ * instead; any other failure leaves the chunk unlabelled, as a failed `reverseHandle` would.
+ */
+function reverseChunk(chunk: string[]): Promise<(string | null)[]> {
+  return shareInFlight(pendingReverse, chunk.join(','), async () => {
+    try {
+      const v = await readPublic<unknown>(registryId(), 'reverse_many', [args.addrs(chunk)]);
+      if (!Array.isArray(v) || v.length !== chunk.length) return chunk.map(() => null);
+      return v.map((h) => (typeof h === 'string' ? h : null));
+    } catch (e) {
+      if (!isMissingFunction(e)) return chunk.map(() => null);
+      return Promise.all(chunk.map((a) => reverseHandle(a).catch(() => null)));
     }
-    return out;
-  } catch {
-    // Deployed contract predates reverse_many — fall back to parallel per-address calls.
-    const pairs = await Promise.all(
-      addresses.map(async (a) => [a, await reverseHandle(a).catch(() => null)] as const),
-    );
-    return Object.fromEntries(pairs);
-  }
+  });
 }
 
 /** Is this handle free to claim? */
@@ -108,13 +100,18 @@ export interface OnChainMeta {
   bio: string;
 }
 
+/** True when the error says the deployed registry has no such function (it predates it). */
+function isMissingFunction(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e ?? '');
+  return /Error\(WasmVm, MissingValue\)|non-existent contract function/.test(msg);
+}
+
 /**
  * True when the error says the registry has no such function — i.e. the deployed registry
  * predates `set_meta` / `get_meta`, so profiles stay local until it is upgraded.
  */
 export function isMetaUnsupported(e: unknown): boolean {
-  const msg = e instanceof Error ? e.message : String(e ?? '');
-  return /Error\(WasmVm, MissingValue\)|non-existent contract function/.test(msg);
+  return isMissingFunction(e);
 }
 
 /**

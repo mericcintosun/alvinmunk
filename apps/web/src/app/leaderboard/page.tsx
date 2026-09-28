@@ -26,9 +26,7 @@ export default function LeaderboardPage() {
     const missing = rows.map((r) => r.address).filter((a) => !(a in handles));
     if (missing.length === 0) return;
     let alive = true;
-    reverseHandles(missing).then(
-      (map) => alive && setHandles((h) => ({ ...h, ...map })),
-    );
+    reverseHandles(missing).then((map) => alive && setHandles((h) => ({ ...h, ...map })));
     return () => { alive = false; };
   }, [rows, handles]);
 

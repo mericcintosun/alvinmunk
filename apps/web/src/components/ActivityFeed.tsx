@@ -28,9 +28,7 @@ export function ActivityFeed() {
     const addrs = [...new Set(items.flatMap((i) => [i.from, i.to]))].filter((a) => !(a in handles));
     if (addrs.length === 0) return;
     let alive = true;
-    reverseHandles(addrs).then(
-      (map) => alive && setHandles((h) => ({ ...h, ...map })),
-    );
+    reverseHandles(addrs).then((map) => alive && setHandles((h) => ({ ...h, ...map })));
     return () => {
       alive = false;
     };
