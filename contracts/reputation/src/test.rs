@@ -314,6 +314,181 @@ fn get_profile_aggregates_across_social_and_earned_state_changes() {
     assert!(p2.verified);
 }
 
+// --- Attestation accumulates per (subject, schema) (issue #123) ---
+
+#[test]
+fn awards_under_one_schema_accumulate_with_the_latest_issuer_and_time() {
+    let (env, client, _admin) = setup();
+    let first = Address::generate(&env);
+    let second = Address::generate(&env);
+    let user = Address::generate(&env);
+    client.add_attester(&first);
+    client.add_attester(&second);
+
+    env.ledger().with_mut(|l| l.timestamp = 1_000);
+    client.award_xp(&first, &user, &2u32, &50u64);
+    let att = client.get_attestation(&user, &2).unwrap();
+    assert_eq!((att.value, att.issuer, att.timestamp), (50, first, 1_000));
+
+    // A second attester under the same schema adds to the total instead of replacing it;
+    // issuer and timestamp move to the latest award.
+    env.ledger().with_mut(|l| l.timestamp = 2_000);
+    client.award_xp(&second, &user, &2u32, &7u64);
+    let att = client.get_attestation(&user, &2).unwrap();
+    assert_eq!((att.value, att.issuer, att.timestamp), (57, second, 2_000));
+    assert!(!att.revoked);
+    assert_eq!(client.get_earned(&user), 57);
+}
+
+#[test]
+fn each_schema_and_subject_keeps_its_own_total() {
+    let (env, client, _admin) = setup();
+    let attester = Address::generate(&env);
+    let user = Address::generate(&env);
+    let other = Address::generate(&env);
+    client.add_attester(&attester);
+
+    client.award_xp(&attester, &user, &2u32, &50u64);
+    client.award_xp(&attester, &user, &3u32, &10u64);
+    client.award_xp(&attester, &user, &2u32, &25u64);
+    client.award_xp(&attester, &user, &3u32, &4u64);
+    client.award_xp(&attester, &other, &2u32, &5u64);
+
+    assert_eq!(client.get_attestation(&user, &2).unwrap().value, 75);
+    assert_eq!(client.get_attestation(&user, &3).unwrap().value, 14);
+    assert!(client.get_attestation(&user, &1).is_none());
+    assert_eq!(client.get_earned(&user), 89);
+    assert_eq!(client.get_attestation(&other, &2).unwrap().value, 5);
+    assert!(client.get_attestation(&other, &3).is_none());
+}
+
+#[test]
+fn an_overflowing_award_reverts_and_leaves_the_record_intact() {
+    let (env, client, _admin) = setup();
+    let attester = Address::generate(&env);
+    let user = Address::generate(&env);
+    client.add_attester(&attester);
+    client.award_xp(&attester, &user, &2u32, &u64::MAX);
+
+    assert_eq!(
+        client.try_award_xp(&attester, &user, &2u32, &1u64),
+        Err(Ok(contract_err(Error::Overflow)))
+    );
+    let att = client.get_attestation(&user, &2).unwrap();
+    assert_eq!(att.value, i128::from(u64::MAX));
+    assert_eq!(client.get_earned(&user), u64::MAX);
+}
+
+/// The per-schema sum is checked on its own, not only through the Earned total: a record at
+/// the u64 ceiling rejects the next award under its schema even when Earned has room.
+#[test]
+fn attestation_total_overflow_reverts_even_when_earned_has_room() {
+    let (env, client, _admin) = setup();
+    let attester = Address::generate(&env);
+    let user = Address::generate(&env);
+    client.add_attester(&attester);
+    // Seeded directly: through award_xp alone the Earned total would overflow first.
+    let ceiling = Attestation {
+        issuer: attester.clone(),
+        value: i128::from(u64::MAX),
+        timestamp: 0,
+        revoked: false,
+    };
+    env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .set(&DataKey::Attestation(user.clone(), 2), &ceiling);
+    });
+
+    assert_eq!(
+        client.try_award_xp(&attester, &user, &2u32, &1u64),
+        Err(Ok(contract_err(Error::Overflow)))
+    );
+    assert_eq!(client.get_earned(&user), 0);
+    assert_eq!(
+        client.get_attestation(&user, &2).unwrap().value,
+        i128::from(u64::MAX)
+    );
+    // Other schemas are unaffected.
+    client.award_xp(&attester, &user, &3u32, &1u64);
+    assert_eq!(client.get_attestation(&user, &3).unwrap().value, 1);
+}
+
+/// The frozen `att_set` v1 layout is unchanged: `amount` is still the award's delta, and
+/// only the stored record carries the running total.
+#[test]
+fn att_set_still_carries_the_award_delta_in_the_v1_layout() {
+    use soroban_sdk::{testutils::Events as _, vec, IntoVal, Val};
+    let (env, client, _admin) = setup();
+    let attester = Address::generate(&env);
+    let user = Address::generate(&env);
+    client.add_attester(&attester);
+    env.ledger().with_mut(|l| l.timestamp = 5_000);
+    client.award_xp(&attester, &user, &2u32, &50u64);
+    client.award_xp(&attester, &user, &2u32, &7u64);
+
+    // `all()` holds the last invocation's events.
+    let att_set: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("att_set"), user.clone()).into_val(&env),
+        (1u32, attester.clone(), 2u32, 7u64, 5_000u64).into_val(&env),
+    );
+    let xp: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("xp"), user.clone()).into_val(&env),
+        (7u64, 57u64).into_val(&env),
+    );
+    assert_eq!(env.events().all(), vec![&env, att_set, xp]);
+    assert_eq!(client.get_attestation(&user, &2).unwrap().value, 57);
+}
+
+/// A caller compiled against the four-field `Attestation` (another contract, or a generated
+/// binding) — and the shape of every record already on chain.
+#[contracttype]
+#[derive(Clone)]
+pub struct LegacyAttestation {
+    pub issuer: Address,
+    pub value: i128,
+    pub timestamp: u64,
+    pub revoked: bool,
+}
+
+#[test]
+fn a_record_from_before_accumulation_decodes_and_counts_on() {
+    use soroban_sdk::{vec, IntoVal};
+    let (env, client, _admin) = setup();
+    let old_issuer = Address::generate(&env);
+    let attester = Address::generate(&env);
+    let user = Address::generate(&env);
+    client.add_attester(&attester);
+    // What the old code left after awards of 50 then 25 under schema 2: only the last one.
+    let legacy = LegacyAttestation {
+        issuer: old_issuer,
+        value: 25,
+        timestamp: 100,
+        revoked: false,
+    };
+    env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .set(&DataKey::Attestation(user.clone(), 2), &legacy);
+    });
+
+    env.ledger().with_mut(|l| l.timestamp = 200);
+    client.award_xp(&attester, &user, &2u32, &10u64);
+
+    let att: Option<LegacyAttestation> = env.invoke_contract(
+        &client.address,
+        &Symbol::new(&env, "get_attestation"),
+        vec![&env, user.into_val(&env), 2u32.into_val(&env)],
+    );
+    let att = att.unwrap();
+    assert_eq!(
+        (att.value, att.issuer, att.timestamp, att.revoked),
+        (35, attester, 200, false)
+    );
+}
+
 // --- Property/fuzz tests on the XP math (Green-belt AC) ---
 use proptest::prelude::*;
 
@@ -337,6 +512,30 @@ proptest! {
         }
         prop_assert_eq!(client.get_earned(&user), total);
         prop_assert_eq!(client.get_score(&user), 0);
+    }
+
+    /// Invariant: each attestation's value is the exact sum of the awards under its schema,
+    /// and the values over all schemas add up to Earned — for any interleaving.
+    #[test]
+    fn attestation_value_is_the_per_schema_sum_of_awards(
+        awards in prop::collection::vec((0u32..3, 0u64..1000), 1..15)
+    ) {
+        let (env, client, _admin) = setup();
+        let attester = Address::generate(&env);
+        client.add_attester(&attester);
+        let user = Address::generate(&env);
+        let mut per_schema = [0u64; 3];
+        for (schema, a) in awards.iter() {
+            client.award_xp(&attester, &user, schema, a);
+            per_schema[*schema as usize] += *a;
+        }
+        for (schema, total) in per_schema.iter().enumerate() {
+            let value = client
+                .get_attestation(&user, &(schema as u32))
+                .map_or(0, |att| att.value);
+            prop_assert_eq!(value, i128::from(*total));
+        }
+        prop_assert_eq!(client.get_earned(&user), per_schema.iter().sum::<u64>());
     }
 }
 
@@ -592,9 +791,11 @@ fn upgrade_to_identical_wasm_preserves_scores_and_attesters() {
 
     assert_eq!(client.get_earned(&user), 30);
     assert!(client.is_attester(&attester));
-    // The allowlist still works on the upgraded code.
+    // The allowlist still works on the upgraded code, and the attestation written before the
+    // upgrade keeps accumulating under it.
     client.award_xp(&attester, &user, &2u32, &20u64);
     assert_eq!(client.get_earned(&user), 50);
+    assert_eq!(client.get_attestation(&user, &2).unwrap().value, 50);
 }
 
 #[test]

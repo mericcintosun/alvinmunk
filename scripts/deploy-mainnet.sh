@@ -201,6 +201,11 @@ fi
 [[ $USDC_SAC =~ $C_RE ]] || die "USDC_SAC must be a C... contract id"
 [ -n "$DAILY_CAP" ] || die "DAILY_CAP is required: the max USDC (in stroops) the rewards treasury pays per UTC day"
 [[ $DAILY_CAP =~ $CAP_RE ]] || die "DAILY_CAP must be a positive whole number of stroops (1 USDC = 10000000)"
+# rewards.add_reward refuses a payout above the daily cap, so check it before deploying anything.
+for r in $REWARD_TABLE; do
+  IFS=: read -r rid _ amount <<<"$r"
+  [ "$DAILY_CAP" -ge "$amount" ] || die "DAILY_CAP must be at least $amount stroops: reward $rid pays that much and add_reward rejects a payout above the cap"
+done
 
 for tool in stellar jq git awk; do
   command -v "$tool" >/dev/null 2>&1 || die "'$tool' is required but not installed"

@@ -107,12 +107,18 @@ pub struct PendingBonus {
 }
 
 /// Canonical attestation record — the fundable primitive's read shape (00-strategy §4).
+/// One record per (subject, schema_id), updated by every award under that schema. The
+/// shape is frozen: deployed entries and integrators decode exactly these four fields.
 #[contracttype]
 #[derive(Clone)]
 pub struct Attestation {
+    /// Attester of the most recent award (per-award issuers are in the `att_set` events).
     pub issuer: Address,
+    /// Running total of every award under this schema — a u64 XP sum held in an i128.
     pub value: i128,
+    /// Ledger timestamp of the most recent award.
     pub timestamp: u64,
+    /// Always false: there is no revoke path yet.
     pub revoked: bool,
 }
 
@@ -370,6 +376,10 @@ impl ReputationContract {
             .unwrap_or(0)
     }
 
+    /// `addr`'s standing under `schema_id`: `value` is the sum of every award under that
+    /// schema, `issuer`/`timestamp` are the latest award's. Summed over all schemas the
+    /// values equal `get_earned`, except where a record predates accumulation: it held
+    /// only its last award then and counts on from there (see docs/ON_CHAIN_EVENTS.md).
     pub fn get_attestation(env: Env, addr: Address, schema_id: u32) -> Option<Attestation> {
         env.storage()
             .persistent()
@@ -546,14 +556,26 @@ impl ReputationContract {
             .persistent()
             .extend_ttl(&key, BUMP_THRESHOLD, BUMP_EXTEND);
 
+        // The attestation accumulates per (subject, schema): `value` is the running total,
+        // `issuer`/`timestamp` describe the latest award. The sum is checked in u64 so
+        // `value` always fits the XP range the i128 field is read as.
         let ts = env.ledger().timestamp();
+        let att_key = DataKey::Attestation(to.clone(), schema_id);
+        let prev: u64 = match env.storage().persistent().get::<_, Attestation>(&att_key) {
+            Some(att) => {
+                u64::try_from(att.value).unwrap_or_else(|_| panic_with_error!(env, Error::Overflow))
+            }
+            None => 0,
+        };
+        let total = prev
+            .checked_add(amount)
+            .unwrap_or_else(|| panic_with_error!(env, Error::Overflow));
         let att = Attestation {
             issuer: issuer.clone(),
-            value: amount as i128,
+            value: i128::from(total),
             timestamp: ts,
             revoked: false,
         };
-        let att_key = DataKey::Attestation(to.clone(), schema_id);
         env.storage().persistent().set(&att_key, &att);
         env.storage()
             .persistent()
@@ -562,6 +584,7 @@ impl ReputationContract {
         // Canonical attestation event — the fundable primitive's stable, VERSIONED API
         // (00-strategy §4). `schema_version` is field 0 so any future B2B consumer reads the
         // version first and can evolve safely; v1 data = (issuer, schema_id, amount, ts).
+        // `amount` stays this award's delta; the per-schema total is the stored record.
         const ATTESTATION_SET: Symbol = symbol_short!("att_set");
         const ATT_SCHEMA_VERSION: u32 = 1;
         env.events().publish(
