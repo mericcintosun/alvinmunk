@@ -1,16 +1,11 @@
-'use client';
+import type { Metadata } from 'next';
+import { AppClientLayout } from '@/components/app/app-client-layout';
 
-import { useWallet } from '@/components/wallet/wallet-provider';
-import { Onboarding } from '@/components/app/onboarding';
-import { AppShell } from '@/components/app/app-shell';
+export const metadata: Metadata = {
+  title: 'Home',
+  description: 'Your crest, recent activity, and shortcuts into the vouch loop.',
+};
 
-/**
- * /app segment layout — the onboarding gate. No profile yet → the create-profile flow
- * (no dashboard chrome). Once a profile exists, every /app/* route renders inside the
- * shared shell (identity + stats + sub-nav).
- */
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const { profile } = useWallet();
-  if (!profile) return <Onboarding />;
-  return <AppShell>{children}</AppShell>;
+  return <AppClientLayout>{children}</AppClientLayout>;
 }

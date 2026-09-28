@@ -25,11 +25,17 @@ export const metadata: Metadata = {
     'A social proof-of-people reputation game on Stellar. Someone you trust vouches for you, and it becomes a star in your constellation.',
   openGraph: {
     title: 'alvinmunk — Collect people, not points',
-    description: 'Someone vouched for you. Claim your half of the sky.',
+    description:
+      'A social proof-of-people reputation game on Stellar. Someone you trust vouches for you, and it becomes a star in your constellation.',
     type: 'website',
     images: ['/assets/meta/og-default.png'],
   },
-  twitter: { card: 'summary_large_image', images: ['/assets/meta/og-default.png'] },
+  twitter: {
+    card: 'summary_large_image',
+    images: ['/assets/meta/og-default.png'],
+    description:
+      'A social proof-of-people reputation game on Stellar. Someone you trust vouches for you, and it becomes a star in your constellation.',
+  },
   icons: { icon: [{ url: '/assets/meta/favicon-32.png', type: 'image/png' }] },
 };
 
