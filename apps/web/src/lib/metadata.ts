@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { getSiteUrl } from './site-url';
 
 /**
  * Site-wide metadata, shared by the root layout and the per-route server layouts.
@@ -25,7 +26,7 @@ export const CLAIM_DESCRIPTION = 'Someone vouched for you. Claim your half of th
 const DEFAULT_OG_IMAGE = '/assets/meta/og-default.png';
 
 export const rootMetadata: Metadata = {
-  metadataBase: new URL('https://alvinmunk.vercel.app'),
+  metadataBase: getSiteUrl(),
   title: { default: SITE_TITLE, template: TITLE_TEMPLATE },
   description: SITE_DESCRIPTION,
   openGraph: { type: 'website', images: [DEFAULT_OG_IMAGE] },

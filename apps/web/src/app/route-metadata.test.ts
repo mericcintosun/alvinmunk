@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Metadata } from 'next';
 import { accumulateMetadata, type MetadataItems } from 'next/dist/lib/metadata/resolve-metadata';
 import type { ResolvedMetadata } from 'next/dist/lib/metadata/types/metadata-interface';
@@ -25,7 +25,9 @@ type Export = Metadata | (() => Metadata);
  *  the og:image a sibling `opengraph-image` file contributes. */
 type Segment = Export | null | { metadata: Export; ogImage: string };
 
-const DEFAULT_OG = 'https://alvinmunk.vercel.app/assets/meta/og-default.png';
+// metadataBase comes from getSiteUrl(): whatever host this run resolves to.
+const at = (path: string, base = rootMetadata.metadataBase as URL) => new URL(path, base).href;
+const DEFAULT_OG = at('/assets/meta/og-default.png');
 
 /**
  * Resolve metadata the way Next does for a page: the root layout, then each segment's
@@ -33,7 +35,11 @@ const DEFAULT_OG = 'https://alvinmunk.vercel.app/assets/meta/og-default.png';
  * title-template inheritance and the openGraph/twitter replace-not-merge rules are real.
  */
 async function resolve(pathname: string, ...segments: Segment[]): Promise<ResolvedMetadata> {
-  const items = [rootMetadata, ...segments, null].map((segment) => {
+  return resolveWith(rootMetadata, pathname, ...segments);
+}
+
+async function resolveWith(root: Metadata, pathname: string, ...segments: Segment[]) {
+  const items = [root, ...segments, null].map((segment) => {
     if (segment && 'ogImage' in segment) {
       const files = { openGraph: [{ url: segment.ogImage, width: 1200, height: 630 }] };
       return [segment.metadata, files, null];
@@ -114,14 +120,17 @@ describe('route metadata', () => {
   });
 
   it('/u/<handle> is handle-specific, lowercase-canonical, and keeps its opengraph-image', async () => {
-    const card = 'https://alvinmunk.vercel.app/u/alice/opengraph-image?a1b2';
-    const m = await resolve('/u/Alice', null, { metadata: profile('Alice'), ogImage: card });
+    const m = await resolve('/u/Alice', null, {
+      metadata: profile('Alice'),
+      ogImage: '/u/alice/opengraph-image?a1b2',
+    });
+    const card = at('/u/alice/opengraph-image?a1b2');
     const t = texts(m);
     expect(t.title).toBe('@alice · alvinmunk');
     expect(t.ogTitle).toBe('@alice · alvinmunk');
     expect(t.ogDescription).toContain('@alice');
     expect(t.twitterDescription).toContain('@alice');
-    expect(m.alternates?.canonical?.url.toString()).toBe('https://alvinmunk.vercel.app/u/alice');
+    expect(m.alternates?.canonical?.url.toString()).toBe(at('/u/alice'));
     expect(imageUrls(m.openGraph?.images)).toEqual([card]);
     expect(imageUrls(m.twitter?.images)).toEqual([card]);
     expect(m.twitter?.card).toBe('summary_large_image');
@@ -131,7 +140,7 @@ describe('route metadata', () => {
     const m = await resolve('/v/Bob', null, invite('Bob'));
     expect(m.title?.absolute).toBe('@bob invited you · alvinmunk');
     expect(m.openGraph?.description).toContain('@bob');
-    expect(m.alternates?.canonical?.url.toString()).toBe('https://alvinmunk.vercel.app/v/bob');
+    expect(m.alternates?.canonical?.url.toString()).toBe(at('/v/bob'));
   });
 
   it.each(['not-a-handle', 'a'.repeat(33), '%3Cscript%3E'])(
@@ -175,6 +184,56 @@ describe('route metadata', () => {
     for (const m of others) {
       expect(Object.values(texts(m))).not.toContain(CLAIM_DESCRIPTION);
     }
+  });
+});
+
+describe('indexing (#212)', () => {
+  it.each([
+    ['/app', [appLayout.metadata]],
+    ['/app/vouch', [appLayout.metadata, vouchLayout.metadata]],
+    ['/app/people', [appLayout.metadata, peopleLayout.metadata]],
+    ['/claim/7', [null, claimLayout.metadata]],
+  ] as [string, Segment[]][])('%s renders noindex', async (path, segments) => {
+    const m = await resolve(path, ...segments);
+    expect(m.robots?.basic).toBe('noindex, nofollow');
+  });
+
+  it.each([
+    ['/', []],
+    ['/leaderboard', [leaderboardLayout.metadata]],
+    ['/how-it-works', [howItWorksLayout.metadata]],
+    ['/u/alice', [null, profile('alice')]],
+    ['/v/alice', [null, invite('alice')]],
+  ] as [string, Segment[]][])('%s stays indexable', async (path, segments) => {
+    const m = await resolve(path, ...segments);
+    expect(m.robots).toBeNull();
+  });
+});
+
+describe('site URL in metadata', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('a preview deployment points og:image and the canonical at its own host', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SITE_URL', '');
+    vi.stubEnv('VERCEL_ENV', 'preview');
+    vi.stubEnv('VERCEL_URL', 'alvinmunk-git-feature.vercel.app');
+    vi.stubEnv('VERCEL_PROJECT_PRODUCTION_URL', 'alvinmunk.vercel.app');
+    vi.resetModules();
+    const { rootMetadata: previewRoot } = await import('@/lib/metadata');
+    const preview = 'https://alvinmunk-git-feature.vercel.app';
+
+    const home = await resolveWith(previewRoot, '/');
+    expect(imageUrls(home.openGraph?.images)).toEqual([`${preview}/assets/meta/og-default.png`]);
+
+    const u = await resolveWith(previewRoot, '/u/alice', null, {
+      metadata: profile('alice'),
+      ogImage: '/u/alice/opengraph-image?a1b2',
+    });
+    expect(imageUrls(u.openGraph?.images)).toEqual([`${preview}/u/alice/opengraph-image?a1b2`]);
+    expect(u.alternates?.canonical?.url.toString()).toBe(`${preview}/u/alice`);
   });
 });
 
