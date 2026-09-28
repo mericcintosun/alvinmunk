@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Users, Activity, ExternalLink } from 'lucide-react';
 import { shortAddress } from '@/lib/utils';
 import { cn } from '@/lib/utils';
+import type { VouchFunnel } from '@/lib/vouch-funnel';
 
 type NetKey = 'testnet' | 'mainnet';
 
@@ -14,6 +15,8 @@ interface Stats {
   target: number;
   latestLedger?: number;
   addresses: string[];
+  funnel: VouchFunnel | null;
+  funnelError?: string;
   error?: string;
 }
 
@@ -134,6 +137,65 @@ export default function StatsPage() {
           </>
         )}
       </div>
+
+      {/* contract-backed claim funnel */}
+      {s?.configured && (
+        <section className="mt-8">
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="eyebrow mb-1">PMF gate · 40%</p>
+              <h2 className="font-display text-2xl font-semibold">Loop health</h2>
+              <p className="mt-1 text-sm text-muted-foreground">Vouch state read from contract storage; cohorts use mint week (UTC).</p>
+            </div>
+            {s.funnel && (
+              <span className={cn('rounded-full px-3 py-1 text-xs font-semibold', s.funnel.completionRate >= 0.4 ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground')}>
+                {s.funnel.completionRate >= 0.4 ? 'Gate reached' : 'Below gate'}
+              </span>
+            )}
+          </div>
+          {s.funnel ? (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {[
+                  ['Minted', s.funnel.minted.toLocaleString()],
+                  ['Claimed', s.funnel.claimed.toLocaleString()],
+                  ['Completion', `${(s.funnel.completionRate * 100).toFixed(1)}%`],
+                  ['Expired unclaimed', s.funnel.expiredUnclaimed.toLocaleString()],
+                  ['Distinct vouchers', s.funnel.distinctVouchers.toLocaleString()],
+                  ['Repeat-pair share', `${(s.funnel.repeatPairShare * 100).toFixed(1)}%`],
+                ].map(([label, value]) => (
+                  <div key={label} className="glass rounded-2xl p-4">
+                    <p className="text-xs text-muted-foreground">{label}</p>
+                    <p className="mt-1 font-display text-2xl font-semibold tabular-nums">{value}</p>
+                    {label === 'Completion' && <p className="mt-1 text-xs text-muted-foreground">Target: 40%</p>}
+                  </div>
+                ))}
+              </div>
+              <div className="mt-5 overflow-x-auto rounded-2xl border border-border/50">
+                <table className="w-full min-w-[600px] text-left text-sm">
+                  <thead className="bg-surface/50 text-xs text-muted-foreground">
+                    <tr><th className="px-4 py-3">Mint week</th><th className="px-4 py-3">Minted</th><th className="px-4 py-3">Claimed</th><th className="px-4 py-3">Completion</th><th className="px-4 py-3">Expired unclaimed</th></tr>
+                  </thead>
+                  <tbody>
+                    {s.funnel.weeklyCohorts.map((cohort) => (
+                      <tr key={cohort.week} className="border-t border-border/40">
+                        <td className="px-4 py-3 font-mono text-xs">{cohort.week}</td>
+                        <td className="px-4 py-3 tabular-nums">{cohort.minted}</td>
+                        <td className="px-4 py-3 tabular-nums">{cohort.claimed}</td>
+                        <td className={cn('px-4 py-3 font-semibold tabular-nums', cohort.completionRate >= 0.4 ? 'text-primary' : 'text-muted-foreground')}>{(cohort.completionRate * 100).toFixed(1)}%</td>
+                        <td className="px-4 py-3 tabular-nums">{cohort.expiredUnclaimed}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {s.funnel.weeklyCohorts.length === 0 && <p className="px-4 py-6 text-center text-sm text-muted-foreground">No vouches yet.</p>}
+              </div>
+            </>
+          ) : (
+            <p className="rounded-2xl border border-border/50 p-4 text-sm text-muted-foreground">Vouch funnel unavailable{s.funnelError ? `: ${s.funnelError}` : ' for this network'}.</p>
+          )}
+        </section>
+      )}
 
       {/* wallet list */}
       {s?.configured && s.addresses.length > 0 && (

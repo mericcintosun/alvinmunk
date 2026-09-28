@@ -1,6 +1,7 @@
+import { Account, Contract, Keypair, Networks, nativeToScVal, rpc, scValToNative, TransactionBuilder, xdr } from '@stellar/stellar-sdk';
 import { NextResponse } from 'next/server';
-import { rpc, scValToNative, xdr } from '@stellar/stellar-sdk';
 import roster from '@/data/onboarded-wallets.json';
+import { aggregateVouchFunnel, type VouchRecord } from '@/lib/vouch-funnel';
 
 /**
  * Network stats — unique wallets that have interacted with the app's contracts, per network.
@@ -26,6 +27,7 @@ const MAX_PAGES = 25;
 const ADDR = /^[GC][A-Z2-7]{55}$/;
 
 type NetKey = 'testnet' | 'mainnet';
+const BASE_FEE = '1000000';
 
 const NETWORKS: Record<
   NetKey,
@@ -134,6 +136,20 @@ async function statsFor(net: NetKey) {
   // Drop the app's own contract addresses so only real user wallets are counted.
   for (const id of cfg.exclude ?? []) if (id) seen.delete(id);
 
+  let funnel: ReturnType<typeof aggregateVouchFunnel> | null = null;
+  let funnelError: string | undefined;
+  if (cfg.rep) {
+    try {
+      const records = await readVouches(cfg, net);
+      const excluded = new Set((cfg.exclude ?? []).filter(Boolean) as string[]);
+      funnel = aggregateVouchFunnel(records.filter((v) => !excluded.has(v.from) && (!v.claimer || !excluded.has(v.claimer))));
+    } catch (error) {
+      // Older deployed contracts may not have vouch_count yet. Keep wallet stats available
+      // while surfacing why the contract-backed funnel cannot be read.
+      funnelError = error instanceof Error ? error.message : 'Unable to read vouch state';
+    }
+  }
+
   const addresses = [...seen];
   return {
     network: net,
@@ -143,7 +159,53 @@ async function statsFor(net: NetKey) {
     latestLedger: latest || undefined,
     roster: rosterList.length,
     addresses: addresses.slice(0, 300),
+    funnel,
+    funnelError,
   };
+}
+
+type NetworkConfig = (typeof NETWORKS)[NetKey];
+
+/** Read sequential vouch records directly from durable contract state, independent of events. */
+async function readVouches(cfg: NetworkConfig, net: NetKey): Promise<VouchRecord[]> {
+  if (!cfg.rep) return [];
+  const server = new rpc.Server(cfg.rpc);
+  const passphrase = net === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
+  const source = new Account(Keypair.random().publicKey(), '0');
+  async function call(method: string, ...args: xdr.ScVal[]) {
+    const tx = new TransactionBuilder(source, { fee: BASE_FEE, networkPassphrase: passphrase })
+      .addOperation(new Contract(cfg.rep!).call(method, ...args))
+      .setTimeout(30)
+      .build();
+    const sim = await server.simulateTransaction(tx);
+    if (rpc.Api.isSimulationError(sim)) throw new Error(`simulate ${method} failed: ${sim.error}`);
+    const retval = sim.result?.retval;
+    return retval ? scValToNative(retval) : undefined;
+  }
+
+  const count = Number(await call('vouch_count') ?? 0);
+  if (!Number.isSafeInteger(count) || count < 0) throw new Error('Invalid vouch count returned by contract');
+  const out: VouchRecord[] = [];
+  // Bound concurrent simulations to keep the route within serverless RPC limits.
+  for (let start = 1; start <= count; start += 16) {
+    const end = Math.min(count, start + 15);
+    const batch = await Promise.all(Array.from({ length: end - start + 1 }, (_, i) =>
+      call('get_vouch', nativeToScVal(BigInt(start + i), { type: 'u64' })),
+    ));
+    for (const value of batch) {
+      if (!value || typeof value !== 'object') continue;
+      const v = value as Record<string, unknown>;
+      out.push({
+        id: Number(v.id),
+        from: String(v.from),
+        claimed: Boolean(v.claimed),
+        claimer: v.claimer == null ? null : String(v.claimer),
+        created: Number(v.created),
+        slashed: Boolean(v.slashed),
+      });
+    }
+  }
+  return out;
 }
 
 export async function GET(req: Request) {
@@ -152,5 +214,5 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'bad network' }, { status: 400 });
   }
   const data = await statsFor(net);
-  return NextResponse.json(data, { headers: { 'cache-control': 'no-store' } });
+  return NextResponse.json(data, { headers: { 'cache-control': 'public, s-maxage=300, stale-while-revalidate=60' } });
 }

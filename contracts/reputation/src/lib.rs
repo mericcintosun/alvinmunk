@@ -402,6 +402,11 @@ impl ReputationContract {
         env.storage().persistent().get(&DataKey::Vouch(vouch_id))
     }
 
+    /// Highest vouch id ever minted. Ids are sequential and never reused.
+    pub fn vouch_count(env: Env) -> u64 {
+        env.storage().instance().get(&DataKey::VouchSeq).unwrap_or(0)
+    }
+
     /// True once `addr` has performed a verified (Earned) action — this is the gate
     /// that releases pending 2nd-order voucher bonuses.
     pub fn is_verified(env: Env, addr: Address) -> bool {
