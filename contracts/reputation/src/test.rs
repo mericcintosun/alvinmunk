@@ -1,8 +1,10 @@
-// TTL bump tests for issue #125
 #![cfg(test)]
 use super::*;
 use soroban_sdk::{
-    testutils::{Address as _, Ledger as _},
+    testutils::{
+        storage::{Persistent as _, Temporary as _},
+        Address as _, Ledger as _,
+    },
     Bytes, BytesN, Env, String,
 };
 
@@ -372,87 +374,116 @@ fn non_admin_upgrade_reverts() {
     client.upgrade(&hash);
 }
 
+// --- Storage TTLs ---
 
-/// Test that entries reach BUMP_EXTEND after a write when min_persistent_entry_ttl is set
-/// to the testnet value. This verifies issue #125 is fixed: BUMP_THRESHOLD should be close
-/// enough to BUMP_EXTEND that the bump fires on every write-time interaction.
-#[test]
-fn ttl_bump_effective_at_testnet_minimum() {
-    use soroban_sdk::testutils::Ledger as _;
+/// Live `state_archival` settings from `stellar network settings` (checked 2026-09-28):
+/// (min_persistent_ttl, min_temporary_ttl, max_entry_ttl).
+const TESTNET_TTLS: (u32, u32, u32) = (120_960, 720, 3_110_400);
+const MAINNET_TTLS: (u32, u32, u32) = (2_073_600, 17_280, 3_110_400);
 
+/// `setup()` on a ledger with the given network TTL limits. The limits are set before the
+/// contract is registered so its instance gets the same TTLs as on the network.
+fn setup_with_ttls(
+    (min_persistent, min_temp, max_ttl): (u32, u32, u32),
+) -> (Env, ReputationContractClient<'static>) {
     let env = Env::default();
-    env.mock_all_auths();
-
-    // Set min_persistent_entry_ttl to testnet value (120,960 ledgers).
-    const TESTNET_MIN_PERSISTENT_TTL: u32 = 120_960;
     env.ledger().with_mut(|l| {
-        l.min_persistent_entry_ttl = TESTNET_MIN_PERSISTENT_TTL;
+        l.sequence_number = 1_000;
+        l.min_persistent_entry_ttl = min_persistent;
+        l.min_temp_entry_ttl = min_temp;
+        l.max_entry_ttl = max_ttl;
     });
-
+    env.mock_all_auths();
     let admin = Address::generate(&env);
     let id = env.register(ReputationContract, ());
     let client = ReputationContractClient::new(&env, &id);
     client.init(&admin);
-
-    let alice = Address::generate(&env);
-    let (_s, h) = secret_and_hash(&env, 7);
-
-    // Create a Vouch entry by minting. Entry starts at min_persistent_entry_ttl.
-    // The extend_ttl should fire because TESTNET_MIN_PERSISTENT_TTL (120,960) <
-    // BUMP_THRESHOLD (501,120), so the bump fires.
-    let vouch_id = client.mint_vouch(
-        &alice,
-        &h,
-        &String::from_str(&env, "test ttl bump"),
-    );
-
-    // Read the Vouch entry to verify its TTL has been extended.
-    let vouch = client.get_vouch(&vouch_id).unwrap();
-    assert_eq!(vouch.from, alice);
-
-    // Verify the constant configuration is correct:
-    // BUMP_THRESHOLD should be close to BUMP_EXTEND (within ~1 day of ledgers).
-    assert!(BUMP_EXTEND - BUMP_THRESHOLD <= 18_000, 
-            "BUMP_THRESHOLD should be within ~1 day of BUMP_EXTEND");
-    assert!(BUMP_THRESHOLD > TESTNET_MIN_PERSISTENT_TTL,
-            "BUMP_THRESHOLD must be above testnet min_persistent_ttl to trigger the bump");
+    (env, client)
 }
 
-/// Verify that the Social entry also bumps correctly. This tests the fix applies
-/// uniformly to all persistent entries in the contract.
+fn ttl(env: &Env, client: &ReputationContractClient, key: &DataKey) -> u32 {
+    env.as_contract(&client.address, || env.storage().persistent().get_ttl(key))
+}
+
+fn temp_ttl(env: &Env, client: &ReputationContractClient, key: &DataKey) -> u32 {
+    env.as_contract(&client.address, || env.storage().temporary().get_ttl(key))
+}
+
+/// A new entry starts at the network's min_persistent_ttl; the bump right after each write
+/// must still lift it to BUMP_EXTEND, on testnet and on mainnet.
 #[test]
-fn social_xp_entry_bumps_correctly() {
-    use soroban_sdk::testutils::Ledger as _;
+fn writes_extend_persistent_entries_to_bump_extend() {
+    for ttls in [TESTNET_TTLS, MAINNET_TTLS] {
+        let (env, client) = setup_with_ttls(ttls);
+        let alice = Address::generate(&env);
+        let bob = Address::generate(&env);
+        let attester = Address::generate(&env);
+        client.add_attester(&attester);
+        let (secret, h) = secret_and_hash(&env, 7);
 
-    let env = Env::default();
-    env.mock_all_auths();
+        let id = client.mint_vouch(&alice, &h, &String::from_str(&env, "hi"));
+        client.claim_vouch(&bob, &id, &secret);
+        // Bob is not verified yet, so Alice's 2nd-order bonus is queued under Pending(bob).
+        assert_eq!(
+            ttl(&env, &client, &DataKey::Pending(bob.clone())),
+            BUMP_EXTEND
+        );
+        client.award_xp(&attester, &bob, &2u32, &40u64);
 
-    const TESTNET_MIN_PERSISTENT_TTL: u32 = 120_960;
-    env.ledger().with_mut(|l| {
-        l.min_persistent_entry_ttl = TESTNET_MIN_PERSISTENT_TTL;
-    });
+        for key in [
+            DataKey::Vouch(id),
+            DataKey::Started(alice.clone()),
+            DataKey::Social(alice.clone()),
+            DataKey::Started(bob.clone()),
+            DataKey::Social(bob.clone()),
+            DataKey::Seen(alice.clone(), bob.clone()),
+            DataKey::Earned(bob.clone()),
+            DataKey::Attestation(bob.clone(), 2),
+            DataKey::Verified(bob.clone()),
+        ] {
+            assert_eq!(ttl(&env, &client, &key), BUMP_EXTEND);
+        }
+    }
+}
 
-    let admin = Address::generate(&env);
-    let id = env.register(ReputationContract, ());
-    let client = ReputationContractClient::new(&env, &id);
-    client.init(&admin);
+/// The per-day vouch counter is temporary and lives ~2 days, not the persistent target.
+#[test]
+fn daily_vouch_counter_lives_two_days() {
+    for ttls in [TESTNET_TTLS, MAINNET_TTLS] {
+        let (env, client) = setup_with_ttls(ttls);
+        let alice = Address::generate(&env);
+        let (_s, h) = secret_and_hash(&env, 7);
+        client.mint_vouch(&alice, &h, &String::from_str(&env, "hi"));
+        let key = DataKey::DailyCount(alice.clone(), 0);
+        assert_eq!(temp_ttl(&env, &client, &key), DAY_LEDGERS * 2);
+    }
+}
 
+/// A later write tops an entry back up once a day has passed, and a write within the same
+/// day leaves it alone (no rent paid for a few ledgers at a time).
+#[test]
+fn later_writes_top_the_ttl_back_up() {
+    let (env, client) = setup_with_ttls(TESTNET_TTLS);
     let alice = Address::generate(&env);
-    let (_s, h) = secret_and_hash(&env, 7);
+    let (_s1, h1) = secret_and_hash(&env, 1);
+    let (_s2, h2) = secret_and_hash(&env, 2);
+    let (_s3, h3) = secret_and_hash(&env, 3);
+    let social = DataKey::Social(alice.clone());
 
-    // Mint a vouch for alice: this grants her starter Social (20) and escrows the stake (5).
-    let id = client.mint_vouch(&alice, &h, &String::from_str(&env, "x"));
-    let score1 = client.get_score(&alice);
-    assert_eq!(score1, 15); // 20 - 5 escrowed
+    let first = client.mint_vouch(&alice, &h1, &String::from_str(&env, "a"));
+    env.ledger().with_mut(|l| l.sequence_number += 100);
+    client.mint_vouch(&alice, &h2, &String::from_str(&env, "b"));
+    assert_eq!(ttl(&env, &client, &social), BUMP_EXTEND - 100);
 
-    // Second mint: no re-grant of starter, just another stake. The Social entry is written
-    // again, so the bump should fire again, keeping it alive at BUMP_EXTEND.
-    let (_s2, h2) = secret_and_hash(&env, 8);
-    client.mint_vouch(&alice, &h2, &String::from_str(&env, "y"));
-    let score2 = client.get_score(&alice);
-    assert_eq!(score2, 10); // 15 - 5 escrowed again
-
-    // Invariant: each write to the Social entry extended its TTL. In a real network,
-    // if the bump didn't fire (old bug), the entry would age toward expiry; the fix
-    // ensures it stays fresh.
+    env.ledger().with_mut(|l| {
+        l.sequence_number += DAY_LEDGERS * 3;
+        l.timestamp += DAY_SECS * 3;
+    });
+    client.mint_vouch(&alice, &h3, &String::from_str(&env, "c"));
+    assert_eq!(ttl(&env, &client, &social), BUMP_EXTEND);
+    // The first half-card was not written again, so it kept ageing.
+    assert_eq!(
+        ttl(&env, &client, &DataKey::Vouch(first)),
+        BUMP_EXTEND - 100 - DAY_LEDGERS * 3
+    );
 }

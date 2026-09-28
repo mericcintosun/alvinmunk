@@ -1,6 +1,10 @@
 #![cfg(test)]
 use super::*;
-use soroban_sdk::{symbol_short, testutils::Address as _, Address, Env};
+use soroban_sdk::{
+    symbol_short,
+    testutils::{storage::Persistent as _, Address as _, Ledger as _},
+    Address, Env,
+};
 
 fn setup() -> (Env, RegistryContractClient<'static>, Address) {
     let env = Env::default();
@@ -130,4 +134,77 @@ fn non_admin_upgrade_reverts() {
     client.init(&admin);
     let hash = soroban_sdk::BytesN::from_array(&env, &[1; 32]);
     client.upgrade(&hash);
+}
+
+// --- Storage TTLs ---
+
+/// Live `state_archival` settings from `stellar network settings` (checked 2026-09-28):
+/// (min_persistent_ttl, min_temporary_ttl, max_entry_ttl).
+const TESTNET_TTLS: (u32, u32, u32) = (120_960, 720, 3_110_400);
+const MAINNET_TTLS: (u32, u32, u32) = (2_073_600, 17_280, 3_110_400);
+
+/// `setup()` on a ledger with the given network TTL limits, set before registration so the
+/// instance gets the same TTLs as on the network.
+fn setup_with_ttls(
+    (min_persistent, min_temp, max_ttl): (u32, u32, u32),
+) -> (Env, RegistryContractClient<'static>) {
+    let env = Env::default();
+    env.ledger().with_mut(|l| {
+        l.sequence_number = 1_000;
+        l.min_persistent_entry_ttl = min_persistent;
+        l.min_temp_entry_ttl = min_temp;
+        l.max_entry_ttl = max_ttl;
+    });
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let id = env.register(RegistryContract, ());
+    let client = RegistryContractClient::new(&env, &id);
+    client.init(&admin);
+    (env, client)
+}
+
+fn ttl(env: &Env, client: &RegistryContractClient, key: &DataKey) -> u32 {
+    env.as_contract(&client.address, || env.storage().persistent().get_ttl(key))
+}
+
+#[test]
+fn claim_extends_both_directions_to_bump_extend() {
+    for ttls in [TESTNET_TTLS, MAINNET_TTLS] {
+        let (env, client) = setup_with_ttls(ttls);
+        let alice = Address::generate(&env);
+        client.claim(&alice, &symbol_short!("alice"));
+        assert_eq!(
+            ttl(&env, &client, &DataKey::Fwd(symbol_short!("alice"))),
+            BUMP_EXTEND
+        );
+        assert_eq!(
+            ttl(&env, &client, &DataKey::Rev(alice.clone())),
+            BUMP_EXTEND
+        );
+
+        // A rename days later writes both keys again and tops them back up.
+        env.ledger()
+            .with_mut(|l| l.sequence_number += DAY_LEDGERS * 3);
+        client.claim(&alice, &symbol_short!("alice2"));
+        assert_eq!(
+            ttl(&env, &client, &DataKey::Fwd(symbol_short!("alice2"))),
+            BUMP_EXTEND
+        );
+        assert_eq!(ttl(&env, &client, &DataKey::Rev(alice)), BUMP_EXTEND);
+    }
+}
+
+/// `resolve` is a pure read (the web app only simulates it), so it must not extend.
+#[test]
+fn resolve_does_not_extend_the_handle() {
+    let (env, client) = setup_with_ttls(TESTNET_TTLS);
+    let alice = Address::generate(&env);
+    client.claim(&alice, &symbol_short!("alice"));
+    env.ledger()
+        .with_mut(|l| l.sequence_number += DAY_LEDGERS * 3);
+    assert_eq!(client.resolve(&symbol_short!("alice")), Some(alice));
+    assert_eq!(
+        ttl(&env, &client, &DataKey::Fwd(symbol_short!("alice"))),
+        BUMP_EXTEND - DAY_LEDGERS * 3
+    );
 }

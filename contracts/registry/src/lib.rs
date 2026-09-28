@@ -15,12 +15,15 @@ use soroban_sdk::{
     BytesN, Env, Symbol,
 };
 
-// extend_ttl only bumps when current TTL falls BELOW threshold. Handles should be
-// sticky (~150 days), so we bump aggressively when getting close to that target.
-// DAY_LEDGERS = 17,280 at ~5s per ledger.
-const DAY_LEDGERS: u32 = 17_280;
-const BUMP_THRESHOLD: u32 = BUMP_EXTEND - DAY_LEDGERS; // bump when below ~1 day from target
-const BUMP_EXTEND: u32 = 2_592_000; // ~150 days — handles should be sticky
+// TTLs in ledgers (5s). `extend_ttl(key, threshold, extend_to)` does nothing unless the
+// entry's TTL is at or below `threshold`, and then sets it to `extend_to`. New persistent
+// entries start at the network's min_persistent_ttl (120,960 on testnet, 2,073,600 on
+// mainnet), so the threshold sits one day under the target: the bump after a write lifts
+// the entry to BUMP_EXTEND unless it already ran within the last day. BUMP_EXTEND must stay
+// above mainnet's minimum and below max_entry_ttl (3,110,400).
+const DAY_LEDGERS: u32 = 17_280; // ~1 day
+const BUMP_EXTEND: u32 = 2_592_000; // ~150 days
+const BUMP_THRESHOLD: u32 = BUMP_EXTEND - DAY_LEDGERS;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -93,9 +96,7 @@ impl RegistryContract {
 
     /// handle -> address (the public `/u/<handle>` lookup; pure read, any caller).
     pub fn resolve(env: Env, handle: Symbol) -> Option<Address> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Fwd(handle))
+        env.storage().persistent().get(&DataKey::Fwd(handle))
     }
 
     /// address -> handle (label addresses in the feed / leaderboard / profile).

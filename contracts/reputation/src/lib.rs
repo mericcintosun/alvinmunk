@@ -25,13 +25,15 @@ use soroban_sdk::{
     Bytes, BytesN, Env, String, Symbol, Vec,
 };
 
-// extend_ttl only bumps when current TTL falls BELOW threshold. On testnet, entries
-// start at min_persistent_ttl = 120,960; on mainnet, 2,073,600. Both are far above
-// the old 17,280 threshold, so bumps never fired. Use threshold near the target so
-// every write tops up the TTL. DAY_LEDGERS = 17,280 at ~5s per ledger.
-const DAY_LEDGERS: u32 = 17_280;
-const BUMP_THRESHOLD: u32 = BUMP_EXTEND - DAY_LEDGERS; // bump when below ~1 day from target
-const BUMP_EXTEND: u32 = 518_400; // ~30 days
+// TTLs in ledgers (5s). `extend_ttl(key, threshold, extend_to)` does nothing unless the
+// entry's TTL is at or below `threshold`, and then sets it to `extend_to`. New persistent
+// entries start at the network's min_persistent_ttl (120,960 on testnet, 2,073,600 on
+// mainnet), so the threshold sits one day under the target: the bump after a write lifts
+// the entry to BUMP_EXTEND unless it already ran within the last day. BUMP_EXTEND must stay
+// above mainnet's minimum and below max_entry_ttl (3,110,400).
+const DAY_LEDGERS: u32 = 17_280; // ~1 day
+const BUMP_EXTEND: u32 = 2_592_000; // ~150 days
+const BUMP_THRESHOLD: u32 = BUMP_EXTEND - DAY_LEDGERS;
 const DAY_SECS: u64 = 86_400;
 const MAX_VOUCH_PER_DAY: u32 = 20;
 
@@ -185,9 +187,11 @@ impl ReputationContract {
             panic_with_error!(&env, Error::DailyCapReached);
         }
         env.storage().temporary().set(&dkey, &(used.saturating_add(1)));
+        // ~2 days outlives the UTC day it counts. Not BUMP_*: a temporary entry extended
+        // past max_entry_ttl traps instead of clamping.
         env.storage()
             .temporary()
-            .extend_ttl(&dkey, BUMP_THRESHOLD, BUMP_THRESHOLD * 2);
+            .extend_ttl(&dkey, DAY_LEDGERS, DAY_LEDGERS * 2);
 
         // Starter Social XP (once), then escrow the stake.
         Self::grant_starter(&env, &from);
