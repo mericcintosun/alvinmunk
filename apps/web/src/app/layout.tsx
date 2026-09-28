@@ -9,6 +9,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { AnalyticsProvider } from '@/components/analytics';
 import { WalletProvider } from '@/components/wallet/wallet-provider';
 import { I18nProvider } from '@/lib/i18n';
+import { getSiteUrl } from '@/lib/site-url';
 
 // Runs before first paint so the page never flashes the wrong theme: an explicit choice
 // (localStorage `alvinmunk.theme`, written by ThemeToggle) wins, else the OS preference.
@@ -16,7 +17,7 @@ import { I18nProvider } from '@/lib/i18n';
 const THEME_INIT = `(function(){try{var t=localStorage.getItem('alvinmunk.theme');if(t!=='light'&&t!=='dark'){t=window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'}var r=document.documentElement;r.classList.remove('light','dark');r.classList.add(t);r.style.colorScheme=t}catch(e){}})();`;
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://alvinmunk.vercel.app'),
+  metadataBase: getSiteUrl(),
   title: {
     default: 'alvinmunk — Collect people, not points',
     template: '%s · alvinmunk',

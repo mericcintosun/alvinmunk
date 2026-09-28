@@ -116,6 +116,8 @@ NEXT_PUBLIC_NETWORK_PASSPHRASE=Test SDF Network ; September 2015
 NEXT_PUBLIC_HORIZON_URL=https://horizon-testnet.stellar.org
 ```
 
+**Site URL (metadata, robots, sitemap):** set `NEXT_PUBLIC_SITE_URL` to the public origin users share (for example `https://alvinmunk.vercel.app` on the canonical deployment, or your fork or custom domain). This drives `metadataBase`, `/robots.txt`, and `/sitemap.xml` so Open Graph image URLs and sitemap links match the deployment that served the page. On Vercel, preview deployments use `https://${VERCEL_URL}` when `NEXT_PUBLIC_SITE_URL` is unset. Local `pnpm dev` uses `http://localhost:3000` when neither is set.
+
 **Never commit `.env.local`** — it is gitignored. Full variable list: [`.env.example`](../.env.example).
 
 ### Optional server secrets (and what degrades without them)
