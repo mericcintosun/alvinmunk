@@ -192,6 +192,60 @@ export function detectReciprocalRings(pairs: VouchPair[]): string[] {
   return [...flagged].sort();
 }
 
+/** Why an address was flagged by {@link detectRingCandidates}. */
+export type RingReason = 'reciprocal' | 'cycle3';
+
+export interface RingCandidate {
+  address: string;
+  reasons: RingReason[];
+}
+
+/**
+ * Ring candidates for the frozen set (belts/08): reciprocal pairs (A→B, B→A) and
+ * three-member cycles (A→B→C→A) in the claimed-vouch graph. Self-loops and duplicate
+ * edges are ignored, and a pair that merely goes back and forth is reported only as
+ * `reciprocal`, never as a cycle. Output is sorted by address for stable diffs.
+ *
+ * There is deliberately no raw-degree rule: the most active honest users vouch for and
+ * are vouched by many people, and would be the first false positives. Candidates are
+ * signals to review, not verdicts.
+ */
+export function detectRingCandidates(pairs: VouchPair[]): RingCandidate[] {
+  const adj = new Map<string, Set<string>>();
+  for (const { from, claimer } of pairs) {
+    if (from === claimer) continue;
+    if (!adj.has(from)) adj.set(from, new Set());
+    adj.get(from)!.add(claimer);
+  }
+  const has = (a: string, b: string) => adj.get(a)?.has(b) ?? false;
+  const reasons = new Map<string, Set<RingReason>>();
+  const flag = (addr: string, why: RingReason) => {
+    if (!reasons.has(addr)) reasons.set(addr, new Set());
+    reasons.get(addr)!.add(why);
+  };
+
+  for (const [a, outs] of adj) {
+    for (const b of outs) {
+      if (has(b, a)) {
+        flag(a, 'reciprocal');
+        flag(b, 'reciprocal');
+      }
+      for (const c of adj.get(b) ?? []) {
+        if (c !== a && c !== b && has(c, a)) {
+          flag(a, 'cycle3');
+          flag(b, 'cycle3');
+          flag(c, 'cycle3');
+        }
+      }
+    }
+  }
+
+  return [...reasons.keys()].sort().map((address) => ({
+    address,
+    reasons: [...reasons.get(address)!].sort() as RingReason[],
+  }));
+}
+
 /**
  * Fold raw `social` event records into the latest score per address, then rank
  * descending. Each event carries the *running total*, so the most recent ledger

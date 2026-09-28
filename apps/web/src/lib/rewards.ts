@@ -118,6 +118,10 @@ export interface RewardEntry {
   threshold: bigint; // Earned XP required
   amount: bigint; // USDC stroops paid from the treasury
   active: boolean;
+  /** Fixed-size pool cap (0 = unlimited). Absent on contracts deployed before supply caps. */
+  max_claims?: number;
+  /** Claims paid so far. Absent on contracts deployed before supply caps. */
+  claims?: number;
 }
 
 /** The full unlock table (admin-registered on-chain). */

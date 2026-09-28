@@ -437,8 +437,29 @@ A user claims a registered reward. Note: the payout amount is the
 |-------|------|-------------|
 | 0 | `u32` | `reward_id` |
 | 1 | `i128` | `amount` — USDC stroops paid |
+| 2 | `u32` | `claims` — claims paid for this reward so far, including this one |
 
-**Contract source**: `rewards/src/lib.rs` → `fn tip()` / `fn add_reward()` / `fn claim_reward()`
+Index 2 was appended when fixed-size pools landed; readers that only look at
+indexes 0–1 are unaffected.
+
+### `rwd_cap` (Reward Supply Set)
+
+An admin caps how many wallets can claim a reward (a fixed-size bounty pool), or
+removes the cap with `0`. Once `claims` reaches the cap, `claim_reward` reverts with
+`RewardExhausted` (#13).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol("rwd_cap")` | Event discriminator |
+| **topics[1]** | `u32` | `reward_id` — the reward row ID |
+
+**Data**:
+
+| Type | Description |
+|------|-------------|
+| `u32` | `max_claims` — the new cap (`0` = unlimited) |
+
+**Contract source**: `rewards/src/lib.rs` → `fn tip()` / `fn add_reward()` / `fn set_reward_supply()` / `fn claim_reward()`
 
 ```rust
 // Tip:
@@ -449,9 +470,13 @@ env.events().publish(
 env.events().publish(
     (symbol_short!("rwd_set"), reward_id), (threshold, amount));
 
+// Reward supply set:
+env.events().publish(
+    (symbol_short!("rwd_cap"), reward_id), max_claims);
+
 // Reward claimed:
 env.events().publish(
-    (symbol_short!("reward"), to), (reward_id, entry.amount));
+    (symbol_short!("reward"), to), (reward_id, entry.amount, stats.claims));
 ```
 
 ---
@@ -474,6 +499,7 @@ Quick-reference table of all event discriminators and their sub-types.
 | `unlocked` | *(none)* | Gate | [↑](#unlocked) |
 | `tipped` | *(none)* | Rewards | [↑](#tipped) |
 | `rwd_set` | *(none)* | Rewards | [↑](#rwd_set-reward-registeredupdated) |
+| `rwd_cap` | *(none)* | Rewards | [↑](#rwd_cap-reward-supply-set) |
 | `reward` | *(none)* | Rewards | [↑](#reward-reward-claimed) |
 
 ---
@@ -539,6 +565,27 @@ pub struct RewardEntry {
     pub threshold: u64,  // Earned XP required to unlock
     pub amount: i128,     // USDC stroops paid from the treasury
     pub active: bool,
+}
+```
+
+### `RewardStats` / `RewardInfo`
+
+`get_reward_stats(id)` returns the supply counters; `get_rewards()` returns each row
+joined with them. `max_claims == 0` means unlimited.
+
+```rust
+pub struct RewardStats {
+    pub max_claims: u32,
+    pub claims: u32,
+}
+
+pub struct RewardInfo {
+    pub id: u32,
+    pub threshold: u64,
+    pub amount: i128,
+    pub active: bool,
+    pub max_claims: u32,
+    pub claims: u32,
 }
 ```
 

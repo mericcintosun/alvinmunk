@@ -5,6 +5,8 @@
   "nav.wallet": "Cüzdan",
   "nav.openMenu": "Menüyü aç",
   "nav.closeMenu": "Menüyü kapat",
+  "nav.themeLight": "Açık temaya geç",
+  "nav.themeDark": "Koyu temaya geç",
 
   "footer.tagline": "İtibar insanları adlandırmalı, puan biriktirmemeli. Stellar üzerinde yaşıyor.",
   "footer.live": "Stellar test ağında canlı",

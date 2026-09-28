@@ -2,17 +2,17 @@
 
 import { Toaster as Sonner } from 'sonner';
 
-/** App-wide toast surface, themed to the cosmic tokens. */
+/** App-wide toast surface, themed to the design tokens so it follows light/dark. */
 export function Toaster() {
   return (
     <Sonner
-      theme="dark"
+      theme="system"
       position="top-center"
       toastOptions={{
         style: {
-          background: 'hsl(228 24% 8%)',
-          border: '1px solid hsl(228 16% 16%)',
-          color: 'hsl(40 33% 94%)',
+          background: 'hsl(var(--popover))',
+          border: '1px solid hsl(var(--border))',
+          color: 'hsl(var(--popover-foreground))',
         },
       }}
     />

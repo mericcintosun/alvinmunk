@@ -52,7 +52,54 @@
      Used on warm/social surfaces only; never on money/proof UI (see asset-art-direction). */
   --lime: 79 94% 64%;
   --lime-foreground: 265 60% 6%;
+
+  /* Decorative colours that used to be hard-coded, as tokens so the light theme can override them. */
+  --nebula-a: 255 60% 16%;
+  --nebula-b: 24 70% 18%;
+  --aurora-base: 228 40% 7%;
+  --glass-shadow: 230 60% 2%;
 }
+
+/* Light theme — mirrors the HSL token set with a pale violet base. */
+:root.light {
+  color-scheme: light;
+
+  --background: 264 52% 96%;
+  --foreground: 265 40% 12%;
+  --card: 266 38% 98%;
+  --card-foreground: 265 40% 12%;
+  --popover: 266 40% 99%;
+  --popover-foreground: 265 40% 12%;
+  --primary: 265 100% 60%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 157 84% 45%;
+  --secondary-foreground: 265 60% 8%;
+  --muted: 265 20% 94%;
+  --muted-foreground: 252 14% 40%;
+  --accent: 36 100% 55%;
+  --accent-foreground: 265 60% 8%;
+  --destructive: 350 82% 55%;
+  --destructive-foreground: 250 30% 98%;
+  --success: 157 84% 45%;
+  --warning: 38 95% 55%;
+  --border: 265 26% 85%;
+  --input: 265 26% 85%;
+  --ring: 265 100% 60%;
+  --starlight: 265 60% 15%;
+  --onchain: 265 100% 60%;
+  --radius: 0.875rem;
+  --tertiary: 193 100% 45%;
+  --surface: 266 34% 97%;
+  --surface-2: 266 30% 93%;
+  --hairline: 260 60% 15%;
+  --lime: 79 94% 45%;
+  --lime-foreground: 265 60% 8%;
+  --nebula-a: 255 60% 80%;
+  --nebula-b: 24 70% 82%;
+  --aurora-base: 228 40% 96%;
+  --glass-shadow: 230 40% 30%;
+}
+
 
 @layer base {
   * {
@@ -71,8 +118,8 @@
   /* Cosmic backdrop: a faint nebula glow behind the deep-space base. */
   .nebula {
     background:
-      radial-gradient(900px 500px at 50% -8%, hsl(255 60% 16% / 0.5) 0%, transparent 60%),
-      radial-gradient(700px 400px at 85% 10%, hsl(24 70% 18% / 0.35) 0%, transparent 55%);
+      radial-gradient(900px 500px at 50% -8%, hsl(var(--nebula-a) / 0.5) 0%, transparent 60%),
+      radial-gradient(700px 400px at 85% 10%, hsl(var(--nebula-b) / 0.35) 0%, transparent 55%);
   }
   .text-balance {
     text-wrap: balance;
@@ -115,7 +162,7 @@
       radial-gradient(60% 80% at 18% 12%, hsl(var(--secondary) / 0.22) 0%, transparent 60%),
       radial-gradient(55% 70% at 85% 18%, hsl(var(--primary) / 0.16) 0%, transparent 58%),
       radial-gradient(70% 90% at 70% 95%, hsl(var(--tertiary) / 0.14) 0%, transparent 60%),
-      radial-gradient(90% 120% at 50% 50%, hsl(228 40% 7%) 0%, hsl(var(--background)) 70%);
+      radial-gradient(90% 120% at 50% 50%, hsl(var(--aurora-base)) 0%, hsl(var(--background)) 70%);
     background-size: 160% 160%, 150% 150%, 170% 170%, 100% 100%;
     animation: aurora-pan 26s ease-in-out infinite alternate;
   }
@@ -132,7 +179,7 @@
     border: 1px solid hsl(var(--hairline) / 0.07);
     box-shadow:
       inset 0 1px 0 0 hsl(var(--hairline) / 0.06),
-      0 24px 60px -28px hsl(230 60% 2% / 0.8);
+      0 24px 60px -28px hsl(var(--glass-shadow) / 0.8);
   }
 
   /* Faint technical grid — the "engineered" motif from chain sites, masked to fade out. */
