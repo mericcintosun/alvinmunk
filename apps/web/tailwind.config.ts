@@ -8,7 +8,7 @@ import type { Config } from 'tailwindcss';
  */
 const config: Config = {
   darkMode: 'class',
-  content: ['/./src/**\/{*.ts,.tsx,.mdx}'],
+  content: ['./src/**/*.{ts,tsx,mdx}'],
   theme: {
     container: {
       center: true,
@@ -25,7 +25,7 @@ const config: Config = {
         },
         popover: {
           DEFAULT: 'hsl(var(--popover) / <alpha-value>)',
-          foreground: 'hsl( var(--popover-foreground) / <alpha-value>)',
+          foreground: 'hsl(var(--popover-foreground) / <alpha-value>)',
         },
         primary: {
           DEFAULT: 'hsl(var(--primary) / <alpha-value>)',
@@ -37,7 +37,7 @@ const config: Config = {
         },
         muted: {
           DEFAULT: 'hsl(var(--muted) / <alpha-value>)',
-          foreground: 'hsl( var(--muted-foreground) / <alpha-value>)',
+          foreground: 'hsl(var(--muted-foreground) / <alpha-value>)',
         },
         accent: {
           DEFAULT: 'hsl(var(--accent) / <alpha-value>)',
@@ -45,7 +45,7 @@ const config: Config = {
         },
         destructive: {
           DEFAULT: 'hsl(var(--destructive) / <alpha-value>)',
-          foreground: 'hsl( var(--destructive-foreground) / <alpha-value>)',
+          foreground: 'hsl(var(--destructive-foreground) / <alpha-value>)',
         },
         success: 'hsl(var(--success) / <alpha-value>)',
         warning: 'hsl(var(--warning) / <alpha-value>)',
@@ -53,7 +53,7 @@ const config: Config = {
         input: 'hsl(var(--input) / <alpha-value>)',
         ring: 'hsl(var(--ring) / <alpha-value>)',
         starlight: 'hsl(var(--starlight) / <alpha-value>)',
-        onchain: 'hsl( var(--onchain) / <alpha-value>)',
+        onchain: 'hsl(var(--onchain) / <alpha-value>)',
         tertiary: 'hsl(var(--tertiary) / <alpha-value>)',
         lime: {
           DEFAULT: 'hsl(var(--lime) / <alpha-value>)',
@@ -61,10 +61,10 @@ const config: Config = {
         },
         surface: {
           DEFAULT: 'hsl(var(--surface) / <alpha-value>)',
-          2: 'hsl( var(--surface-2) / <alpha-value>)',
+          2: 'hsl(var(--surface-2) / <alpha-value>)',
         },
         // Legacy aliases (existing components) → brand values.
-        ink: 'hsl(230 60% 2% / <alpha-value>)',
+        ink: 'hsl(var(--background) / <alpha-value>)',
         stellar: 'hsl(var(--primary) / <alpha-value>)',
         sigil: 'hsl(var(--secondary) / <alpha-value>)',
       },
@@ -129,10 +129,10 @@ const config: Config = {
           '100%': { 'background-position': '-200% 0' },
         },
         meteor: {
-          '0%': { transform: 'rotate(215dg) translateX(0)', opacity: '0' },
+          '0%': { transform: 'rotate(215deg) translateX(0)', opacity: '0' },
           '10%': { opacity: '1' },
           '70%': { opacity: '1' },
-          '100%': { transform: 'rotate(215dg) translateX(-520px)', opacity: '0' },
+          '100%': { transform: 'rotate(215deg) translateX(-520px)', opacity: '0' },
         },
       },
       animation: {

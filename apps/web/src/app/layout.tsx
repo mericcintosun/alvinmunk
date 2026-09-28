@@ -1,6 +1,4 @@
 import type { Metadata } from 'next';
-import Script from 'next/script';
-import { ThemeProvider } from 'next-themes';
 import './globals.css';
 import { fontVars } from '@/lib/fonts';
 import { Starfield } from '@/components/brand/starfield';
@@ -12,11 +10,16 @@ import { AnalyticsProvider } from '@/components/analytics';
 import { WalletProvider } from '@/components/wallet/wallet-provider';
 import { I18nProvider } from '@/lib/i18n';
 
+// Runs before first paint so the page never flashes the wrong theme: an explicit choice
+// (localStorage `alvinmunk.theme`, written by ThemeToggle) wins, else the OS preference.
+// The server always renders `dark`, so without JS the brand's dark theme is the fallback.
+const THEME_INIT = `(function(){try{var t=localStorage.getItem('alvinmunk.theme');if(t!=='light'&&t!=='dark'){t=window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'}var r=document.documentElement;r.classList.remove('light','dark');r.classList.add(t);r.style.colorScheme=t}catch(e){}})();`;
+
 export const metadata: Metadata = {
   metadataBase: new URL('https://alvinmunk.vercel.app'),
   title: {
     default: 'alvinmunk — Collect people, not points',
-    template: '%s +· alvinmunk',
+    template: '%s · alvinmunk',
   },
   description:
     'A social proof-of-people reputation game on Stellar. Someone you trust vouches for you, and it becomes a star in your constellation.',
@@ -32,24 +35,22 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={fontVars} suppressHydrationWarning>
+    <html lang="en" className={`${fontVars} dark`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
+      </head>
       <body className="grain min-h-dvh" suppressHydrationWarning>
-        <Script id="theme-init" strategy="beforeInteractive">
-          {`(function(){try{var t=localStorage.getItem('theme')||(window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.classList.remove('dark','light');document.documentElement.classList.add(t);}catch(e){}})();`}
-        </Script>
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-          <WalletProvider>
-            <I18nProvider>
-            <SmoothScroll />
-            <Starfield />
-            <Navbar />
-            <main className="min-h-[calc(100dvh-4rem)]">{children}</main>
-            <SiteFooter />
-            <Toaster />
-            <AnalyticsProvider />
-            </I18nProvider>
-          </WalletProvider>
-        </ThemeProvider>
+        <WalletProvider>
+          <I18nProvider>
+          <SmoothScroll />
+          <Starfield />
+          <Navbar />
+          <main className="min-h-[calc(100dvh-4rem)]">{children}</main>
+          <SiteFooter />
+          <Toaster />
+          <AnalyticsProvider />
+          </I18nProvider>
+        </WalletProvider>
       </body>
     </html>
   );

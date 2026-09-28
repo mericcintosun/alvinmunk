@@ -5,6 +5,8 @@
   "nav.wallet": "Wallet",
   "nav.openMenu": "Open menu",
   "nav.closeMenu": "Close menu",
+  "nav.themeLight": "Switch to light theme",
+  "nav.themeDark": "Switch to dark theme",
 
   "footer.tagline": "Reputation should name humans, not hoard points. Lit on Stellar.",
   "footer.live": "Live on Stellar testnet",
