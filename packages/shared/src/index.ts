@@ -8,7 +8,7 @@
 
 // ── Schema ids (namespacing for attestations). Issuers agree off-chain. ──
 export const SCHEMA = {
-  VOUCH: 1,
+  RESERVED: 1,
   QUEST: 2,
 } as const;
 export type SchemaId = (typeof SCHEMA)[keyof typeof SCHEMA];
@@ -22,7 +22,7 @@ export const EVENTS = {
   XP: 'xp',
   /** topics ('social', addr) · data (amount, newTotal) — Social track total (leaderboard source) */
   SOCIAL: 'social',
-  /** topics ('vouch', 'minted'|'claimed') · data (id, from, to) */
+  /** topics ('vouch', 'minted'|'claimed'|'slashed') · data minted (id, from), claimed (id, from, claimer), slashed (id, from, stake) */
   VOUCH: 'vouch',
   /** topics ('quest', 'created'|'awarded') · data varies */
   QUEST: 'quest',
@@ -43,10 +43,13 @@ export interface Attestation {
 export interface Vouch {
   id: number;
   from: string;
-  to: string;
+  claim_hash: string;
   note: string;
   claimed: boolean;
+  claimer?: string;
   created: number;
+  stake: number;
+  slashed: boolean;
 }
 
 export interface Profile {

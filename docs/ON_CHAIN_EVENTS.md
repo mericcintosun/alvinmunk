@@ -35,7 +35,7 @@ first and can evolve safely.
 |-------|------|-------------|
 | 0 | `u32` | `schema_version` (currently `1`) |
 | 1 | `Address` | `issuer` — the allowlisted attester contract/account |
-| 2 | `u32` | `schema_id` — off-chain agreed namespace (1=VOUCH, 2=QUEST) |
+| 2 | `u32` | `schema_id` — off-chain agreed namespace (1=RESERVED, 2=QUEST) |
 | 3 | `u64` | `amount` — XP amount credited |
 | 4 | `u64` | `timestamp` — ledger timestamp at emission |
 
@@ -98,7 +98,7 @@ event-sourced leaderboard until they first act.
 
 | Index | Type | Description |
 |-------|------|-------------|
-| 0 | `u64` | `amount` — the delta (always positive for add, positive for sub — caller deduces sign from context) |
+| 0 | `u64` | `amount` — an unsigned magnitude; the direction comes from comparing newTotal with the previous total. |
 | 1 | `u64` | `newTotal` — the new running total |
 
 **Contract source**: `reputation/src/lib.rs` → `fn add_social()` / `fn sub_social()`

@@ -58,8 +58,8 @@ describe('readNetworkConfig', () => {
 });
 
 describe('SCHEMA', () => {
-  it('namespaces vouch vs quest distinctly', () => {
-    expect(SCHEMA.VOUCH).not.toBe(SCHEMA.QUEST);
+  it('namespaces reserved vs quest distinctly', () => {
+    expect(SCHEMA.RESERVED).not.toBe(SCHEMA.QUEST);
   });
 });
 
