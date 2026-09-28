@@ -138,6 +138,11 @@
   "quests.page.title": "Verified quests",
   "quests.page.subtitle": "These are checked by the attester, not self-reported. Each completion mints {earnedXP} — the only kind that can ever unlock USDC. Keep a weekly streak going to climb faster.",
   "quests.page.earnedXP": "Earned XP",
+  "quests.week.resetsInDays": "resets in {days}d {hours}h",
+  "quests.week.resetsInHours": "resets in {hours}h {minutes}m",
+  "quests.week.resetsInMinutes": "resets in {minutes}m",
+  "quests.week.resetting": "resetting now…",
+  "quests.week.resetsAt": "The streak week resets {when}",
 
   "rewards.page.title": "Spend your reputation",
   "rewards.page.subtitle": "Tip anyone in USDC, claim rank rewards once your Earned XP clears the bar, and unlock perks gated by your standing.",

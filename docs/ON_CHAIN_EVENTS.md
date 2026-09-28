@@ -635,7 +635,7 @@ pub struct QuestConfig {
 ```rust
 pub struct Streak {
     pub weeks: u32,   // current consecutive-week run
-    pub last_week: u64, // epoch (timestamp / WEEK_SECS) of most recent completion. Unix epoch 0 is a Thursday, so weeks run Thu-Wed.
+    pub last_week: u64, // week index (timestamp / WEEK_SECS) of most recent completion
     pub best: u32,    // all-time high
 }
 ```
@@ -646,6 +646,28 @@ it on read: when `last_week + 1 < current week` (a full week was skipped), it re
 A completion in the current or the previous week still reads as the live count. No event
 marks the lapse — the last `streak` event keeps the old `weeks` — so an indexer folding
 `streak` events applies the same rule against the current week.
+
+### Streak weeks (`get_week` / `get_week_bounds`)
+
+A streak week is `timestamp / WEEK_SECS` (`WEEK_SECS = 604_800`), counted from the Unix
+epoch. 1970-01-01 was a Thursday, so every week runs **Thursday 00:00:00 to Wednesday
+23:59:59 UTC** — not Monday to Sunday. `get_week()` returns the current index.
+
+`get_week_bounds() -> (u64, u64)` returns the current week as UTC unix timestamps:
+
+| Index | Type | Description |
+|-------|------|-------------|
+| 0 | `u64` | `start` — the week's first second (`get_week() * WEEK_SECS`, a Thursday 00:00:00) |
+| 1 | `u64` | `end` — the week's last second, **inclusive** (`start + WEEK_SECS - 1`, a Wednesday 23:59:59) |
+
+The next week starts at `end + 1`, and a live run with no completion yet this week lapses
+then. The bounds follow the ledger time the read is simulated at, which trails wall-clock
+time by up to one ledger close. A contract deployed before this view has no
+`get_week_bounds`; treat a failed call as "unknown" (the web app hides its countdown).
+
+The alignment is frozen: every stored `Streak.last_week` is an index in this epoch, so
+moving weeks to another start day would break every live streak. A different alignment
+would need a versioned epoch and a migration.
 
 ### `RewardEntry`
 

@@ -174,21 +174,51 @@ fn weekly_streak_increments_then_resets_on_a_gap() {
     assert_eq!(s.best, 2);
 }
 
-#[test]
-fn get_week_bounds_matches_current_week() {
-    let f = setup();
-    
-    // Check bounds for week 1
-    f.env.ledger().with_mut(|l| l.timestamp = WEEK_SECS + 5);
-    let bounds = f.quest.get_week_bounds();
-    assert_eq!(bounds.0, WEEK_SECS);
-    assert_eq!(bounds.1, 2 * WEEK_SECS - 1);
+/// Thursday 2026-10-01 00:00:00 UTC, a week boundary (1970-01-01 was a Thursday).
+const THU_2026_10_01: u64 = 1_790_812_800;
 
-    // Check bounds right at a boundary (start of week 2)
-    f.env.ledger().with_mut(|l| l.timestamp = 2 * WEEK_SECS);
-    let bounds2 = f.quest.get_week_bounds();
-    assert_eq!(bounds2.0, 2 * WEEK_SECS);
-    assert_eq!(bounds2.1, 3 * WEEK_SECS - 1);
+#[test]
+fn week_bounds_flip_at_thursday_midnight_utc() {
+    let f = setup();
+
+    // Week 0 starts at the epoch.
+    set_time(&f, 0);
+    assert_eq!(f.quest.get_week_bounds(), (0, WEEK_SECS - 1));
+
+    // Wednesday 2026-09-30 23:59:59 UTC is the last second of week 2960.
+    set_time(&f, THU_2026_10_01 - 1);
+    assert_eq!(f.quest.get_week(), 2960);
+    assert_eq!(
+        f.quest.get_week_bounds(),
+        (THU_2026_10_01 - WEEK_SECS, THU_2026_10_01 - 1)
+    );
+
+    // One second later, Thursday 00:00:00 UTC, week 2961 starts...
+    set_time(&f, THU_2026_10_01);
+    assert_eq!(f.quest.get_week(), 2961);
+    let this_week = (THU_2026_10_01, THU_2026_10_01 + WEEK_SECS - 1);
+    assert_eq!(f.quest.get_week_bounds(), this_week);
+
+    // ...and runs through Wednesday 2026-10-07 23:59:59 UTC.
+    set_time(&f, THU_2026_10_01 + WEEK_SECS - 1);
+    assert_eq!(f.quest.get_week(), 2961);
+    assert_eq!(f.quest.get_week_bounds(), this_week);
+}
+
+#[test]
+fn completions_either_side_of_thursday_midnight_are_consecutive_weeks() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    f.quest.create_quest(&1u32, &2u32, &10u64);
+    f.quest.create_quest(&2u32, &2u32, &10u64);
+
+    // One second apart, but Wednesday 23:59:59 and Thursday 00:00:00 UTC are two weeks.
+    set_time(&f, THU_2026_10_01 - 1);
+    award(&f, &f.attester_sk, 1, &user);
+    set_time(&f, THU_2026_10_01);
+    award(&f, &f.attester_sk, 2, &user);
+    let s = f.quest.get_streak(&user);
+    assert_eq!((s.weeks, s.last_week), (2, 2961));
 }
 
 #[test]
@@ -331,6 +361,19 @@ proptest! {
             prop_assert_eq!(s.best, best);
             prop_assert!(s.best >= s.weeks);
         }
+    }
+
+    /// Invariant: the week bounds are the WEEK_SECS-long, epoch-aligned window that holds
+    /// the ledger time, and they agree with `get_week`.
+    #[test]
+    fn week_bounds_contain_the_ledger_time(timestamp in 0u64..4_000_000_000) {
+        let f = setup();
+        set_time(&f, timestamp);
+        let (start, end) = f.quest.get_week_bounds();
+        prop_assert!(start <= timestamp && timestamp <= end);
+        prop_assert_eq!(end - start, super::WEEK_SECS - 1);
+        prop_assert_eq!(start % super::WEEK_SECS, 0);
+        prop_assert_eq!(start / super::WEEK_SECS, f.quest.get_week());
     }
 
     /// Invariant: with no new award, the view reports the run while the read falls in the

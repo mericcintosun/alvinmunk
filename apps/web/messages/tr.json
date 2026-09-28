@@ -138,6 +138,11 @@
   "quests.page.title": "Doğrulanmış görevler",
   "quests.page.subtitle": "Bunlar onaylayıcı tarafından kontrol edilir, kendi bildirimine dayanmaz. Her tamamlama {earnedXP} basar — USDC'nin kilidini açabilecek tek tür. Daha hızlı tırmanmak için haftalık seriyi sürdür.",
   "quests.page.earnedXP": "Kazanılan XP",
+  "quests.week.resetsInDays": "{days}g {hours}sa sonra yenilenir",
+  "quests.week.resetsInHours": "{hours}sa {minutes}dk sonra yenilenir",
+  "quests.week.resetsInMinutes": "{minutes}dk sonra yenilenir",
+  "quests.week.resetting": "şimdi yenileniyor…",
+  "quests.week.resetsAt": "Seri haftasının yenilenmesi: {when}",
 
   "rewards.page.title": "İtibarını harca",
   "rewards.page.subtitle": "Herkese USDC bahşişi gönder, Kazanılan XP sınırını geçince ödülleri al ve konumuna göre korunan avantajların kilidini aç.",
