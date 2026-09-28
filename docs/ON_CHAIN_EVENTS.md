@@ -291,7 +291,7 @@ env.events().publish(
 
 ### `handle` / `claimed`
 
-A wallet claims or renames to a handle.
+A wallet claims a new handle. (On a rename, a `released` event for the old handle is emitted immediately before this). Re-claiming an already-held handle is a silent no-op.
 
 | Field | Type | Description |
 |-------|------|-------------|
