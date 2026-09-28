@@ -134,6 +134,7 @@
   "vouch.error.self": "Kendini destekleyemezsin.",
   "vouch.error.limit": "Bugünkü destek limitine ulaştın — yarın tekrar dene.",
   "vouch.error.xp": "Bu desteği kullanmak için biraz daha Sosyal XP'ye ihtiyacın var.",
+  "vouch.error.noteTooLong": "Notu en fazla {max} karakterle sınırla.",
 
   "quests.page.title": "Doğrulanmış görevler",
   "quests.page.subtitle": "Bunlar onaylayıcı tarafından kontrol edilir, kendi bildirimine dayanmaz. Her tamamlama {earnedXP} basar — USDC'nin kilidini açabilecek tek tür. Daha hızlı tırmanmak için haftalık seriyi sürdür.",

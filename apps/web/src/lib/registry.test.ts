@@ -10,13 +10,14 @@ vi.mock('./contracts', () => ({
   registryId: () => registry,
   args: {
     addr: (a: string) => ({ __addr: a }),
+    addrs: (a: string[]) => ({ __addrs: a }),
     sym: (s: string) => ({ __sym: s }),
     u64: (n: bigint) => ({ __u64: n }),
     str: (s: string) => ({ __str: s }),
   },
 }));
 
-import { getMeta, setMeta, clearMetaCache, isMetaUnsupported } from './registry';
+import { getMeta, setMeta, clearMetaCache, isMetaUnsupported, reverseHandles } from './registry';
 import type { Wallet } from './wallet';
 
 const G = 'G'.padEnd(56, 'A');
@@ -153,5 +154,78 @@ describe('isMetaUnsupported', () => {
     expect(isMetaUnsupported(new Error('HostError: Error(Contract, #4)'))).toBe(false);
     expect(isMetaUnsupported(new Error('Error(Storage, MissingValue)'))).toBe(false);
     expect(isMetaUnsupported(new Error('fetch failed'))).toBe(false);
+  });
+});
+
+describe('reverseHandles', () => {
+  // `h:<addr>` for addresses ending in an even digit, none for the rest.
+  const handleOf = (a: string) => (Number(a.slice(-1)) % 2 === 0 ? `h:${a}` : null);
+  const addrs = (n: number) => Array.from({ length: n }, (_, i) => `G${String(i).padStart(3, '0')}`);
+  const batched = () =>
+    readPublicMock.mockImplementation(async (_id: string, method: string, [arg]: [{ __addrs: string[] }]) => {
+      if (method !== 'reverse_many') throw new Error(`unexpected ${method}`);
+      return arg.__addrs.map(handleOf);
+    });
+  const calls = (method: string) => readPublicMock.mock.calls.filter((c) => c[1] === method);
+  const MISSING_REVERSE_MANY = MISSING_FN.replaceAll('get_meta', 'reverse_many');
+
+  beforeEach(() => {
+    readPublicMock.mockReset();
+    registry = 'CREGISTRY';
+  });
+
+  it('labels N addresses in ceil(N / 50) reverse_many reads, each in input order', async () => {
+    batched();
+    const input = addrs(120);
+    const out = await reverseHandles(input);
+    expect(calls('reverse_many').map((c) => c[2][0].__addrs.length)).toEqual([50, 50, 20]);
+    expect(readPublicMock).toHaveBeenCalledTimes(3);
+    expect(out).toEqual(Object.fromEntries(input.map((a) => [a, handleOf(a)])));
+  });
+
+  it('asks once per distinct address', async () => {
+    batched();
+    const out = await reverseHandles(['G002', 'G001', 'G002', '']);
+    expect(calls('reverse_many').map((c) => c[2][0].__addrs)).toEqual([['G001', 'G002']]);
+    expect(out).toEqual({ G001: null, G002: 'h:G002', '': null });
+  });
+
+  it('shares one read between callers asking for the same rows at once', async () => {
+    batched();
+    const [a, b] = await Promise.all([reverseHandles(addrs(3)), reverseHandles(addrs(3).reverse())]);
+    expect(a).toEqual(b);
+    expect(readPublicMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to one reverse per address on a registry without reverse_many', async () => {
+    readPublicMock.mockImplementation(async (_id: string, method: string, [arg]: [{ __addr: string }]) => {
+      if (method === 'reverse_many') throw new Error(MISSING_REVERSE_MANY);
+      if (method === 'reverse') return handleOf(arg.__addr);
+      throw new Error(`unexpected ${method}`);
+    });
+    const input = addrs(60);
+    const out = await reverseHandles(input);
+    expect(calls('reverse_many')).toHaveLength(2);
+    expect(calls('reverse')).toHaveLength(60);
+    expect(out).toEqual(Object.fromEntries(input.map((a) => [a, handleOf(a)])));
+  });
+
+  it('leaves a chunk unlabelled when the read fails for another reason, without fanning out', async () => {
+    readPublicMock.mockRejectedValue(new Error('fetch failed'));
+    await expect(reverseHandles(addrs(3))).resolves.toEqual({ G000: null, G001: null, G002: null });
+    expect(calls('reverse')).toHaveLength(0);
+  });
+
+  it('treats a reply that does not line up with the request as unreadable', async () => {
+    readPublicMock.mockResolvedValue(['h:G000']);
+    await expect(reverseHandles(addrs(2))).resolves.toEqual({ G000: null, G001: null });
+  });
+
+  it('answers every address, null, without a configured registry', async () => {
+    // callers merge the answer into their label map; a missing key would make them ask again
+    registry = '';
+    await expect(reverseHandles(['G001', 'G002'])).resolves.toEqual({ G001: null, G002: null });
+    await expect(reverseHandles([])).resolves.toEqual({});
+    expect(readPublicMock).not.toHaveBeenCalled();
   });
 });
