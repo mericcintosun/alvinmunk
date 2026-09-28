@@ -11,8 +11,15 @@ use soroban_sdk::{
     xdr::ToXdr, Address, Bytes, BytesN, Env, IntoVal, Symbol, Val, Vec,
 };
 
-const BUMP_THRESHOLD: u32 = 17_280;
-const BUMP_EXTEND: u32 = 518_400;
+// TTLs in ledgers (5s). `extend_ttl(key, threshold, extend_to)` does nothing unless the
+// entry's TTL is at or below `threshold`, and then sets it to `extend_to`. New persistent
+// entries start at the network's min_persistent_ttl (120,960 on testnet, 2,073,600 on
+// mainnet), so the threshold sits one day under the target: the bump after a write lifts
+// the entry to BUMP_EXTEND unless it already ran within the last day. BUMP_EXTEND must stay
+// above mainnet's minimum and below max_entry_ttl (3,110,400).
+const DAY_LEDGERS: u32 = 17_280; // ~1 day
+const BUMP_EXTEND: u32 = 2_592_000; // ~150 days
+const BUMP_THRESHOLD: u32 = BUMP_EXTEND - DAY_LEDGERS;
 const WEEK_SECS: u64 = 604_800; // weekly retention loop (Green belt)
 
 #[contracterror]

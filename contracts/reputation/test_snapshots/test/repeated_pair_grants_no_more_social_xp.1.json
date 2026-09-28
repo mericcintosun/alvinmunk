@@ -126,6 +126,51 @@
             "key": {
               "vec": [
                 {
+                  "symbol": "Backed"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "Backed"
+                    },
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "u32": 1
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          2592000
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+            "key": {
+              "vec": [
+                {
                   "symbol": "DailyCount"
                 },
                 {
@@ -233,7 +278,7 @@
             },
             "ext": "v0"
           },
-          518400
+          2592000
         ]
       ],
       [
@@ -284,7 +329,7 @@
             },
             "ext": "v0"
           },
-          518400
+          2592000
         ]
       ],
       [
@@ -329,7 +374,7 @@
             },
             "ext": "v0"
           },
-          518400
+          2592000
         ]
       ],
       [
@@ -374,7 +419,7 @@
             },
             "ext": "v0"
           },
-          518400
+          2592000
         ]
       ],
       [
@@ -419,7 +464,7 @@
             },
             "ext": "v0"
           },
-          518400
+          2592000
         ]
       ],
       [
@@ -464,7 +509,7 @@
             },
             "ext": "v0"
           },
-          518400
+          2592000
         ]
       ],
       [
@@ -582,7 +627,7 @@
             },
             "ext": "v0"
           },
-          518400
+          2592000
         ]
       ],
       [
@@ -700,7 +745,52 @@
             },
             "ext": "v0"
           },
-          518400
+          2592000
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+            "key": {
+              "vec": [
+                {
+                  "symbol": "VouchedBy"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "VouchedBy"
+                    },
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "u32": 1
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          2592000
         ]
       ],
       [
