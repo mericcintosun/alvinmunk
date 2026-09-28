@@ -18,21 +18,43 @@ REPUTATION="${REPUTATION:-CBNIZXITUVTRVW6RZGEGCI7KNF46REG4EDM4XUVHKDAV63WOHWW75S
 QUEST="${QUEST:-CD6RZUVNQ3TV3X6MNQM25NB2YRFRGMSUGKWTMAIGJOC23C6ESHJKYNFO}"
 REWARDS="${REWARDS:-CBUKGIFOEOS74I2IUUHYNRBZODQFOFCFWIJY3DUJHOUUJV7TT2QYADOU}"
 
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/bump-ttl.XXXXXX")"
+trap 'rm -rf "$tmp"' EXIT
+
 bump () { # $1 = contract id, $2 = label
-  # No --key => the CLI extends the contract instance (instance storage + wasm ref).
+  local wasm="$tmp/$2.wasm"
+  local instance_ttl wasm_ttl
+
   echo "==> extending instance TTL: $2 ($1)"
-  stellar contract extend \
+  instance_ttl="$(stellar contract extend \
     --id "$1" \
     --source "$SOURCE" \
     --network "$NETWORK" \
-    --ledgers-to-extend "$LEDGERS"
+    --ledgers-to-extend "$LEDGERS" \
+    --ttl-ledger-only)"
+  echo "instance TTL: $instance_ttl"
+
+  echo "==> fetching WASM code: $2 ($1)"
+  stellar contract fetch \
+    --id "$1" \
+    --network "$NETWORK" \
+    --out-file "$wasm"
+
+  echo "==> extending WASM TTL: $2 ($1)"
+  wasm_ttl="$(stellar contract extend \
+    --wasm "$wasm" \
+    --source "$SOURCE" \
+    --network "$NETWORK" \
+    --ledgers-to-extend "$LEDGERS" \
+    --ttl-ledger-only)"
+  echo "WASM TTL: $wasm_ttl"
 }
 
 bump "$REPUTATION" reputation
 bump "$QUEST" quest_registry
 bump "$REWARDS" rewards
 
-echo "✅ instance storage extended to ~$LEDGERS ledgers on all 3 contracts."
+echo "✅ instance and WASM TTLs extended to ~$LEDGERS ledgers on all 3 contracts."
 echo "Note: the contracts extend persistent entries (XP, vouches, quest and reward claims) to"
 echo "~150 days when they write them, but not the attester allowlists or entries only read between"
 echo "admin edits (reward table). Schedule this keeper (weekly) so instance storage never archives."
