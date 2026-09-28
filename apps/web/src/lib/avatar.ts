@@ -1,8 +1,9 @@
 /**
  * Avatar identity. A profile's face is one of the hand-drawn portrait stickers. The
- * choice is stored on the Profile; absent a choice, a DETERMINISTIC default is derived
- * from the address so the same wallet always shows the same face — on the dashboard AND
- * in the (node-runtime) OG card. The geometric Crest remains the fallback identity for
+ * choice is stored on the Profile and published on-chain (registry `set_meta`, packed by
+ * `encodeAvatar`) so every viewer sees it; absent a choice, a DETERMINISTIC default is
+ * derived from the address so the same wallet always shows the same face — on the
+ * dashboard AND in the (node-runtime) OG card. The geometric Crest remains the fallback identity for
  * addresses we render without a face (leaderboard rows, dev surfaces).
  */
 import { asset } from './assets';
@@ -75,9 +76,14 @@ const DIR: Record<KitCategory, string> = {
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 
+/** Repo-relative file of one portrait-kit layer piece (for the OG node fs reader). */
+export function kitFile(cat: KitCategory, n: number): string {
+  return `portrait-kit/${DIR[cat]}/${pad2(n)}.png`;
+}
+
 /** Public src for one portrait-kit layer piece (1-based index). */
 export function kitSrc(cat: KitCategory, n: number): string {
-  return asset(`portrait-kit/${DIR[cat]}/${pad2(n)}.png`);
+  return asset(kitFile(cat, n));
 }
 
 /** A deterministic starter kit from an address — every field seeded so it varies. */
@@ -131,4 +137,75 @@ export function defaultAvatarId(address: string): FaceId {
 export function resolveAvatarId(avatar: AvatarConfig | undefined, address: string): FaceId {
   if (avatar?.kind === 'face' && isFaceId(avatar.id)) return avatar.id;
   return defaultAvatarId(address);
+}
+
+/** Is `cfg` a kit whose every index points at a shipped layer (acc/bg may be none)? */
+export function isValidKit(cfg: KitAvatar): boolean {
+  const inRange = (n: unknown, max: number) =>
+    Number.isInteger(n) && (n as number) >= 1 && (n as number) <= max;
+  return (
+    inRange(cfg.skin, KIT_COUNTS.skin) &&
+    inRange(cfg.hair, KIT_COUNTS.hair) &&
+    inRange(cfg.eyes, KIT_COUNTS.eyes) &&
+    inRange(cfg.mouth, KIT_COUNTS.mouth) &&
+    (cfg.acc === null || inRange(cfg.acc, KIT_COUNTS.acc)) &&
+    (cfg.bg === null || inRange(cfg.bg, KIT_COUNTS.bg))
+  );
+}
+
+/*
+ * On-chain packing for the registry's `set_meta(avatar: u64)` — one byte per field, every
+ * other byte zero (the contract rejects anything else, so keep FACE_IDS / KIT_COUNTS in
+ * step with its FACE_COUNT / KIT_* constants):
+ *   byte 7: kind — 0 = face, 1 = kit
+ *   face:   byte 0 = face number (1-based: face-01 → 1)
+ *   kit:    bytes 5..0 = skin, hair, eyes, mouth, acc, bg (1-based; acc/bg 0 = none)
+ * e.g. face-03 → 0x03, kit {3,7,5,4,9,2} → 0x0100030705040902.
+ */
+const KIND_FACE = 0n;
+const KIND_KIT = 1n;
+const KIT_FIELDS = ['skin', 'hair', 'eyes', 'mouth', 'acc', 'bg'] as const; // bytes 5..0
+const U64_MAX = (1n << 64n) - 1n;
+
+/** Pack a face for `set_meta`. Throws on a face id or kit index the app doesn't ship. */
+export function encodeAvatar(cfg: AvatarConfig): bigint {
+  if (cfg.kind === 'face') {
+    const n = FACE_IDS.indexOf(cfg.id);
+    if (n < 0) throw new Error(`unknown face id: ${String(cfg.id)}`);
+    return (KIND_FACE << 56n) | BigInt(n + 1);
+  }
+  if (!isValidKit(cfg)) throw new Error('kit avatar index out of range');
+  return KIT_FIELDS.reduce(
+    (v, field, i) => v | (BigInt(cfg[field] ?? 0) << BigInt(8 * (5 - i))),
+    KIND_KIT << 56n,
+  );
+}
+
+/**
+ * Unpack an on-chain `avatar`. Returns undefined for anything this build can't render (a
+ * kind or index from a newer contract, a malformed value), so callers fall back to the
+ * deterministic default face.
+ */
+export function decodeAvatar(packed: bigint): AvatarConfig | undefined {
+  if (typeof packed !== 'bigint' || packed < 0n || packed > U64_MAX) return undefined;
+  const byte = (i: number) => Number((packed >> BigInt(8 * i)) & 0xffn);
+  const kind = packed >> 56n;
+  if (kind === KIND_FACE) {
+    const n = byte(0);
+    if (packed >> 8n !== 0n || n < 1 || n > FACE_IDS.length) return undefined;
+    return { kind: 'face', id: FACE_IDS[n - 1] };
+  }
+  if (kind === KIND_KIT && byte(6) === 0) {
+    const cfg: KitAvatar = {
+      kind: 'kit',
+      skin: byte(5),
+      hair: byte(4),
+      eyes: byte(3),
+      mouth: byte(2),
+      acc: byte(1) || null,
+      bg: byte(0) || null,
+    };
+    return isValidKit(cfg) ? cfg : undefined;
+  }
+  return undefined;
 }

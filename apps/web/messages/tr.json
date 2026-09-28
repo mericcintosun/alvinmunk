@@ -138,6 +138,11 @@
   "quests.page.title": "Doğrulanmış görevler",
   "quests.page.subtitle": "Bunlar onaylayıcı tarafından kontrol edilir, kendi bildirimine dayanmaz. Her tamamlama {earnedXP} basar — USDC'nin kilidini açabilecek tek tür. Daha hızlı tırmanmak için haftalık seriyi sürdür.",
   "quests.page.earnedXP": "Kazanılan XP",
+  "quests.week.resetsInDays": "{days}g {hours}sa sonra yenilenir",
+  "quests.week.resetsInHours": "{hours}sa {minutes}dk sonra yenilenir",
+  "quests.week.resetsInMinutes": "{minutes}dk sonra yenilenir",
+  "quests.week.resetting": "şimdi yenileniyor…",
+  "quests.week.resetsAt": "Seri haftasının yenilenmesi: {when}",
 
   "rewards.page.title": "İtibarını harca",
   "rewards.page.subtitle": "Herkese USDC bahşişi gönder, Kazanılan XP sınırını geçince ödülleri al ve konumuna göre korunan avantajların kilidini aç.",
@@ -230,5 +235,19 @@
   "badges.generous.name": "Cömert",
   "badges.generous.by": "ilk bahşiş: {name}",
   "badges.generous.desc": "İlk bahşiş gönderildi",
-  "badges.generous.next": "Henüz bahşiş gönderilmedi"
+  "badges.generous.next": "Henüz bahşiş gönderilmedi",
+
+  "identity.bio.label": "Biyografi",
+  "identity.bio.placeholder": "Kendin hakkında tek satır — düz metin",
+  "identity.bio.bytesHint": "Bayt olarak sayılır: aksanlı harfler 2, çoğu emoji 4 bayt tutar.",
+  "identity.bio.save": "kaydet",
+  "identity.bio.cancel": "Biyografi düzenlemeyi iptal et",
+  "identity.bio.add": "biyografi ekle…",
+  "identity.bio.edit": "Biyografiyi düzenle",
+  "identity.meta.saving": "zincire kaydediliyor…",
+  "identity.meta.saved": "Zincire kaydedildi — profilini açan herkes görür.",
+  "identity.meta.unsupported": "Bu cihaza kaydedildi. Herkese açık yüz ve biyografi bu ağda henüz aktif değil.",
+  "identity.meta.error.noHandle": "Önce @kullanıcı adını zincirde al — sonra yüzün ve biyografin herkese açık olabilir.",
+  "identity.meta.error.bio": "Bu biyografi kaydedilemez — tek satır düz metin olsun, en fazla 80 bayt.",
+  "identity.meta.error.avatar": "Kayıt defteri bu yüzü henüz tanımıyor — başka birini seç."
 }

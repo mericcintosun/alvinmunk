@@ -99,7 +99,7 @@ ADMIN=admin ATTESTER=attester \
 | `ADMIN` | yes | `stellar keys` identity name of the funded mainnet deployer. It becomes admin of all five contracts and signs every transaction. |
 | `ATTESTER` | yes | Identity name or `G...` public key of the off-chain attester (its secret goes in `ATTESTER_SECRET_KEY` on the server). Must differ from `ADMIN`. |
 | `USDC_SAC` | yes | Circle's mainnet USDC SAC, `CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75`. Anything else aborts at the USDC gate. |
-| `DAILY_CAP` | yes | Max treasury payout per UTC day, in USDC stroops (1 USDC = `10000000`, so `500000000` = 50 USDC). Must be positive: `0` would mean no cap. |
+| `DAILY_CAP` | yes | Max treasury payout per UTC day, in USDC stroops (1 USDC = `10000000`, so `500000000` = 50 USDC). Must be positive: `0` would mean no cap. Must also be at least the largest reward in the table (`20000000` = 2 USDC), because `add_reward` rejects a payout above the cap. |
 | `DRY_RUN` | no | `1` for a dry run, `0` or unset for a real run. Any other value aborts. |
 
 Needs `stellar` (with `strkey decode`), `jq` and `git`. Offline tests for the gates and the dry run: `bash scripts/deploy-mainnet.test.sh` (stubs the CLI; needs `python3`).

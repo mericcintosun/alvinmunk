@@ -3,8 +3,7 @@ import type { Config } from 'tailwindcss';
 /**
  * Stellar Passport design system (docs/product/DESIGN_SYSTEM_TOKENS.md).
  * Dark-first cosmic theme. Colors are CSS variables (HSL) so components never
- * hardcode hex. Legacy tokens (ink/stellar/sigil) are remapped to the brand:
- * stellar = soft-orange primary, sigil = on-chain violet, ink = deep space.
+ * hardcode hex.
  */
 const config: Config = {
   darkMode: 'class',
@@ -63,10 +62,6 @@ const config: Config = {
           DEFAULT: 'hsl(var(--surface) / <alpha-value>)',
           2: 'hsl(var(--surface-2) / <alpha-value>)',
         },
-        // Legacy aliases (existing components) → brand values.
-        ink: 'hsl(var(--background) / <alpha-value>)',
-        stellar: 'hsl(var(--primary) / <alpha-value>)',
-        sigil: 'hsl(var(--secondary) / <alpha-value>)',
       },
       fontFamily: {
         display: ['var(--font-display)', 'system-ui', 'sans-serif'],
