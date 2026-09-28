@@ -35,7 +35,7 @@ first and can evolve safely.
 |-------|------|-------------|
 | 0 | `u32` | `schema_version` (currently `1`) |
 | 1 | `Address` | `issuer` — the allowlisted attester contract/account |
-| 2 | `u32` | `schema_id` — off-chain agreed namespace (1=RESERVED, 2=QUEST) |
+| 2 | `u32` | `schema_id` — off-chain agreed namespace, passed through from `award_xp`. Every deployed quest uses `2` (QUEST). `1` is reserved and never emitted: vouches credit only the Social track, so they never produce `att_set` |
 | 3 | `u64` | `amount` — XP amount credited |
 | 4 | `u64` | `timestamp` — ledger timestamp at emission |
 
@@ -98,7 +98,7 @@ event-sourced leaderboard until they first act.
 
 | Index | Type | Description |
 |-------|------|-------------|
-| 0 | `u64` | `amount` — an unsigned magnitude; the direction comes from comparing newTotal with the previous total. |
+| 0 | `u64` | `amount` — an unsigned magnitude. The direction comes from comparing `newTotal` with the previous total (the address's prior `social` event, or the silent `STARTER_SOCIAL` balance for its first one): higher is a credit, lower is a debit |
 | 1 | `u64` | `newTotal` — the new running total |
 
 **Contract source**: `reputation/src/lib.rs` → `fn add_social()` / `fn sub_social()`
@@ -610,7 +610,7 @@ mirrored TypeScript types and constants. Keep these in lockstep with the
 Rust contract definitions:
 
 ```typescript
-export const SCHEMA = { VOUCH: 1, QUEST: 2 } as const;
+export const SCHEMA = { RESERVED: 1, QUEST: 2 } as const; // 1 is never emitted
 
 export const EVENTS = {
   ATTESTATION_SET: 'att_set',
@@ -620,7 +620,7 @@ export const EVENTS = {
   QUEST: 'quest',
   TIPPED: 'tipped',
   REWARD: 'reward',
-  // handle, gate, unlocked, streak, rwd_set, attester are not yet mirrored
+  // handle, gate, unlocked, streak, rwd_set, rwd_cap, attester are not yet mirrored
 } as const;
 ```
 
