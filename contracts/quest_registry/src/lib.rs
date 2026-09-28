@@ -57,7 +57,8 @@ pub struct QuestConfig {
 
 /// Weekly retention streak (Green belt). `weeks` = current consecutive-week run;
 /// `last_week` = the epoch (timestamp / WEEK_SECS) of the most recent completion;
-/// `best` = the all-time high (a rank input that survives a miss).
+/// `best` = the all-time high (a rank input that survives a miss). Storage keeps `weeks`
+/// until the next award; `get_streak` reports a lapsed run as 0.
 #[contracttype]
 #[derive(Clone)]
 pub struct Streak {
@@ -228,16 +229,13 @@ impl QuestRegistryContract {
         Self::current_week(&env)
     }
 
-    /// Returns the start and end of the current streak week as UTC timestamps.
-    pub fn get_week_bounds(env: Env) -> (u64, u64) {
-        let start = Self::current_week(&env) * WEEK_SECS;
-        let end = start + WEEK_SECS - 1;
-        (start, end)
-    }
-
-    /// A player's weekly streak (consecutive weeks with ≥1 completed quest).
+    /// A player's weekly streak (consecutive weeks with ≥1 completed quest), as of now.
+    /// The stored run only changes on the next award, so a run whose last completion is
+    /// older than last week reads as `weeks = 0` here — it can no longer be extended.
+    /// `last_week` and `best` are returned as stored. Read-only: storage is not rewritten.
     pub fn get_streak(env: Env, player: Address) -> Streak {
-        let mut s: Streak = env.storage()
+        let mut s: Streak = env
+            .storage()
             .persistent()
             .get(&DataKey::Streak(player))
             .unwrap_or(Streak {
@@ -245,12 +243,9 @@ impl QuestRegistryContract {
                 last_week: 0,
                 best: 0,
             });
-
-        let week = Self::current_week(&env);
-        if s.weeks > 0 && s.last_week.saturating_add(1) < week {
-            s.weeks = 0; // keep best and last_week
+        if s.weeks > 0 && s.last_week.saturating_add(1) < Self::current_week(&env) {
+            s.weeks = 0;
         }
-
         s
     }
 
@@ -266,8 +261,6 @@ impl QuestRegistryContract {
         parts.to_xdr(env)
     }
 
-    /// The current weekly epoch (timestamp / WEEK_SECS).
-    /// Unix time 0 is a Thursday, so weeks run from Thursday 00:00 to Wednesday 23:59:59 UTC.
     fn current_week(env: &Env) -> u64 {
         env.ledger().timestamp() / WEEK_SECS
     }

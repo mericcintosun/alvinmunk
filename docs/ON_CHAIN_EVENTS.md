@@ -264,7 +264,8 @@ Note: this event is emitted **after** the cross-contract call to
 ### `streak` (Weekly Retention)
 
 Emitted whenever a player's consecutive-week streak is updated (after a quest
-award bumps it).
+award bumps it). A run that lapses without a new award emits nothing; see
+[`Streak`](#streak) for how `get_streak` reports it.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -638,6 +639,13 @@ pub struct Streak {
     pub best: u32,    // all-time high
 }
 ```
+
+The stored run only changes when a quest is awarded, so `get_streak(player)` normalizes
+it on read: when `last_week + 1 < current week` (a full week was skipped), it returns
+`weeks = 0`. `last_week` and `best` are returned as stored, and storage is not rewritten.
+A completion in the current or the previous week still reads as the live count. No event
+marks the lapse — the last `streak` event keeps the old `weeks` — so an indexer folding
+`streak` events applies the same rule against the current week.
 
 ### `RewardEntry`
 
