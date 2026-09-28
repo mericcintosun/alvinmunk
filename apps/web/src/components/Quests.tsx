@@ -16,7 +16,6 @@ import { StateArt } from '@/components/ui/state-art';
 import { Sticker } from '@/components/ui/sticker';
 import { Avatar } from '@/components/Avatar';
 import { isStellarAddress, shortAddr } from '@alvinmunk/shared';
-import { WeekReset } from '@/components/WeekReset';
 import { cn, humanizeError } from '@/lib/utils';
 import { toast } from '@/components/ui/toaster';
 
@@ -198,7 +197,7 @@ export function Quests({ address }: { address: string }) {
                 <span className="text-muted-foreground/60"> · best {streak.best}</span>
               )}
             </span>
-            <WeekReset address={address} onRollover={reloadStreak} className="ml-auto" />
+            
           </div>
         )}
         {/* Quest 1 — refer an active wallet */}
