@@ -10,6 +10,7 @@ import { Avatar } from '@/components/Avatar';
 import { Frame } from '@/components/fx/frame';
 import { Stamp } from '@/components/fx/stamp';
 import { ShareRow } from '@/components/fx/share-row';
+import { BadgeGallery } from '@/components/BadgeGallery';
 import { Skeleton } from '@/components/ui/skeleton';
 import { buttonVariants } from '@/components/ui/button';
 import { cn, shortAddress } from '@/lib/utils';
@@ -107,6 +108,11 @@ export default function ProfilePage({ params }: { params: { handle: string } }) 
           <Field label="STARS" value={constellation} accent="tertiary" />
         </div>
       </Frame>
+
+      {/* Milestone badges — earned + next-to-earn, on every public profile */}
+      <div className="mt-5">
+        <BadgeGallery address={address} />
+      </div>
 
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <Link href="/app" className={cn(buttonVariants({ variant: 'flow' }))}>

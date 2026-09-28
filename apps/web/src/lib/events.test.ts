@@ -1,6 +1,17 @@
-import { describe, it, expect } from 'vitest';
-import { xdr, Address } from '@stellar/stellar-sdk';
-import { decodeScVal } from './events';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { xdr, Address, StrKey } from '@stellar/stellar-sdk';
+
+const { getLatestLedgerMock, getEventsMock } = vi.hoisted(() => ({
+  getLatestLedgerMock: vi.fn(),
+  getEventsMock: vi.fn(),
+}));
+
+vi.mock('./stellar', () => ({
+  server: { getLatestLedger: getLatestLedgerMock, getEvents: getEventsMock },
+  config: { contracts: { reputation: 'CREP', rewards: 'CRWD' } },
+}));
+
+import { decodeScVal, fetchReputationEvents, fetchTipsSent } from './events';
 
 /**
  * Helper: assert two Uint8Arrays have the same bytes.
@@ -205,5 +216,62 @@ describe('decodeScVal', () => {
       expect(() => decodeScVal('AAAAAA==')).not.toThrow();
       expect(decodeScVal('AAAAAA==')).toBeNull();
     });
+  });
+});
+
+describe('contract event reads', () => {
+  const sym = (v: string) => xdr.ScVal.scvSymbol(v).toXDR('base64');
+
+  beforeEach(() => {
+    getLatestLedgerMock.mockReset().mockResolvedValue({ sequence: 20_000 });
+    getEventsMock.mockReset().mockResolvedValue({ events: [] });
+  });
+
+  it('scans the reputation window with the 2-segment wildcard', async () => {
+    await fetchReputationEvents();
+    expect(getEventsMock).toHaveBeenCalledWith({
+      startLedger: 11_000,
+      filters: [{ type: 'contract', contractIds: ['CREP'], topics: [['*', '*']] }],
+      limit: 1000,
+    });
+  });
+
+  it('shares one scan between concurrent callers, and re-reads once it settles', async () => {
+    await Promise.all([fetchReputationEvents(), fetchReputationEvents(), fetchReputationEvents()]);
+    expect(getEventsMock).toHaveBeenCalledTimes(1);
+    await fetchReputationEvents();
+    expect(getEventsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('reads tips with a 3-segment filter pinned to the sender', async () => {
+    const from = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 1));
+    const to = Address.contract(Buffer.alloc(32, 0xca)).toString(); // passkey wallets are C…
+    getEventsMock.mockResolvedValue({
+      events: [
+        {
+          topic: [sym('tipped'), new Address(from).toScVal().toXDR('base64'), new Address(to).toScVal().toXDR('base64')],
+          value: xdr.ScVal.scvI128(new xdr.Int128Parts({ lo: xdr.Uint64.fromString('5'), hi: xdr.Int64.fromString('0') })).toXDR('base64'),
+          ledger: 19_999,
+        },
+      ],
+    });
+
+    const events = await fetchTipsSent(from);
+
+    const filter = getEventsMock.mock.calls[0][0].filters[0];
+    expect(filter.contractIds).toEqual(['CRWD']);
+    // ('tipped', from, to) has THREE topics; a 2-segment filter would never match it.
+    expect(filter.topics).toEqual([[sym('tipped'), new Address(from).toScVal().toXDR('base64'), '*']]);
+    expect(events).toEqual([{ topics: ['tipped', from, to], data: 5n, ledger: 19_999 }]);
+  });
+
+  it('returns no tips for a malformed sender without calling RPC', async () => {
+    await expect(fetchTipsSent('not-an-address')).resolves.toEqual([]);
+    expect(getEventsMock).not.toHaveBeenCalled();
+  });
+
+  it('degrades to [] when RPC fails', async () => {
+    getEventsMock.mockRejectedValue(new Error('rpc down'));
+    await expect(fetchReputationEvents()).resolves.toEqual([]);
   });
 });

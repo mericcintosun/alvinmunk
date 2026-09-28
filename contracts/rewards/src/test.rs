@@ -4,7 +4,13 @@
 //! the on-chain reward registry (caller can never dictate the payout amount).
 use super::*;
 use alvinmunk_reputation::{ReputationContract, ReputationContractClient};
-use soroban_sdk::{testutils::Address as _, token, Env};
+use soroban_sdk::{
+    testutils::{
+        storage::{Persistent as _, Temporary as _},
+        Address as _, Ledger as _,
+    },
+    token, Env,
+};
 
 struct Fixture<'a> {
     env: Env,
@@ -16,7 +22,10 @@ struct Fixture<'a> {
 }
 
 fn setup() -> Fixture<'static> {
-    let env = Env::default();
+    setup_in(Env::default())
+}
+
+fn setup_in(env: Env) -> Fixture<'static> {
     env.mock_all_auths();
     let admin = Address::generate(&env);
     let attester = Address::generate(&env);
@@ -391,4 +400,77 @@ fn supply_for_an_unknown_reward_reverts() {
         f.rewards.try_set_reward_supply(&9u32, &5u32),
         Err(Ok(contract_err(Error::RewardNotFound)))
     );
+}
+
+// --- Storage TTLs ---
+
+/// Live `state_archival` settings from `stellar network settings` (checked 2026-09-28):
+/// (min_persistent_ttl, min_temporary_ttl, max_entry_ttl).
+const TESTNET_TTLS: (u32, u32, u32) = (120_960, 720, 3_110_400);
+const MAINNET_TTLS: (u32, u32, u32) = (2_073_600, 17_280, 3_110_400);
+
+/// `setup()` on a ledger with the given network TTL limits, set before registration so the
+/// instances get the same TTLs as on the network.
+fn setup_with_ttls((min_persistent, min_temp, max_ttl): (u32, u32, u32)) -> Fixture<'static> {
+    let env = Env::default();
+    env.ledger().with_mut(|l| {
+        l.sequence_number = 1_000;
+        l.min_persistent_entry_ttl = min_persistent;
+        l.min_temp_entry_ttl = min_temp;
+        l.max_entry_ttl = max_ttl;
+    });
+    setup_in(env)
+}
+
+fn ttl(f: &Fixture, key: &DataKey) -> u32 {
+    f.env
+        .as_contract(&f.rewards_id, || f.env.storage().persistent().get_ttl(key))
+}
+
+#[test]
+fn writes_extend_reward_entries_to_bump_extend() {
+    for ttls in [TESTNET_TTLS, MAINNET_TTLS] {
+        let f = setup_with_ttls(ttls);
+        let user = earner(&f, 100);
+        let flagged = Address::generate(&f.env);
+        f.rewards.add_reward(&1u32, &50u64, &200i128);
+        f.rewards.set_reward_supply(&1u32, &5u32);
+        f.rewards.set_frozen(&flagged, &true);
+        f.rewards.set_funded(&user, &true);
+        f.rewards.claim_reward(&user, &1u32);
+
+        for key in [
+            DataKey::Reward(1),
+            DataKey::RewardIds,
+            DataKey::RewardStats(1),
+            DataKey::RewardClaimed(1, user.clone()),
+            DataKey::Frozen(flagged.clone()),
+            DataKey::Funded(user.clone()),
+        ] {
+            assert_eq!(ttl(&f, &key), BUMP_EXTEND);
+        }
+
+        // Days later, an admin edit tops the reward row back up.
+        f.env
+            .ledger()
+            .with_mut(|l| l.sequence_number += DAY_LEDGERS * 3);
+        f.rewards.set_reward_active(&1u32, &true);
+        assert_eq!(ttl(&f, &DataKey::Reward(1)), BUMP_EXTEND);
+    }
+}
+
+/// The per-day payout counter is temporary and lives ~2 days, not the persistent target
+/// (which is past max_entry_ttl when doubled, and would trap the claim).
+#[test]
+fn daily_paid_counter_lives_two_days() {
+    for ttls in [TESTNET_TTLS, MAINNET_TTLS] {
+        let f = setup_with_ttls(ttls);
+        let user = earner(&f, 100);
+        f.rewards.add_reward(&1u32, &50u64, &200i128);
+        f.rewards.claim_reward(&user, &1u32);
+        let paid_ttl = f.env.as_contract(&f.rewards_id, || {
+            f.env.storage().temporary().get_ttl(&DataKey::DailyPaid(0))
+        });
+        assert_eq!(paid_ttl, DAY_LEDGERS * 2);
+    }
 }
