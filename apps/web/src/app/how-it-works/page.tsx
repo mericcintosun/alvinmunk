@@ -13,6 +13,7 @@ import { Sticker } from '@/components/ui/sticker';
 import { buttonVariants } from '@/components/ui/button';
 import { useTranslations } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { REPUTATION_READ_SNIPPET } from '@/lib/reputation-read-snippet';
 
 /** Renders `raw` with `highlight` wrapped in a <strong> — for bolding inline XP labels. */
 function SplitHighlight({ raw, highlight }: { raw: string; highlight: string }) {
@@ -147,12 +148,7 @@ export default function HowItWorks() {
             <span className="size-2.5 rounded-full bg-secondary/70" />
             <span className="ml-2 font-mono text-[10px] text-muted-foreground">read-reputation.ts</span>
           </div>
-          <pre className="overflow-x-auto p-5 font-mono text-xs leading-relaxed text-foreground/80">
-{`// read a Social score (non-cashable)
-const score = await getScore(address);   // → 42
-// read the cashable Earned track
-const earned = await getEarned(address); // → 30`}
-          </pre>
+          <pre className="overflow-x-auto p-5 font-mono text-xs leading-relaxed text-foreground/80">{REPUTATION_READ_SNIPPET}</pre>
         </div>
       </section>
 

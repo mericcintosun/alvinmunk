@@ -17,6 +17,7 @@ import { asset, type StickerName } from '@/lib/assets';
 import { cn } from '@/lib/utils';
 import { LandingOnboard } from '@/components/landing-onboard';
 import { useTranslations } from '@/lib/i18n';
+import { REPUTATION_READ_SNIPPET } from '@/lib/reputation-read-snippet';
 
 // Small sticker icons cycle through the live vouch ticker — heart=vouch, coin=tip, eye=seen.
 const TICKER_ICONS: StickerName[] = ['ticker-heart', 'ticker-coin', 'ticker-eye'];
@@ -271,13 +272,7 @@ export default function LandingPage() {
                   <span className="size-2.5 rounded-full bg-secondary/70" />
                   <span className="ml-2 font-mono text-[10px] text-muted-foreground">reputation.ts</span>
                 </div>
-                <pre className="overflow-x-auto p-5 font-mono text-sm leading-relaxed text-foreground/80">
-                  <span className="text-muted-foreground">{"// read a wallet's reputation"}</span>
-                  {'\n'}
-                  <span className="text-primary">const</span> score = <span className="text-primary">await</span> getScore(addr);
-                  {'\n'}
-                  <span className="text-secondary">{'// → 42'}</span>
-                </pre>
+                <pre className="overflow-x-auto p-5 font-mono text-xs leading-relaxed text-foreground/80">{REPUTATION_READ_SNIPPET}</pre>
               </div>
             </div>
           </Frame>
