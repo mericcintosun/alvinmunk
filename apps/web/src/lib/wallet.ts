@@ -12,7 +12,7 @@
  * The rest of the app depends only on the `Wallet` interface, so swapping providers
  * never touches feature code.
  */
-import { Keypair, TransactionBuilder, scValToNative } from '@stellar/stellar-sdk';
+import { Keypair, TransactionBuilder, scValToNative, xdr } from '@stellar/stellar-sdk';
 import {
   isConnected as freighterIsConnected,
   requestAccess as freighterRequestAccess,
@@ -50,6 +50,19 @@ function u8ToB64(u8: Uint8Array): string {
   let s = '';
   for (const b of u8) s += String.fromCharCode(b);
   return btoa(s);
+}
+
+function b64ToU8(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/** WebAuthn credential ids are base64url and may be unpadded. */
+function b64uToU8(b64url: string): Uint8Array {
+  const b64 = b64url.replace(/-/g, '+').replace(/_/g, '/');
+  return b64ToU8(b64 + '='.repeat((4 - (b64.length % 4)) % 4));
 }
 
 const DEV_SECRET_KEY = 'alvinmunk.devSecret';
@@ -224,6 +237,17 @@ export async function connectAlbedo(): Promise<Wallet> {
 
 const PK_KEYID = 'alvinmunk.passkey.keyId';
 const PK_CONTRACT = 'alvinmunk.passkey.contractId';
+// The passkey PUBLIC KEY (base64) is persisted next to the key id so a deploy that never landed
+// can be rebuilt on a later visit without a second WebAuthn enrollment (issue #186).
+const PK_PUBKEY = 'alvinmunk.passkey.publicKey';
+// Set between "passkey enrolled" and "deploy confirmed". While set, the next connect must resume
+// the deploy for the SAME passkey (reusing the OS-saved credential) instead of creating a new one.
+const PK_PENDING = 'alvinmunk.passkey.pendingDeploy';
+
+// OZ Channels rejects an inner tx whose maxTime is > 60s in the future, so the deploy's time
+// bounds stay under that. Those bounds are also WHY a retry rebuilds the deploy instead of
+// replaying it — the assembled tx goes stale after this many seconds.
+const PASSKEY_TIMEOUT_SECONDS = 50;
 
 // Placeholder source for ASSEMBLING a passkey contract call (so simulation can populate the
 // footprint + the unsigned auth entry). The relayer re-sources the call on a channel account
@@ -264,6 +288,81 @@ async function waitForPasskeyTx(hash: string, tries = 65): Promise<unknown> {
   throw new Error(`tx ${hash} not confirmed in time`);
 }
 
+/**
+ * Is a smart-wallet contract instance present on-chain? Distinguishes a deploy that never went
+ * out from one that landed late (after the confirm poll timed out) — see issue #186.
+ */
+async function passkeyContractExists(contractId: string): Promise<boolean> {
+  try {
+    await server.getContractData(contractId, xdr.ScVal.scvLedgerKeyContractInstance());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Build (and deployer-sign) a smart-wallet deploy transaction for an ALREADY-enrolled passkey.
+ *
+ * `PasskeyKit.createWallet` enrols the passkey and deploys in a single opaque call and persists
+ * nothing in between, so a relayer/confirm failure orphans a passkey the OS has already saved and
+ * the app has no record of (issue #186). We split the two halves: enrollment is `kit.createKey()`,
+ * this is the (re)buildable deploy.
+ *
+ * It MUST be rebuilt on retry, never replayed: the assembled tx carries TIME BOUNDS that expire
+ * after `timeoutInSeconds`. The contract id is deterministic — passkey-kit's fixed deploy source
+ * (`hash('kalepail')`) plus `hash(keyId)` as salt — so a rebuild lands the SAME wallet the first
+ * attempt would have.
+ */
+async function buildPasskeyDeploy(opts: {
+  keyIdBase64: string;
+  publicKeyB64: string;
+  wasmHash: string;
+  timeoutInSeconds: number;
+}): Promise<{ contractId: string; signedXdr: string }> {
+  const { PasskeyClient } = await import('passkey-kit');
+  const { hash, Keypair: Deployer, TransactionBuilder: TxBuilder } = await import('@stellar/stellar-sdk');
+
+  const keyId = b64uToU8(opts.keyIdBase64);
+  const publicKey = b64ToU8(opts.publicKeyB64);
+
+  // passkey-kit deploys every wallet from this deterministic shared source (see PasskeyKit's
+  // constructor). Reproducing it is what makes the rebuild derive the SAME contract id.
+  // `new Uint8Array(...)` re-homes the hash into the current realm — `hash` returns a Buffer from
+  // its own bundled `buffer`, which isn't an `instanceof` this realm's Uint8Array everywhere.
+  const seed = new Uint8Array(
+    hash(new TextEncoder().encode('kalepail') as unknown as Buffer),
+  );
+  const deployer = Deployer.fromRawEd25519Seed(seed as unknown as Buffer);
+
+  const at = await PasskeyClient.deploy(
+    {
+      signer: {
+        tag: 'Secp256r1',
+        values: [keyId, publicKey, [undefined], [undefined], { tag: 'Persistent', values: undefined }],
+      },
+    } as unknown as Parameters<typeof PasskeyClient.deploy>[0],
+    {
+      rpcUrl: config.rpcUrl,
+      wasmHash: opts.wasmHash,
+      networkPassphrase,
+      publicKey: deployer.publicKey(),
+      salt: new Uint8Array(hash(keyId as unknown as Buffer)),
+      timeoutInSeconds: opts.timeoutInSeconds,
+    },
+  );
+
+  await at.sign({
+    signTransaction: async (txXdr: string) => {
+      const tx = TxBuilder.fromXDR(txXdr, networkPassphrase);
+      tx.sign(deployer);
+      return { signedTxXdr: tx.toXDR() };
+    },
+  });
+
+  return { contractId: at.result.options.contractId, signedXdr: at.signed!.toXDR() };
+}
+
 export async function connectPasskey(): Promise<Wallet> {
   const wasmHash = process.env.NEXT_PUBLIC_PASSKEY_WALLET_WASM_HASH;
   if (!wasmHash) {
@@ -286,33 +385,78 @@ export async function connectPasskey(): Promise<Wallet> {
     rpcUrl: config.rpcUrl,
     networkPassphrase,
     walletWasmHash: wasmHash,
-    timeoutInSeconds: 50,
+    timeoutInSeconds: PASSKEY_TIMEOUT_SECONDS,
   });
 
   // Returning user → re-derive the wallet from the stored credential (no Mercury needed: the
   // contract id derives on-chain from the keyId; the cached id is a fallback). First run →
-  // FaceID/passkey enroll + build the deploy tx, then submit + CONFIRM it via the relayer
-  // before returning — otherwise the next call would hit an undeployed C… account.
+  // FaceID/passkey enroll, then persist + deploy + CONFIRM via the relayer before returning —
+  // otherwise the next call would hit an undeployed C… account.
+  //
+  // Enrollment and deploy are deliberately SPLIT. `kit.createWallet` does both in one call and
+  // stores nothing in between, so a relayer/confirm failure orphans a passkey the OS has already
+  // saved and the app has no record of. Persisting the key material first (with a pendingDeploy
+  // marker) is what lets a retry resume with the SAME passkey (issue #186).
   const storedKeyId = safeLocalGet(PK_KEYID);
   const storedContractId = safeLocalGet(PK_CONTRACT);
   let keyId: string;
   let contractId: string;
-  if (storedKeyId) {
-    const res = await kit.connectWallet({
-      keyId: storedKeyId,
-      getContractId: async () => storedContractId ?? undefined,
-    });
-    keyId = res.keyIdBase64;
-    contractId = res.contractId;
+
+  if (storedKeyId && safeLocalGet(PK_PENDING)) {
+    // A previous enrollment created a passkey but never confirmed its deploy. The credential
+    // is already saved by the OS, so resume with it — never enroll again.
+    //
+    // A confirm timeout is not a failure: the deploy may have landed late. Check the chain
+    // first; only rebuild if the contract really isn't there.
+    if (!storedContractId || !(await passkeyContractExists(storedContractId))) {
+      const publicKeyB64 = safeLocalGet(PK_PUBKEY);
+      if (!publicKeyB64) {
+        throw new Error(
+          'Passkey setup was interrupted and can’t be resumed — clear this site’s data and try again.',
+        );
+      }
+      const built = await buildPasskeyDeploy({
+        keyIdBase64: storedKeyId,
+        publicKeyB64,
+        wasmHash,
+        timeoutInSeconds: PASSKEY_TIMEOUT_SECONDS,
+      });
+      safeLocalSet(PK_CONTRACT, built.contractId);
+      await waitForPasskeyTx(await relayerPost({ xdr: built.signedXdr }));
+    }
+    safeLocalRemove(PK_PENDING);
+    keyId = storedKeyId;
+  } else if (storedKeyId) {
+    keyId = storedKeyId;
   } else {
-    const created = await kit.createWallet('alvinmunk', 'alvinmunk');
-    const hash = await relayerPost({ xdr: created.signedTx.toXDR() });
-    await waitForPasskeyTx(hash);
+    // First run: enroll, then persist key id + public key + the pendingDeploy marker BEFORE we
+    // submit anything, so any failure past this point is recoverable with the same passkey.
+    const created = await kit.createKey('alvinmunk', 'alvinmunk');
     keyId = created.keyIdBase64;
-    contractId = created.contractId;
+    const publicKeyB64 = u8ToB64(created.publicKey);
     safeLocalSet(PK_KEYID, keyId);
-    safeLocalSet(PK_CONTRACT, contractId);
+    safeLocalSet(PK_PUBKEY, publicKeyB64);
+    safeLocalSet(PK_PENDING, '1');
+
+    const built = await buildPasskeyDeploy({
+      keyIdBase64: keyId,
+      publicKeyB64,
+      wasmHash,
+      timeoutInSeconds: PASSKEY_TIMEOUT_SECONDS,
+    });
+    safeLocalSet(PK_CONTRACT, built.contractId);
+    await waitForPasskeyTx(await relayerPost({ xdr: built.signedXdr }));
+    safeLocalRemove(PK_PENDING);
   }
+
+  // Derive + verify the wallet from the (possibly just-deployed) credential. This also wires the
+  // kit's contract client so `invoke` below can sign with the passkey.
+  const res = await kit.connectWallet({
+    keyId,
+    getContractId: async () => safeLocalGet(PK_CONTRACT) ?? undefined,
+  });
+  keyId = res.keyIdBase64;
+  contractId = res.contractId;
 
   return {
     kind: 'passkey',
@@ -379,4 +523,7 @@ function safeLocalGet(k: string): string | null {
 }
 function safeLocalSet(k: string, v: string): void {
   if (typeof localStorage !== 'undefined') localStorage.setItem(k, v);
+}
+function safeLocalRemove(k: string): void {
+  if (typeof localStorage !== 'undefined') localStorage.removeItem(k);
 }
