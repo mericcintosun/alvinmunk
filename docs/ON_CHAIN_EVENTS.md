@@ -440,6 +440,12 @@ An admin registers or updates a reward row in the unlock table.
 | 0 | `u64` | `threshold` — Earned XP required |
 | 1 | `i128` | `amount` — USDC stroops payout |
 
+`add_reward` reverts, and emits nothing, for a zero `threshold` (`InvalidThreshold` #15)
+or, while a daily cap is set, an `amount` above the cap (`AmountExceedsCap` #16). So every
+`rwd_set` has `threshold ≥ 1`. Rows registered before this rule are not re-checked. The
+cap can't be lowered below an active row's `amount` either (`set_daily_cap` reverts with
+`CapBelowActiveReward` #17).
+
 ### `reward` (Reward Claimed)
 
 A user claims a registered reward. Note: the payout amount is the

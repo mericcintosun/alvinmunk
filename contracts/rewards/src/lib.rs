@@ -139,7 +139,9 @@ impl RewardsContract {
     /// Register or update a reward. Admin-only. `amount` is the STORED payout — claimers
     /// can never set it, so the treasury can't be drained via an attacker-chosen amount.
     /// Rejects `threshold == 0` (it would bypass the Earned-XP gate) and, when a daily cap
-    /// is set, an `amount` above it (such a reward could never be claimed).
+    /// is set, an `amount` above it (such a reward could never be claimed). The treasury
+    /// balance is not checked: it moves with funding and claims, so a reward can be
+    /// registered before the treasury is funded.
     pub fn add_reward(env: Env, reward_id: u32, threshold: u64, amount: i128) {
         Self::admin(&env).require_auth();
         Self::validate_reward(&env, threshold, amount);
@@ -175,7 +177,8 @@ impl RewardsContract {
             .publish((symbol_short!("rwd_set"), reward_id), (threshold, amount));
     }
 
-    /// Enable/disable a reward without removing it from the table. Admin-only.
+    /// Enable/disable a reward without removing it from the table. Admin-only. Enabling
+    /// re-checks the amount against the current daily cap (`AmountExceedsCap`).
     pub fn set_reward_active(env: Env, reward_id: u32, active: bool) {
         Self::admin(&env).require_auth();
         let mut entry: RewardEntry = env
@@ -331,7 +334,8 @@ impl RewardsContract {
     }
 
     /// Set the max treasury payout per UTC day (0 = unlimited). Admin-only. A positive cap
-    /// is rejected if any active reward pays more than it.
+    /// below an active reward's amount is rejected (`CapBelowActiveReward`): lower or
+    /// deactivate that reward first. 0 is always accepted.
     pub fn set_daily_cap(env: Env, cap: i128) {
         Self::admin(&env).require_auth();
         Self::assert_cap_covers_active_rewards(&env, cap);
@@ -490,7 +494,11 @@ impl RewardsContract {
         Self::assert_amount_within_cap(env, amount);
     }
 
-    /// A payout larger than the daily cap can never be claimed (0 = unlimited).
+    /// A payout larger than the daily cap can never be claimed: `charge_daily` refuses any
+    /// single claim above it. So while a cap is set (> 0) every ACTIVE reward must pay at
+    /// most the cap. `add_reward` and re-enabling check the row against the current cap,
+    /// and `set_daily_cap` checks a new cap against the active rows. Inactive rows may
+    /// exceed it until they are re-enabled. A cap of 0 or below is unlimited.
     fn assert_amount_within_cap(env: &Env, amount: i128) {
         let cap: i128 = env
             .storage()
