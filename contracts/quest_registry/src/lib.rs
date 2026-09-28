@@ -223,21 +223,14 @@ impl QuestRegistryContract {
 
     /// A player's weekly streak (consecutive weeks with ≥1 completed quest).
     pub fn get_streak(env: Env, player: Address) -> Streak {
-        let mut s: Streak = env.storage()
+        env.storage()
             .persistent()
             .get(&DataKey::Streak(player))
             .unwrap_or(Streak {
                 weeks: 0,
                 last_week: 0,
                 best: 0,
-            });
-
-        let week = Self::current_week(&env);
-        if s.weeks > 0 && s.last_week.saturating_add(1) < week {
-            s.weeks = 0; // keep best and last_week
-        }
-
-        s
+            })
     }
 
     // --- internal ---

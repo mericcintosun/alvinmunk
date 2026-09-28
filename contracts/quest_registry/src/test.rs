@@ -157,38 +157,6 @@ fn weekly_streak_increments_then_resets_on_a_gap() {
 }
 
 #[test]
-fn get_streak_view_normalizes_skipped_weeks() {
-    let f = setup();
-    let user = Address::generate(&f.env);
-    f.quest.create_quest(&1u32, &2u32, &10u64);
-    f.quest.create_quest(&2u32, &2u32, &10u64);
-
-    // Week 10
-    f.env.ledger().with_mut(|l| l.timestamp = WEEK_SECS * 10);
-    award(&f, &f.attester_sk, 1, &user);
-
-    // Week 11
-    f.env.ledger().with_mut(|l| l.timestamp = WEEK_SECS * 11);
-    award(&f, &f.attester_sk, 2, &user);
-
-    // Live streak in current week (11)
-    let s_live = f.quest.get_streak(&user);
-    assert_eq!(s_live.weeks, 2);
-    assert_eq!(s_live.best, 2);
-
-    // Previous week (if we are in week 12, week 11 was last week, so streak is still alive)
-    f.env.ledger().with_mut(|l| l.timestamp = WEEK_SECS * 12);
-    let s_prev = f.quest.get_streak(&user);
-    assert_eq!(s_prev.weeks, 2); // still alive because next completion would make it 3
-
-    // Gap (week 13): 2 weeks since week 11, so week 12 was missed
-    f.env.ledger().with_mut(|l| l.timestamp = WEEK_SECS * 13);
-    let s_dead = f.quest.get_streak(&user);
-    assert_eq!(s_dead.weeks, 0); // normalized to 0
-    assert_eq!(s_dead.best, 2); // best is kept
-}
-
-#[test]
 fn same_week_completions_do_not_double_count_streak() {
     let f = setup();
     let user = Address::generate(&f.env);
