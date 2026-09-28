@@ -134,6 +134,7 @@
   "vouch.error.self": "You can't vouch for yourself.",
   "vouch.error.limit": "You've hit today's vouch limit — try again tomorrow.",
   "vouch.error.xp": "You need a little more Social XP to stake this vouch.",
+  "vouch.error.noteTooLong": "Keep the note to {max} characters or fewer.",
 
   "quests.page.title": "Verified quests",
   "quests.page.subtitle": "These are checked by the attester, not self-reported. Each completion mints {earnedXP} — the only kind that can ever unlock USDC. Keep a weekly streak going to climb faster.",

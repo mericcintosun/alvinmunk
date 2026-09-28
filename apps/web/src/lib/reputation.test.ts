@@ -16,7 +16,18 @@ vi.mock('./contracts', () => ({
   },
 }));
 
-import { fromHex, toHex, getCounts, getPending, getProfile, getScores } from './reputation';
+import {
+  clampVouchNote,
+  fromHex,
+  toHex,
+  getCounts,
+  getPending,
+  getProfile,
+  getScores,
+  VOUCH_NOTE_MAX_BYTES,
+  VOUCH_NOTE_MAX_CHARS,
+  vouchNoteBytes,
+} from './reputation';
 
 function expectBytes(actual: Uint8Array, expected: number[]) {
   expect(Array.from(actual)).toEqual(expected);
@@ -51,6 +62,54 @@ describe('claim-secret hex helpers', () => {
 
   it('returns no bytes for an empty string', () => {
     expectBytes(fromHex(''), []);
+  });
+});
+
+describe('vouch note limit', () => {
+  it('mirrors the contract cap: 240 bytes, 60 characters', () => {
+    expect(VOUCH_NOTE_MAX_BYTES).toBe(240);
+    expect(VOUCH_NOTE_MAX_CHARS).toBe(60);
+  });
+
+  it('counts UTF-8 bytes like the contract', () => {
+    expect(vouchNoteBytes('abc')).toBe(3);
+    expect(vouchNoteBytes('ş')).toBe(2);
+    expect(vouchNoteBytes('€')).toBe(3);
+    expect(vouchNoteBytes('💧')).toBe(4);
+  });
+
+  it('keeps a note of 60 characters, one-byte or four-byte alike', () => {
+    for (const ch of ['a', 'ş', '€', '💧']) {
+      const note = ch.repeat(60);
+      expect(clampVouchNote(note)).toBe(note);
+      expect(clampVouchNote(note + ch)).toBe(note);
+    }
+    // 60 four-byte characters are exactly the contract's cap.
+    expect(vouchNoteBytes(clampVouchNote('💧'.repeat(61)))).toBe(VOUCH_NOTE_MAX_BYTES);
+  });
+
+  it('never cuts a character in half', () => {
+    // 59 ASCII + a 4-byte emoji fits; the emoji is character 60 and stays whole.
+    const note = `${'a'.repeat(59)}💧`;
+    expect(clampVouchNote(`${note}💧`)).toBe(note);
+    expect(clampVouchNote('💧'.repeat(70))).not.toMatch(/[\uD800-\uDFFF]$/u);
+  });
+
+  it('always fits the contract cap', () => {
+    for (const s of [
+      'x'.repeat(500),
+      'ş'.repeat(500),
+      '€'.repeat(500),
+      '🌟'.repeat(500),
+      '👍🏽'.repeat(100),
+    ]) {
+      expect(vouchNoteBytes(clampVouchNote(s))).toBeLessThanOrEqual(VOUCH_NOTE_MAX_BYTES);
+    }
+  });
+
+  it('leaves short notes alone', () => {
+    expect(clampVouchNote('')).toBe('');
+    expect(clampVouchNote('unblocked me at 2am ✨')).toBe('unblocked me at 2am ✨');
   });
 });
 
