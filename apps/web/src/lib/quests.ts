@@ -49,6 +49,53 @@ export async function getStreak(addr: string, source?: string): Promise<Streak> 
   };
 }
 
+/** The current streak week in UTC unix seconds: `start` is its first second and `end` its
+ *  last (inclusive), so the week resets at `end + 1`. Weeks are aligned on the Unix epoch
+ *  and run Thursday 00:00 to Wednesday 23:59:59 UTC. */
+export interface WeekBounds {
+  start: number;
+  end: number;
+}
+
+/** Read `get_week_bounds` from the QuestRegistry. Resolves `null` when the read fails —
+ *  including a deployed contract that predates the view — or returns something that isn't
+ *  a week, so the UI hides the countdown instead of guessing. Omit `source` for a
+ *  wallet-free read. */
+export async function getWeekBounds(source?: string): Promise<WeekBounds | null> {
+  type Raw = [bigint, bigint] | undefined;
+  try {
+    const v = source
+      ? await readContract<Raw>(questRegistryId(), 'get_week_bounds', [], source)
+      : await readPublic<Raw>(questRegistryId(), 'get_week_bounds', []);
+    if (!Array.isArray(v) || v.length !== 2) return null;
+    const start = Number(v[0]);
+    const end = Number(v[1]);
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || end <= start) return null;
+    return { start, end };
+  } catch {
+    return null;
+  }
+}
+
+export interface TimeLeft {
+  days: number;
+  hours: number;
+  minutes: number;
+}
+
+/** Time left until the week resets (`end + 1`), split for display. Rounds up to the
+ *  minute so it never reads "0m" while time remains; `null` once the reset has passed. */
+export function timeUntilReset(bounds: WeekBounds, nowSecs: number): TimeLeft | null {
+  const left = bounds.end + 1 - nowSecs;
+  if (left <= 0) return null;
+  const totalMinutes = Math.ceil(left / 60);
+  return {
+    days: Math.floor(totalMinutes / 1440),
+    hours: Math.floor((totalMinutes % 1440) / 60),
+    minutes: totalMinutes % 60,
+  };
+}
+
 export type Evidence = { type: EvidenceType; ref: string };
 
 function hexToBytes(hex: string): Uint8Array {
