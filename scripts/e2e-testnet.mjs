@@ -126,7 +126,10 @@ async function expectRevert(code, fn) {
   catch (e) {
     const m = String(e.message);
     if (m.includes('expected revert')) throw e;
-    assert(m.includes(`#${code}`) || m.includes('Error(Contract'), `expected contract error #${code}, got: ${m.slice(0, 120)}`);
+    // Extract the exact error code from "Error(Contract, #N)" format using regex.
+    // If the regex doesn't match or the code doesn't match expected, fail the assertion.
+    const hit = /Error\(Contract, #(\d+)\)/.exec(m);
+    assert(hit && Number(hit[1]) === code, `expected contract error #${code}, got: ${m.slice(0, 160)}`);
   }
 }
 
