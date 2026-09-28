@@ -627,7 +627,7 @@ pub struct Vouch {
     pub id: u64,
     pub from: Address,
     pub claim_hash: BytesN<32>,  // sha256 of the claim secret
-    pub note: String,            // free-text note from the voucher
+    pub note: String,            // free-text note from the voucher, <= 240 BYTES of UTF-8
     pub claimed: bool,
     pub claimer: Option<Address>,
     pub created: u64,            // ledger timestamp
@@ -635,6 +635,11 @@ pub struct Vouch {
     pub slashed: bool,
 }
 ```
+
+`mint_vouch(from, claim_hash, note)` reverts with `NoteTooLong` (#12) when `note` is
+over 240 bytes (not characters: `ş` is 2 bytes, most emoji 4). That is the web app's
+60-character limit at UTF-8's worst case, so a note typed there always fits. Vouches
+minted before the cap keep their note as stored.
 
 ### `Profile` (`get_profile`)
 

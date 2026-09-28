@@ -13,6 +13,36 @@ import type { Wallet } from './wallet';
  *  contract's VOUCH_TTL_SECS). After it, the stake is slashed but the card still claims. */
 export const VOUCH_TTL_SECS = 604_800; // 7 days
 
+/** The contract's note cap (`MAX_NOTE_BYTES`): `mint_vouch` reverts with `NoteTooLong`
+ *  (#12) past it. It counts UTF-8 BYTES, so `ş` costs 2 and most emoji 4. */
+export const VOUCH_NOTE_MAX_BYTES = 240;
+/** The compose limit in characters (code points). UTF-8 spends at most 4 bytes on one,
+ *  so a note within it always fits `VOUCH_NOTE_MAX_BYTES` — 60 Turkish letters or 60
+ *  emoji alike. */
+export const VOUCH_NOTE_MAX_CHARS = VOUCH_NOTE_MAX_BYTES / 4;
+
+const utf8 = new TextEncoder();
+
+/** UTF-8 length of `s` — what the contract's `String::len` checks against. */
+export function vouchNoteBytes(s: string): number {
+  return utf8.encode(s).length;
+}
+
+/** Cut `input` to a note `mint_vouch` accepts: at most `VOUCH_NOTE_MAX_CHARS` characters
+ *  and `VOUCH_NOTE_MAX_BYTES` bytes, never half a character. The character cap binds
+ *  first; the byte check is the contract's own rule, kept so the two can never drift. */
+export function clampVouchNote(input: string): string {
+  let out = '';
+  let chars = 0;
+  let bytes = 0;
+  for (const ch of input) {
+    bytes += vouchNoteBytes(ch);
+    if (++chars > VOUCH_NOTE_MAX_CHARS || bytes > VOUCH_NOTE_MAX_BYTES) break;
+    out += ch;
+  }
+  return out;
+}
+
 /** A half-card as read from chain (the fields the claim funnel surfaces). */
 export interface VouchView {
   id: number;
