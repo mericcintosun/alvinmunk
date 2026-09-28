@@ -217,4 +217,7 @@ describe('share links', () => {
   it('shortens addresses', () => {
     expect(shortAddr('GABCDEFGHIJKLMNOP')).toBe('GABC…MNOP');
   });
+  it('returns falsy input unchanged', () => {
+    expect(shortAddr('')).toBe('');
+  });
 });
