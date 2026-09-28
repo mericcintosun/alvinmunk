@@ -6,7 +6,8 @@
  */
 import { EVENTS } from '@alvinmunk/shared';
 import { fetchReputationEvents } from './events';
-import { getVouch } from './reputation';
+import { getCounts, getVouch, type PeopleCounts } from './reputation';
+import { foldVouchEdges } from './badges';
 
 /** A person who vouched you — one star in your constellation. */
 export interface VoucherStar {
@@ -46,6 +47,22 @@ export async function fetchVouchersOf(address: string, max = 14): Promise<Vouche
       return { from: e.from, vouchId: e.vouchId, note: v?.note ?? '', created: v?.created ?? 0 };
     }),
   );
+}
+
+/**
+ * "People who vouched" / "people you backed" for `address`. The durable on-chain counters
+ * (`get_counts`) start at the upgrade that added them and can't be backfilled; the recent
+ * `vouch:claimed` events only cover the RPC window. Both are lower bounds on the same
+ * number, so each side takes the larger — a counter still at 0 (or a deployed contract
+ * that predates the view) falls back to the events. Never derived from Social XP.
+ */
+export async function getPeopleCounts(address: string): Promise<PeopleCounts> {
+  const [onchain, events] = await Promise.all([getCounts(address), fetchReputationEvents()]);
+  const recent = foldVouchEdges(events, address);
+  return {
+    vouchedBy: Math.max(onchain?.vouchedBy ?? 0, recent.vouchedBy.length),
+    backed: Math.max(onchain?.backed ?? 0, recent.vouchedFor.length),
+  };
 }
 
 /** Warm relative time from a unix-seconds timestamp. */

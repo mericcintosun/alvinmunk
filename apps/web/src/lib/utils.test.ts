@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { humanizeError, withTimeout, contractErrorCode, shortAddress } from './utils';
+import { describe, it, expect, vi } from 'vitest';
+import { humanizeError, withTimeout, contractErrorCode, shortAddress, shareInFlight } from './utils';
 
 describe('contractErrorCode', () => {
   it('extracts a Soroban contract error code', () => {
@@ -42,5 +42,33 @@ describe('withTimeout', () => {
 
   it('propagates the original rejection before the timeout fires', async () => {
     await expect(withTimeout(Promise.reject(new Error('upstream')), 1000)).rejects.toThrow('upstream');
+  });
+});
+
+describe('shareInFlight', () => {
+  it('gives concurrent callers of the same key one shared read', async () => {
+    const pending = new Map<string, Promise<number>>();
+    const run = vi.fn(async () => 7);
+    const [a, b] = await Promise.all([
+      shareInFlight(pending, 'k', run),
+      shareInFlight(pending, 'k', run),
+    ]);
+    expect([a, b]).toEqual([7, 7]);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps different keys apart', async () => {
+    const pending = new Map<string, Promise<string>>();
+    const run = vi.fn(async () => 'x');
+    await Promise.all([shareInFlight(pending, 'a', run), shareInFlight(pending, 'b', run)]);
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it('drops a settled read so the next call is fresh — even after a rejection', async () => {
+    const pending = new Map<string, Promise<number>>();
+    await expect(shareInFlight(pending, 'k', async () => Promise.reject(new Error('rpc')))).rejects.toThrow('rpc');
+    expect(pending.size).toBe(0);
+    await expect(shareInFlight(pending, 'k', async () => 2)).resolves.toBe(2);
+    expect(pending.size).toBe(0);
   });
 });

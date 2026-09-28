@@ -35,7 +35,7 @@ first and can evolve safely.
 |-------|------|-------------|
 | 0 | `u32` | `schema_version` (currently `1`) |
 | 1 | `Address` | `issuer` — the allowlisted attester contract/account |
-| 2 | `u32` | `schema_id` — off-chain agreed namespace (1=VOUCH, 2=QUEST) |
+| 2 | `u32` | `schema_id` — off-chain agreed namespace, passed through from `award_xp`. Every deployed quest uses `2` (QUEST). `1` is reserved and never emitted: vouches credit only the Social track, so they never produce `att_set` |
 | 3 | `u64` | `amount` — XP amount credited |
 | 4 | `u64` | `timestamp` — ledger timestamp at emission |
 
@@ -98,7 +98,7 @@ event-sourced leaderboard until they first act.
 
 | Index | Type | Description |
 |-------|------|-------------|
-| 0 | `u64` | `amount` — the delta (always positive for add, positive for sub — caller deduces sign from context) |
+| 0 | `u64` | `amount` — an unsigned magnitude. The direction comes from comparing `newTotal` with the previous total (the address's prior `social` event, or the silent `STARTER_SOCIAL` balance for its first one): higher is a credit, lower is a debit |
 | 1 | `u64` | `newTotal` — the new running total |
 
 **Contract source**: `reputation/src/lib.rs` → `fn add_social()` / `fn sub_social()`
@@ -291,7 +291,10 @@ env.events().publish(
 
 ### `handle` / `claimed`
 
-A wallet claims or renames to a handle.
+A wallet takes a handle, either its first one or as a rename. On a rename the
+old handle is announced with `handle` / `released` in the same transaction,
+immediately before this event. Re-claiming the handle the wallet already holds
+changes nothing and emits no event.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -307,7 +310,9 @@ A wallet claims or renames to a handle.
 
 ### `handle` / `released`
 
-A wallet voluntarily releases its handle.
+A handle is freed: the wallet released it (`release()`), or renamed away from
+it (`claim()` with a different handle, emitted right before the new `claimed`).
+Either way the handle no longer resolves and anyone may claim it.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -318,12 +323,21 @@ A wallet voluntarily releases its handle.
 
 | Index | Type | Description |
 |-------|------|-------------|
-| 0 | `Address` | `caller` — the releasing wallet |
-| 1 | `Symbol` | `handle` — the released handle |
+| 0 | `Address` | `caller` — the wallet that held the handle |
+| 1 | `Symbol` | `handle` — the freed handle |
+
+An indexer keyed by handle stays in sync by applying both sub-types in event
+order: `claimed` sets `handle → caller`, `released` deletes `handle`. The one
+gap is `admin_release()` (see the note below).
 
 **Contract source**: `registry/src/lib.rs` → `fn claim()` / `fn release()`
 
 ```rust
+// Rename (inside claim, before the claimed event):
+env.events().publish(
+    (symbol_short!("handle"), symbol_short!("released")),
+    (caller.clone(), old));
+
 // Claim:
 env.events().publish(
     (symbol_short!("handle"), symbol_short!("claimed")),
@@ -404,6 +418,11 @@ A direct USDC transfer from one wallet to another, with a social
 | Type | Description |
 |------|-------------|
 | `i128` | `amount` — USDC stroops transferred |
+
+> **Reading it**: RPC `getEvents` topic filters only match events with exactly as many
+> topics as filter segments, so a 2-segment `['*', '*']` scan never returns `tipped`. Use a
+> 3-segment filter such as `[tipped, <from>, '*']` (`apps/web/src/lib/events.ts` →
+> `fetchTipsSent`).
 
 ### `rwd_set` (Reward Registered/Updated)
 
@@ -536,6 +555,69 @@ pub struct Vouch {
 }
 ```
 
+### `Profile` (`get_profile`)
+
+`get_profile(addr)` returns Social + Earned + verified in one call. It is computed on
+read, never stored.
+
+```rust
+pub struct Profile {
+    pub social: u64,
+    pub earned: u64,
+    pub verified: bool,  // has done >= 1 Earned action
+}
+```
+
+This shape is **frozen**. Soroban decodes a struct only when the returned map has exactly
+its fields, so adding a field breaks every existing caller that decodes `Profile` (another
+contract, a generated binding). New per-address data ships as its own view instead, like
+`get_counts` below.
+
+### People counts (`get_counts`)
+
+`get_counts(addr) -> (u32, u32)` returns `(vouched_by, backed)`:
+
+| Index | Type | Description |
+|-------|------|-------------|
+| 0 | `u32` | `vouched_by` — distinct people who vouched for `addr` |
+| 1 | `u32` | `backed` — distinct people `addr` vouched for |
+
+Both are persistent counters (`DataKey::VouchedBy(addr)` / `DataKey::Backed(addr)`) that
+`claim_vouch` increments only on a **fresh first pair** — the same `Seen(from, claimer)`
+guard that gates the claim XP. Repeat vouches between the same two people, self-vouches
+and rejected claims never move them. Direction matters: `alice -> bob` and `bob -> alice`
+are two pairs. No new event is emitted; each increment happens alongside a
+`vouch` / `claimed` event.
+
+**No backfill.** The counters start at the contract upgrade that introduced them. A pair
+first claimed before it is not counted (and never will be — the pair is already `Seen`).
+To cover those, fold `vouch` / `claimed` events: distinct `from` per `claimer` is
+`vouched_by`, distinct `claimer` per `from` is `backed` (de-duplicate repeat pairs). Both
+the counter and an event fold are lower bounds on the same number, so take the larger —
+the web app does this over the recent RPC window (`getPeopleCounts` in
+`apps/web/src/lib/constellation.ts`). A contract deployed before the upgrade has no
+`get_counts` at all, so treat a failed call as "unknown", not 0.
+
+### `PendingBonus` (`get_pending`)
+
+`get_pending(claimer) -> Vec<PendingBonus>` returns the 2nd-order voucher bonuses queued
+on `claimer` (`DataKey::Pending(claimer)`), oldest first:
+
+```rust
+pub struct PendingBonus {
+    pub voucher: Address,  // who is owed the bonus
+    pub amount: u64,       // Social XP (BONUS_VOUCHER = 5)
+}
+```
+
+`claim_vouch` queues one entry per fresh first pair while the claimer is unverified. The
+claimer's first Earned credit (`award_xp`) pays every entry out as a `social` event for
+its voucher and removes the queue, so the view is empty from then on — as it is for any
+address with nothing queued. Bonuses for an already-verified claimer are paid at claim
+time and never queued. At most `MAX_PENDING` (64) entries; bonuses past the cap are
+dropped. Keyed by claimer only: "what am I owed" means reading `get_pending` for each
+person you vouched and keeping the entries whose `voucher` is you.
+
 ### `QuestConfig`
 
 ```rust
@@ -610,7 +692,7 @@ mirrored TypeScript types and constants. Keep these in lockstep with the
 Rust contract definitions:
 
 ```typescript
-export const SCHEMA = { VOUCH: 1, QUEST: 2 } as const;
+export const SCHEMA = { RESERVED: 1, QUEST: 2 } as const; // 1 is never emitted
 
 export const EVENTS = {
   ATTESTATION_SET: 'att_set',
@@ -620,7 +702,7 @@ export const EVENTS = {
   QUEST: 'quest',
   TIPPED: 'tipped',
   REWARD: 'reward',
-  // handle, gate, unlocked, streak, rwd_set, attester are not yet mirrored
+  // handle, gate, unlocked, streak, rwd_set, rwd_cap, attester are not yet mirrored
 } as const;
 ```
 

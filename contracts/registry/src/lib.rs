@@ -15,8 +15,15 @@ use soroban_sdk::{
     BytesN, Env, Symbol,
 };
 
-const BUMP_THRESHOLD: u32 = 17_280; // ~1 day (ledgers)
-const BUMP_EXTEND: u32 = 2_592_000; // ~150 days — handles should be sticky
+// TTLs in ledgers (5s). `extend_ttl(key, threshold, extend_to)` does nothing unless the
+// entry's TTL is at or below `threshold`, and then sets it to `extend_to`. New persistent
+// entries start at the network's min_persistent_ttl (120,960 on testnet, 2,073,600 on
+// mainnet), so the threshold sits one day under the target: the bump after a write lifts
+// the entry to BUMP_EXTEND unless it already ran within the last day. BUMP_EXTEND must stay
+// above mainnet's minimum and below max_entry_ttl (3,110,400).
+const DAY_LEDGERS: u32 = 17_280; // ~1 day
+const BUMP_EXTEND: u32 = 2_592_000; // ~150 days
+const BUMP_THRESHOLD: u32 = BUMP_EXTEND - DAY_LEDGERS;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -56,8 +63,9 @@ impl RegistryContract {
     }
 
     /// Claim `handle` for `caller` (first-come). If `caller` already holds a different
-    /// handle, this RENAMES (frees the old one). Reverts if the handle is held by
-    /// someone else. Idempotent if `caller` re-claims the same handle.
+    /// handle, this RENAMES: the old one is freed and `released` is published for it
+    /// before `claimed`. Reverts if the handle is held by someone else. Re-claiming the
+    /// handle `caller` already holds is a no-op (no writes, no event; TTLs are refreshed).
     pub fn claim(env: Env, caller: Address, handle: Symbol) {
         caller.require_auth();
 
@@ -68,12 +76,23 @@ impl RegistryContract {
             }
         }
 
-        // rename: free the caller's previous handle (if any, and different)
         let rkey = DataKey::Rev(caller.clone());
         if let Some(old) = env.storage().persistent().get::<DataKey, Symbol>(&rkey) {
-            if old != handle {
-                env.storage().persistent().remove(&DataKey::Fwd(old));
+            if old == handle {
+                // already held: nothing changed, so nothing to write or announce
+                Self::bump(&env, &fkey);
+                Self::bump(&env, &rkey);
+                return;
             }
+            // rename: free the previous handle and announce it, so handle-keyed
+            // indexers drop `old -> caller` before someone else takes `old`
+            env.storage()
+                .persistent()
+                .remove(&DataKey::Fwd(old.clone()));
+            env.events().publish(
+                (symbol_short!("handle"), symbol_short!("released")),
+                (caller.clone(), old),
+            );
         }
 
         env.storage().persistent().set(&fkey, &caller);
@@ -89,14 +108,7 @@ impl RegistryContract {
 
     /// handle -> address (the public `/u/<handle>` lookup; pure read, any caller).
     pub fn resolve(env: Env, handle: Symbol) -> Option<Address> {
-        let h = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Fwd(handle.clone()));
-        if h.is_some() {
-            Self::bump(&env, &DataKey::Fwd(handle));
-        }
-        h
+        env.storage().persistent().get(&DataKey::Fwd(handle))
     }
 
     /// address -> handle (label addresses in the feed / leaderboard / profile).
