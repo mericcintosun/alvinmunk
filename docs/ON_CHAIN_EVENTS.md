@@ -699,6 +699,25 @@ time and never queued. At most `MAX_PENDING` (64) entries; bonuses past the cap 
 dropped. Keyed by claimer only: "what am I owed" means reading `get_pending` for each
 person you vouched and keeping the entries whose `voucher` is you.
 
+### Handle lookups (`resolve` / `reverse` / `reverse_many`)
+
+`resolve(handle) -> Option<Address>` and `reverse(addr) -> Option<Symbol>` read the two
+directions of the handle map (`DataKey::Fwd(handle)` / `DataKey::Rev(addr)`), `None`
+when the handle is free or the address holds none.
+
+`reverse_many(addrs: Vec<Address>) -> Vec<Option<Symbol>>` is `reverse` for a whole list
+in one call, so a leaderboard or feed labels N rows in one read: one entry per input
+address, in input order (a repeated address repeats its answer), `None` where an address
+holds no handle. It takes at most 50 addresses (`REVERSE_MANY_CAP`) and reverts with
+`TooMany` (#8) past that. A full batch reads 52 ledger entries (50 `Rev` keys, the
+instance and the code), far inside the per-transaction limits (400 footprint entries and
+200 disk reads on testnet and mainnet, checked 2026-09-29) even when every entry is
+archived. Callers chunk longer lists (`reverseHandles` in `apps/web/src/lib/registry.ts`).
+
+All three are pure reads: any caller, no auth, no writes, no TTL extension. A registry
+deployed before `reverse_many` has no such function (`Error(WasmVm, MissingValue)`,
+"non-existent contract function"), so fall back to one `reverse` per address.
+
 ### `ProfileMeta` (`get_meta`)
 
 `get_meta(addr) -> Option<ProfileMeta>` returns the profile `addr` published with

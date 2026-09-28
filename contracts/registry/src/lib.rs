@@ -46,9 +46,12 @@ pub enum Error {
 /// characters, fewer when they are multi-byte.
 const BIO_MAX_BYTES: u32 = 80;
 
-/// Maximum number of addresses accepted by `reverse_many` in a single call.
-/// Keeps the per-transaction ledger-entry footprint well inside protocol limits.
-pub const REVERSE_MANY_CAP: u32 = 50;
+/// Most addresses `reverse_many` takes in one call. Each is one persistent read, so a call's
+/// footprint is up to this many `Rev` keys plus the instance and code: far inside the
+/// per-transaction limits (testnet and mainnet, checked 2026-09-29: 400 footprint entries,
+/// 200 disk reads), even when every entry is archived and read from disk. Mirrored in
+/// apps/web/src/lib/registry.ts and scripts/list-handles.mjs, which chunk longer lists.
+const REVERSE_MANY_CAP: u32 = 50;
 
 // Avatar packing — one byte per field, so the u64 reads as hex. Mirrors `encodeAvatar` in
 // apps/web/src/lib/avatar.ts; the counts are the portrait assets the app ships (`FACE_IDS`,
@@ -159,18 +162,16 @@ impl RegistryContract {
         env.storage().persistent().get(&DataKey::Rev(addr))
     }
 
-    /// Batch address -> handle lookup. Returns results in the same order as `addrs`;
-    /// `None` for every address that has not claimed a handle. Pure read — no TTL
-    /// bumps, no auth. Reverts with `Error::TooMany` when `addrs.len() > REVERSE_MANY_CAP`
-    /// to keep the per-transaction entry footprint within protocol limits.
+    /// Batched `reverse`: one handle per address, in input order, `None` where an address
+    /// holds none (duplicates repeat). Lets a list view label N rows in one read. Pure read,
+    /// any caller, no TTL bumps; reverts with `TooMany` past `REVERSE_MANY_CAP` addresses.
     pub fn reverse_many(env: Env, addrs: Vec<Address>) -> Vec<Option<Symbol>> {
         if addrs.len() > REVERSE_MANY_CAP {
             panic_with_error!(&env, Error::TooMany);
         }
-        let mut out: Vec<Option<Symbol>> = Vec::new(&env);
+        let mut out = Vec::new(&env);
         for addr in addrs.iter() {
-            let handle: Option<Symbol> = env.storage().persistent().get(&DataKey::Rev(addr));
-            out.push_back(handle);
+            out.push_back(env.storage().persistent().get(&DataKey::Rev(addr)));
         }
         out
     }
