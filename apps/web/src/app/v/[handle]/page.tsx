@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { resolveHandle } from '@/lib/registry';
-import { getScores } from '@/lib/reputation';
+import { getPeopleCounts } from '@/lib/constellation';
 import { Crest } from '@/components/brand/crest';
 import { Avatar } from '@/components/Avatar';
 import { Frame } from '@/components/fx/frame';
@@ -23,7 +23,7 @@ import { cn, shortAddress } from '@/lib/utils';
 export default function InvitePage({ params }: { params: { handle: string } }) {
   const handle = params.handle.toLowerCase();
   const [address, setAddress] = useState<string | null | undefined>(undefined);
-  const [scores, setScores] = useState<{ social: number; earned: number } | null>(null);
+  const [vouchedBy, setVouchedBy] = useState<number | null>(null);
 
   useEffect(() => {
     try {
@@ -36,15 +36,15 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
       .then(async (addr) => {
         if (!alive) return;
         setAddress(addr);
-        if (addr) setScores(await getScores(addr).catch(() => ({ social: 0, earned: 0 })));
+        if (!addr) return;
+        const people = await getPeopleCounts(addr).catch(() => ({ vouchedBy: 0, backed: 0 }));
+        if (alive) setVouchedBy(people.vouchedBy);
       })
       .catch(() => alive && setAddress(null));
     return () => {
       alive = false;
     };
   }, [handle]);
-
-  const stars = scores ? Math.max(1, Math.round(scores.social / 10)) : 0;
 
   return (
     <div className="container max-w-lg py-16">
@@ -70,7 +70,14 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
               {address ? shortAddress(address) : 'new to the sky'}
             </p>
             <div className="mt-2">
-              <Stamp accent="secondary">✦ {address ? `${stars} stars` : 'be their first'}</Stamp>
+              <Stamp accent="secondary">
+                ✦{' '}
+                {!address || vouchedBy === 0
+                  ? 'be their first'
+                  : vouchedBy === null
+                    ? '…'
+                    : `vouched by ${vouchedBy}`}
+              </Stamp>
             </div>
           </div>
         </div>

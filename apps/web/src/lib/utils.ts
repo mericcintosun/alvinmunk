@@ -71,3 +71,21 @@ export function withTimeout<T>(p: Promise<T>, ms = 15_000, label = 'request'): P
     );
   });
 }
+
+/**
+ * Share one in-flight read per `key`: widgets that mount together (stat strip, badge row,
+ * activity feed) and ask for the same RPC read get the same promise instead of each firing
+ * their own round-trip. The entry is dropped once it settles, so a later call (a poll, a
+ * refresh after a write) always reads fresh — this is request coalescing, not a cache.
+ */
+export function shareInFlight<T>(
+  pending: Map<string, Promise<T>>,
+  key: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  const hit = pending.get(key);
+  if (hit) return hit;
+  const p = run().finally(() => pending.delete(key));
+  pending.set(key, p);
+  return p;
+}
