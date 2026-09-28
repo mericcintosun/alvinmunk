@@ -73,7 +73,9 @@ async function invoke(kp, id, method, args) {
     const acc = await server.getAccount(kp.publicKey());
     const built = new TransactionBuilder(acc, { fee: '2000000', networkPassphrase: PASS })
       .addOperation(new Contract(id).call(method, ...args)).setTimeout(60).build();
-    const prepared = await server.prepareTransaction(built);
+    const sim = await server.simulateTransaction(built);
+    if (rpc.Api.isSimulationError(sim)) throw new Error('sim: ' + sim.error);
+    const prepared = rpc.assembleTransaction(built, sim).build();
     prepared.sign(kp);
     const sent = await server.sendTransaction(prepared);
     if (sent.status === 'ERROR') {
@@ -113,6 +115,19 @@ function secretPair() {
   return { secret: new Uint8Array(s), hash: new Uint8Array(crypto.createHash('sha256').update(s).digest()) };
 }
 
+async function awardQuest(recipientKp, questId, signerKp = ATTESTER) {
+  const payload = await read(QUEST, 'quest_payload', [u32(questId), A(recipientKp.publicKey())]);
+  if (!payload) throw new Error(`quest_payload returned empty for quest #${questId}`);
+  const sig = signerKp.sign(Buffer.from(payload));
+  const attesterPubKey = new Uint8Array(signerKp.rawPublicKey());
+  return invoke(recipientKp, QUEST, 'award_quest', [
+    bytes(attesterPubKey),
+    bytes(new Uint8Array(sig)),
+    u32(questId),
+    A(recipientKp.publicKey()),
+  ]);
+}
+
 // ── tiny test runner ──
 let pass = 0, fail = 0;
 const fails = [];
@@ -122,37 +137,92 @@ async function test(name, fn) {
 }
 function assert(cond, msg) { if (!cond) throw new Error(msg); }
 async function expectRevert(code, fn) {
-  try { await fn(); throw new Error('expected revert but it succeeded'); }
-  catch (e) {
-    const m = String(e.message);
-    if (m.includes('expected revert')) throw e;
-    // Extract the exact error code from "Error(Contract, #N)" format using regex.
-    // If the regex doesn't match or the code doesn't match expected, fail the assertion.
-    const hit = /Error\(Contract, #(\d+)\)/.exec(m);
-    assert(hit && Number(hit[1]) === code, `expected contract error #${code}, got: ${m.slice(0, 160)}`);
+  if (!Number.isInteger(code) || code <= 0) {
+    throw new Error(`expectRevert requires a positive integer contract error code, got: ${code}`);
+  }
+  let succeeded = false;
+  try {
+    await fn();
+    succeeded = true;
+  } catch (e) {
+    const m = String(e?.message ?? e);
+    // Extract the exact error code from Soroban's "Error(Contract, #N)" format.
+    // Rejects wrong error codes (#9 vs #10), substring traps (#1 vs #10/#12), and non-contract host/network errors.
+    const hit = /Error\(Contract,\s*#(\d+)\)/.exec(m);
+    assert(
+      hit !== null && Number(hit[1]) === code,
+      `expected contract error #${code}, got: ${m.slice(0, 160)}`,
+    );
+  }
+  if (succeeded) {
+    throw new Error(`expected contract error #${code}, but call succeeded`);
   }
 }
 
+async function verifyExpectRevertGuardrails() {
+  // 1. Wrong contract error code (#9 when expecting #10) must fail
+  let rejectedWrongCode = false;
+  try {
+    await expectRevert(10, async () => {
+      throw new Error('Simulation failed: HostError: Error(Contract, #9)');
+    });
+  } catch {
+    rejectedWrongCode = true;
+  }
+  assert(rejectedWrongCode, 'expectRevert(10) must fail when contract reverts with #9');
+
+  // 2. Substring trap (#10 or #12 when expecting #1) must fail
+  let rejectedSubstring = false;
+  try {
+    await expectRevert(1, async () => {
+      throw new Error('Simulation failed: HostError: Error(Contract, #10)');
+    });
+  } catch {
+    rejectedSubstring = true;
+  }
+  assert(rejectedSubstring, 'expectRevert(1) must not match #10 via substring');
+
+  // 3. Non-contract errors (host/WasmVm/network errors) must fail
+  let rejectedNonContract = false;
+  try {
+    await expectRevert(5, async () => {
+      throw new Error('Simulation failed: HostError: Error(Value, UnexpectedType)');
+    });
+  } catch {
+    rejectedNonContract = true;
+  }
+  assert(rejectedNonContract, 'expectRevert must fail on non-contract host/network errors');
+
+  // 4. Exact contract error code match succeeds
+  await expectRevert(10, async () => {
+    throw new Error('Simulation failed: HostError: Error(Contract, #10)');
+  });
+}
+
 (async () => {
+  await test('harness: expectRevert rejects wrong code (#9 vs #10), substring (#1 vs #10), and non-contract errors', verifyExpectRevertGuardrails);
+
   console.log('e2e: provisioning users via friendbot…');
   const [Aw, Bw, Cw, Dw] = await Promise.all([newUser(), newUser(), newUser(), newUser()]);
   await sleep(2000);
   console.log('A', Aw.publicKey(), '\nB', Bw.publicKey(), '\nC', Cw.publicKey(), '\nD', Dw.publicKey(), '\n');
 
-  // ── HAPPY: vouch loop (asymmetric social XP, two-track) ──
+  // ── HAPPY: vouch loop (asymmetric social XP, starter stake refund + queued 2nd-order bonus) ──
   let vouchId;
   await test('happy: mint_vouch + claim_vouch → asymmetric Social XP, Earned untouched', async () => {
     const { secret, hash } = secretPair();
     vouchId = Number(await invoke(Aw, REP, 'mint_vouch', [A(Aw.publicKey()), bytes(hash), str('gm')]));
     await invoke(Bw, REP, 'claim_vouch', [A(Bw.publicKey()), u64(vouchId), bytes(secret)]);
-    assert((await score(Aw.publicKey())) === 5, 'voucher should have 5 social');
-    assert((await score(Bw.publicKey())) === 10, 'claimer should have 10 social');
+    // STARTER_SOCIAL (20) - VOUCH_STAKE (5) + timely claim refund (5) = 20 (5 bonus queued until Bw verifies)
+    assert((await score(Aw.publicKey())) === 20, 'voucher should have 20 social (starter refunded, bonus pending)');
+    // STARTER_SOCIAL (20) + XP_CLAIMER (10) = 30
+    assert((await score(Bw.publicKey())) === 30, 'claimer should have 30 social (20 starter + 10 claim)');
     assert((await earned(Bw.publicKey())) === 0, 'claimer earned must stay 0 (keystone)');
   });
 
-  // ── HAPPY: quest → Earned XP + streak ──
+  // ── HAPPY: quest → Earned XP + streak (4-arg dual-authorized ed25519 signature ABI) ──
   await test('happy: award_quest → Earned XP (quest 1 = 50) + streak', async () => {
-    await invoke(ATTESTER, QUEST, 'award_quest', [A(ATTESTER.publicKey()), u32(1), A(Cw.publicKey())]);
+    await awardQuest(Cw, 1);
     assert((await earned(Cw.publicKey())) === 50, 'C earned should be 50');
     const s = await read(QUEST, 'get_streak', [A(Cw.publicKey())]);
     assert(Number(s.weeks) === 1, 'streak weeks should be 1');
@@ -195,9 +265,13 @@ async function expectRevert(code, fn) {
     await expectRevert(5, () => invoke(Cw, REP, 'claim_vouch', [A(Cw.publicKey()), u64(id), bytes(secret)]));
   });
 
-  // ── NEGATIVE: quest replay ──
+  // ── NEGATIVE: quest authorization & replay guards ──
+  await test('negative: quest unallowlisted attester reverts (#3 NotAuthorized)', async () => {
+    const rogueAttester = Keypair.random();
+    await expectRevert(3, () => awardQuest(Dw, 1, rogueAttester));
+  });
   await test('negative: quest replay reverts (#5 AlreadyClaimed)', async () => {
-    await expectRevert(5, () => invoke(ATTESTER, QUEST, 'award_quest', [A(ATTESTER.publicKey()), u32(1), A(Cw.publicKey())]));
+    await expectRevert(5, () => awardQuest(Cw, 1));
   });
 
   // ── NEGATIVE: reward gating ──
@@ -206,7 +280,7 @@ async function expectRevert(code, fn) {
     await expectRevert(3, () => invoke(Dw, REWARDS, 'claim_reward', [A(Dw.publicKey()), u32(1)]));
   });
   await test('negative: Social XP cannot open the treasury (keystone)', async () => {
-    // B has 10 Social, 0 Earned → reward #1 (threshold 30 earned) must revert BelowThreshold
+    // B has 30 Social, 0 Earned → reward #1 (threshold 30 earned) must revert BelowThreshold (#3)
     await expectRevert(3, () => invoke(Bw, REWARDS, 'claim_reward', [A(Bw.publicKey()), u32(1)]));
   });
   await test('negative: reward double-claim reverts (#4 AlreadyClaimed)', async () => {
@@ -223,7 +297,7 @@ async function expectRevert(code, fn) {
   });
   await test('negative: daily cap blocks over-cap payout (#9), then reset', async () => {
     // C earns more so it qualifies for reward #2 (threshold 60): quest 2 = +30 → 80
-    await invoke(ATTESTER, QUEST, 'award_quest', [A(ATTESTER.publicKey()), u32(2), A(Cw.publicKey())]);
+    await awardQuest(Cw, 2);
     // The cap can't go below an active payout, so switch off #3 (2 USDC) and cap at #2's own
     // 1 USDC: C's 0.5 USDC claim of #1 earlier today pushes #2 over it.
     await invoke(ADMIN, REWARDS, 'set_reward_active', [u32(3), nativeToScVal(false, { type: 'bool' })]);
