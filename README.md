@@ -197,6 +197,20 @@ Feedback is collected via the public [Google Form](https://forms.gle/kNXR3zmZhGh
 
 ---
 
+## Documentation
+
+| Doc | What it covers |
+| --- | --- |
+| **[User guide](./docs/USER_GUIDE.md)** | End-user walkthrough — onboard, vouch/claim, quests, tips, leaderboard, profile, FAQ |
+| **[Technical blog](./docs/BLOG.md)** | How the sybil-resistant proof-of-people design works (async vouch, two-track anti-sybil, passkey + fee-sponsorship + no-standing-backend) |
+| **[Ecosystem contribution](./docs/ECOSYSTEM.md)** | Open-source / community: Drips Wave maintainer, 26 bountied issues, **15 merged external-contributor PRs** |
+| **[Security review](./docs/SECURITY_REVIEW.md)** | Free self-audit — Scout + cargo-audit + cargo-deny + clippy + no-`unsafe`; 4 critical overflow findings fixed, 22 medium triaged, **0 exploitable** |
+| **[Deploy your own (testnet)](./docs/DEPLOY.md)** · **[Mainnet runbook](./docs/DEPLOY_MAINNET.md)** | Stand up a fresh instance; mainnet cutover checklist |
+| **[On-chain event schema](./docs/ON_CHAIN_EVENTS.md)** · **[Contributing](./CONTRIBUTING.md)** | Frozen event shapes; how to contribute |
+| **[Marketing kit](./docs/MARKETING.md)** · **[Pitch deck](./docs/pitch-deck.pdf)** | Launch thread + promotion; the designed deck |
+
+---
+
 ## Architecture (and the "no standing backend" decision)
 
 **[Jump to the diagram ↓](#system-diagram)** — five contracts, their cross-calls, the serverless attester, and the RPC-direct read path in one picture.

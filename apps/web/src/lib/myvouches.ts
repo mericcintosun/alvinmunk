@@ -5,12 +5,16 @@
  */
 import { buildClaimUrl } from '@alvinmunk/shared';
 import { getVouch, VOUCH_TTL_SECS } from './reputation';
+import { subscribeToPush } from './push';
 
 export interface MyVouch {
   id: number;
   secret: string;
   note: string;
   created: number; // unix seconds
+  /** Stellar address of the voucher — stored so we can look up push subscriptions
+   *  server-side when the claim page notifies after claim_vouch succeeds. */
+  walletAddress?: string;
 }
 
 const KEY = 'alvinmunk.myVouches';
@@ -70,12 +74,25 @@ function getSeenClaimed(): { ids: number[]; baselined: boolean } {
 }
 
 /**
+ * Subscribe to push notifications for a newly minted vouch (if permission is granted and
+ * VAPID is configured). Fire-and-forget — failures are logged but don't break the mint flow.
+ * Call this AFTER addMyVouch so the localStorage record exists and has walletAddress.
+ */
+export async function subscribeToVouchPush(walletAddress: string, vouchId: number): Promise<void> {
+  try {
+    await subscribeToPush(walletAddress, vouchId);
+  } catch (err) {
+    console.warn('[myvouches] push subscription failed:', err);
+  }
+}
+
+/**
  * The one in-app notification that matters (Nicole/roundtable): your vouch to someone was
  * CLAIMED — their star ignited. Returns vouches claimed SINCE the last check (empty on the
  * first ever run, which just baselines so old claims don't flood). Marks them seen.
  *
- * NOTE: this is in-session only. True push (bring-them-back) needs web-push infra
- * (service worker + VAPID + a server subscription store) — deliberately deferred.
+ * NOTE: pollNewlyClaimed is in-session only. Web push (subscribeToVouchPush + service worker)
+ * handles the bring-them-back case when the tab is closed.
  */
 export async function pollNewlyClaimed(): Promise<{ id: number; note: string }[]> {
   const mine = getMyVouches();

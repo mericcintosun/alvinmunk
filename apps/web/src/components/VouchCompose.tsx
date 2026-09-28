@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Copy, Check, Share2 } from 'lucide-react';
 import { getWallet } from '@/lib/wallet';
 import { mintVouch } from '@/lib/reputation';
-import { addMyVouch } from '@/lib/myvouches';
+import { addMyVouch, subscribeToVouchPush } from '@/lib/myvouches';
 import { buildClaimUrl } from '@alvinmunk/shared';
 import { Frame } from '@/components/fx/frame';
 import { BorderBeam } from '@/components/fx/border-beam';
@@ -43,7 +43,10 @@ export function VouchCompose() {
       const wallet = await getWallet();
       const noteText = note.trim() || 'vouched for you';
       const { id, secret } = await mintVouch(wallet, noteText);
-      addMyVouch({ id, secret, note: noteText, created: Math.floor(Date.now() / 1000) });
+      addMyVouch({ id, secret, note: noteText, created: Math.floor(Date.now() / 1000), walletAddress: wallet.address });
+      // Fire-and-forget push subscription — silently ignored if VAPID not configured or
+      // permission denied. User will be prompted by VouchClaimedNotice banner otherwise.
+      subscribeToVouchPush(wallet.address, id).catch(() => {});
       const origin = typeof window !== 'undefined' ? window.location.origin : '';
       setLink(`${buildClaimUrl(origin, id)}#s=${secret}`);
       track('vouch_minted', { hasNote: note.trim().length > 0, walletKind: wallet.kind });

@@ -2,7 +2,6 @@ name: CI
 
 on:
   push:
-    branches: [main]
   pull_request:
 
 jobs:
@@ -13,8 +12,6 @@ jobs:
         working-directory: contracts
     steps:
       - uses: actions/checkout@v4
-      # Pin the toolchain (matches contracts/rust-toolchain.toml) so `cargo fmt --check`
-      # is reproducible — a floating @stable drifts rustfmt and fails the format gate.
       - uses: dtolnay/rust-toolchain@1.96.0
         with:
           targets: wasm32-unknown-unknown
@@ -27,8 +24,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # No `version:` here — pnpm is pinned via package.json "packageManager" (pnpm@9.7.0).
-      # Specifying both makes pnpm/action-setup fail with ERR_PNPM_BAD_PM_VERSION.
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -38,3 +33,36 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
+
+  web-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: true
+      NEXT_PUBLIC_STELLAR_NETWORK: testnet
+      NEXT_PUBLIC_RPC_URL: ${{ vars.NEXT_PUBLIC_RPC_URL || 'https://soroban-testnet.stellar.org' }}
+      NEXT_PUBLIC_NETWORK_PASSPHRASE: 'Test SDF Network ; September 2015'
+      NEXT_PUBLIC_HORIZON_URL: ${{ vars.NEXT_PUBLIC_HORIZON_URL || 'https://horizon-testnet.stellar.org' }}
+      NEXT_PUBLIC_REPUTATION_CONTRACT_ID: ${{ vars.NEXT_PUBLIC_REPUTATION_CONTRACT_ID || 'CDRYXUS55TKGYEM3YUB3YTJWQKSWWQABK6YPQK7SLEPVALWYK4IR7WCL' }}
+      NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID: ${{ vars.NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID || 'CBEJVYLWTU6BQDL3RXKWW6CYUISRC4SUIVURCG452CTOIANGY2N7V3WI' }}
+      NEXT_PUBLIC_REWARDS_CONTRACT_ID: ${{ vars.NEXT_PUBLIC_REWARDS_CONTRACT_ID || 'CBMO3X3EXKUZAHNAPRSFVBXJJARJD5I5VME5UQ7OSI2OA5Q56UO7TM3G' }}
+      NEXT_PUBLIC_REGISTRY_CONTRACT_ID: ${{ vars.NEXT_PUBLIC_REGISTRY_CONTRACT_ID || 'CCT5EGFZ33IFLMUU6EBMC6NWRLX5TWJS5FICNJFBG7MU5PTAU6PFMVH4' }}
+      NEXT_PUBLIC_PASSKEY_WALLET_WASM_HASH: ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec playwright install --with-deps chromium
+      - run: pnpm --dir apps/web e2e:smoke
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          if-no-files-found: ignore

@@ -28,6 +28,7 @@ version = "0.1.0"
 dependencies = [
  "alvinmunk-reputation",
  "ed25519-dalek",
+ "proptest",
  "soroban-sdk",
 ]
 

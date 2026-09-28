@@ -2,9 +2,10 @@
  * Blue anti-abuse — off-chain ring/cluster detector → on-chain `frozen` set.
  *
  * Reads the Reputation `vouch/claimed` events from RPC, builds (from→claimer) pairs,
- * flags reciprocal rings (A↔B), and calls `Rewards.set_frozen(addr, true)` so the
- * contract blocks those accounts from claim/tip. The on-chain hook shipped with the
- * Green rewards-hardening pass; this is the off-chain brain that drives it.
+ * flags ring candidates (reciprocal A↔B pairs and A→B→C→A cycles), and calls
+ * `Rewards.set_frozen(addr, true)` so the contract blocks those accounts from claim/tip.
+ * The on-chain hook shipped with the Green rewards-hardening pass; this is the off-chain
+ * brain that drives it.
  *
  * Secret-free: the admin key is read from $ADMIN_SECRET_KEY (never committed).
  * Dry-run by default — set APPLY=1 to actually freeze.
@@ -27,17 +28,50 @@ const APPLY = process.env.APPLY === '1';
 const server = new rpc.Server(RPC);
 const toNative = (v) => scValToNative(typeof v === 'string' ? xdr.ScVal.fromXDR(v, 'base64') : v);
 
-/** Canonical tested version lives in @passport/shared (detectReciprocalRings). */
-function detectReciprocalRings(pairs) {
-  const edges = new Set(pairs.map((p) => `${p.from}>${p.claimer}`));
-  const flagged = new Set();
-  for (const p of pairs) {
-    if (edges.has(`${p.claimer}>${p.from}`)) {
-      flagged.add(p.from);
-      flagged.add(p.claimer);
+/**
+ * Ring candidates in the claimed-vouch graph. Mirror of `detectRingCandidates` in
+ * packages/shared (the unit-tested canonical version) — keep the two in sync.
+ *
+ * Rules (belts/08):
+ * - reciprocal: A→B and B→A.
+ * - cycle3:     A→B→C→A with three distinct members.
+ * Self-loops and duplicate edges are ignored; a back-and-forth pair counts only as
+ * reciprocal. There is deliberately no raw-degree rule, because the most active honest
+ * users would be its first false positives.
+ *
+ * False positives: a small real community can form a genuine 3-cycle. Always review the
+ * dry-run output (each address is printed with the rule that flagged it) before APPLY=1,
+ * and unfreeze with `set_frozen(addr, false)` if a candidate turns out to be legitimate.
+ */
+function detectRingCandidates(pairs) {
+  const adj = new Map();
+  for (const { from, claimer } of pairs) {
+    if (from === claimer) continue;
+    if (!adj.has(from)) adj.set(from, new Set());
+    adj.get(from).add(claimer);
+  }
+  const has = (a, b) => adj.get(a)?.has(b) ?? false;
+  const reasons = new Map();
+  const flag = (addr, why) => {
+    if (!reasons.has(addr)) reasons.set(addr, new Set());
+    reasons.get(addr).add(why);
+  };
+  for (const [a, outs] of adj) {
+    for (const b of outs) {
+      if (has(b, a)) {
+        flag(a, 'reciprocal');
+        flag(b, 'reciprocal');
+      }
+      for (const c of adj.get(b) ?? []) {
+        if (c !== a && c !== b && has(c, a)) {
+          flag(a, 'cycle3');
+          flag(b, 'cycle3');
+          flag(c, 'cycle3');
+        }
+      }
     }
   }
-  return [...flagged].sort();
+  return [...reasons.keys()].sort().map((address) => ({ address, reasons: [...reasons.get(address)].sort() }));
 }
 
 async function readPairs() {
@@ -80,10 +114,11 @@ async function setFrozen(admin, who) {
 (async () => {
   const pairs = await readPairs();
   console.log(`read ${pairs.length} claimed-vouch pair(s) in the window`);
-  const flagged = detectReciprocalRings(pairs);
-  if (!flagged.length) { console.log('no reciprocal rings detected ✅'); return; }
-  console.log(`flagged ${flagged.length} ring member(s):`);
-  flagged.forEach((a) => console.log('  ' + a));
+  const candidates = detectRingCandidates(pairs);
+  if (!candidates.length) { console.log('no ring candidates detected ✅'); return; }
+  console.log(`flagged ${candidates.length} ring candidate(s):`);
+  candidates.forEach((c) => console.log(`  ${c.address}  [${c.reasons.join(', ')}]`));
+  const flagged = candidates.map((c) => c.address);
   if (!APPLY) { console.log('\n(dry-run) set APPLY=1 + ADMIN_SECRET_KEY to freeze on-chain.'); return; }
   const secret = process.env.ADMIN_SECRET_KEY;
   if (!secret) { console.error('APPLY=1 needs ADMIN_SECRET_KEY'); process.exit(1); }

@@ -107,6 +107,16 @@ pub struct Attestation {
     pub revoked: bool,
 }
 
+/// Aggregate read shape for get_profile — the single-round-trip replacement for
+/// separately calling get_score + get_earned (+ is_verified) from anchors/apps.
+#[contracttype]
+#[derive(Clone)]
+pub struct Profile {
+    pub social: u64,
+    pub earned: u64,
+    pub verified: bool,
+}
+
 #[contract]
 pub struct ReputationContract;
 
@@ -169,7 +179,7 @@ impl ReputationContract {
         if used >= MAX_VOUCH_PER_DAY {
             panic_with_error!(&env, Error::DailyCapReached);
         }
-        env.storage().temporary().set(&dkey, &(used + 1));
+        env.storage().temporary().set(&dkey, &(used.saturating_add(1)));
         env.storage()
             .temporary()
             .extend_ttl(&dkey, BUMP_THRESHOLD, BUMP_THRESHOLD * 2);
@@ -190,8 +200,8 @@ impl ReputationContract {
             .storage()
             .instance()
             .get(&DataKey::VouchSeq)
-            .unwrap_or(0)
-            + 1;
+            .unwrap_or(0u64)
+            .saturating_add(1);
         env.storage().instance().set(&DataKey::VouchSeq, &id);
 
         let vouch = Vouch {
@@ -301,7 +311,7 @@ impl ReputationContract {
         if vouch.slashed {
             return; // already slashed — idempotent
         }
-        if env.ledger().timestamp() <= vouch.created + VOUCH_TTL_SECS {
+        if env.ledger().timestamp() <= vouch.created.saturating_add(VOUCH_TTL_SECS) {
             panic_with_error!(&env, Error::NotExpired);
         }
         vouch.slashed = true;
@@ -362,6 +372,17 @@ impl ReputationContract {
             .persistent()
             .get(&DataKey::Verified(addr))
             .unwrap_or(false)
+    }
+
+    /// Aggregate profile view — social + earned + verified in ONE call. Purely
+    /// composes the existing getters; no new storage, no new write path. Cuts
+    /// get_profile-style callers from 2-3 round-trips down to 1.
+    pub fn get_profile(env: Env, addr: Address) -> Profile {
+        Profile {
+            social: Self::get_score(env.clone(), addr.clone()),
+            earned: Self::get_earned(env.clone(), addr.clone()),
+            verified: Self::is_verified(env, addr),
+        }
     }
 
     // --- internal ---

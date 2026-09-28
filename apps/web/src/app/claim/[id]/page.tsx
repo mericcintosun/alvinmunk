@@ -97,6 +97,19 @@ function ClaimInner({ params }: { params: { id: string } }) {
       const wallet = await connect();
       await claimVouch(wallet, vid, secret);
       setState('done');
+      // Fire-and-forget push notification to the voucher — no await so it never
+      // blocks the success UX. Silently ignored if push infra is not configured.
+      if (vouch?.from) {
+        fetch('/api/push/notify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            vouchId: vid,
+            voucherAddress: vouch.from,
+            note: vouch.note ?? undefined,
+          }),
+        }).catch(() => {});
+      }
     } catch (e) {
       setError(humanizeError(e, CLAIM_ERRORS));
       setState('error');

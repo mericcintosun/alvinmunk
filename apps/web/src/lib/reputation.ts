@@ -26,6 +26,27 @@ export interface VouchView {
   slashed: boolean;
 }
 
+/** Aggregate profile shape from the on-chain get_profile view. */
+export interface ProfileView {
+  social: number;
+  earned: number;
+  verified: boolean;
+}
+
+/** `get_profile(addr)` — single round-trip for social + earned + verified. */
+export async function getProfile(address: string): Promise<ProfileView> {
+  const p = await readPublic<{ social: bigint; earned: bigint; verified: boolean } | undefined>(
+    repId(),
+    'get_profile',
+    [args.addr(address)],
+  );
+  return {
+    social: Number(p?.social ?? 0),
+    earned: Number(p?.earned ?? 0),
+    verified: Boolean(p?.verified ?? false),
+  };
+}
+
 // ── client-side crypto for the claim secret ──
 function randomBytes(n: number): Uint8Array {
   const a = new Uint8Array(n);
@@ -95,14 +116,20 @@ export async function getVouch(vouchId: number): Promise<VouchView | null> {
   };
 }
 
-/** Wallet-free profile aggregator — both XP tracks in parallel for ANY address
- *  (the public-profile read path; the on-chain get_profile view is a later optimization). */
+/** Wallet-free profile aggregator — social + earned for ANY address. Prefers the
+ *  single-call get_profile view; falls back to the two parallel legacy calls if
+ *  the deployed contract predates get_profile. */
 export async function getScores(address: string): Promise<{ social: number; earned: number }> {
-  const [s, e] = await Promise.all([
-    readPublic<bigint>(repId(), 'get_score', [args.addr(address)]).catch(() => 0n),
-    readPublic<bigint>(repId(), 'get_earned', [args.addr(address)]).catch(() => 0n),
-  ]);
-  return { social: Number(s ?? 0), earned: Number(e ?? 0) };
+  try {
+    const p = await getProfile(address);
+    return { social: p.social, earned: p.earned };
+  } catch {
+    const [s, e] = await Promise.all([
+      readPublic<bigint>(repId(), 'get_score', [args.addr(address)]).catch(() => 0n),
+      readPublic<bigint>(repId(), 'get_earned', [args.addr(address)]).catch(() => 0n),
+    ]);
+    return { social: Number(s ?? 0), earned: Number(e ?? 0) };
+  }
 }
 
 /** `get_score(addr)` — Social XP (leaderboard, non-cashable). */

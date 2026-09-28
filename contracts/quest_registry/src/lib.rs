@@ -261,8 +261,8 @@ impl QuestRegistryContract {
         });
         if s.weeks > 0 && s.last_week == week {
             // already counted this week — nothing to do.
-        } else if s.weeks > 0 && s.last_week + 1 == week {
-            s.weeks += 1;
+        } else if s.weeks > 0 && s.last_week.saturating_add(1) == week {
+            s.weeks = s.weeks.saturating_add(1);
             s.last_week = week;
         } else {
             s.weeks = 1;

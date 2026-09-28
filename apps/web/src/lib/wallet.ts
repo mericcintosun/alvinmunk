@@ -17,6 +17,8 @@ import {
   isConnected as freighterIsConnected,
   requestAccess as freighterRequestAccess,
   signTransaction as freighterSign,
+  signMessage as freighterSignMessage,
+
 } from '@stellar/freighter-api';
 import { config, networkPassphrase, waitForAccountReady, server } from './stellar';
 
@@ -125,7 +127,7 @@ export async function fundWithFriendbot(publicKey: string, tries = 4): Promise<v
   }
   throw new Error(
     `Couldn't fund your testnet wallet (Friendbot ${lastStatus || 'unreachable'}). ` +
-      'Friendbot is busy — wait a moment and try again.',
+    'Friendbot is busy — wait a moment and try again.',
   );
 }
 
@@ -154,13 +156,25 @@ export async function connectFreighter(): Promise<Wallet> {
         address,
         networkPassphrase,
       });
-      if ('error' in res && res.error) throw new Error(String(res.error));
+      if ('error' in res && res.error) {
+        const e = res.error as string | { message?: string };
+        throw new Error(typeof e === 'string' ? e : (e?.message ?? JSON.stringify(e)));
+      }
       return res.signedTxXdr;
     },
-    signMessage: async () => {
-      // Freighter message-signing uses a different scheme; not wired for quest
-      // ownership proof yet. Use the in-app (passkey/dev) wallet for quests.
-      throw new Error('Quests via Freighter not supported yet — use the in-app wallet.');
+    signMessage: async (message: string) => {
+      const res = await freighterSignMessage(message, { address, networkPassphrase });
+      if ('error' in res && res.error) {
+        const e = res.error as string | { message?: string };
+        throw new Error(typeof e === 'string' ? e : (e?.message ?? JSON.stringify(e)));
+      }
+      const { signedMessage } = res;
+      // Freighter returns a base64 string in current versions; normalize defensively in
+      // case a wallet build returns raw bytes instead (same pattern as wallet-kit.ts's
+      // SWK normalization), so callers can always treat Wallet.signMessage as string-in/out.
+      return typeof signedMessage === 'string'
+        ? signedMessage
+        : u8ToB64(new Uint8Array(signedMessage as unknown as ArrayBufferLike));
     },
   };
 }
@@ -186,8 +200,12 @@ export async function connectAlbedo(): Promise<Wallet> {
       const res = await albedo.tx({ xdr, network: net, pubkey });
       return res.signed_envelope_xdr;
     },
-    signMessage: async () => {
-      throw new Error('Quests via Albedo not supported yet — use the in-app wallet.');
+    signMessage: async (message: string) => {
+      // Albedo's sign_message intent signs under Albedo's own message envelope (not the
+      // same raw bytes the dev wallet signs directly) — see note in wallet.ts header re:
+      // signing schemes if this is ever consumed by an off-chain verifier.
+      const res = await albedo.signMessage({ message, pubkey });
+      return res.signed_message;
     },
   };
 }
@@ -251,8 +269,8 @@ export async function connectPasskey(): Promise<Wallet> {
   if (!wasmHash) {
     throw new Error(
       'Passkey infra not configured. Set NEXT_PUBLIC_PASSKEY_WALLET_WASM_HASH (+ the ' +
-        'server-side PASSKEY_RELAYER_* secrets; see docs/PASSKEY_HANDOFF.md), or use the ' +
-        'dev wallet on testnet (default).',
+      'server-side PASSKEY_RELAYER_* secrets; see docs/PASSKEY_HANDOFF.md), or use the ' +
+      'dev wallet on testnet (default).',
     );
   }
 
