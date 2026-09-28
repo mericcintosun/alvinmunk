@@ -555,6 +555,69 @@ pub struct Vouch {
 }
 ```
 
+### `Profile` (`get_profile`)
+
+`get_profile(addr)` returns Social + Earned + verified in one call. It is computed on
+read, never stored.
+
+```rust
+pub struct Profile {
+    pub social: u64,
+    pub earned: u64,
+    pub verified: bool,  // has done >= 1 Earned action
+}
+```
+
+This shape is **frozen**. Soroban decodes a struct only when the returned map has exactly
+its fields, so adding a field breaks every existing caller that decodes `Profile` (another
+contract, a generated binding). New per-address data ships as its own view instead, like
+`get_counts` below.
+
+### People counts (`get_counts`)
+
+`get_counts(addr) -> (u32, u32)` returns `(vouched_by, backed)`:
+
+| Index | Type | Description |
+|-------|------|-------------|
+| 0 | `u32` | `vouched_by` — distinct people who vouched for `addr` |
+| 1 | `u32` | `backed` — distinct people `addr` vouched for |
+
+Both are persistent counters (`DataKey::VouchedBy(addr)` / `DataKey::Backed(addr)`) that
+`claim_vouch` increments only on a **fresh first pair** — the same `Seen(from, claimer)`
+guard that gates the claim XP. Repeat vouches between the same two people, self-vouches
+and rejected claims never move them. Direction matters: `alice -> bob` and `bob -> alice`
+are two pairs. No new event is emitted; each increment happens alongside a
+`vouch` / `claimed` event.
+
+**No backfill.** The counters start at the contract upgrade that introduced them. A pair
+first claimed before it is not counted (and never will be — the pair is already `Seen`).
+To cover those, fold `vouch` / `claimed` events: distinct `from` per `claimer` is
+`vouched_by`, distinct `claimer` per `from` is `backed` (de-duplicate repeat pairs). Both
+the counter and an event fold are lower bounds on the same number, so take the larger —
+the web app does this over the recent RPC window (`getPeopleCounts` in
+`apps/web/src/lib/constellation.ts`). A contract deployed before the upgrade has no
+`get_counts` at all, so treat a failed call as "unknown", not 0.
+
+### `PendingBonus` (`get_pending`)
+
+`get_pending(claimer) -> Vec<PendingBonus>` returns the 2nd-order voucher bonuses queued
+on `claimer` (`DataKey::Pending(claimer)`), oldest first:
+
+```rust
+pub struct PendingBonus {
+    pub voucher: Address,  // who is owed the bonus
+    pub amount: u64,       // Social XP (BONUS_VOUCHER = 5)
+}
+```
+
+`claim_vouch` queues one entry per fresh first pair while the claimer is unverified. The
+claimer's first Earned credit (`award_xp`) pays every entry out as a `social` event for
+its voucher and removes the queue, so the view is empty from then on — as it is for any
+address with nothing queued. Bonuses for an already-verified claimer are paid at claim
+time and never queued. At most `MAX_PENDING` (64) entries; bonuses past the cap are
+dropped. Keyed by claimer only: "what am I owed" means reading `get_pending` for each
+person you vouched and keeping the entries whose `voucher` is you.
+
 ### `QuestConfig`
 
 ```rust

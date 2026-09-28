@@ -105,6 +105,15 @@
   "appHome.shortcut.rewards.title": "Bahşiş ver & çek",
   "appHome.shortcut.rewards.body": "USDC bahşişi gönder ve Kazanılan XP sınırı geçtiğinde ödülleri al.",
 
+  "owedBonuses.frameLabel": "beklenen // bonuslar",
+  "owedBonuses.title": "{total} XP bekliyor",
+  "owedBonuses.subtitle": "Destek bonusun, her kişi ilk doğrulanmış görevini tamamladığında açılır.",
+  "owedBonuses.row": "{name} doğrulanmış bir görev tamamladığında açılır",
+  "owedBonuses.nudge": "Görevleri paylaş →",
+  "owedBonuses.nudgeLabel": "Görevler bağlantısını {name} ile paylaş",
+  "owedBonuses.shareText": "alvinmunk'ta doğrulanmış bir görev tamamla — sana verdiğim desteğin bonusunu açar.",
+  "owedBonuses.copied": "kopyalandı",
+
   "vouch.page.title": "Birinin yıldızını yak",
   "vouch.page.subtitle": "Birini destekle — henüz hesabı olmasa da. Kartın paylaşılabilir bir davetiye olur; talep ettiklerinde ikiniz de Sosyal XP kazanırsınız.",
   "vouch.compose.frame": "destek // oluştur",

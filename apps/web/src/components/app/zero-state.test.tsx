@@ -3,14 +3,22 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { getScoresMock, fetchActivityMock, reverseHandleMock, getPendingVouchesMock } = vi.hoisted(() => ({
+const {
+  getScoresMock,
+  getPeopleCountsMock,
+  fetchActivityMock,
+  reverseHandleMock,
+  getPendingVouchesMock,
+} = vi.hoisted(() => ({
   getScoresMock: vi.fn(),
+  getPeopleCountsMock: vi.fn(),
   fetchActivityMock: vi.fn(),
   reverseHandleMock: vi.fn(),
   getPendingVouchesMock: vi.fn(),
 }));
 
 vi.mock('@/lib/reputation', () => ({ getScores: getScoresMock }));
+vi.mock('@/lib/constellation', () => ({ getPeopleCounts: getPeopleCountsMock }));
 vi.mock('@/lib/feed', () => ({ fetchActivity: fetchActivityMock }));
 vi.mock('@/lib/registry', () => ({ reverseHandle: reverseHandleMock }));
 vi.mock('@/lib/myvouches', () => ({ getPendingVouches: getPendingVouchesMock }));
@@ -37,6 +45,7 @@ describe('first-run UI states', () => {
 
   it('shows a friendly zero-state for the stat strip when no reputation exists yet', async () => {
     getScoresMock.mockResolvedValue({ social: 0, earned: 0 });
+    getPeopleCountsMock.mockResolvedValue({ vouchedBy: 0, backed: 0 });
 
     await act(async () => {
       root.render(<StatStrip address="GB123" />);

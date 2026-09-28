@@ -105,6 +105,15 @@
   "appHome.shortcut.rewards.title": "Tip & cash out",
   "appHome.shortcut.rewards.body": "Send USDC tips and claim rank rewards once your Earned XP clears the bar.",
 
+  "owedBonuses.frameLabel": "owed // bonuses",
+  "owedBonuses.title": "{total} XP waiting",
+  "owedBonuses.subtitle": "Your vouch bonus unlocks when each person completes their first verified quest.",
+  "owedBonuses.row": "Unlocks when {name} completes a verified quest",
+  "owedBonuses.nudge": "Share quests →",
+  "owedBonuses.nudgeLabel": "Share the quests link with {name}",
+  "owedBonuses.shareText": "Complete a verified quest on alvinmunk — it unlocks the bonus from my vouch for you.",
+  "owedBonuses.copied": "copied",
+
   "vouch.page.title": "Light someone's star",
   "vouch.page.subtitle": "Vouch for a person — they don't need an account yet. Your card becomes a shareable invite; when they claim it, you both earn Social XP.",
   "vouch.compose.frame": "vouch // mint",
