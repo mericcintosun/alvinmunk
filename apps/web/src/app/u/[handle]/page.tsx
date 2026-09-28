@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useWallet } from '@/components/wallet/wallet-provider';
 import { getScores, type PeopleCounts } from '@/lib/reputation';
 import { getPeopleCounts } from '@/lib/constellation';
-import { resolveHandle } from '@/lib/registry';
+import { resolveHandle, getMeta, type OnChainMeta } from '@/lib/registry';
 import { Crest } from '@/components/brand/crest';
 import { Avatar } from '@/components/Avatar';
 import { Frame } from '@/components/fx/frame';
@@ -27,24 +27,28 @@ export default function ProfilePage({ params }: { params: { handle: string } }) 
   const [address, setAddress] = useState<string | null | undefined>(undefined); // undefined = loading
   const [scores, setScores] = useState<{ social: number; earned: number } | null>(null);
   const [people, setPeople] = useState<PeopleCounts | null>(null);
+  const [meta, setMeta] = useState<OnChainMeta | null>(null);
 
   useEffect(() => {
     let alive = true;
     setAddress(undefined);
     setScores(null);
     setPeople(null);
+    setMeta(null);
     resolveHandle(handle)
       .then(async (addr) => {
         if (!alive) return;
         setAddress(addr);
         if (!addr) return;
-        const [s, p] = await Promise.all([
+        const [s, p, m] = await Promise.all([
           getScores(addr).catch(() => ({ social: 0, earned: 0 })),
           getPeopleCounts(addr).catch(() => ({ vouchedBy: 0, backed: 0 })),
+          getMeta(addr), // null (default face, no bio) when unset or the registry predates it
         ]);
         if (!alive) return;
         setScores(s);
         setPeople(p);
+        setMeta(m);
       })
       .catch(() => alive && setAddress(null));
     return () => {
@@ -53,6 +57,10 @@ export default function ProfilePage({ params }: { params: { handle: string } }) 
   }, [handle]);
 
   const isMe = !!address && profile?.address === address;
+  // The published face/bio for everyone; on your own profile the local copy (updated the
+  // moment you pick, before the tx lands) wins.
+  const avatar = (isMe ? profile?.avatar : undefined) ?? meta?.avatar;
+  const bio = (isMe ? profile?.bio : undefined) ?? meta?.bio;
 
   if (address === undefined) {
     return (
@@ -95,15 +103,12 @@ export default function ProfilePage({ params }: { params: { handle: string } }) 
     <div className="container max-w-2xl py-14">
       <Frame label={`profile // @${handle}`} index="ID" tilt>
         <div className="grid gap-6 p-7 sm:grid-cols-[auto_1fr] sm:items-center sm:p-8">
-          <Avatar
-            address={address}
-            avatar={isMe ? profile?.avatar : undefined}
-            handle={handle}
-            size={140}
-          />
+          <Avatar address={address} avatar={avatar} handle={handle} size={140} />
           <div>
             <h1 className="font-display text-3xl font-semibold">@{handle}</h1>
             <p className="mt-1 font-mono text-xs text-muted-foreground">{shortAddress(address)}</p>
+            {/* plain text only: React escapes it, and it was sanitized to one line */}
+            {bio && <p className="mt-2 break-words text-sm text-foreground/80">{bio}</p>}
             <div className="mt-3">
               <Stamp accent="secondary">✦ LIT ON STELLAR</Stamp>
             </div>

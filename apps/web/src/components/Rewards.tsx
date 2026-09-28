@@ -32,6 +32,10 @@ const REWARD_ERRORS: Record<number, string> = {
   10: 'This account is under review and can’t claim right now.',
   12: 'You need to receive funds first before claiming (mainnet rule).',
   13: 'This reward’s pool is used up.',
+  // 15–17 are admin-only (add_reward / set_reward_active / set_daily_cap).
+  15: 'A reward needs an Earned XP threshold above zero.',
+  16: 'This reward pays more than the daily limit allows.',
+  17: 'The daily limit can’t go below an active reward’s payout.',
 };
 
 /**

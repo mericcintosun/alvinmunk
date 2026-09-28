@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
-import { resolveHandle } from '@/lib/registry';
+import { resolveHandle, getMeta } from '@/lib/registry';
 import { getPeopleCounts } from '@/lib/constellation';
 import { Crest } from '@/components/brand/crest';
 import { Avatar } from '@/components/Avatar';
@@ -13,6 +13,7 @@ import { BorderBeam } from '@/components/fx/border-beam';
 import { AuroraText } from '@/components/fx/shiny-text';
 import { buttonVariants } from '@/components/ui/button';
 import { cn, shortAddress } from '@/lib/utils';
+import type { AvatarConfig } from '@/lib/avatar';
 
 /**
  * Vouch-invite deep link — `/v/<handle>` is shared by @handle to recruit. The visitor
@@ -24,6 +25,7 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
   const handle = params.handle.toLowerCase();
   const [address, setAddress] = useState<string | null | undefined>(undefined);
   const [vouchedBy, setVouchedBy] = useState<number | null>(null);
+  const [avatar, setAvatar] = useState<AvatarConfig | undefined>(undefined);
 
   useEffect(() => {
     try {
@@ -32,13 +34,19 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
       /* storage unavailable */
     }
     let alive = true;
+    setAvatar(undefined);
     resolveHandle(handle)
       .then(async (addr) => {
         if (!alive) return;
         setAddress(addr);
         if (!addr) return;
-        const people = await getPeopleCounts(addr).catch(() => ({ vouchedBy: 0, backed: 0 }));
-        if (alive) setVouchedBy(people.vouchedBy);
+        const [people, meta] = await Promise.all([
+          getPeopleCounts(addr).catch(() => ({ vouchedBy: 0, backed: 0 })),
+          getMeta(addr), // the inviter's published face; null → deterministic default
+        ]);
+        if (!alive) return;
+        setVouchedBy(people.vouchedBy);
+        setAvatar(meta?.avatar);
       })
       .catch(() => alive && setAddress(null));
     return () => {
@@ -60,7 +68,7 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
       <Frame label={`invite // @${handle}`} index="REF" className="mt-7" tilt tape="tr">
         <div className="flex items-center gap-5 p-7">
           {address ? (
-            <Avatar address={address} handle={handle} size={96} />
+            <Avatar address={address} avatar={avatar} handle={handle} size={96} />
           ) : (
             <Crest address={`unclaimed-${handle}`} size={96} points={7} animate />
           )}
