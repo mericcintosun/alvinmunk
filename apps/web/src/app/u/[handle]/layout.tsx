@@ -1,30 +1,21 @@
 import type { Metadata } from 'next';
+import { routeHandle } from '@/lib/metadata';
 
-type ProfileLayoutProps = {
-  children: React.ReactNode;
-  params: { handle: string };
-};
-
-export async function generateMetadata({ params }: { params: { handle: string } }): Promise<Metadata> {
-  const handle = params.handle.toLowerCase();
-  const title = `@${handle}`;
-  const description = `View @${handle}'s constellation and reputation on alvinmunk.`;
-
+// Text only, no RPC: the handle is all the copy needs, and the on-chain face and scores
+// are already rendered into the card by the sibling opengraph-image route.
+export function generateMetadata({ params }: { params: { handle: string } }): Metadata {
+  const handle = routeHandle(params.handle);
+  if (!handle) {
+    return { title: 'Profile', description: 'A constellation on alvinmunk.' };
+  }
   return {
-    title,
-    description,
+    title: `@${handle}`,
+    description: `View @${handle}'s constellation and reputation on alvinmunk.`,
+    // /u/Alice and /u/alice render the same page; point search engines at one.
     alternates: { canonical: `/u/${handle}` },
-    openGraph: {
-      title: `@${handle} on alvinmunk`,
-      description,
-    },
-    twitter: {
-      title: `@${handle} on alvinmunk`,
-      description,
-    },
   };
 }
 
-export default function ProfileLayout({ children }: ProfileLayoutProps) {
+export default function ProfileLayout({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }

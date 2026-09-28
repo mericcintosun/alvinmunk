@@ -1,29 +1,13 @@
 import type { Metadata } from 'next';
+import { CLAIM_DESCRIPTION } from '@/lib/metadata';
 
-const CLAIM_FUNNEL_DESCRIPTION = 'Someone vouched for you. Claim your half of the sky.';
-
-type ClaimLayoutProps = {
-  children: React.ReactNode;
-  params: { id: string };
+// Static on purpose: the copy needs no vouch lookup, so a slow RPC can never hold up
+// the page.
+export const metadata: Metadata = {
+  title: 'Someone vouched for you',
+  description: CLAIM_DESCRIPTION,
 };
 
-export async function generateMetadata(): Promise<Metadata> {
-  const title = 'Someone vouched for you';
-
-  return {
-    title,
-    description: CLAIM_FUNNEL_DESCRIPTION,
-    openGraph: {
-      title,
-      description: CLAIM_FUNNEL_DESCRIPTION,
-    },
-    twitter: {
-      title,
-      description: CLAIM_FUNNEL_DESCRIPTION,
-    },
-  };
-}
-
-export default function ClaimLayout({ children }: ClaimLayoutProps) {
+export default function ClaimLayout({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }

@@ -1,30 +1,19 @@
 import type { Metadata } from 'next';
+import { routeHandle } from '@/lib/metadata';
 
-type InviteLayoutProps = {
-  children: React.ReactNode;
-  params: { handle: string };
-};
-
-export async function generateMetadata({ params }: { params: { handle: string } }): Promise<Metadata> {
-  const handle = params.handle.toLowerCase();
-  const title = `@${handle} invited you`;
-  const description = `@${handle} wants you in their constellation on alvinmunk.`;
-
+// Text only, no RPC: the sibling opengraph-image route renders the inviter's card.
+export function generateMetadata({ params }: { params: { handle: string } }): Metadata {
+  const handle = routeHandle(params.handle);
+  if (!handle) {
+    return { title: 'You’re invited', description: 'Join a constellation on alvinmunk.' };
+  }
   return {
-    title,
-    description,
+    title: `@${handle} invited you`,
+    description: `@${handle} wants you in their constellation on alvinmunk.`,
     alternates: { canonical: `/v/${handle}` },
-    openGraph: {
-      title,
-      description,
-    },
-    twitter: {
-      title,
-      description,
-    },
   };
 }
 
-export default function InviteLayout({ children }: InviteLayoutProps) {
+export default function InviteLayout({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
