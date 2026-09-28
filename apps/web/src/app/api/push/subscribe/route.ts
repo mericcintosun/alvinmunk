@@ -9,7 +9,7 @@
  *   → Removes the subscription record.
  *
  * Storage strategy (order of preference):
- *   1. Vercel KV (if @vercel/kv is installed and KV_REST_API_URL is set)
+ *   1. Upstash Redis (if KV_REST_API_URL + KV_REST_API_TOKEN are set)
  *   2. In-memory Map (single serverless instance — fine for testnet demos; subscriptions
  *      survive as long as the function warm instance lives)
  *
@@ -55,7 +55,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const key = `sub:${endpoint}`;
   const wallet = walletAddress.toLowerCase();
 
-  const kv = await getKv();
+  const kv = getKv();
 
   if (kv) {
     const existing = await kv.get(key);
@@ -98,10 +98,16 @@ export async function DELETE(req: NextRequest): Promise<NextResponse> {
 
   const endpoint = body.endpoint.slice(0, 512);
   const key = `sub:${endpoint}`;
-  const kv = await getKv();
+  const kv = getKv();
 
   if (kv) {
+    // Fetch wallet address before deleting so we can srem from the wallet index.
+    const existing = await kv.get(key);
     await kv.del(key);
+    if (existing) {
+      const wallet = existing.walletAddress.toLowerCase();
+      await kv.srem(`wallet:${wallet}`, endpoint);
+    }
   } else {
     memDel(key);
   }

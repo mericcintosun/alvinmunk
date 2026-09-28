@@ -2,12 +2,14 @@
  * Push-subscription storage — shared by /api/push/subscribe and /api/push/notify.
  *
  * Storage strategy (order of preference):
- *   1. Vercel KV (if @vercel/kv is installed and KV_REST_API_URL is set)
+ *   1. Upstash Redis (if KV_REST_API_URL + KV_REST_API_TOKEN are set)
  *   2. In-memory Map (single warm serverless instance — fine for testnet demos)
  *
  * Lives in lib/ (not inside a route file) because Next.js route modules may only export
  * route handlers; both push routes import this shared store so they see the same state.
  */
+
+import { Redis } from '@upstash/redis';
 
 export interface StoredSubscription {
   endpoint: string;
@@ -18,32 +20,50 @@ export interface StoredSubscription {
   updatedAt: number;
 }
 
-/** Attempt to load Vercel KV at runtime — falls back to in-memory if unavailable. */
-export async function getKv(): Promise<{
+/** Cached client — created once per warm instance. */
+let _redis: Redis | null | 'uninitialized' = 'uninitialized';
+
+/**
+ * Return a thin KV interface backed by Upstash Redis, or null when KV is not configured.
+ * If KV_REST_API_URL is set but the client fails to initialize, logs an error once and
+ * returns null so callers can fall back to in-memory storage.
+ */
+export function getKv(): {
   get: (key: string) => Promise<StoredSubscription | null>;
   set: (key: string, value: StoredSubscription) => Promise<void>;
   del: (key: string) => Promise<void>;
   smembers: (key: string) => Promise<string[]>;
   sadd: (key: string, member: string) => Promise<void>;
-} | null> {
-  try {
-    if (!process.env.KV_REST_API_URL) return null;
-    // Use a variable to prevent tsc from resolving @vercel/kv statically.
-    const specifier = '@vercel/kv';
-    /* eslint-disable-next-line -- dynamic optional import of an uninstalled package needs any */
-    const kvModule: any = await import(/* webpackIgnore: true */ specifier).catch(() => null);
-    if (!kvModule) return null;
-    const kv = kvModule.kv;
-    return {
-      get: (key: string) => kv.get(key) as Promise<StoredSubscription | null>,
-      set: (key: string, value: StoredSubscription) => kv.set(key, value) as Promise<void>,
-      del: (key: string) => kv.del(key) as Promise<void>,
-      smembers: (key: string) => kv.smembers(key) as Promise<string[]>,
-      sadd: (key: string, member: string) => kv.sadd(key, member) as Promise<void>,
-    };
-  } catch {
-    return null;
+  srem: (key: string, member: string) => Promise<void>;
+} | null {
+  if (_redis === 'uninitialized') {
+    const url = process.env.KV_REST_API_URL;
+    const token = process.env.KV_REST_API_TOKEN;
+
+    if (!url) {
+      _redis = null;
+    } else {
+      try {
+        _redis = new Redis({ url, token: token ?? '' });
+      } catch (err) {
+        console.error('[push-store] KV is configured but failed to initialise:', err);
+        _redis = null;
+      }
+    }
   }
+
+  if (!_redis) return null;
+
+  const redis = _redis;
+  return {
+    get: (key: string) => redis.get<StoredSubscription>(key),
+    set: (key: string, value: StoredSubscription) =>
+      redis.set(key, value).then(() => undefined),
+    del: (key: string) => redis.del(key).then(() => undefined),
+    smembers: (key: string) => redis.smembers(key),
+    sadd: (key: string, member: string) => redis.sadd(key, member).then(() => undefined),
+    srem: (key: string, member: string) => redis.srem(key, member).then(() => undefined),
+  };
 }
 
 // In-memory fallback — module-level Maps that survive within a single warm instance.
@@ -72,14 +92,23 @@ export function memDel(key: string): void {
 /** Remove a subscription by endpoint (used to prune revoked endpoints on 410/404). */
 export async function removeSubscription(endpoint: string): Promise<void> {
   const key = `sub:${endpoint.slice(0, 512)}`;
-  const kv = await getKv();
-  if (kv) await kv.del(key);
-  else memDel(key);
+  const kv = getKv();
+  if (kv) {
+    // Fetch wallet address before deleting so we can srem from the index.
+    const existing = await kv.get(key);
+    await kv.del(key);
+    if (existing) {
+      const wallet = existing.walletAddress.toLowerCase();
+      await kv.srem(`wallet:${wallet}`, endpoint.slice(0, 512));
+    }
+  } else {
+    memDel(key);
+  }
 }
 
 /** Retrieve all subscriptions for a wallet address (used by /api/push/notify). */
 export async function getSubscriptionsForWallet(walletAddress: string): Promise<StoredSubscription[]> {
-  const kv = await getKv();
+  const kv = getKv();
   const wallet = walletAddress.toLowerCase();
 
   if (kv) {
