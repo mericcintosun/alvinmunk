@@ -16,9 +16,12 @@ use soroban_sdk::{
     Address, BytesN, Env, Symbol, Vec,
 };
 
-// ~30 / ~60 days of ledgers (5s) — keep registered rewards + claim guards alive.
-const BUMP_THRESHOLD: u32 = 518_400;
-const BUMP_EXTEND: u32 = 1_036_800;
+// extend_ttl only bumps when current TTL falls BELOW threshold. Reward entries should
+// stay alive for ~60 days, so we bump when getting close to that target.
+// DAY_LEDGERS = 17,280 at ~5s per ledger.
+const DAY_LEDGERS: u32 = 17_280;
+const BUMP_EXTEND: u32 = 1_036_800; // ~60 days
+const BUMP_THRESHOLD: u32 = BUMP_EXTEND - DAY_LEDGERS; // bump when below ~1 day from target
 const DAY_SECS: u64 = 86_400;
 
 #[contracterror]

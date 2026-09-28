@@ -15,7 +15,11 @@ use soroban_sdk::{
     BytesN, Env, Symbol,
 };
 
-const BUMP_THRESHOLD: u32 = 17_280; // ~1 day (ledgers)
+// extend_ttl only bumps when current TTL falls BELOW threshold. Handles should be
+// sticky (~150 days), so we bump aggressively when getting close to that target.
+// DAY_LEDGERS = 17,280 at ~5s per ledger.
+const DAY_LEDGERS: u32 = 17_280;
+const BUMP_THRESHOLD: u32 = BUMP_EXTEND - DAY_LEDGERS; // bump when below ~1 day from target
 const BUMP_EXTEND: u32 = 2_592_000; // ~150 days — handles should be sticky
 
 #[contracterror]
@@ -89,14 +93,9 @@ impl RegistryContract {
 
     /// handle -> address (the public `/u/<handle>` lookup; pure read, any caller).
     pub fn resolve(env: Env, handle: Symbol) -> Option<Address> {
-        let h = env
-            .storage()
+        env.storage()
             .persistent()
-            .get(&DataKey::Fwd(handle.clone()));
-        if h.is_some() {
-            Self::bump(&env, &DataKey::Fwd(handle));
-        }
-        h
+            .get(&DataKey::Fwd(handle))
     }
 
     /// address -> handle (label addresses in the feed / leaderboard / profile).

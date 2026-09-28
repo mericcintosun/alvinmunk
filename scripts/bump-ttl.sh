@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # TTL keeper (Green-belt prod hardening). Soroban storage is archived if its TTL
-# lapses; instance archival BRICKS a contract. Persistent entries are bumped on every
-# write by the contracts themselves, but instance storage (admin/config/attester wiring,
-# daily cap, pause flag) is only bumped when those rarely-written keys change — so a keeper
-# must extend it on a schedule. Run this from cron (e.g. weekly) against the live IDs.
+# lapses; instance archival BRICKS a contract. Persistent entries are bumped
+# ON WRITE by the contracts themselves via extend_ttl with threshold near their
+# target (so the bump fires immediately after creation at network min_persistent_ttl).
+# Instance storage (admin/config/attester wiring) is rarely written, so a keeper
+# must extend the instance TTL on a schedule. Run this from cron (e.g. weekly)
+# against the live IDs.
 #
 # Usage: SOURCE=alvinmunk-admin NETWORK=testnet ./scripts/bump-ttl.sh
 set -euo pipefail
@@ -32,5 +34,5 @@ bump "$QUEST" quest_registry
 bump "$REWARDS" rewards
 
 echo "✅ instance storage extended by ~$LEDGERS ledgers on all 3 contracts."
-echo "Note: persistent entries (XP, rewards table, attester allowlist) self-bump on write;"
-echo "schedule this keeper (weekly) so the rarely-written instance config never archives."
+echo "Note: persistent entries (XP, rewards table, attester allowlist) are now self-bumped"
+echo "on every write; schedule this keeper (weekly) so the rarely-written instance storage never archives."

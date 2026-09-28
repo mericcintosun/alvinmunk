@@ -25,7 +25,12 @@ use soroban_sdk::{
     Bytes, BytesN, Env, String, Symbol, Vec,
 };
 
-const BUMP_THRESHOLD: u32 = 17_280; // ~1 day (ledgers)
+// extend_ttl only bumps when current TTL falls BELOW threshold. On testnet, entries
+// start at min_persistent_ttl = 120,960; on mainnet, 2,073,600. Both are far above
+// the old 17,280 threshold, so bumps never fired. Use threshold near the target so
+// every write tops up the TTL. DAY_LEDGERS = 17,280 at ~5s per ledger.
+const DAY_LEDGERS: u32 = 17_280;
+const BUMP_THRESHOLD: u32 = BUMP_EXTEND - DAY_LEDGERS; // bump when below ~1 day from target
 const BUMP_EXTEND: u32 = 518_400; // ~30 days
 const DAY_SECS: u64 = 86_400;
 const MAX_VOUCH_PER_DAY: u32 = 20;
