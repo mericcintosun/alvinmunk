@@ -2,12 +2,14 @@
  * Push-subscription storage — shared by /api/push/subscribe and /api/push/notify.
  *
  * Storage strategy (order of preference):
- *   1. Vercel KV (if @vercel/kv is installed and KV_REST_API_URL is set)
+ *   1. Vercel KV (if KV_REST_API_URL + KV_REST_API_TOKEN are set)
  *   2. In-memory Map (single warm serverless instance — fine for testnet demos)
  *
  * Lives in lib/ (not inside a route file) because Next.js route modules may only export
  * route handlers; both push routes import this shared store so they see the same state.
  */
+
+import { kv } from '@vercel/kv';
 
 export interface StoredSubscription {
   endpoint: string;
@@ -18,30 +20,35 @@ export interface StoredSubscription {
   updatedAt: number;
 }
 
-/** Attempt to load Vercel KV at runtime — falls back to in-memory if unavailable. */
-export async function getKv(): Promise<{
+type KvStore = {
   get: (key: string) => Promise<StoredSubscription | null>;
   set: (key: string, value: StoredSubscription) => Promise<void>;
   del: (key: string) => Promise<void>;
   smembers: (key: string) => Promise<string[]>;
   sadd: (key: string, member: string) => Promise<void>;
-} | null> {
+  srem: (key: string, member: string) => Promise<void>;
+};
+
+/** Return a KV store adapter when KV env vars are present, otherwise null. */
+export function getKv(): KvStore | null {
+  if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) return null;
+
   try {
-    if (!process.env.KV_REST_API_URL) return null;
-    // Use a variable to prevent tsc from resolving @vercel/kv statically.
-    const specifier = '@vercel/kv';
-    /* eslint-disable-next-line -- dynamic optional import of an uninstalled package needs any */
-    const kvModule: any = await import(/* webpackIgnore: true */ specifier).catch(() => null);
-    if (!kvModule) return null;
-    const kv = kvModule.kv;
+    // Verify the module loaded correctly — the import is static so bundling is reliable.
+    if (!kv) throw new Error('@vercel/kv exported nothing');
     return {
-      get: (key: string) => kv.get(key) as Promise<StoredSubscription | null>,
-      set: (key: string, value: StoredSubscription) => kv.set(key, value) as Promise<void>,
-      del: (key: string) => kv.del(key) as Promise<void>,
-      smembers: (key: string) => kv.smembers(key) as Promise<string[]>,
-      sadd: (key: string, member: string) => kv.sadd(key, member) as Promise<void>,
+      get: (key: string) => kv.get<StoredSubscription>(key),
+      set: (key: string, value: StoredSubscription) =>
+        kv.set(key, value).then(() => undefined),
+      del: (key: string) => kv.del(key).then(() => undefined),
+      smembers: (key: string) => kv.smembers(key),
+      sadd: (key: string, member: string) =>
+        kv.sadd(key, member).then(() => undefined),
+      srem: (key: string, member: string) =>
+        kv.srem(key, member).then(() => undefined),
     };
-  } catch {
+  } catch (err) {
+    console.error('[push-store] KV_REST_API_URL is set but @vercel/kv failed to load:', err);
     return null;
   }
 }
@@ -71,15 +78,24 @@ export function memDel(key: string): void {
 
 /** Remove a subscription by endpoint (used to prune revoked endpoints on 410/404). */
 export async function removeSubscription(endpoint: string): Promise<void> {
-  const key = `sub:${endpoint.slice(0, 512)}`;
-  const kv = await getKv();
-  if (kv) await kv.del(key);
-  else memDel(key);
+  const ep = endpoint.slice(0, 512);
+  const key = `sub:${ep}`;
+  const kv = getKv();
+  if (kv) {
+    // Read wallet address before deleting so we can srem from the wallet index.
+    const existing = await kv.get(key);
+    await kv.del(key);
+    if (existing) {
+      await kv.srem(`wallet:${existing.walletAddress.toLowerCase()}`, ep);
+    }
+  } else {
+    memDel(key);
+  }
 }
 
 /** Retrieve all subscriptions for a wallet address (used by /api/push/notify). */
 export async function getSubscriptionsForWallet(walletAddress: string): Promise<StoredSubscription[]> {
-  const kv = await getKv();
+  const kv = getKv();
   const wallet = walletAddress.toLowerCase();
 
   if (kv) {

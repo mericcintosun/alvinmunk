@@ -55,7 +55,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const key = `sub:${endpoint}`;
   const wallet = walletAddress.toLowerCase();
 
-  const kv = await getKv();
+  const kv = getKv();
 
   if (kv) {
     const existing = await kv.get(key);
@@ -98,10 +98,15 @@ export async function DELETE(req: NextRequest): Promise<NextResponse> {
 
   const endpoint = body.endpoint.slice(0, 512);
   const key = `sub:${endpoint}`;
-  const kv = await getKv();
+  const kv = getKv();
 
   if (kv) {
+    // Read wallet address before deleting so we can srem from the wallet index.
+    const existing = await kv.get(key);
     await kv.del(key);
+    if (existing) {
+      await kv.srem(`wallet:${existing.walletAddress.toLowerCase()}`, endpoint);
+    }
   } else {
     memDel(key);
   }
