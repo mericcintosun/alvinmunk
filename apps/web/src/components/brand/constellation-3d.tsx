@@ -12,7 +12,13 @@ import { Canvas, useFrame } from '@react-three/fiber';
 import { Stars, Html, Line } from '@react-three/drei';
 import * as THREE from 'three';
 import { shortAddr } from '@alvinmunk/shared';
-import { fetchVouchersOf, timeAgo, addrHue, type VoucherStar } from '@/lib/constellation';
+import {
+  fetchVouchersOf,
+  getPeopleCounts,
+  timeAgo,
+  addrHue,
+  type VoucherStar,
+} from '@/lib/constellation';
 import { Star, OrbitRing, useGlow, fibonacciSphere, reducedMotion } from './constellation-parts';
 
 const RADIUS = 3.0;
@@ -141,6 +147,8 @@ function Scene({
 
 export default function ConstellationHero3D({ address, handle }: { address: string; handle: string }) {
   const [vouchers, setVouchers] = useState<VoucherStar[] | null>(null);
+  // Everyone who vouched you (durable on-chain count) — the stars only cover the RPC window.
+  const [vouchedBy, setVouchedBy] = useState<number | null>(null);
   const [selected, setSelected] = useState<VoucherStar | null>(null);
   const [hoverId, setHoverId] = useState<number | null>(null);
   // A read failure must NOT look like an empty sky — they mean opposite things.
@@ -150,6 +158,7 @@ export default function ConstellationHero3D({ address, handle }: { address: stri
   useEffect(() => {
     let alive = true;
     setVouchers(null);
+    setVouchedBy(null);
     setSelected(null);
     setLoadFailed(false);
     fetchVouchersOf(address)
@@ -160,12 +169,22 @@ export default function ConstellationHero3D({ address, handle }: { address: stri
           setLoadFailed(true);
         }
       });
+    getPeopleCounts(address)
+      .then((p) => {
+        if (alive) setVouchedBy(p.vouchedBy);
+      })
+      .catch(() => {
+        if (alive) setVouchedBy(0);
+      });
     return () => {
       alive = false;
     };
   }, [address]);
 
-  const count = vouchers?.length ?? 0;
+  // The copy counts everyone who vouched you, not just the stars the window can draw — and
+  // never fewer than the stars actually on screen.
+  const shown = vouchers?.length ?? 0;
+  const count = Math.max(vouchedBy ?? 0, shown);
 
   return (
     <section
@@ -199,21 +218,21 @@ export default function ConstellationHero3D({ address, handle }: { address: stri
             </h1>
           </div>
           <p className="max-w-md text-sm text-muted-foreground" aria-live="polite">
-            {vouchers === null
+            {vouchers === null || vouchedBy === null
               ? 'Reading your sky…'
-              : loadFailed
+              : loadFailed && count === 0
                 ? 'Couldn’t read your sky right now — the network is slow. It’ll fill in on refresh.'
                 : count === 0
                   ? 'Your sky is dark — for now. Vouch someone, and their star ignites in your orbit.'
                   : count === 1
                     ? 'One star lights your sky. Move your cursor — the field follows.'
-                    : `${count} people light your sky. Hover a star to see who.`}
+                    : `${count} people light your sky.${shown > 0 ? ' Hover a star to see who.' : ''}`}
           </p>
         </div>
 
         {/* Accessible, non-visual mirror of the sky: keyboard/screen-reader users get the
             same social proof the 3D hover tooltips show sighted-mouse users. */}
-        {count > 0 && (
+        {shown > 0 && (
           <ul className="sr-only" aria-label={`${count} people vouched for you`}>
             {vouchers!.map((v) => (
               <li key={v.vouchId}>
