@@ -216,6 +216,64 @@ fn proof_of_funding_allows_funded_claim_and_is_off_by_default() {
     assert_eq!(token_c.balance(&user), 100);
 }
 
+// --- Per-reward supply cap (fixed-size bounty pools) ---
+
+#[test]
+fn supply_cap_allows_last_claim_and_rejects_first_over() {
+    let f = setup();
+    let a = Address::generate(&f.env);
+    let b = Address::generate(&f.env);
+    let c = Address::generate(&f.env);
+    f.rewards.add_reward(&1u32, &10u64, &100i128);
+    f.rewards.set_reward_supply(&1u32, &2u32); // pool of exactly 2 payouts
+    assert_eq!(f.rewards.get_reward_stats(&1u32).max_claims, 2);
+    for u in [&a, &b, &c] {
+        f.rep.award_xp(&f.attester, u, &2u32, &100u64);
+    }
+
+    // Last successful claims: #1 and #2.
+    f.rewards.claim_reward(&a, &1u32);
+    assert_eq!(f.rewards.get_reward_stats(&1u32).claims, 1);
+    f.rewards.claim_reward(&b, &1u32);
+    assert_eq!(f.rewards.get_reward_stats(&1u32).claims, 2);
+
+    // First rejected claim: #3 is over the cap.
+    assert!(f.rewards.try_claim_reward(&c, &1u32).is_err());
+    assert_eq!(f.rewards.get_reward_stats(&1u32).claims, 2); // count unchanged
+
+    let token_c = token::TokenClient::new(&f.env, &f.usdc);
+    assert_eq!(token_c.balance(&a), 100);
+    assert_eq!(token_c.balance(&b), 100);
+    assert_eq!(token_c.balance(&c), 0);
+    assert_eq!(token_c.balance(&f.rewards_id), 800); // exactly 2 payouts
+}
+
+#[test]
+fn uncapped_reward_keeps_paying_and_counts_claims() {
+    let f = setup();
+    f.rewards.add_reward(&1u32, &10u64, &100i128);
+    // No set_reward_supply -> max_claims == 0 == unlimited (legacy behaviour).
+    assert_eq!(f.rewards.get_reward_stats(&1u32).max_claims, 0);
+
+    let u1 = Address::generate(&f.env);
+    let u2 = Address::generate(&f.env);
+    let u3 = Address::generate(&f.env);
+    for u in [&u1, &u2, &u3] {
+        f.rep.award_xp(&f.attester, u, &2u32, &100u64);
+        f.rewards.claim_reward(u, &1u32);
+    }
+    assert_eq!(f.rewards.get_reward_stats(&1u32).claims, 3);
+    let token_c = token::TokenClient::new(&f.env, &f.usdc);
+    assert_eq!(token_c.balance(&f.rewards_id), 700);
+}
+
+#[test]
+#[should_panic]
+fn set_reward_supply_unknown_reward_reverts() {
+    let f = setup();
+    f.rewards.set_reward_supply(&999u32, &5u32); // panics: RewardNotFound
+}
+
 // --- Property/fuzz tests on the claim/cap math (Green-belt AC) ---
 use proptest::prelude::*;
 

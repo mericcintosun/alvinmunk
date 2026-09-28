@@ -126,6 +126,23 @@ export async function getRewards(source: string): Promise<RewardEntry[]> {
   return (v ?? []).filter((r) => r.active);
 }
 
+/** Per-reward supply counters (a fixed-size pool's cap + running claim count). */
+export interface RewardStats {
+  claims: number;
+  max_claims: number;
+}
+
+/** On-chain claim count / cap for a reward (max_claims 0 = unlimited). */
+export async function getRewardStats(rewardId: number, source: string): Promise<RewardStats> {
+  const v = await readContract<RewardStats>(
+    rewardsId(),
+    'get_reward_stats',
+    [args.u32(rewardId)],
+    source,
+  );
+  return v ?? { claims: 0, max_claims: 0 };
+}
+
 /** Has this wallet already claimed `rewardId`? */
 export async function isClaimed(rewardId: number, who: string, source: string): Promise<boolean> {
   return (await readContract<boolean>(rewardsId(), 'is_claimed', [args.u32(rewardId), args.addr(who)], source)) ?? false;

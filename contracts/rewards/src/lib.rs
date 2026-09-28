@@ -37,6 +37,7 @@ pub enum Error {
     Frozen = 10,          // ring/cluster-flagged account (Blue anti-abuse hook)
     Overflow = 11,
     NotFunded = 12, // proof-of-funding gate (belts/08): no external value received
+    RewardExhausted = 13, // per-reward supply cap reached (fixed-size bounty pools)
 }
 
 /// One row of the rank->reward unlock table.
@@ -47,6 +48,15 @@ pub struct RewardEntry {
     pub threshold: u64, // Earned XP required to unlock
     pub amount: i128,   // USDC stroops paid from the treasury
     pub active: bool,
+}
+
+/// Live counters for a reward's fixed-size pool. Stored under its own key so the
+/// `Reward` entry keeps its original shape (upgrades need no storage migration).
+#[contracttype]
+#[derive(Clone)]
+pub struct RewardStats {
+    pub claims: u32,     // successful claims so far (running count for indexers/UI)
+    pub max_claims: u32, // 0 = unlimited (legacy behaviour)
 }
 
 #[contracttype]
@@ -64,6 +74,7 @@ pub enum DataKey {
     Frozen(Address),             // bool — ring/cluster-flagged; blocked from payout/tip
     RequireFunding,              // bool — enforce proof-of-funding on claim (off on testnet)
     Funded(Address),             // bool — verified to have received external value (belts/08)
+    RewardStats(u32),            // RewardStats — per-reward max/claims counters
 }
 
 #[contract]
@@ -165,6 +176,45 @@ impl RewardsContract {
         env.storage().persistent().get(&DataKey::Reward(reward_id))
     }
 
+    /// Admin-gated: set (or clear) a reward's supply cap. `0` = unlimited. Kept
+    /// separate from `add_reward` so existing `Reward` entries keep their shape.
+    pub fn set_reward_supply(env: Env, reward_id: u32, max_claims: u32) {
+        Self::admin(&env).require_auth();
+        if !env.storage().persistent().has(&DataKey::Reward(reward_id)) {
+            panic_with_error!(&env, Error::RewardNotFound);
+        }
+        let mut stats: RewardStats = env
+            .storage()
+            .persistent()
+            .get(&DataKey::RewardStats(reward_id))
+            .unwrap_or(RewardStats {
+                claims: 0,
+                max_claims: 0,
+            });
+        stats.max_claims = max_claims;
+        env.storage()
+            .persistent()
+            .set(&DataKey::RewardStats(reward_id), &stats);
+        env.storage().persistent().extend_ttl(
+            &DataKey::RewardStats(reward_id),
+            BUMP_THRESHOLD,
+            BUMP_EXTEND,
+        );
+        env.events()
+            .publish((symbol_short!("rwdsupply"), reward_id), max_claims);
+    }
+
+    /// On-chain claim count for a reward (0/0 when no cap was ever set).
+    pub fn get_reward_stats(env: Env, reward_id: u32) -> RewardStats {
+        env.storage()
+            .persistent()
+            .get(&DataKey::RewardStats(reward_id))
+            .unwrap_or(RewardStats {
+                claims: 0,
+                max_claims: 0,
+            })
+    }
+
     /// The full unlock table, for the UI.
     pub fn get_rewards(env: Env) -> Vec<RewardEntry> {
         let ids: Vec<u32> = env
@@ -193,7 +243,8 @@ impl RewardsContract {
     }
 
     /// Claim a registered reward. Gated on the EARNED track only (keystone); the payout
-    /// is the admin-stored amount; one claim per (reward, wallet).
+    /// is the admin-stored amount; one claim per (reward, wallet). A reward with a
+    /// `max_claims` cap stops paying once the pool is exhausted.
     pub fn claim_reward(env: Env, to: Address, reward_id: u32) {
         Self::not_paused(&env);
         to.require_auth();
@@ -212,6 +263,21 @@ impl RewardsContract {
         let key = DataKey::RewardClaimed(reward_id, to.clone());
         if env.storage().persistent().get(&key).unwrap_or(false) {
             panic_with_error!(&env, Error::AlreadyClaimed);
+        }
+
+        // Per-reward supply cap: a fixed-size pool pays at most `max_claims` times
+        // (0 = unlimited). Independent of the global daily cap below.
+        let stats_key = DataKey::RewardStats(reward_id);
+        let mut stats: RewardStats = env
+            .storage()
+            .persistent()
+            .get(&stats_key)
+            .unwrap_or(RewardStats {
+                claims: 0,
+                max_claims: 0,
+            });
+        if stats.max_claims != 0 && stats.claims >= stats.max_claims {
+            panic_with_error!(&env, Error::RewardExhausted);
         }
 
         // Cross-contract read of the EARNED track ONLY (belts/08-anti-sybil keystone):
@@ -234,12 +300,24 @@ impl RewardsContract {
             .persistent()
             .extend_ttl(&key, BUMP_THRESHOLD, BUMP_EXTEND);
 
+        // Count the payout so the pool runs down and indexers/UI can read it on-chain.
+        stats.claims = stats
+            .claims
+            .checked_add(1)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::Overflow));
+        env.storage().persistent().set(&stats_key, &stats);
+        env.storage()
+            .persistent()
+            .extend_ttl(&stats_key, BUMP_THRESHOLD, BUMP_EXTEND);
+
         let usdc: Address = env.storage().instance().get(&DataKey::Usdc).unwrap();
         let treasury = env.current_contract_address();
         token::Client::new(&env, &usdc).transfer(&treasury, &to, &entry.amount);
 
-        env.events()
-            .publish((symbol_short!("reward"), to), (reward_id, entry.amount));
+        env.events().publish(
+            (symbol_short!("reward"), to),
+            (reward_id, entry.amount, stats.claims),
+        );
     }
 
     // --- Admin / circuit breaker ---
