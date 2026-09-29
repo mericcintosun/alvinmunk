@@ -13,19 +13,20 @@ import {
   Contract,
   Horizon,
   Keypair,
-  Networks,
   Operation,
   TransactionBuilder,
   nativeToScVal,
   rpc,
 } from '@stellar/stellar-sdk';
+// The app's one resolved (and validated) network config — no per-route testnet defaults.
+import { config, misconfiguredResponse } from '../../../lib/stellar';
 
 export const runtime = 'nodejs';
 
-const HORIZON = process.env.NEXT_PUBLIC_HORIZON_URL ?? 'https://horizon-testnet.stellar.org';
-const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL ?? 'https://soroban-testnet.stellar.org';
-const IS_MAINNET = process.env.NEXT_PUBLIC_STELLAR_NETWORK === 'mainnet';
-const PASSPHRASE = IS_MAINNET ? Networks.PUBLIC : Networks.TESTNET;
+const HORIZON = config.horizonUrl;
+const RPC_URL = config.rpcUrl;
+const IS_MAINNET = config.network === 'mainnet';
+const PASSPHRASE = config.networkPassphrase;
 const DRIP = '5'; // test USDC per request
 const RATE_MAX = 3;
 const RATE_WINDOW_MS = 60_000;
@@ -44,6 +45,8 @@ function rateLimited(ip: string, now: number): boolean {
 }
 
 export async function POST(req: Request): Promise<Response> {
+  const misconfigured = misconfiguredResponse();
+  if (misconfigured) return misconfigured;
   if (IS_MAINNET) return json({ error: 'faucet is disabled on mainnet' }, 403);
 
   const secret = process.env.USDC_ISSUER_SECRET_KEY;
@@ -72,7 +75,7 @@ export async function POST(req: Request): Promise<Response> {
   // a classic payment — so the issuer (the SAC admin) mints test USDC straight to the contract
   // via a Soroban call instead.
   if (recipient.startsWith('C')) {
-    const sacId = process.env.NEXT_PUBLIC_USDC_SAC_ID;
+    const sacId = config.contracts.usdcSac;
     if (!sacId) return json({ error: 'faucet not configured (USDC SAC id)' }, 500);
     try {
       const srpc = new rpc.Server(RPC_URL, { allowHttp: RPC_URL.startsWith('http://') });

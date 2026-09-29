@@ -7,6 +7,7 @@ import { Navbar } from '@/components/layout/navbar';
 import { SiteFooter } from '@/components/layout/site-footer';
 import { Toaster } from '@/components/ui/toaster';
 import { AnalyticsProvider } from '@/components/analytics';
+import { ConfigStatusBanner } from '@/components/config-status-banner';
 import { WalletProvider } from '@/components/wallet/wallet-provider';
 import { I18nProvider } from '@/lib/i18n';
 import { rootMetadata } from '@/lib/metadata';
@@ -29,6 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <I18nProvider>
           <SmoothScroll />
           <Starfield />
+          <ConfigStatusBanner />
           <Navbar />
           <main className="min-h-[calc(100dvh-4rem)]">{children}</main>
           <SiteFooter />

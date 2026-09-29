@@ -90,8 +90,13 @@ export function parseUsdc(raw: string): Checked<bigint> {
   if (!/^\d+(\.\d{1,7})?$/.test(s)) {
     return fail('Amount must be a USDC number with at most 7 decimals, e.g. 2 or 0.5.');
   }
-  const stroops = usdcToStroops(s);
-  if (stroops <= 0n) return fail('Amount must be more than 0 USDC.');
+  let stroops: bigint;
+  try {
+    stroops = usdcToStroops(s);
+  } catch {
+    // usdcToStroops rejects zero and sub-stroop amounts (never coerces to 0).
+    return fail('Amount must be more than 0 USDC.');
+  }
   if (stroops > I128_MAX) return fail('Amount is too large.');
   return ok(stroops);
 }

@@ -104,6 +104,19 @@ describe('push-store with KV configured', () => {
     expect(store.memGet(`sub:${A}`)).toBeNull();
   });
 
+  it('saveSubscriptionWithVouchIds writes the full vouch set through KV (#169 re-register)', async () => {
+    await store.saveSubscriptionWithVouchIds(sub(A), 'GABC', [7, 11]);
+
+    const record = JSON.parse(fake.strings.get(`sub:${A}`)!);
+    expect(record).toMatchObject({
+      endpoint: A,
+      walletAddress: 'gabc',
+      vouchIds: [7, 11],
+    });
+    expect([...fake.sets.get('wallet:gabc')!]).toEqual([A]);
+    expect(store.memGet(`sub:${A}`)).toBeNull();
+  });
+
   it('merges vouch IDs without duplicates when a device re-subscribes', async () => {
     await store.saveSubscription(sub(A), 'GABC', 1);
     await store.saveSubscription(sub(A), 'GABC', 2);
@@ -155,6 +168,43 @@ describe('push-store with KV configured', () => {
     await store.removeSubscription(long);
     expect(fake.strings.size).toBe(0);
     expect(fake.sets.get('wallet:gabc')!.size).toBe(0);
+  });
+
+  it('moveSubscription rewrites the record and both index entries through KV (#169)', async () => {
+    await store.saveSubscription(sub(A), 'GABC', 7);
+    await store.saveSubscription(sub(A), 'GABC', 11);
+
+    const result = await store.moveSubscription(A, B, sub(B), 'GABC');
+
+    expect(result).toBe('moved');
+    expect(fake.strings.has(`sub:${A}`)).toBe(false);
+    expect(JSON.parse(fake.strings.get(`sub:${B}`)!)).toMatchObject({
+      endpoint: B,
+      walletAddress: 'gabc',
+      vouchIds: [7, 11],
+    });
+    expect([...fake.sets.get('wallet:gabc')!]).toEqual([B]);
+    expect(fake.srem).toHaveBeenCalledWith('wallet:gabc', A);
+    const subs = await store.getSubscriptionsForWallet('GABC');
+    expect(subs.map((s) => s.endpoint)).toEqual([B]);
+  });
+
+  it('moveSubscription refuses an unknown old endpoint and a foreign wallet through KV', async () => {
+    await store.saveSubscription(sub(A), 'GABC', 7);
+
+    expect(await store.moveSubscription('https://push.example/none', B, sub(B), 'GABC')).toBe('not_found');
+    expect(await store.moveSubscription(A, B, sub(B), 'GOTHER')).toBe('forbidden');
+    // Nothing was written or reindexed.
+    expect(fake.strings.has(`sub:${B}`)).toBe(false);
+    expect([...fake.sets.get('wallet:gabc')!]).toEqual([A]);
+  });
+
+  it('moveSubscription refuses to overwrite an existing record at the new endpoint', async () => {
+    await store.saveSubscription(sub(A), 'GABC', 7);
+    await store.saveSubscription(sub(B), 'GABC', 42);
+
+    expect(await store.moveSubscription(A, B, sub(B), 'GABC')).toBe('conflict');
+    expect(JSON.parse(fake.strings.get(`sub:${B}`)!).vouchIds).toEqual([42]);
   });
 });
 
@@ -273,5 +323,57 @@ describe('push-store without KV', () => {
     expect(RedisMock).not.toHaveBeenCalled();
     expect(fake.strings.size).toBe(0);
     expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it('moveSubscription keeps wallet and vouchIds on the rotated endpoint (#169)', async () => {
+    await store.saveSubscription(sub(A), 'GABC', 7);
+    await store.saveSubscription(sub(A), 'GABC', 11);
+
+    const result = await store.moveSubscription(A, B, sub(B), 'gabc');
+
+    expect(result).toBe('moved');
+    expect(store.memGet(`sub:${A}`)).toBeNull(); // old key gone
+    const moved = store.memGet(`sub:${B}`);
+    expect(moved).not.toBeNull();
+    expect(moved!.endpoint).toBe(B);
+    expect(moved!.walletAddress).toBe('gabc'); // ownership kept
+    expect(moved!.vouchIds).toEqual([7, 11]); // accumulated vouchIds kept
+    expect(moved!.updatedAt).toBeGreaterThan(0);
+
+    // Still reachable through the wallet → endpoint index.
+    const subs = await store.getSubscriptionsForWallet('GABC');
+    expect(subs.map((s) => s.endpoint)).toEqual([B]);
+    expect(subs[0].vouchIds).toEqual([7, 11]);
+  });
+
+  it('moveSubscription reports not_found / forbidden without touching storage', async () => {
+    await store.saveSubscription(sub(A), 'GABC', 7);
+
+    expect(await store.moveSubscription('https://push.example/none', B, sub(B), 'GABC')).toBe('not_found');
+    expect(await store.moveSubscription(A, B, sub(B), 'GOTHER')).toBe('forbidden');
+    expect(store.memGet(`sub:${A}`)).not.toBeNull(); // record untouched at the old key
+    expect(store.memGet(`sub:${B}`)).toBeNull();
+    expect(await store.getSubscriptionsForWallet('GABC')).toHaveLength(1);
+  });
+
+  it('moveSubscription refuses to overwrite an existing record at the new endpoint', async () => {
+    await store.saveSubscription(sub(A), 'GABC', 7);
+    await store.saveSubscription(sub(B), 'GABC', 42);
+
+    expect(await store.moveSubscription(A, B, sub(B), 'GABC')).toBe('conflict');
+    expect(store.memGet(`sub:${B}`)!.vouchIds).toEqual([42]); // the unrelated record survives
+  });
+
+  it('moveSubscription supports same-key moves (endpoint unchanged, fresh payload)', async () => {
+    await store.saveSubscription(sub(A), 'GABC', 7);
+
+    const result = await store.moveSubscription(A, A, sub(A), 'GABC');
+
+    expect(result).toBe('moved');
+    const moved = store.memGet(`sub:${A}`);
+    expect(moved).not.toBeNull();
+    expect(moved!.subscription).toEqual(sub(A));
+    expect(moved!.vouchIds).toEqual([7]);
+    expect(await store.getSubscriptionsForWallet('gabc')).toHaveLength(1);
   });
 });
