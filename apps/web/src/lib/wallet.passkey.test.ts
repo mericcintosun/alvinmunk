@@ -2,7 +2,9 @@
  * Regression tests for issue #186 — a failed passkey wallet deploy orphaned the newly created
  * passkey and retrying enrolled ANOTHER one. The fix splits enrollment (`kit.createKey`) from
  * deployment (a rebuildable `PasskeyClient.deploy`) and persists the key material + a
- * `pendingDeploy` marker before submitting, so a retry resumes with the SAME passkey.
+ * `pendingDeploy` marker before submitting, so a retry resumes with the SAME passkey. The
+ * `connectPasskey().invoke` block covers its co-signer step (two-party calls like
+ * `transfer_handle`).
  *
  * The kit and the relayer are mocked; the on-chain "does the contract exist?" probe and the
  * confirm poll are mocked through the rpc server.
@@ -23,6 +25,7 @@ import {
   Operation,
   StrKey,
   TransactionBuilder,
+  type Transaction,
 } from '@stellar/stellar-sdk';
 import { humanizeError } from './utils';
 
@@ -33,6 +36,9 @@ const mocks = vi.hoisted(() => ({
   deploy: vi.fn(),
   getTransaction: vi.fn(),
   getLedgerEntries: vi.fn(),
+  kitSign: vi.fn(),
+  prepareTransaction: vi.fn(),
+  getLatestLedger: vi.fn(),
   accountExists: vi.fn(),
 }));
 
@@ -41,7 +47,7 @@ vi.mock('passkey-kit', () => ({
     createKey = mocks.createKey;
     createWallet = mocks.createWallet;
     connectWallet = mocks.connectWallet;
-    sign = vi.fn();
+    sign = (...args: unknown[]) => mocks.kitSign(...args);
     wallet = undefined;
     keyId = undefined;
   },
@@ -59,6 +65,8 @@ vi.mock('./stellar', () => ({
   server: {
     getTransaction: (...args: unknown[]) => mocks.getTransaction(...args),
     getLedgerEntries: (...args: unknown[]) => mocks.getLedgerEntries(...args),
+    prepareTransaction: (...args: unknown[]) => mocks.prepareTransaction(...args),
+    getLatestLedger: (...args: unknown[]) => mocks.getLatestLedger(...args),
   },
 }));
 
@@ -426,6 +434,48 @@ describe('connectPasskey deploy resilience (#186)', () => {
       [PUBKEY_KEY]: PUBKEY_B64,
       [CONTRACT_KEY]: CONTRACT_ID,
     });
+  });
+});
+
+describe('connectPasskey().invoke', () => {
+  /** A call as `prepareTransaction` would return it; `fee` tells two of them apart. */
+  const call = (fee: string) =>
+    new TransactionBuilder(new Account(DEPLOYER, '1'), { fee, networkPassphrase: Networks.TESTNET })
+      .addOperation(new Contract(OTHER_CONTRACT_ID).call('transfer_handle'))
+      .setTimeout(30)
+      .build();
+
+  beforeEach(() => {
+    localStorage.setItem(KEYID_KEY, KEY_ID);
+    localStorage.setItem(CONTRACT_KEY, CONTRACT_ID);
+    mocks.prepareTransaction.mockReset().mockResolvedValue(call('100'));
+    mocks.getLatestLedger.mockReset().mockResolvedValue({ sequence: 1_000 });
+    mocks.kitSign.mockReset().mockImplementation(async (x: string) => ({
+      built: TransactionBuilder.fromXDR(x, Networks.TESTNET),
+    }));
+    fetchMock.mockResolvedValue(relayerOk('PK-HASH'));
+  });
+
+  it('lets a co-signer sign the prepared call before the passkey does', async () => {
+    const cosigned = call('200');
+    const cosign = vi.fn(async () => cosigned);
+    const wallet = await connectPasskey();
+
+    await expect(wallet.invoke!(OTHER_CONTRACT_ID, 'transfer_handle', [], cosign)).resolves.toEqual({
+      hash: 'PK-HASH',
+      value: undefined,
+    });
+
+    const prepared = (await mocks.prepareTransaction.mock.results[0].value) as Transaction;
+    expect(cosign).toHaveBeenCalledWith(prepared);
+    expect(mocks.kitSign).toHaveBeenCalledWith(cosigned.toXDR(), { keyId: KEY_ID, expiration: 1_120 });
+  });
+
+  it('hands the passkey the prepared call itself without a co-signer', async () => {
+    const wallet = await connectPasskey();
+    await wallet.invoke!(OTHER_CONTRACT_ID, 'claim', []);
+    const prepared = (await mocks.prepareTransaction.mock.results[0].value) as Transaction;
+    expect(mocks.kitSign).toHaveBeenCalledWith(prepared.toXDR(), expect.anything());
   });
 });
 

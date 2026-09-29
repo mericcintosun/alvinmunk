@@ -380,5 +380,15 @@
   "people.suggest.view": "Görüntüle",
   "people.suggest.viewAria": "{label} profilini görüntüle",
 
-  "configBanner.title": "Bu dağıtım yanlış yapılandırılmış — düzeltilene kadar hiçbir işlem gönderilemez."
+  "configBanner.title": "Bu dağıtım yanlış yapılandırılmış — düzeltilene kadar hiçbir işlem gönderilemez.",
+
+  "handleTransfer.title": "@kullanıcı adını bu cüzdana taşı",
+  "handleTransfer.body": "Bu tarayıcıdaki uygulama içi cüzdan ({from}) @{handle} kullanıcı adını tutuyor. Tek işlemde buraya taşı: uygulama içi anahtar burada, bu cüzdan da her zamanki gibi imzalar; böylece kullanıcı adı arada hiç boşta kalmaz.",
+  "handleTransfer.xpNote": "Sosyal ve Kazanılan XP'n uygulama içi cüzdanda kalır: adrese göre tutulur ve taşınmaz. Yüzün ve biyografin kullanıcı adıyla birlikte gelir.",
+  "handleTransfer.targetHasHandle": "Bu cüzdanın zaten @{handle} kullanıcı adı var. Bir cüzdan tek kullanıcı adı tutar, bu yüzden taşıma için kullanıcı adı olmayan bir cüzdan gerekir.",
+  "handleTransfer.submit": "@{handle} adını buraya taşı",
+  "handleTransfer.submitting": "Taşınıyor…",
+  "handleTransfer.done": "@{handle} artık bu cüzdanın.",
+  "handleTransfer.error.noHandle": "Uygulama içi cüzdanın artık bir kullanıcı adı yok — taşınacak bir şey kalmadı.",
+  "handleTransfer.error.targetHasHandle": "Bu cüzdanın zaten bir kullanıcı adı var — taşıma için kullanıcı adı olmayan bir cüzdan gerekir."
 }

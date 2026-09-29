@@ -1,4 +1,18 @@
-import { Account, Contract, Networks, nativeToScVal, scValToNative, xdr } from '@stellar/stellar-sdk';
+// @vitest-environment node
+import {
+  Account,
+  Address,
+  Contract,
+  Keypair,
+  Networks,
+  Operation,
+  TransactionBuilder,
+  authorizeEntry,
+  nativeToScVal,
+  scValToNative,
+  xdr,
+  type Transaction,
+} from '@stellar/stellar-sdk';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { server } = vi.hoisted(() => ({
@@ -8,6 +22,7 @@ const { server } = vi.hoisted(() => ({
     sendTransaction: vi.fn(),
     getTransaction: vi.fn(),
     getLedgerEntries: vi.fn(),
+    getLatestLedger: vi.fn(),
   },
 }));
 vi.mock('./stellar', () => ({
@@ -21,6 +36,7 @@ import {
   instanceStorageValue,
   invokeAndWait,
   invokeAndWaitHash,
+  invokeCosigned,
   readInstanceValue,
   readLedgerData,
 } from './contracts';
@@ -72,6 +88,150 @@ describe('invokeAndWait / invokeAndWaitHash', () => {
       'Contract not deployed',
     );
     expect(wallet.sign).not.toHaveBeenCalled();
+  });
+});
+
+describe('invokeCosigned', () => {
+  const cosignerKey = Keypair.random();
+  const OTHER = Keypair.random().publicKey();
+
+  /** An unsigned auth entry for `transfer_handle` — address credentials for `who`, or the
+   * tx source's own when `who` is null. */
+  function entry(who: string | null): xdr.SorobanAuthorizationEntry {
+    const rootInvocation = new xdr.SorobanAuthorizedInvocation({
+      function: xdr.SorobanAuthorizedFunction.sorobanAuthorizedFunctionTypeContractFn(
+        new xdr.InvokeContractArgs({
+          contractAddress: new Address(CONTRACT).toScAddress(),
+          functionName: 'transfer_handle',
+          args: [],
+        }),
+      ),
+      subInvocations: [],
+    });
+    const credentials = who
+      ? xdr.SorobanCredentials.sorobanCredentialsAddress(
+          new xdr.SorobanAddressCredentials({
+            address: new Address(who).toScAddress(),
+            nonce: xdr.Int64.fromString('7'),
+            signatureExpirationLedger: 0,
+            signature: xdr.ScVal.scvVoid(),
+          }),
+        )
+      : xdr.SorobanCredentials.sorobanCredentialsSourceAccount();
+    return new xdr.SorobanAuthorizationEntry({ credentials, rootInvocation });
+  }
+
+  /** `tx` rebuilt as simulation would hand it back: the same call carrying `auth`. */
+  function withAuth(tx: Transaction, auth: xdr.SorobanAuthorizationEntry[]): Transaction {
+    const op = tx.operations[0] as Operation.InvokeHostFunction;
+    return TransactionBuilder.cloneFrom(tx)
+      .clearOperations()
+      .addOperation(Operation.invokeHostFunction({ func: op.func, auth }))
+      .build();
+  }
+
+  const authOf = (tx: Transaction) => (tx.operations[0] as Operation.InvokeHostFunction).auth ?? [];
+  const signed = (e: xdr.SorobanAuthorizationEntry) =>
+    e.credentials().address().signature().switch() !== xdr.ScValType.scvVoid();
+
+  const cosigner = (): Wallet => ({
+    kind: 'dev',
+    address: cosignerKey.publicKey(),
+    sign: vi.fn(),
+    signMessage: vi.fn(),
+    signAuthEntry: vi.fn((e: xdr.SorobanAuthorizationEntry, until: number) =>
+      authorizeEntry(e, cosignerKey, until, Networks.TESTNET),
+    ),
+  });
+
+  beforeEach(() => {
+    Object.values(server).forEach((m) => m.mockReset());
+    server.getLatestLedger.mockResolvedValue({ sequence: 1_000 });
+    server.getAccount.mockImplementation(async () => new Account(SOURCE, '1'));
+    server.sendTransaction.mockResolvedValue({ status: 'PENDING', hash: 'tx-hash' });
+    server.getTransaction.mockResolvedValue({ status: 'SUCCESS' });
+  });
+
+  it("classic submitter: signs only the co-signer's entry, re-simulates, then the submitter signs", async () => {
+    // first simulation records the auth; the second sees the co-signature and keeps it
+    server.prepareTransaction
+      .mockImplementationOnce(async (tx: Transaction) =>
+        withAuth(tx, [entry(null), entry(cosignerKey.publicKey()), entry(OTHER)]),
+      )
+      .mockImplementationOnce(async (tx: Transaction) => tx);
+    const sign = vi.fn(async (x: string) => x);
+    const submitter: Wallet = { kind: 'freighter', address: SOURCE, sign, signMessage: vi.fn() };
+    const co = cosigner();
+
+    await expect(invokeCosigned(CONTRACT, 'transfer_handle', [], submitter, co)).resolves.toEqual({
+      hash: 'tx-hash',
+      value: undefined,
+    });
+
+    expect(co.signAuthEntry).toHaveBeenCalledTimes(1);
+    const resimulated = server.prepareTransaction.mock.calls[1][0] as Transaction;
+    const [source, mine, other] = authOf(resimulated);
+    expect(source.credentials().switch()).toBe(
+      xdr.SorobanCredentialsType.sorobanCredentialsSourceAccount(),
+    );
+    expect(signed(mine)).toBe(true);
+    expect(mine.credentials().address().signatureExpirationLedger()).toBe(1_120);
+    expect(signed(other)).toBe(false); // someone else's to sign
+    // the submitter signs the re-simulated call, co-signature included
+    const submitted = TransactionBuilder.fromXDR(sign.mock.calls[0][0], Networks.TESTNET) as Transaction;
+    expect(signed(authOf(submitted)[1])).toBe(true);
+  });
+
+  it('passkey submitter: hands invoke a cosign step that signs the co-signer entry first', async () => {
+    const invoke = vi.fn(async () => ({ hash: 'pk-hash', value: undefined }));
+    const submitter: Wallet = {
+      kind: 'passkey',
+      address: CONTRACT,
+      sign: vi.fn(),
+      signMessage: vi.fn(),
+      invoke,
+    };
+    await expect(invokeCosigned(CONTRACT, 'transfer_handle', [], submitter, cosigner())).resolves.toEqual(
+      { hash: 'pk-hash', value: undefined },
+    );
+    const cosign = (invoke.mock.calls[0] as unknown[])[3] as (tx: Transaction) => Promise<Transaction>;
+    const prepared = withAuth(
+      new TransactionBuilder(new Account(SOURCE, '1'), { fee: '100', networkPassphrase: Networks.TESTNET })
+        .addOperation(new Contract(CONTRACT).call('transfer_handle'))
+        .setTimeout(30)
+        .build(),
+      [entry(cosignerKey.publicKey()), entry(CONTRACT)],
+    );
+    const [mine, passkeys] = authOf(await cosign(prepared));
+    expect(signed(mine)).toBe(true);
+    expect(signed(passkeys)).toBe(false); // the passkey signs its own inside invoke
+    expect(server.getAccount).not.toHaveBeenCalled();
+  });
+
+  it('refuses before the submitter signs when the co-signer cannot sign auth entries', async () => {
+    server.prepareTransaction.mockImplementationOnce(async (tx: Transaction) =>
+      withAuth(tx, [entry(null), entry(OTHER)]),
+    );
+    const sign = vi.fn(async (x: string) => x);
+    const submitter: Wallet = { kind: 'freighter', address: SOURCE, sign, signMessage: vi.fn() };
+    const noKey: Wallet = { kind: 'freighter', address: OTHER, sign: vi.fn(), signMessage: vi.fn() };
+    await expect(invokeCosigned(CONTRACT, 'transfer_handle', [], submitter, noKey)).rejects.toThrow(
+      "can't co-sign",
+    );
+    expect(sign).not.toHaveBeenCalled();
+    expect(server.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('refuses when the call asks nothing of the co-signer', async () => {
+    server.prepareTransaction.mockImplementationOnce(async (tx: Transaction) =>
+      withAuth(tx, [entry(null), entry(OTHER)]),
+    );
+    const sign = vi.fn(async (x: string) => x);
+    const submitter: Wallet = { kind: 'freighter', address: SOURCE, sign, signMessage: vi.fn() };
+    await expect(
+      invokeCosigned(CONTRACT, 'transfer_handle', [], submitter, cosigner()),
+    ).rejects.toThrow('Nothing in this call');
+    expect(sign).not.toHaveBeenCalled();
   });
 });
 
