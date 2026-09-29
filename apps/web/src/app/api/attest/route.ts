@@ -23,7 +23,6 @@ import {
   Address,
   Contract,
   Keypair,
-  Networks,
   TransactionBuilder,
   nativeToScVal,
   scValToNative,
@@ -44,6 +43,9 @@ import {
   validateEvidence,
   type AttestEvidence,
 } from '../../../lib/attest';
+// The app's one resolved (and validated) network config — no per-route testnet defaults — so
+// the attester signs for the same network, passphrase and contracts as the client.
+import { config, misconfiguredResponse } from '../../../lib/stellar';
 
 export const runtime = 'nodejs';
 
@@ -70,13 +72,12 @@ function rateLimited(ip: string, now: number): boolean {
   return h.n > RATE_MAX;
 }
 
-const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL ?? 'https://soroban-testnet.stellar.org';
-const HORIZON = process.env.NEXT_PUBLIC_HORIZON_URL ?? 'https://horizon-testnet.stellar.org';
-const PASSPHRASE =
-  process.env.NEXT_PUBLIC_STELLAR_NETWORK === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
-const QUEST_ID = process.env.NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID ?? '';
-const REP_ID = process.env.NEXT_PUBLIC_REPUTATION_CONTRACT_ID ?? '';
-const REGISTRY_ID = process.env.NEXT_PUBLIC_REGISTRY_CONTRACT_ID ?? '';
+const RPC_URL = config.rpcUrl;
+const HORIZON = config.horizonUrl;
+const PASSPHRASE = config.networkPassphrase;
+const QUEST_ID = config.contracts.questRegistry;
+const REP_ID = config.contracts.reputation;
+const REGISTRY_ID = config.contracts.registry;
 const REPO_ALLOWLIST = parseRepoAllowlist(process.env.QUEST_GITHUB_REPOS);
 const EVENT_WINDOW = 9000; // ledgers back to scan for vouch events (testnet RPC retention)
 
@@ -87,6 +88,10 @@ const QUEST_EVIDENCE = buildQuestEvidenceMap(process.env);
 const STELLAR_ADDRESS = /^[GC][A-Z2-7]{55}$/;
 
 export async function POST(req: Request): Promise<Response> {
+  // Never sign on an inconsistent config (say, a mainnet passphrase with a testnet contract).
+  const misconfigured = misconfiguredResponse();
+  if (misconfigured) return misconfigured;
+
   const secret = process.env.ATTESTER_SECRET_KEY;
   if (!secret || !QUEST_ID) {
     return json({ error: 'attester not configured (ATTESTER_SECRET_KEY / quest id)' }, 500);

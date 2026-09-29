@@ -122,7 +122,8 @@ Needs `stellar` (with `strkey decode`), `jq` and `git`. Offline tests for the ga
 - [ ] In Vercel prod env, flip `NEXT_PUBLIC_STELLAR_NETWORK=mainnet`, set the mainnet RPC/Horizon, the five mainnet contract ids, and the Circle USDC SAC id.
 - [ ] The dev wallet is hard-disabled on mainnet, so passkey infra must be live: set `NEXT_PUBLIC_PASSKEY_WALLET_WASM_HASH` + the relayer secrets (already configured on Vercel).
 - [ ] Remove/disable the testnet faucet route on mainnet (it already refuses when network=mainnet).
-- [ ] Redeploy and smoke-test onboarding + one vouch on the live mainnet app.
+- [ ] Redeploy, then `GET /api/health`: it must return `"ok": true` with `"configErrors": []`. Each entry names the env var still set for testnet (or missing) — while any remain, the app shows a red banner, hands out no wallet, and the attester and faucet answer 503.
+- [ ] Smoke-test onboarding + one vouch on the live mainnet app.
 
 **Monitoring**
 - [x] Product analytics + error tracking already wired (Vercel Analytics + Speed Insights; `lib/track.ts` custom events require a Pro plan and are no-ops on Hobby). Add Vercel alerts on error-rate spikes; per-user funnel/retention analytics needs a dedicated product-analytics tool (e.g. PostHog — a separate future feature).

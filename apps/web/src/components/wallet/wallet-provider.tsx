@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import type { Wallet } from '@/lib/wallet';
+import type { Wallet, ConnectMode } from '@/lib/wallet';
 import { loadProfile, saveProfile, clearProfile, type Profile } from '@/lib/profile';
 
 interface WalletContextValue {
@@ -9,9 +9,15 @@ interface WalletContextValue {
   profile: Profile | null;
   balance: string | null;
   connecting: boolean;
-  connect: () => Promise<Wallet>;
+  connect: (mode?: ConnectMode) => Promise<Wallet>;
   disconnect: () => void;
   setProfile: (p: Profile) => void;
+  /**
+   * The profile of the handle `w` already holds on-chain, adopted as the local one — null when
+   * its address holds none. Throws when the registry can't be read: a caller about to claim a
+   * handle must not take "unknown" for "none", because claiming renames an existing one.
+   */
+  restoreProfile: (w: Wallet) => Promise<Profile | null>;
   refreshBalance: () => void;
 }
 
@@ -40,6 +46,11 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const setProfile = useCallback((p: Profile) => {
+    saveProfile(p);
+    setProfileState(p);
+  }, []);
+
   const refreshBalance = useCallback(() => {
     const addr = wallet?.address ?? profile?.address;
     if (!addr) return;
@@ -48,24 +59,39 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     );
   }, [wallet, profile]);
 
-  const connect = useCallback(async () => {
+  const restoreProfile = useCallback(async (w: Wallet): Promise<Profile | null> => {
+    // This browser already knows the address's handle: nothing to look up.
+    const local = loadProfile();
+    if (local?.address === w.address) return local;
+    // Otherwise it may still hold one (issue #278): a new device, a second browser, cleared
+    // site data. Adopt it; the published face and bio follow via IdentityBar's get_meta read.
+    const { reverseHandle } = await import('@/lib/registry');
+    const handle = await reverseHandle(w.address, { strict: true }).catch((e: unknown) => {
+      throw new Error("Couldn't look up your handle — try again in a moment.", { cause: e });
+    });
+    if (!handle) return null;
+    const p: Profile = { handle, address: w.address, createdAt: Date.now() };
+    setProfile(p);
+    return p;
+  }, [setProfile]);
+
+  const connect = useCallback(async (mode: ConnectMode = 'create') => {
     setConnecting(true);
     try {
       const { getWallet } = await import('@/lib/wallet');
       const { getXlmBalance } = await import('@/lib/stellar');
-      const w = await getWallet();
+      const w = await getWallet(mode);
       setWallet(w);
       setBalance(await getXlmBalance(w.address).catch(() => null));
+      // Every connect adopts a handle the address already holds, so a returning user never
+      // lands on the create-handle form. Best-effort: a failed read changes nothing, and the
+      // flows that claim a handle check again (strictly) before they do.
+      await restoreProfile(w).catch(() => null);
       return w;
     } finally {
       setConnecting(false);
     }
-  }, []);
-
-  const setProfile = useCallback((p: Profile) => {
-    saveProfile(p);
-    setProfileState(p);
-  }, []);
+  }, [restoreProfile]);
 
   const disconnect = useCallback(() => {
     clearProfile();
@@ -76,7 +102,17 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <WalletContext.Provider
-      value={{ wallet, profile, balance, connecting, connect, disconnect, setProfile, refreshBalance }}
+      value={{
+        wallet,
+        profile,
+        balance,
+        connecting,
+        connect,
+        disconnect,
+        setProfile,
+        restoreProfile,
+        refreshBalance,
+      }}
     >
       {children}
     </WalletContext.Provider>
