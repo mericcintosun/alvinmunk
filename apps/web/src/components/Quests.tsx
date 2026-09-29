@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Flame } from 'lucide-react';
 import { getWallet } from '@/lib/wallet';
 import { completeQuest, getStreak } from '@/lib/quests';
@@ -17,6 +17,7 @@ import { Sticker } from '@/components/ui/sticker';
 import { Avatar } from '@/components/Avatar';
 import { cn, humanizeError, shortAddress } from '@/lib/utils';
 import { toast } from '@/components/ui/toaster';
+import { useTranslations } from '@/lib/i18n';
 
 // Quest ids are admin-created on the QuestRegistry; env-configurable so they can change per
 // deployment without a code edit. Defaults: 2 = refer, 3 = invite-converts, 4 = vouch-back.
@@ -40,6 +41,7 @@ const RAW_G_ADDR = /^G[A-Z2-7]{55}$/;
  * got vouched for), and vouch-back (you've vouched for ≥N people) — all feed the viral loop.
  */
 export function Quests({ address }: { address: string }) {
+  const t = useTranslations();
   const [earned, setEarned] = useState<number | null>(null);
   const [streak, setStreak] = useState<{ weeks: number; best: number } | null>(null);
   const [busy, setBusy] = useState<null | 'referral' | 'invite' | 'vouchback'>(null);
@@ -71,7 +73,7 @@ export function Quests({ address }: { address: string }) {
     }
     let alive = true;
     setResolvingRef(true);
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       resolveHandle(handle)
         .catch(() => null)
         .then((addr) => {
@@ -83,7 +85,7 @@ export function Quests({ address }: { address: string }) {
     }, 400);
     return () => {
       alive = false;
-      clearTimeout(t);
+      clearTimeout(timer);
     };
   }, [refTrim]);
 
@@ -101,7 +103,7 @@ export function Quests({ address }: { address: string }) {
     }
     let alive = true;
     setResolvingInvite(true);
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       resolveHandle(handle)
         .catch(() => null)
         .then((addr) => {
@@ -113,7 +115,7 @@ export function Quests({ address }: { address: string }) {
     }, 400);
     return () => {
       alive = false;
-      clearTimeout(t);
+      clearTimeout(timer);
     };
   }, [inviteTrim]);
 
@@ -133,7 +135,7 @@ export function Quests({ address }: { address: string }) {
       const r = await completeQuest(wallet, questId, evidence);
       if (!r.ok) throw new Error(r.error);
       setDone(true);
-      toast.success('Quest verified — Earned XP added 🎉');
+      toast.success(t('quests.toast.success'));
       setEarned(await getEarnedScore(address, address));
       const s = await getStreak(address, address);
       setStreak({ weeks: s.weeks, best: s.best });
@@ -147,27 +149,25 @@ export function Quests({ address }: { address: string }) {
   }
 
   return (
-    <Frame label="quests // earn" index="02" accent="secondary" tape="bl">
+    <Frame label={t('quests.frame')} index="02" accent="secondary" tape="bl">
       <div className="relative p-5">
         <div className="mb-1 flex items-center justify-between">
           <h2 className="flex items-center gap-2 text-base font-semibold">
-            Verified quests
+            {t('quests.title')}
             <Sticker name="social-plus1" size={28} className="h-6 w-auto" />
           </h2>
           <Badge variant="onchain">
-            Earned XP: {earned === null ? '…' : <NumberTicker value={earned} className="ml-0.5" />}
+            {t('quests.earnedXp')}: {earned === null ? '…' : <NumberTicker value={earned} className="ml-0.5" />}
           </Badge>
         </div>
-        <p className="text-sm text-muted-foreground">
-          Verified actions earn Earned XP — the only kind that unlocks USDC. Vouches don&apos;t.
-        </p>
+        <p className="text-sm text-muted-foreground">{t('quests.subtitle')}</p>
         {streak && streak.weeks > 0 && (
           <StateArt kind="streak-fire" size={64} className="absolute right-4 top-4 motion-safe:animate-float" />
         )}
         {streak && (
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-              weekly stamp
+              {t('quests.weeklyStamp')}
             </span>
             <div className="flex gap-1.5">
               {Array.from({ length: 7 }).map((_, i) => (
@@ -184,7 +184,10 @@ export function Quests({ address }: { address: string }) {
               <Flame className="size-3.5" />
               {streak.weeks}
               {streak.best > streak.weeks && (
-                <span className="text-muted-foreground/60"> · best {streak.best}</span>
+                <span className="text-muted-foreground/60">
+                  {' · '}
+                  {t('quests.streakBest', { best: String(streak.best) })}
+                </span>
               )}
             </span>
           </div>
@@ -192,36 +195,36 @@ export function Quests({ address }: { address: string }) {
         {/* Quest 1 — refer an active wallet */}
         <div className="mt-4">
           <label htmlFor="quest-ref" className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-            refer a friend&apos;s wallet
+            {t('quests.referLabel')}
           </label>
           <Input
             id="quest-ref"
             value={ref}
             onChange={(e) => setRef(e.target.value)}
-            placeholder="@handle or address (G…)"
+            placeholder={t('quests.handlePlaceholder')}
             className="mt-1.5 font-mono text-xs"
             aria-describedby="quest-ref-hint"
           />
           {!RAW_ADDR.test(refTrim) && refTrim.length > 0 && (
             <div className="mt-1 flex items-center text-xs text-muted-foreground">
               {resolvingRef ? (
-                'Looking up handle…'
+                t('quests.lookingUp')
               ) : resolvedRef ? (
                 <span className="flex items-center text-secondary">
                   → <Avatar address={resolvedRef} size={16} ring={false} className="mx-1.5" />
                   {shortAddress(resolvedRef, 6, 6)}
                 </span>
               ) : (
-                <span className="text-destructive">No wallet found for that handle</span>
+                <span className="text-destructive">{t('quests.noWallet')}</span>
               )}
             </div>
           )}
           <p id="quest-ref-hint" className="mt-1 text-[11px] text-muted-foreground">
             {resolvedRef && resolvedRef === address
-              ? 'You can’t refer yourself — paste a different wallet.'
+              ? t('quests.refSelf')
               : refTrim && !resolvingRef && !validRef
-                ? 'That doesn’t look like a Stellar address (G…) or handle.'
-                : 'A friend who’s already active on Stellar. Earns Earned XP (cashable).'}
+                ? t('quests.refInvalid')
+                : t('quests.refHint')}
           </p>
           <Button
             variant="onchain"
@@ -229,43 +232,43 @@ export function Quests({ address }: { address: string }) {
             disabled={busy !== null || !validRef || resolvingRef}
             className="mt-2 w-full"
           >
-            {busy === 'referral' ? 'Verifying…' : 'Verify a quest'}
+            {busy === 'referral' ? t('quests.verifying') : t('quests.verify')}
           </Button>
         </div>
 
         {/* Quest 2 — invite-converts: someone you invited opened a profile + got vouched for */}
         <div className="mt-4 border-t border-border/60 pt-4">
           <label htmlFor="quest-invite" className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-            invite who converted
+            {t('quests.inviteLabel')}
           </label>
           <Input
             id="quest-invite"
             value={invite}
             onChange={(e) => setInvite(e.target.value)}
-            placeholder="@handle or address (G… or C…)"
+            placeholder={t('quests.addressPlaceholder')}
             className="mt-1.5 font-mono text-xs"
             aria-describedby="quest-invite-hint"
           />
           {!RAW_ADDR.test(inviteTrim) && inviteTrim.length > 0 && (
             <div className="mt-1 flex items-center text-xs text-muted-foreground">
               {resolvingInvite ? (
-                'Looking up handle…'
+                t('quests.lookingUp')
               ) : resolvedInvite ? (
                 <span className="flex items-center text-secondary">
                   → <Avatar address={resolvedInvite} size={16} ring={false} className="mx-1.5" />
                   {shortAddress(resolvedInvite, 6, 6)}
                 </span>
               ) : (
-                <span className="text-destructive">No wallet found for that handle</span>
+                <span className="text-destructive">{t('quests.noWallet')}</span>
               )}
             </div>
           )}
           <p id="quest-invite-hint" className="mt-1 text-[11px] text-muted-foreground">
             {resolvedInvite && resolvedInvite === address
-              ? 'You can’t invite yourself.'
+              ? t('quests.inviteSelf')
               : inviteTrim && !resolvingInvite && !validInvite
-                ? 'That doesn’t look like a Stellar address or handle.'
-                : 'Someone you brought in — earns once they’ve been vouched for. The growth loop.'}
+                ? t('quests.inviteInvalid')
+                : t('quests.inviteHint')}
           </p>
           <Button
             variant="onchain"
@@ -273,17 +276,17 @@ export function Quests({ address }: { address: string }) {
             disabled={busy !== null || !validInvite || resolvingInvite}
             className="mt-2 w-full"
           >
-            {busy === 'invite' ? 'Verifying…' : 'Claim invite reward'}
+            {busy === 'invite' ? t('quests.verifying') : t('quests.claimInvite')}
           </Button>
         </div>
 
         {/* Quest 3 — vouch-back: you've vouched for ≥N people */}
         <div className="mt-4 border-t border-border/60 pt-4">
           <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-            vouch-back streak
+            {t('quests.vouchBackLabel')}
           </span>
           <p className="mt-1 text-[11px] text-muted-foreground">
-            Vouch for {VOUCH_BACK_MIN} people, then claim — rewards backing others, not just being backed.
+            {t('quests.vouchBackHint', { min: String(VOUCH_BACK_MIN) })}
           </p>
           <Button
             variant="onchain"
@@ -291,14 +294,14 @@ export function Quests({ address }: { address: string }) {
             disabled={busy !== null}
             className="mt-2 w-full"
           >
-            {busy === 'vouchback' ? 'Verifying…' : `Claim vouch-back (${VOUCH_BACK_MIN}+ vouches)`}
+            {busy === 'vouchback' ? t('quests.verifying') : t('quests.claimVouchBack', { min: String(VOUCH_BACK_MIN) })}
           </Button>
         </div>
 
         {done && (
           <div className="mt-3 flex flex-col items-center">
             <StateArt kind="quest-complete" size={120} className="motion-safe:animate-ignite" />
-            <p className="mt-1 text-center text-xs text-secondary">verified on-chain → Earned XP added</p>
+            <p className="mt-1 text-center text-xs text-secondary">{t('quests.done')}</p>
           </div>
         )}
         {error && <p className="mt-2 text-sm text-destructive">{error}</p>}

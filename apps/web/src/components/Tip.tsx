@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { getWallet } from '@/lib/wallet';
 import { txExplorerUrl } from '@/lib/stellar';
 import {
@@ -23,15 +23,19 @@ import { StateArt } from '@/components/ui/state-art';
 import { Avatar } from '@/components/Avatar';
 import { withTimeout, humanizeError, shortAddress } from '@/lib/utils';
 import { toast } from '@/components/ui/toaster';
+import { useTranslations } from '@/lib/i18n';
 
 const RAW_ADDR = /^[GC][A-Z2-7]{55}$/;
 
 // Rewards contract error codes that can surface on tip (mirrors contracts/rewards Error enum).
 // An insufficient-USDC failure (the SAC's own error) is caught by humanizeError directly.
-const TIP_ERRORS: Record<number, string> = {
-  5: 'Tips are paused right now — try again later.',
-  10: 'This account is under review and can’t tip right now.',
-};
+// Built from `t` so the copy follows the active locale.
+export function buildTipErrors(t: (key: string) => string): Record<number, string> {
+  return {
+    5: t('tip.error.paused'),
+    10: t('tip.error.review'),
+  };
+}
 
 /**
  * USDC tip rail (Green belt). A tip is a real wallet -> wallet USDC transfer. USDC is a
@@ -39,6 +43,7 @@ const TIP_ERRORS: Record<number, string> = {
  * comes from the faucet. The cashable, spendable side — distinct from non-cashable Social XP.
  */
 export function Tip({ address }: { address: string }) {
+  const t = useTranslations();
   const [balance, setBalance] = useState<bigint | null>(null);
   const [trusts, setTrusts] = useState<boolean | null>(null);
   const [to, setTo] = useState('');
@@ -82,7 +87,7 @@ export function Tip({ address }: { address: string }) {
     }
     let alive = true;
     setResolving(true);
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       resolveHandle(handle)
         .catch(() => null)
         .then((addr) => {
@@ -94,7 +99,7 @@ export function Tip({ address }: { address: string }) {
     }, 400);
     return () => {
       alive = false;
-      clearTimeout(t);
+      clearTimeout(timer);
     };
   }, [to]);
 
@@ -108,14 +113,14 @@ export function Tip({ address }: { address: string }) {
       // Success feedback — `tip` returns void (no hash), so without this it looked silent.
       toast.success(
         kind === 'tip'
-          ? 'Tip sent 🎉'
+          ? t('tip.toast.tip')
           : kind === 'faucet'
-            ? '5 test USDC added to your wallet'
-            : 'USDC enabled — you can receive tips now',
+            ? t('tip.toast.faucet')
+            : t('tip.toast.enable'),
       );
       refresh();
     } catch (e) {
-      const msg = humanizeError(e, TIP_ERRORS);
+      const msg = humanizeError(e, buildTipErrors(t));
       setError(msg);
       toast.error(msg);
     } finally {
@@ -124,10 +129,10 @@ export function Tip({ address }: { address: string }) {
   }
 
   return (
-    <Frame label="spend // tip" index="03">
+    <Frame label={t('tip.frame')} index="03">
       <div className="p-5">
         <div className="mb-1 flex items-center justify-between">
-          <h2 className="text-base font-semibold">Send a tip</h2>
+          <h2 className="text-base font-semibold">{t('tip.title')}</h2>
           <Badge variant="primary">
             {balance === null ? (
               '…'
@@ -136,9 +141,7 @@ export function Tip({ address }: { address: string }) {
             )}
           </Badge>
         </div>
-        <p className="mb-4 text-sm text-muted-foreground">
-          A spendable, cashable rail — send real testnet USDC wallet&nbsp;→&nbsp;wallet.
-        </p>
+        <p className="mb-4 text-sm text-muted-foreground">{t('tip.subtitle')}</p>
 
         {trusts === false ? (
           <Button
@@ -146,7 +149,7 @@ export function Tip({ address }: { address: string }) {
             disabled={busy !== null}
             className="w-full"
           >
-            {busy === 'enable' ? 'Enabling…' : 'Enable USDC (1 tap)'}
+            {busy === 'enable' ? t('tip.enabling') : t('tip.enable')}
           </Button>
         ) : (
           <div className="flex flex-col gap-2">
@@ -156,26 +159,26 @@ export function Tip({ address }: { address: string }) {
               disabled={busy !== null}
               className="w-full"
             >
-              {busy === 'faucet' ? 'Requesting…' : 'Get 5 test USDC'}
+              {busy === 'faucet' ? t('tip.requesting') : t('tip.faucet')}
             </Button>
             <Input
               value={to}
               onChange={(e) => setTo(e.target.value.trim())}
-              placeholder="@handle or address (G… / C…)"
+              placeholder={t('tip.recipientPlaceholder')}
               className="font-mono text-xs"
             />
             {/* Resolution feedback: confirm who a handle points to before sending. */}
             {!RAW_ADDR.test(to.trim()) && to.trim().length > 0 && (
               <div className="-mt-1 flex items-center text-xs text-muted-foreground">
                 {resolving ? (
-                  'Looking up handle…'
+                  t('tip.lookingUp')
                 ) : resolved ? (
                   <span className="flex items-center text-secondary">
                     → <Avatar address={resolved} size={16} ring={false} className="mx-1.5" />
                     {shortAddress(resolved, 6, 6)}
                   </span>
                 ) : (
-                  <span className="text-destructive">No wallet found for that handle</span>
+                  <span className="text-destructive">{t('tip.noWallet')}</span>
                 )}
               </div>
             )}
@@ -184,7 +187,7 @@ export function Tip({ address }: { address: string }) {
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 inputMode="decimal"
-                placeholder="1.0"
+                placeholder={t('tip.amountPlaceholder')}
                 className="w-24"
               />
               <Button
@@ -198,7 +201,7 @@ export function Tip({ address }: { address: string }) {
                 disabled={busy !== null || resolving || !resolved}
                 className="flex-1"
               >
-                {busy === 'tip' ? 'Sending…' : 'Send tip'}
+                {busy === 'tip' ? t('tip.sending') : t('tip.send')}
               </Button>
             </div>
           </div>
@@ -213,7 +216,7 @@ export function Tip({ address }: { address: string }) {
               rel="noreferrer"
               className="mt-1 block text-center text-xs text-secondary underline"
             >
-              confirmed on-chain →
+              {t('tip.confirmed')}
             </a>
           </div>
         )}
