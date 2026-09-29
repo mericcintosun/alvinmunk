@@ -18,18 +18,26 @@ import {
   Keypair,
   StrKey,
   TransactionBuilder,
+  authorizeEntry,
   hash as sha256,
   scValToNative,
   xdr,
+  type Transaction,
 } from '@stellar/stellar-sdk';
 import {
   isConnected as freighterIsConnected,
   requestAccess as freighterRequestAccess,
   signTransaction as freighterSign,
-  signMessage as freighterSignMessage,
-
 } from '@stellar/freighter-api';
-import { assertNetworkConfig, config, networkPassphrase, waitForAccountReady, server } from './stellar';
+import {
+  accountExists,
+  assertNetworkConfig,
+  config,
+  networkPassphrase,
+  waitForAccountReady,
+  server,
+} from './stellar';
+import { getItem, setItem, remove } from './storage';
 
 export type WalletKind = 'passkey' | 'dev' | 'freighter' | 'albedo' | 'kit';
 
@@ -59,9 +67,6 @@ export interface Wallet {
   address: string;
   /** Sign a base64 tx XDR, returning the signed XDR. */
   sign: (xdr: string) => Promise<string>;
-  /** Sign a plain UTF-8 message (ed25519), returning a base64 signature.
-   * Used to PROVE wallet ownership to the attester (no key leaves the client). */
-  signMessage: (message: string) => Promise<string>;
   /**
    * Smart-account-mediated contract call (passkey only). A passkey wallet's address is
    * a CONTRACT (`C…`), which can't be a classic tx source — so contract invocations are
@@ -73,8 +78,20 @@ export interface Wallet {
   invoke?: (
     contractId: string,
     method: string,
-    args: import('@stellar/stellar-sdk').xdr.ScVal[],
+    args: xdr.ScVal[],
+    /** Called with the prepared call before this wallet signs it, to add a co-signer's
+     * auth entries (a two-party call like `transfer_handle`; see `invokeCosigned`). */
+    cosign?: (prepared: Transaction) => Promise<Transaction>,
   ) => Promise<{ hash: string; value: unknown }>;
+  /**
+   * Sign this wallet's authorization entry of a call ANOTHER wallet submits (the second
+   * signature of a two-party call like `transfer_handle`), valid until `validUntilLedger`.
+   * Only wallets that hold their key in this browser (the dev wallet) can co-sign.
+   */
+  signAuthEntry?: (
+    entry: xdr.SorobanAuthorizationEntry,
+    validUntilLedger: number,
+  ) => Promise<xdr.SorobanAuthorizationEntry>;
 }
 
 function u8ToB64(u8: Uint8Array): string {
@@ -134,14 +151,38 @@ export async function getDevWallet(): Promise<Wallet> {
   const existing = safeLocalGet(DEV_SECRET_KEY);
   const kp = existing ? Keypair.fromSecret(existing) : Keypair.random();
 
-  if (!existing) {
-    safeLocalSet(DEV_SECRET_KEY, kp.secret());
+  // Persist the key before funding so every retry reuses one address, and decide whether
+  // to fund from on-chain state: a key saved before a failed Friendbot call (or wiped by a
+  // testnet reset) must still get funded on the next try. A fresh key is never funded yet.
+  if (!existing) safeLocalSet(DEV_SECRET_KEY, kp.secret());
+  if (!existing || !(await accountExists(kp.publicKey()))) {
     await fundWithFriendbot(kp.publicKey());
     // Friendbot may return before the RPC sees the new account; wait so the first
     // getAccount in the onboarding flow doesn't 404.
     await waitForAccountReady(kp.publicKey());
   }
 
+  return devWallet(kp);
+}
+
+/**
+ * The dev wallet this browser already has, or null — never creates or funds one. For
+ * flows about an existing key, like moving its @handle to another wallet. Like every other
+ * way to get a wallet, it refuses on an inconsistent network config.
+ */
+export function storedDevWallet(): Wallet | null {
+  assertNetworkConfig();
+  if (config.network === 'mainnet') return null;
+  const secret = safeLocalGet(DEV_SECRET_KEY);
+  if (!secret) return null;
+  try {
+    return devWallet(Keypair.fromSecret(secret));
+  } catch {
+    return null;
+  }
+}
+
+function devWallet(kp: Keypair): Wallet {
   return {
     kind: 'dev',
     address: kp.publicKey(),
@@ -150,10 +191,8 @@ export async function getDevWallet(): Promise<Wallet> {
       tx.sign(kp);
       return tx.toXDR();
     },
-    signMessage: async (message: string) => {
-      const sig = kp.sign(new TextEncoder().encode(message) as unknown as Buffer);
-      return u8ToB64(new Uint8Array(sig));
-    },
+    signAuthEntry: (entry, validUntilLedger) =>
+      authorizeEntry(entry, kp, validUntilLedger, networkPassphrase),
   };
 }
 
@@ -217,20 +256,6 @@ export async function connectFreighter(): Promise<Wallet> {
       }
       return res.signedTxXdr;
     },
-    signMessage: async (message: string) => {
-      const res = await freighterSignMessage(message, { address, networkPassphrase });
-      if ('error' in res && res.error) {
-        const e = res.error as string | { message?: string };
-        throw new Error(typeof e === 'string' ? e : (e?.message ?? JSON.stringify(e)));
-      }
-      const { signedMessage } = res;
-      // Freighter returns a base64 string in current versions; normalize defensively in
-      // case a wallet build returns raw bytes instead (same pattern as wallet-kit.ts's
-      // SWK normalization), so callers can always treat Wallet.signMessage as string-in/out.
-      return typeof signedMessage === 'string'
-        ? signedMessage
-        : u8ToB64(new Uint8Array(signedMessage as unknown as ArrayBufferLike));
-    },
   };
 }
 
@@ -255,13 +280,6 @@ export async function connectAlbedo(): Promise<Wallet> {
     sign: async (xdr: string) => {
       const res = await albedo.tx({ xdr, network: net, pubkey });
       return res.signed_envelope_xdr;
-    },
-    signMessage: async (message: string) => {
-      // Albedo's sign_message intent signs under Albedo's own message envelope (not the
-      // same raw bytes the dev wallet signs directly) — see note in wallet.ts header re:
-      // signing schemes if this is ever consumed by an off-chain verifier.
-      const res = await albedo.signMessage({ message, pubkey });
-      return res.signed_message;
     },
   };
 }
@@ -607,7 +625,7 @@ export async function connectPasskey(mode: ConnectMode = 'create'): Promise<Wall
   return {
     kind: 'passkey',
     address: contractId, // a CONTRACT address (C…), not a G… key
-    invoke: async (target, method, callArgs) => {
+    invoke: async (target, method, callArgs, cosign) => {
       // The app SDK (@stellar/stellar-sdk v16) and passkey-kit's bundled SDK (v14) are
       // DIFFERENT package instances, so an AssembledTransaction we build here would fail
       // kit.sign's `instanceof` check and be mis-parsed. We sidestep that by crossing the
@@ -623,7 +641,8 @@ export async function connectPasskey(mode: ConnectMode = 'create'): Promise<Wall
         .addOperation(new Contract(target).call(method, ...callArgs))
         .setTimeout(180)
         .build();
-      const prepared = await server.prepareTransaction(tx);
+      // A co-signer (two-party call) signs its own entries first; kit.sign only touches ours.
+      const prepared = await server.prepareTransaction(tx).then((p) => cosign?.(p) ?? p);
 
       // Give the passkey-signed AUTH entry a generous expiration ledger (≈ +120 ledgers, ~10
       // min). This is independent of the tx time bounds (the relayer rebuilds those on a
@@ -654,22 +673,17 @@ export async function connectPasskey(mode: ConnectMode = 'create'): Promise<Wall
       // Passkey wallets author actions via `invoke` (Soroban auth), never raw classic XDR.
       throw new Error('This action needs a classic wallet; passkey wallets sign on-chain calls only.');
     },
-    signMessage: async () => {
-      // Quest ownership proof verifies an ed25519 G… signer; the smart-account (secp256r1)
-      // signer path is a documented follow-up in the attester. Defer like Freighter quests.
-      throw new Error('Quests with a passkey wallet are coming soon — use the in-app wallet to verify a quest for now.');
-    },
   };
 }
 
 // ── helpers ──
 
 function safeLocalGet(k: string): string | null {
-  return typeof localStorage !== 'undefined' ? localStorage.getItem(k) : null;
+  return getItem(k);
 }
 function safeLocalSet(k: string, v: string): void {
-  if (typeof localStorage !== 'undefined') localStorage.setItem(k, v);
+  setItem(k, v);
 }
 function safeLocalRemove(k: string): void {
-  if (typeof localStorage !== 'undefined') localStorage.removeItem(k);
+  remove(k);
 }

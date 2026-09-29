@@ -73,10 +73,5 @@ export async function connectViaKit(): Promise<Wallet> {
       const { signedTxXdr } = await kit.signTransaction(xdr, { address, networkPassphrase });
       return signedTxXdr;
     },
-    signMessage: async (message: string) => {
-      const { signedMessage } = await kit.signMessage(message, { address, networkPassphrase });
-      // Kit returns a base64 signature string; some wallets return bytes — normalize to string.
-      return typeof signedMessage === 'string' ? signedMessage : String(signedMessage);
-    },
   };
 }

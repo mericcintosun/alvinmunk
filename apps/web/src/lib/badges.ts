@@ -26,6 +26,7 @@ import { fetchReputationEvents, fetchTipsSent, type RepEvent } from './events';
 import { getCounts, getProfile } from './reputation';
 import { getStreak } from './quests';
 import { reverseHandle } from './registry';
+import { readJSON, writeJSON } from './storage';
 
 // ── Public shapes ─────────────────────────────────────────────────────────────
 
@@ -199,27 +200,19 @@ const optString = (v: unknown) => (typeof v === 'string' ? v : undefined);
 
 /** The snapshot for `address`, or null when absent, unreadable, or not in the current shape. */
 export function readBadgeSnapshot(address: string): BadgeSnapshot | null {
-  try {
-    const raw = JSON.parse(localStorage.getItem(SNAPSHOT_PREFIX + address) ?? 'null') as Record<string, unknown> | null;
-    if (!raw || !isStrings(raw.vouchedBy) || !isStrings(raw.vouchedFor)) return null;
-    return {
-      vouchedBy: raw.vouchedBy,
-      vouchedFor: raw.vouchedFor,
-      firstVoucher: optString(raw.firstVoucher),
-      tipped: raw.tipped === true,
-      firstTipTo: optString(raw.firstTipTo),
-    };
-  } catch {
-    return null; // storage blocked or corrupt — the live window still renders
-  }
+  const raw = readJSON<Record<string, unknown> | null>(SNAPSHOT_PREFIX + address, null);
+  if (!raw || !isStrings(raw.vouchedBy) || !isStrings(raw.vouchedFor)) return null;
+  return {
+    vouchedBy: raw.vouchedBy,
+    vouchedFor: raw.vouchedFor,
+    firstVoucher: optString(raw.firstVoucher),
+    tipped: raw.tipped === true,
+    firstTipTo: optString(raw.firstTipTo),
+  };
 }
 
 function writeBadgeSnapshot(address: string, s: BadgeSnapshot): void {
-  try {
-    localStorage.setItem(SNAPSHOT_PREFIX + address, JSON.stringify(s));
-  } catch {
-    // storage blocked (private mode) — badges still render from the live window
-  }
+  writeJSON(SNAPSHOT_PREFIX + address, s);
 }
 
 // ── The one async entry point the UI calls ────────────────────────────────────

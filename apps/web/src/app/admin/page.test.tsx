@@ -46,7 +46,7 @@ vi.mock('@/lib/gate', async (importOriginal) => ({
 
 import AdminPage from './page';
 
-const wallet = (address: string) => ({ kind: 'kit', address, sign: vi.fn(), signMessage: vi.fn() });
+const wallet = (address: string) => ({ kind: 'kit', address, sign: vi.fn() });
 const REWARD: RewardEntry = {
   id: 1,
   threshold: 30n,

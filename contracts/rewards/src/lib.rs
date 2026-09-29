@@ -3,13 +3,16 @@
 //!
 //! - `tip`: direct USDC (SAC) transfer wallet->wallet + a `tipped` event for the feed.
 //!   Ship this FIRST (Green retention de-risk) — measure D7 return of spend RECEIVERS.
+//!   Every tip moves value: `amount > 0` and sender != receiver, so a `tipped` event is
+//!   always evidence that somebody received a real spend.
 //! - `add_reward` / `claim_reward`: the on-chain rank->reward unlock TABLE. The admin
 //!   registers each reward (Earned-XP threshold + USDC amount); a user claims by id and
 //!   the contract pays the STORED amount. The caller can NEVER dictate the payout, so the
 //!   treasury is not drainable (belts/08: bound the payout path).
 //!
 //! Safety: Earned-XP gate (keystone) + admin-set per-reward amount + replay guard +
-//! pausable emergency stop.
+//! pausable emergency stop. A `tip` never touches the treasury (the sender funds it), but
+//! it is bounded the same way: it must move real value between two different wallets.
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short, token,
@@ -50,6 +53,7 @@ pub enum Error {
     CapBelowActiveReward = 17, // new cap would strand an active reward
     StreakTooShort = 18, // live weekly quest streak below the reward's minimum
     QuestRegistryNotSet = 19, // a streak gate needs `set_quest_registry` first
+    SelfTip = 20,   // `tip` sender == receiver: a `tipped` event that moves no value
 }
 
 /// `quest_registry::Streak`, decoded from the cross-contract `get_streak` read (the field
@@ -139,10 +143,20 @@ impl RewardsContract {
     }
 
     /// Direct USDC tip. `from` pays `to`; mints a social "thank-you" event.
+    ///
+    /// Every tip moves value: the amount must be positive and the receiver must be a
+    /// DIFFERENT wallet (`validate_tip`, #144). The SAC's own check only rejects a
+    /// NEGATIVE amount, so `0` and `from == to` used to go through — a wallet holding no
+    /// USDC could tip 0 anyone, and a self-transfer left the balance unchanged, both still
+    /// minting a `tipped` event. `tipped` is a frozen canonical event (shared
+    /// EVENTS.TIPPED) read by the feed and the indexer, and it is the proof that somebody
+    /// *received* a spend — the Green belt's D7 de-risk metric — so a no-value tip is
+    /// refused here rather than left for every consumer to filter.
     pub fn tip(env: Env, from: Address, to: Address, amount: i128) {
         Self::not_paused(&env);
         from.require_auth();
         Self::require_unfrozen(&env, &from);
+        Self::validate_tip(&env, &from, &to, amount);
         let usdc: Address = env.storage().instance().get(&DataKey::Usdc).unwrap();
         token::Client::new(&env, &usdc).transfer(&from, &to, &amount);
         env.events()
@@ -507,6 +521,29 @@ impl RewardsContract {
     }
 
     // --- internal ---
+
+    /// Reject a tip that would move no value, BEFORE the SAC call and before the event
+    /// (nothing is written either way — a revert rolls the whole invocation back).
+    ///
+    /// - `amount <= 0` → `InvalidAmount`. The SAC's own `check_nonnegative_amount` rejects
+    ///   only a NEGATIVE amount, so `0` used to go through: a wallet with no USDC at all
+    ///   could "tip" anyone for the price of a fee and the receiver would count as having
+    ///   received a spend.
+    /// - `from == to` → `SelfTip`. The SAC moves the balance to itself, so the transfer
+    ///   succeeds and the balance is unchanged, while one wallet can "receive" any number
+    ///   of tips from itself.
+    ///
+    /// Both inflate exactly what `tipped` is evidence of, so they are refused on-chain:
+    /// an emitted `tipped` always means USDC moved from `from` to a DIFFERENT `to`. The
+    /// amount is checked first — the web app's `validateTip` orders it the same way.
+    fn validate_tip(env: &Env, from: &Address, to: &Address, amount: i128) {
+        if amount <= 0 {
+            panic_with_error!(env, Error::InvalidAmount);
+        }
+        if from == to {
+            panic_with_error!(env, Error::SelfTip);
+        }
+    }
 
     /// Enforce proof-of-funding only when the gate is on (mainnet). The cheapest real
     /// uniqueness signal that isn't heavy KYC: a wallet must have received external value.

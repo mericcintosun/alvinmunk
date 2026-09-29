@@ -6,6 +6,7 @@ import { getScores, type PeopleCounts } from '@/lib/reputation';
 import { getPeopleCounts } from '@/lib/constellation';
 import { StateArt } from '@/components/ui/state-art';
 import { cn } from '@/lib/utils';
+import { useLocale, useTranslations } from '@/lib/i18n';
 
 /**
  * Dashboard stat strip — the at-a-glance reputation summary that anchors the app shell.
@@ -20,19 +21,20 @@ const PEOPLE_REFRESH_MS = 60_000;
 
 type Tile = {
   key: 'vouchedBy' | 'social' | 'earned';
-  label: string;
-  hint: string;
   icon: typeof Sparkles;
   tint: string;
 };
 
 const TILES: Tile[] = [
-  { key: 'vouchedBy', label: 'Vouched by', hint: 'People in your sky', icon: Sparkles, tint: 'text-accent' },
-  { key: 'social', label: 'Social XP', hint: 'Clout · not cashable', icon: Users, tint: 'text-tertiary' },
-  { key: 'earned', label: 'Earned XP', hint: 'Verified · unlocks USDC', icon: ShieldCheck, tint: 'text-secondary' },
+  { key: 'vouchedBy', icon: Sparkles, tint: 'text-accent' },
+  { key: 'social', icon: Users, tint: 'text-tertiary' },
+  { key: 'earned', icon: ShieldCheck, tint: 'text-secondary' },
 ];
 
 export function StatStrip({ address }: { address: string }) {
+  const t = useTranslations();
+  const { locale } = useLocale();
+  const numberFormat = new Intl.NumberFormat(locale === 'tr' ? 'tr-TR' : 'en-US');
   const [scores, setScores] = useState<{ social: number; earned: number } | null>(null);
   const [people, setPeople] = useState<PeopleCounts | null>(null);
   const [loading, setLoading] = useState(true);
@@ -100,31 +102,31 @@ export function StatStrip({ address }: { address: string }) {
     <div className="space-y-3">
       <div className="grid grid-cols-3 gap-3">
         {busy
-          ? TILES.map((t) => {
-              const Icon = t.icon;
+          ? TILES.map((tile) => {
+              const Icon = tile.icon;
               return (
-                <div key={t.key} className="glass rounded-2xl p-4">
+                <div key={tile.key} className="glass rounded-2xl p-4">
                   <div className="mb-2 flex items-center gap-2">
-                    <Icon className={cn('size-4', t.tint)} />
-                    <span className="text-xs font-medium text-muted-foreground">{t.label}</span>
+                    <Icon className={cn('size-4', tile.tint)} />
+                    <span className="text-xs font-medium text-muted-foreground">{t(`statStrip.${tile.key}.label`)}</span>
                   </div>
                   <div className="h-9 w-16 animate-pulse rounded bg-muted/40" />
                   <div className="mt-2 h-2 w-20 animate-pulse rounded bg-muted/30" />
                 </div>
               );
             })
-          : TILES.map((t) => {
-              const Icon = t.icon;
+          : TILES.map((tile) => {
+              const Icon = tile.icon;
               return (
-                <div key={t.key} className="glass rounded-2xl p-4">
+                <div key={tile.key} className="glass rounded-2xl p-4">
                   <div className="mb-2 flex items-center gap-2">
-                    <Icon className={cn('size-4', t.tint)} />
-                    <span className="text-xs font-medium text-muted-foreground">{t.label}</span>
+                    <Icon className={cn('size-4', tile.tint)} />
+                    <span className="text-xs font-medium text-muted-foreground">{t(`statStrip.${tile.key}.label`)}</span>
                   </div>
                   <div className="font-display text-3xl font-semibold tabular-nums">
-                    {value(t.key).toLocaleString('en-US')}
+                    {numberFormat.format(value(tile.key))}
                   </div>
-                  <p className="mt-1 hidden text-[11px] text-muted-foreground/70 sm:block">{t.hint}</p>
+                  <p className="mt-1 hidden text-[11px] text-muted-foreground/70 sm:block">{t(`statStrip.${tile.key}.hint`)}</p>
                 </div>
               );
             })}
@@ -135,9 +137,9 @@ export function StatStrip({ address }: { address: string }) {
           <div className="flex items-start gap-3">
             <StateArt kind="empty-leaderboard" size={96} className="shrink-0" />
             <div>
-              <p className="font-display text-lg text-foreground">Your constellation is still quiet</p>
+              <p className="font-display text-lg text-foreground">{t('statStrip.empty.title')}</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                The first vouch, quest, or tip lights up your reputation trail and turns this strip into a living résumé.
+                {t('statStrip.empty.body')}
               </p>
             </div>
           </div>

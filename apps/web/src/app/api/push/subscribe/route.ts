@@ -28,10 +28,11 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { removeSubscription, saveSubscription, saveSubscriptionWithVouchIds, moveSubscription } from '@/lib/push-store';
+import { withRoute } from '@/lib/api-route';
 
 const MAX_BODY = 4096;
 
-export async function POST(req: NextRequest): Promise<NextResponse> {
+export const POST = withRoute('POST /api/push/subscribe', async (req: NextRequest) => {
   // Reject oversized bodies.
   const contentLength = Number(req.headers.get('content-length') ?? 0);
   if (contentLength > MAX_BODY) {
@@ -73,7 +74,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   return NextResponse.json({ ok: true });
-}
+});
 
 /**
  * PATCH — move an existing subscription record to a rotated endpoint.
@@ -87,7 +88,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
  *   400 invalid json · 413 too large · 422 missing/invalid fields
  *   404 unknown oldEndpoint · 403 wallet does not own the record · 409 new endpoint already stored
  */
-export async function PATCH(req: NextRequest): Promise<NextResponse> {
+export const PATCH = withRoute('PATCH /api/push/subscribe', async (req: NextRequest) => {
   const contentLength = Number(req.headers.get('content-length') ?? 0);
   if (contentLength > MAX_BODY) {
     return NextResponse.json({ error: 'body too large' }, { status: 413 });
@@ -135,9 +136,9 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
     case 'conflict':
       return NextResponse.json({ error: 'new endpoint already registered' }, { status: 409 });
   }
-}
+});
 
-export async function DELETE(req: NextRequest): Promise<NextResponse> {
+export const DELETE = withRoute('DELETE /api/push/subscribe', async (req: NextRequest) => {
   let body: { endpoint?: string };
   try {
     body = (await req.json()) as typeof body;
@@ -152,4 +153,4 @@ export async function DELETE(req: NextRequest): Promise<NextResponse> {
   await removeSubscription(body.endpoint);
 
   return NextResponse.json({ ok: true });
-}
+});

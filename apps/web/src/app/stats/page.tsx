@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Users, Activity, ExternalLink } from 'lucide-react';
-import { shortAddress } from '@/lib/utils';
+import { shortAddr } from '@alvinmunk/shared';
 import { cn } from '@/lib/utils';
 import type { VouchFunnel } from '@/lib/vouch-funnel';
 import { LoopHealth } from '@/components/LoopHealth';
@@ -177,7 +177,7 @@ export default function StatsPage() {
                 rel="noreferrer"
                 className="group flex items-center justify-between rounded-xl border border-border/50 bg-surface/30 px-3 py-2 font-mono text-xs transition-colors hover:border-border hover:bg-surface/60"
               >
-                <span>{shortAddress(a, 6, 6)}</span>
+                <span>{shortAddr(a, 6, 6)}</span>
                 <ExternalLink className="size-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
               </a>
             ))}

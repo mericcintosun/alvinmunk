@@ -1,19 +1,20 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { getWallet } from '@/lib/wallet';
 import { txExplorerUrl } from '@/lib/stellar';
 import {
   enableUsdc,
   getUsdcBalance,
   hasUsdcTrustline,
+  isValidAmount,
   requestTestUsdc,
   stroopsToUsdc,
   tip,
-  usdcToStroops,
 } from '@/lib/rewards';
 import { resolveHandle } from '@/lib/registry';
 import { normalizeHandle } from '@/lib/profile';
+import { validateTip } from '@/lib/admin';
 import { Frame } from '@/components/fx/frame';
 import { NumberTicker } from '@/components/fx/number-ticker';
 import { Button } from '@/components/ui/button';
@@ -21,24 +22,36 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { StateArt } from '@/components/ui/state-art';
 import { Avatar } from '@/components/Avatar';
-import { withTimeout, humanizeError, shortAddress } from '@/lib/utils';
+import { isStellarAddress, shortAddr } from '@alvinmunk/shared';
+import { withTimeout, humanizeError } from '@/lib/utils';
 import { toast } from '@/components/ui/toaster';
-
-const RAW_ADDR = /^[GC][A-Z2-7]{55}$/;
+import { useTranslations } from '@/lib/i18n';
 
 // Rewards contract error codes that can surface on tip (mirrors contracts/rewards Error enum).
 // An insufficient-USDC failure (the SAC's own error) is caught by humanizeError directly.
-const TIP_ERRORS: Record<number, string> = {
-  5: 'Tips are paused right now — try again later.',
-  10: 'This account is under review and can’t tip right now.',
-};
+// Built from `t` so the copy follows the active locale. #8 and #20 are the contract's
+// `validate_tip` (#144): a zero or self tip moves no value, so the chain refuses it —
+// `validateTip` below normally catches those before anyone signs.
+export function buildTipErrors(t: (key: string) => string): Record<number, string> {
+  return {
+    5: t('tip.error.paused'),
+    8: t('tip.error.invalidAmount'),
+    10: t('tip.error.review'),
+    20: t('tip.error.selfTip'),
+  };
+}
 
 /**
  * USDC tip rail (Green belt). A tip is a real wallet -> wallet USDC transfer. USDC is a
  * classic asset wrapped as a SAC, so a wallet needs a trustline to receive; test USDC
  * comes from the faucet. The cashable, spendable side — distinct from non-cashable Social XP.
+ *
+ * Every tip moves value: above 0 USDC, to somebody else. Checked here before signing
+ * (`validateTip`) and again on-chain (#144), so the `tipped` event the feed reads is
+ * always proof that a real spend happened.
  */
 export function Tip({ address }: { address: string }) {
+  const t = useTranslations();
   const [balance, setBalance] = useState<bigint | null>(null);
   const [trusts, setTrusts] = useState<boolean | null>(null);
   const [to, setTo] = useState('');
@@ -69,7 +82,7 @@ export function Tip({ address }: { address: string }) {
   // targets, so a mistyped handle can never silently send to a wrong-but-valid key.
   useEffect(() => {
     const raw = to.trim();
-    if (RAW_ADDR.test(raw)) {
+    if (isStellarAddress(raw)) {
       setResolved(raw);
       setResolving(false);
       return;
@@ -82,7 +95,7 @@ export function Tip({ address }: { address: string }) {
     }
     let alive = true;
     setResolving(true);
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       resolveHandle(handle)
         .catch(() => null)
         .then((addr) => {
@@ -94,7 +107,7 @@ export function Tip({ address }: { address: string }) {
     }, 400);
     return () => {
       alive = false;
-      clearTimeout(t);
+      clearTimeout(timer);
     };
   }, [to]);
 
@@ -108,14 +121,14 @@ export function Tip({ address }: { address: string }) {
       // Success feedback — `tip` returns void (no hash), so without this it looked silent.
       toast.success(
         kind === 'tip'
-          ? 'Tip sent 🎉'
+          ? t('tip.toast.tip')
           : kind === 'faucet'
-            ? '5 test USDC added to your wallet'
-            : 'USDC enabled — you can receive tips now',
+            ? t('tip.toast.faucet')
+            : t('tip.toast.enable'),
       );
       refresh();
     } catch (e) {
-      const msg = humanizeError(e, TIP_ERRORS);
+      const msg = humanizeError(e, buildTipErrors(t), 'tip');
       setError(msg);
       toast.error(msg);
     } finally {
@@ -124,10 +137,10 @@ export function Tip({ address }: { address: string }) {
   }
 
   return (
-    <Frame label="spend // tip" index="03">
+    <Frame label={t('tip.frame')} index="03">
       <div className="p-5">
         <div className="mb-1 flex items-center justify-between">
-          <h2 className="text-base font-semibold">Send a tip</h2>
+          <h2 className="text-base font-semibold">{t('tip.title')}</h2>
           <Badge variant="primary">
             {balance === null ? (
               '…'
@@ -136,9 +149,7 @@ export function Tip({ address }: { address: string }) {
             )}
           </Badge>
         </div>
-        <p className="mb-4 text-sm text-muted-foreground">
-          A spendable, cashable rail — send real testnet USDC wallet&nbsp;→&nbsp;wallet.
-        </p>
+        <p className="mb-4 text-sm text-muted-foreground">{t('tip.subtitle')}</p>
 
         {trusts === false ? (
           <Button
@@ -146,7 +157,7 @@ export function Tip({ address }: { address: string }) {
             disabled={busy !== null}
             className="w-full"
           >
-            {busy === 'enable' ? 'Enabling…' : 'Enable USDC (1 tap)'}
+            {busy === 'enable' ? t('tip.enabling') : t('tip.enable')}
           </Button>
         ) : (
           <div className="flex flex-col gap-2">
@@ -156,26 +167,27 @@ export function Tip({ address }: { address: string }) {
               disabled={busy !== null}
               className="w-full"
             >
-              {busy === 'faucet' ? 'Requesting…' : 'Get 5 test USDC'}
+              {busy === 'faucet' ? t('tip.requesting') : t('tip.faucet')}
             </Button>
             <Input
               value={to}
               onChange={(e) => setTo(e.target.value.trim())}
-              placeholder="@handle or address (G… / C…)"
+              placeholder={t('tip.recipientPlaceholder')}
+              aria-label={t('tip.recipientAria')}
               className="font-mono text-xs"
             />
             {/* Resolution feedback: confirm who a handle points to before sending. */}
-            {!RAW_ADDR.test(to.trim()) && to.trim().length > 0 && (
+            {!isStellarAddress(to.trim()) && to.trim().length > 0 && (
               <div className="-mt-1 flex items-center text-xs text-muted-foreground">
                 {resolving ? (
-                  'Looking up handle…'
+                  t('tip.lookingUp')
                 ) : resolved ? (
                   <span className="flex items-center text-secondary">
                     → <Avatar address={resolved} size={16} ring={false} className="mx-1.5" />
-                    {shortAddress(resolved, 6, 6)}
+                    {shortAddr(resolved, 6, 6)}
                   </span>
                 ) : (
-                  <span className="text-destructive">No wallet found for that handle</span>
+                  <span className="text-destructive">{t('tip.noWallet')}</span>
                 )}
               </div>
             )}
@@ -184,21 +196,28 @@ export function Tip({ address }: { address: string }) {
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 inputMode="decimal"
-                placeholder="1.0"
+                placeholder={t('tip.amountPlaceholder')}
+                aria-label={t('tip.amountAria')}
                 className="w-24"
               />
               <Button
                 onClick={() =>
                   run('tip', async () => {
                     const wallet = await getWallet();
-                    // `resolved` is guaranteed a valid key here (button is gated on it).
-                    await tip(wallet, resolved!, usdcToStroops(amount));
+                    // The contract's own two checks (#144), run here first so a tip that
+                    // could only revert never costs a fee. `resolved` is guaranteed a
+                    // valid key here (the button is gated on it).
+                    const check = validateTip({ to: resolved!, amount }, wallet.address);
+                    if (!check.ok) {
+                      throw new Error(resolved === wallet.address ? t('tip.error.ownWallet') : check.error);
+                    }
+                    await tip(wallet, resolved!, check.value);
                   })
                 }
-                disabled={busy !== null || resolving || !resolved}
+                disabled={busy !== null || resolving || !resolved || !isValidAmount(amount)}
                 className="flex-1"
               >
-                {busy === 'tip' ? 'Sending…' : 'Send tip'}
+                {busy === 'tip' ? t('tip.sending') : t('tip.send')}
               </Button>
             </div>
           </div>
@@ -213,7 +232,7 @@ export function Tip({ address }: { address: string }) {
               rel="noreferrer"
               className="mt-1 block text-center text-xs text-secondary underline"
             >
-              confirmed on-chain →
+              {t('tip.confirmed')}
             </a>
           </div>
         )}

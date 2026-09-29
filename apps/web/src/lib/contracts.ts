@@ -12,13 +12,16 @@ import {
   Address,
   Contract,
   Keypair,
+  Operation,
   TransactionBuilder,
   nativeToScVal,
   scValToNative,
   rpc,
   xdr,
+  type Transaction,
 } from '@stellar/stellar-sdk';
 import { server, networkPassphrase, config } from './stellar';
+import { submitSigned } from './submit';
 import type { Wallet } from './wallet';
 
 const BASE_FEE = '1000000'; // 0.1 XLM ceiling; simulation sets the real fee.
@@ -125,18 +128,72 @@ export async function invokeAndWaitHash(
   return (await submitAndWait(contractId, method, callArgs, wallet)).hash;
 }
 
+/**
+ * A call that needs TWO wallets' authorization (e.g. `transfer_handle`): `wallet` submits it
+ * exactly as `invokeAndWait` would, after `cosigner` has signed its own auth entry — which
+ * takes `cosigner.signAuthEntry`, a key held in this browser. Resolves once confirmed.
+ */
+export async function invokeCosigned(
+  contractId: string,
+  method: string,
+  callArgs: xdr.ScVal[],
+  wallet: Wallet,
+  cosigner: Wallet,
+): Promise<InvokeReceipt> {
+  return submitAndWait(contractId, method, callArgs, wallet, (tx) => cosignAuth(tx, cosigner));
+}
+
+/** How long a co-signature stays valid (~10 min of 5s ledgers): time for the submitting
+ * wallet to sign too. Matches the passkey wallet's own auth expiration. */
+const COSIGN_VALID_LEDGERS = 120;
+
+/**
+ * `tx` (a prepared single-call transaction) with `cosigner`'s unsigned auth entries signed
+ * by it. Every other entry is left as it is, for the submitting wallet to sign.
+ */
+async function cosignAuth(tx: Transaction, cosigner: Wallet): Promise<Transaction> {
+  const sign = cosigner.signAuthEntry;
+  if (!sign) throw new Error("This wallet can't co-sign a call from here.");
+  const op = tx.operations[0] as Operation.InvokeHostFunction;
+  const auth = op.auth ?? [];
+  const mine = auth.map((entry) => awaitsSignatureFrom(entry, cosigner.address));
+  if (!mine.includes(true)) throw new Error(`Nothing in this call for ${cosigner.address} to sign.`);
+  const { sequence } = await server.getLatestLedger();
+  const signed = await Promise.all(
+    auth.map((entry, i) => (mine[i] ? sign(entry, sequence + COSIGN_VALID_LEDGERS) : entry)),
+  );
+  return TransactionBuilder.cloneFrom(tx)
+    .clearOperations()
+    .addOperation(Operation.invokeHostFunction({ source: op.source, func: op.func, auth: signed }))
+    .build();
+}
+
+/** Is `entry` an address-credential auth entry for `address` that nobody has signed yet? */
+function awaitsSignatureFrom(entry: xdr.SorobanAuthorizationEntry, address: string): boolean {
+  const creds = entry.credentials();
+  if (creds.switch() !== xdr.SorobanCredentialsType.sorobanCredentialsAddress()) return false;
+  const signer = creds.address();
+  return (
+    Address.fromScAddress(signer.address()).toString() === address &&
+    signer.signature().switch() === xdr.ScValType.scvVoid()
+  );
+}
+
 async function submitAndWait(
   contractId: string,
   method: string,
   callArgs: xdr.ScVal[],
   wallet: Wallet,
+  cosign?: (prepared: Transaction) => Promise<Transaction>,
 ): Promise<InvokeReceipt> {
   requireDeployed(contractId, method);
 
   // Passkey (smart-account) wallets can't be a classic tx source: the call is
   // authorized by the passkey and submitted via the relayer inside wallet.invoke.
   if (wallet.invoke) {
-    return wallet.invoke(contractId, method, callArgs);
+    return cosign
+      ? wallet.invoke(contractId, method, callArgs, cosign)
+      : wallet.invoke(contractId, method, callArgs);
   }
 
   const account = await server.getAccount(wallet.address);
@@ -145,18 +202,18 @@ async function submitAndWait(
     .setTimeout(60)
     .build();
 
-  const prepared = await server.prepareTransaction(built);
+  let prepared = await server.prepareTransaction(built);
+  // With a co-signer's signature in, simulate again: verifying it adds to the footprint
+  // and fee (the auth entries themselves are kept as signed).
+  if (cosign) prepared = await server.prepareTransaction(await cosign(prepared));
   const signedXdr = await wallet.sign(prepared.toXDR());
   const signed = TransactionBuilder.fromXDR(signedXdr, networkPassphrase);
 
-  const sent = await server.sendTransaction(signed);
-  if (sent.status === 'ERROR') {
-    throw new Error(`send ${method} failed: ${JSON.stringify(sent.errorResult)}`);
-  }
+  const hash = await submitSigned(signed, `send ${method}`);
 
-  const result = await pollTransaction(sent.hash);
+  const result = await pollTransaction(hash);
   const retval = result.returnValue;
-  return { hash: sent.hash, value: retval ? scValToNative(retval) : undefined };
+  return { hash, value: retval ? scValToNative(retval) : undefined };
 }
 
 /** A `#[contracttype]` enum key as the contracts store it: `vec[Symbol(variant), ...fields]`. */

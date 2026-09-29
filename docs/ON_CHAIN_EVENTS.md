@@ -194,8 +194,19 @@ secret (`claim_vouch`). Both emit this same event. See
 
 #### `vouch` / `slashed`
 
-An unclaimed half-card expires after its 7-day window; the staked Social XP
-is forfeit (not refunded).
+A half-card's staked Social XP is forfeit (not refunded). There are **two paths** that
+emit this event:
+
+1. **`expire_vouch` path** — an unclaimed half-card is explicitly slashed by a keeper
+   after its 7-day window. The card remains unclaimed (`claimed: false`).
+2. **Late-claim path** — the card is claimed after its 7-day window but before anyone
+   called `expire_vouch`. In this case `vouch`/`slashed` is emitted **before**
+   `vouch`/`claimed` in the same transaction (the claimer's `social` claim-XP event
+   falls between the two), so indexers see the slash before the claim.
+   The stored vouch records `slashed: true, claimed: true`. A card `expire_vouch` already
+   slashed can still be claimed; that claim emits no second `vouch`/`slashed`.
+
+Both paths store `slashed: true` on the vouch and emit the same event shape:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -217,15 +228,23 @@ is forfeit (not refunded).
 env.events().publish(
     (symbol_short!("vouch"), symbol_short!("minted")), (id, from));
 
-// Claim:
+// Claim (timely — refund, no slash event):
 env.events().publish(
     (symbol_short!("vouch"), symbol_short!("claimed")),
     (vouch_id, vouch.from, claimer));
 
-// Slash:
+// Slash via expire_vouch (unclaimed, past deadline):
 env.events().publish(
     (symbol_short!("vouch"), symbol_short!("slashed")),
     (vouch_id, vouch.from, vouch.stake));
+
+// Late claim (past deadline): slash event emitted BEFORE claimed event.
+env.events().publish(
+    (symbol_short!("vouch"), symbol_short!("slashed")),
+    (vouch_id, vouch.from, vouch.stake));
+env.events().publish(
+    (symbol_short!("vouch"), symbol_short!("claimed")),
+    (vouch_id, vouch.from, claimer));
 ```
 
 ---
@@ -438,13 +457,41 @@ Index 2 was appended when handle cooldowns landed; readers that only look at
 indexes 0–1 are unaffected. A registry deployed before then emits two fields and
 has no cooldown.
 
-An indexer keyed by handle stays in sync by applying both sub-types in event
-order: `claimed` sets `handle → caller` (ending any cooldown on it), `released`
-deletes `handle` and marks it reserved for `caller` until `until`. The one gap
-is `admin_release()` (see the note below); the `cooldown` read view is always
-current.
+### `handle` / `moved`
 
-**Contract source**: `registry/src/lib.rs` → `fn claim()` / `fn release()`
+A handle moves from one wallet to another in a single call (`transfer_handle()`),
+signed by both. It is never free in between, so no `released` or `claimed` is
+emitted for it and it starts no cooldown. When `from` had a profile, `meta` / `cleared` for `from` and
+`meta` / `set` for `to` follow in the same transaction: the profile moves with
+the handle.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol("handle")` | Event discriminator |
+| **topics[1]** | `Symbol("moved")` | Sub-type |
+
+**Data tuple**:
+
+| Index | Type | Description |
+|-------|------|-------------|
+| 0 | `Address` | `from` — the wallet that held the handle (now holds none) |
+| 1 | `Address` | `to` — the wallet that holds it now |
+| 2 | `Symbol` | `handle` — the moved handle |
+
+`transfer_handle(from, to)` needs `from`'s and `to`'s authorization for that exact
+call, so a handle can't be pushed onto an address that didn't accept it. It
+reverts with `NoHandle` (#4) when `from` holds no handle and `AlreadyHasHandle`
+(#10) when `to` already holds one (`to == from` included). Social and Earned XP
+stay with `from`: they live in the Reputation contract, keyed by address.
+
+An indexer keyed by handle stays in sync by applying all three sub-types in event
+order: `claimed` sets `handle → caller` (ending any cooldown on it), `released`
+deletes `handle` and marks it reserved for `caller` until `until`, `moved` sets
+`handle → to`. One keyed by address maps `to → handle` and drops `from` on
+`moved`. The one gap is `admin_release()` (see the note below); the `cooldown`
+read view is always current.
+
+**Contract source**: `registry/src/lib.rs` → `fn claim()` / `fn release()` / `fn transfer_handle()`
 
 ```rust
 // Rename (inside claim, before the claimed event):
@@ -461,6 +508,11 @@ env.events().publish(
 env.events().publish(
     (symbol_short!("handle"), symbol_short!("released")),
     (caller.clone(), handle, until));
+
+// Transfer:
+env.events().publish(
+    (symbol_short!("handle"), symbol_short!("moved")),
+    (from.clone(), to.clone(), handle));
 ```
 
 > **Note**: `admin_release()` does **not** emit a `handle` event (admin-only
@@ -472,7 +524,9 @@ env.events().publish(
 
 A handle holder publishes its profile face and bio (`set_meta()`), replacing any
 earlier ones. Only an address that holds a handle can set one; a rename keeps it.
-The stored shape is [`ProfileMeta`](#profilemeta-get_meta).
+Also emitted for `to` by `transfer_handle()` when the profile moves with the
+handle (right after `meta` / `cleared` for `from`). The stored shape is
+[`ProfileMeta`](#profilemeta-get_meta).
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -483,16 +537,17 @@ The stored shape is [`ProfileMeta`](#profilemeta-get_meta).
 
 | Index | Type | Description |
 |-------|------|-------------|
-| 0 | `Address` | `caller` — the handle holder |
+| 0 | `Address` | `caller` — the handle holder (`to` for a transfer) |
 | 1 | `u64` | `avatar` — the packed face (layout under `ProfileMeta`) |
 | 2 | `String` | `bio` — plain text, may be empty |
 
 ### `meta` / `cleared`
 
 An address's profile is deleted because it gave up its handle: `release()`
-(right after `handle` / `released`) or `admin_release()`. Emitted only when there
-was a profile to delete. Meta is keyed by address, so whoever claims the freed
-handle next starts with none.
+(right after `handle` / `released`), `admin_release()`, or `transfer_handle()`
+(right after `handle` / `moved`, followed by `meta` / `set` for the new wallet).
+Emitted only when there was a profile to delete. Meta is keyed by address, so
+whoever claims a freed handle next starts with none.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -516,9 +571,14 @@ env.events().publish(
     (symbol_short!("meta"), symbol_short!("set")),
     (caller, avatar, bio));
 
-// Cleared (from release / admin_release):
+// Cleared (from release / admin_release / transfer_handle):
 env.events().publish(
     (symbol_short!("meta"), symbol_short!("cleared")), addr);
+
+// Moved with a transfer (after cleared for `from`):
+env.events().publish(
+    (symbol_short!("meta"), symbol_short!("set")),
+    (to, meta.avatar, meta.bio));
 ```
 
 ---
@@ -527,7 +587,8 @@ env.events().publish(
 
 ### `gate` / `created`
 
-An access gate is defined by the admin.
+An access gate is defined or replaced by the admin, with `create_gate` (one rule) or
+`create_gate_rules` (a composite gate). Both emit the same event.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -555,7 +616,7 @@ A user claims a gate they pass, recording on-chain proof of unlock.
 |------|-------------|
 | `u32` | `id` — the gate ID |
 
-**Contract source**: `gate/src/lib.rs` → `fn create_gate()` / `fn unlock()`
+**Contract source**: `gate/src/lib.rs` → `fn put_gate()` (via `create_gate()` / `create_gate_rules()`) / `fn unlock()`
 
 ```rust
 // Create:
@@ -592,6 +653,16 @@ A direct USDC transfer from one wallet to another, with a social
 > topics as filter segments, so a 2-segment `['*', '*']` scan never returns `tipped`. Use a
 > 3-segment filter such as `[tipped, <from>, '*']` (`apps/web/src/lib/events.ts` →
 > `fetchTipsSent`).
+
+> **Invariants (#144)**: every `tipped` event moves value. `tip` reverts with
+> `InvalidAmount` (#8) for an `amount ≤ 0` and with `SelfTip` (#20) when `from == to`, so
+> `amount > 0` and `topics[1] != topics[2]` always hold. Before that rule the SAC accepted a
+> zero amount and a self-transfer, and a wallet could mint unlimited no-value `tipped`
+> events for the price of a fee — enough to fake "received a spend" in the feed and an
+> indexer, which is the Green belt's D7 de-risk metric. A `tipped` event from a contract
+> deployed before this rule is not re-validated; `amount > 0` and distinct wallets are the
+> normal case and only a deliberate abuse looks different. `SelfTip` (#20) sits above the
+> SAC's own 1–13 error range so a code can never be confused with the token contract's.
 
 ### `rwd_set` (Reward Registered/Updated)
 
@@ -716,7 +787,7 @@ Quick-reference table of all event discriminators and their sub-types.
 | `quest` | `created`, `awarded`, `att_bind`, `att_clear` | QuestRegistry | [↑](#2-questregistry-contract) |
 | `streak` | *(none)* | QuestRegistry | [↑](#streak-weekly-retention) |
 | `att_key` | `budget`, `near_cap` | QuestRegistry | [↑](#att_key--budget-attester-budget-set) |
-| `handle` | `claimed`, `released` | Registry | [↑](#3-registry-contract-handles) |
+| `handle` | `claimed`, `released`, `moved` | Registry | [↑](#3-registry-contract-handles) |
 | `meta` | `set`, `cleared` | Registry | [↑](#meta--set) |
 | `gate` | `created` | Gate | [↑](#4-gate-contract) |
 | `unlocked` | *(none)* | Gate | [↑](#unlocked) |
@@ -969,9 +1040,10 @@ failed call as "no cooldown".
 ### `ProfileMeta` (`get_meta`)
 
 `get_meta(addr) -> Option<ProfileMeta>` returns the profile `addr` published with
-`set_meta` (`DataKey::Meta(addr)`), or `None` if it never set one or has since given
-up its handle. A registry deployed before `set_meta` has no `get_meta`, so treat a
-failed call as "no profile" and show the default face.
+`set_meta` or received along with a handle from `transfer_handle`
+(`DataKey::Meta(addr)`), or `None` if it has none or has since given up its handle.
+A registry deployed before `set_meta` has no `get_meta`, so treat a failed call as
+"no profile" and show the default face.
 
 ```rust
 pub struct ProfileMeta {
@@ -1033,6 +1105,71 @@ A bound key does not need to be in the global allowlist, and a partner's key mus
 added there: the allowlist grants every unbound quest. `remove_attester_key` only edits
 the allowlist, so to revoke a bound key call `clear_quest_attester` (or rebind the quest)
 too. A contract deployed before this view has no `get_quest_attester`.
+
+### Quest award payload (`quest_payload` / `award_quest`)
+
+`award_quest(attester, sig, quest_id, recipient, expires_at)` credits a quest only with an
+ed25519 signature (64 bytes, plain ed25519 over the payload bytes, no pre-hash) from a key
+the quest accepts (see [Quest attester scope](#quest-attester-scope-get_quest_attester)),
+plus `recipient`'s own auth. `quest_payload(quest_id, recipient, expires_at) -> Bytes`
+returns the bytes `award_quest` rebuilds, for checking an off-chain build against a
+deployment.
+
+**Payload** — the XDR encoding of this `ScVal::Vec`:
+
+| Index | ScVal | Value |
+|-------|-------|-------|
+| 0 | `Symbol` | `"alvinmunk_award_quest_v1"` — domain tag (`AWARD_DOMAIN`) |
+| 1 | `Bytes` (32) | network id = `sha256(network passphrase)`, as the ledger reports it |
+| 2 | `Address` | the QuestRegistry contract being called |
+| 3 | `U32` | `quest_id` |
+| 4 | `Address` | `recipient` (a `G…` account or a `C…` passkey smart wallet) |
+| 5 | `U64` | `expires_at` — unix seconds, the last ledger timestamp the signature is accepted at |
+
+Each element closes one replay: the signature is useless on another network (index 1),
+against another deployment (2), for another quest (3) or wallet (4), or after its expiry
+(5), and the tag names the entrypoint and payload version, so it never matches another
+protocol's message or a later payload format (which must take a new tag). Test vector
+(quest `3` on testnet, contract `C…` = 32 × `0x11`, recipient `G…` = 32 × `0x22`,
+`expires_at` = `1790813400`, 2026-10-01 00:10:00 UTC):
+
+```
+000000100000000100000006                                                  vec of 6
+0000000f00000018616c76696e6d756e6b5f61776172645f71756573745f7631          Symbol
+0000000d00000020cee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472  network id
+00000012000000011111111111111111111111111111111111111111111111111111111111111111  contract
+0000000300000003                                                          u32 3
+0000001200000000000000002222222222222222222222222222222222222222222222222222222222222222  recipient
+00000005000000006abda4d8                                                  u64 1790813400
+```
+
+For a `C…` recipient (32 × `0x33`) index 4 is
+`00000012000000013333333333333333333333333333333333333333333333333333333333333333`.
+The contract test `quest_payload_matches_the_documented_bytes` and the web test in
+`apps/web/src/lib/attest.test.ts` both pin these bytes. **Build the payload yourself**
+(`questPayload` in `apps/web/src/lib/attest.ts`); never sign bytes an RPC node hands back,
+since a dishonest node could return the payload for its own address.
+
+**Expiry.** `/api/attest` signs with `expires_at` = its clock + 600 s (`QUEST_SIG_TTL_SECS`)
+and returns `{ ok, attester, sig, expiresAt, recipient, questId }`; `attester` is the raw
+public key in hex, `sig` is base64. The client passes `expiresAt` back as the fifth
+`award_quest` argument. The ledger timestamp trails wall-clock time by up to one ledger
+close, so the window is the attester's clock skew plus that, not exact. At
+`timestamp == expires_at` the award still goes through; from the next second it reverts
+with `SignatureExpired` (#8), and the user asks for a fresh signature.
+
+**Errors**, in the order `award_quest` checks them: `SignatureExpired` (#8), then
+`NotAuthorized` (#3) for a key the quest does not accept, then the signature. A signature
+that does not verify (wrong key, or any payload field changed, `expires_at` included)
+traps in the host with `Error(Crypto, InvalidInput)`, not a contract code. Then come
+`recipient.require_auth()`, `QuestNotFound` (#4), `QuestInactive` (#6), `AlreadyClaimed`
+(#5) and `AttesterBudgetExceeded` (#7). A rejected award records no claim.
+
+**Migration.** Before issue #142 the payload was `[quest_id, recipient, contract]` (a vec of
+3) and `award_quest` took four arguments. Signatures over that payload never verify on the
+upgraded contract, so grants issued but not redeemed before the upgrade are void. Upgrade
+the contract first, then deploy the web app, whose attester and `award_quest` call both
+need the new code.
 
 ### `Streak`
 
@@ -1146,6 +1283,15 @@ tightening it (`set_paused(true)` is the way to stop every payout), and with
 cap stored by a contract deployed before that rule reads as `0`, which is how the payout
 checks always treated it.
 
+### Tip validation (`validate_tip`, in `tip`)
+
+`tip(from, to, amount)` takes no view and emits no event of its own, but the reverts are
+part of the `tipped` contract above: `InvalidAmount` (#8) for `amount ≤ 0` and `SelfTip`
+(#20) for `from == to`. Both are checked before the SAC transfer and before the event, so a
+rejected tip moves nothing and mints nothing. `tip` also requires `from.require_auth()`, is
+gated on `Paused` (#5) and on the sender not being `Frozen` (#10), and never touches the
+treasury — the daily cap counts claims only, since a tip is sender-funded.
+
 ### `Gate`
 
 ```rust
@@ -1157,6 +1303,42 @@ pub struct Gate {
     pub active: bool,
 }
 ```
+
+For a composite gate, `track`/`min` hold its **first** rule only. `check` and `unlock`
+evaluate the whole rule set, so read `get_gate_rules` before describing what a gate
+requires.
+
+### Composite gates (`get_gate_rules`)
+
+```rust
+pub struct Rule {
+    pub track: u32, // 0 = Social, 1 = Earned
+    pub min: u64,
+}
+
+pub enum RuleMode {
+    AllOf = 0, // every rule must pass
+    AnyOf = 1, // at least one rule must pass
+}
+
+pub struct GateRules {
+    pub rules: Vec<Rule>,
+    pub mode: RuleMode, // encoded as a u32
+}
+```
+
+`create_gate_rules(id, rules, mode, label)` stores the set under its own key next to the
+`Gate`, which it writes active with the first rule's `track`/`min`. It reverts with
+`EmptyRules` (#8) for no rules, `TooManyRules` (#7) for more than `MAX_RULES` (4), and
+`BadTrack` (#6) for a track other than 0 or 1. Replacing a composite gate with
+`create_gate` drops its rule set. Replacing a gate either way keeps existing unlocks.
+
+`get_gate_rules(id) -> Option<GateRules>` returns `None` for an unknown gate. A gate
+created by `create_gate`, or before composite gates existed, has no stored set and reads
+as one `AllOf` rule built from its `Gate` fields. `check`/`unlock` read each reputation
+track at most once per call, however many rules name it. A contract deployed before
+composite gates has no `get_gate_rules` or `create_gate_rules`; its gates keep working
+unchanged after an upgrade.
 
 ---
 

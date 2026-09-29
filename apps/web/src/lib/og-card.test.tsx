@@ -16,7 +16,7 @@ vi.mock('./registry', () => ({
 vi.mock('./reputation', () => ({ getScores: async () => ({ social: 40, earned: 7 }) }));
 vi.mock('./constellation', () => ({ getPeopleCounts: async () => ({ vouchedBy: 3, backed: 2 }) }));
 
-import { ogResolve, ogCard, type OgScores } from './og-card';
+import { ogResolve, ogCard, handleFontSize, type OgScores } from './og-card';
 import { loadPng } from './og-assets';
 import { defaultAvatarId, faceFile, kitFile, type KitAvatar } from './avatar';
 
@@ -27,6 +27,27 @@ function render(el: JSX.Element): Document {
   return new DOMParser().parseFromString(renderToStaticMarkup(el), 'text/html');
 }
 const srcs = (doc: Document) => [...doc.querySelectorAll('img')].map((i) => i.getAttribute('src'));
+
+describe('handleFontSize', () => {
+  it('returns max size for short handles (acceptance criteria: 3, 12 chars)', () => {
+    expect(handleFontSize(3)).toBe(76);
+    expect(handleFontSize(12)).toBe(76);
+  });
+
+  it('scales down for medium handles (acceptance criteria: 20 chars)', () => {
+    // At 20 chars: (20-12)/(32-12) = 0.4, so 76 - 0.4*(76-40) = 76 - 14.4 = 61.6
+    expect(handleFontSize(20)).toBeCloseTo(61.6, 1);
+  });
+
+  it('returns min size for very long handles (acceptance criteria: 32 chars)', () => {
+    expect(handleFontSize(32)).toBe(40);
+  });
+
+  it('handles edge cases', () => {
+    expect(handleFontSize(1)).toBe(76);
+    expect(handleFontSize(100)).toBe(40);
+  });
+});
 
 describe('ogResolve', () => {
   beforeEach(() => {

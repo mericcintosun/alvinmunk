@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Moon, Sun } from 'lucide-react';
 import { useTranslations } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { getItem, setItem } from '@/lib/storage';
 
 /** localStorage key for an explicit theme choice. Read by the pre-paint script in the root layout. */
 export const THEME_KEY = 'alvinmunk.theme';
@@ -30,11 +31,7 @@ export function ThemeToggle({ className }: { className?: string }) {
     setTheme(document.documentElement.classList.contains('light') ? 'light' : 'dark');
     const media = window.matchMedia('(prefers-color-scheme: light)');
     const onChange = (e: MediaQueryListEvent) => {
-      try {
-        if (localStorage.getItem(THEME_KEY)) return; // an explicit choice wins
-      } catch {
-        // storage blocked: keep following the OS
-      }
+      if (getItem(THEME_KEY)) return; // an explicit choice wins
       const next: Theme = e.matches ? 'light' : 'dark';
       applyTheme(next);
       setTheme(next);
@@ -52,11 +49,7 @@ export function ThemeToggle({ className }: { className?: string }) {
       onClick={() => {
         applyTheme(next);
         setTheme(next);
-        try {
-          localStorage.setItem(THEME_KEY, next);
-        } catch {
-          // storage blocked: the choice lasts for this page view only
-        }
+        setItem(THEME_KEY, next);
       }}
       aria-label={label}
       title={label}

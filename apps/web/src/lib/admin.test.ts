@@ -37,6 +37,7 @@ import {
   validateQuest,
   validateReward,
   validateSupply,
+  validateTip,
   type ContentAdmins,
 } from './admin';
 import type { RewardEntry } from './rewards';
@@ -184,6 +185,26 @@ describe('input checks', () => {
     });
     expect(validateQuest({ id: '5', schemaId: '2', xp: '0' }).ok).toBe(false);
     expect(validateQuest({ id: '5', schemaId: '4294967296', xp: '50' }).ok).toBe(false);
+  });
+
+  it('validates a tip like tip() does: amount > 0, and somebody else as the receiver', () => {
+    expect(validateTip({ to: OTHER, amount: '2.5' }, ADMIN)).toEqual({
+      ok: true,
+      value: 25_000_000n,
+    });
+    // #144: a zero or negative tip moves no value, so the contract refuses it.
+    for (const bad of ['0', '0.0', '0.0000000', '-1', 'abc', '']) {
+      expect(validateTip({ to: OTHER, amount: bad }, ADMIN).ok, `amount ${bad}`).toBe(false);
+    }
+    // …and so does a tip to yourself: the SAC moves the balance to itself and `tipped`
+    // would read as a spend received.
+    expect(validateTip({ to: ADMIN, amount: '1' }, ADMIN)).toEqual({
+      ok: false,
+      error: expect.stringContaining('your own wallet'),
+    });
+    // The amount is checked first, exactly as `validate_tip` orders it on-chain.
+    const both = validateTip({ to: ADMIN, amount: '0' }, ADMIN);
+    expect(both).toEqual({ ok: false, error: expect.stringContaining('more than 0') });
   });
 });
 

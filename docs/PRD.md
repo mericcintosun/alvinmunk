@@ -28,7 +28,7 @@ Status: **v1 (MVP through White→Green belts)** · Last updated: 2026-06-22 —
 ## 5. North-star & guardrail metrics
 - **North-star:** **Verified Value Loops / week** — a vouch staked & redeemed into USDC by a *different*, proof-of-funding-verified user, where the USDC was backed by real external value (anti-sybil §North-star). Raw "closed loops" is a vanity sub-metric only.
 - **Acquisition:** share-link → install → activation (wallet created **AND** first stamp).
-- **Retention (de-risk gate, Green):** D7 return among users who *received* a spend (tip/reward).
+- **Retention (de-risk gate, Green):** D7 return among users who *received* a spend (tip/reward). Both are real USDC transfers on-chain: `tip` reverts on a non-positive amount and on `from == to`, so a `tipped` event can't be minted for free (#144) — that would let a wallet "receive" any number of spends from itself.
 - **Viral:** referral/vouch viral coefficient (>0.3 target at Blue).
 - **Integrity:** % loops flagged by ring/cluster detection (lower is better).
 

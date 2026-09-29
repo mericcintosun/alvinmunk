@@ -12,7 +12,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { StateArt } from '@/components/ui/state-art';
 import { Sticker } from '@/components/ui/sticker';
 import { useTranslations } from '@/lib/i18n';
-import { cn, shortAddress } from '@/lib/utils';
+import { shortAddr } from '@alvinmunk/shared';
+import { cn } from '@/lib/utils';
 
 export default function LeaderboardPage() {
   const t = useTranslations();
@@ -169,7 +170,7 @@ export default function LeaderboardPage() {
                       {handles[e.address] ? (
                         <span className="text-foreground">@{handles[e.address]}</span>
                       ) : (
-                        shortAddress(e.address)
+                        shortAddr(e.address)
                       )}
                     </p>
                     <div className="mt-0.5 flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider">
