@@ -43,6 +43,7 @@ import {
   validateEvidence,
   type AttestEvidence,
 } from '../../../lib/attest';
+import { json, withRoute } from '../../../lib/api-route';
 // The app's one resolved (and validated) network config — no per-route testnet defaults — so
 // the attester signs for the same network, passphrase and contracts as the client.
 import { config, misconfiguredResponse } from '../../../lib/stellar';
@@ -88,7 +89,7 @@ const QUEST_EVIDENCE = buildQuestEvidenceMap(process.env);
 // Recipient may be a classic (G…) OR a passkey smart-account (C…) address.
 const STELLAR_ADDRESS = /^[GC][A-Z2-7]{55}$/;
 
-export async function POST(req: Request): Promise<Response> {
+export const POST = withRoute('POST /api/attest', async (req: Request): Promise<Response> => {
   // Never sign on an inconsistent config (say, a mainnet passphrase with a testnet contract).
   const misconfigured = misconfiguredResponse();
   if (misconfigured) return misconfigured;
@@ -145,17 +146,11 @@ export async function POST(req: Request): Promise<Response> {
   // 4) Sign the contract's canonical payload — the recipient redeems it on-chain.
   try {
     const signed = await signQuestPayload(secret, body.questId, body.recipient);
-    logEvent({ route: 'attest', outcome: 'ok', questId: body.questId, ms: Date.now() - now });
     return json({ ok: true, ...signed, recipient: body.recipient, questId: body.questId });
   } catch (e) {
-    logEvent({ route: 'attest', outcome: 'error', questId: body.questId, ms: Date.now() - now });
     return json({ error: e instanceof Error ? e.message : 'sign failed' }, 502);
   }
-}
-
-function logEvent(fields: Record<string, unknown>): void {
-  console.log(JSON.stringify({ t: new Date().toISOString(), ...fields }));
-}
+});
 
 async function verifyEvidence(
   ev: AttestEvidence,
@@ -397,11 +392,4 @@ async function signQuestPayload(
   const payload = scValToNative(retval) as Uint8Array;
   const sig = kp.sign(Buffer.from(payload));
   return { attester: kp.rawPublicKey().toString('hex'), sig: sig.toString('base64') };
-}
-
-function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  });
 }
