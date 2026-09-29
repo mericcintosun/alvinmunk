@@ -27,6 +27,7 @@ use soroban_sdk::{
 const DAY_LEDGERS: u32 = 17_280; // ~1 day
 const BUMP_EXTEND: u32 = 2_592_000; // ~150 days
 const BUMP_THRESHOLD: u32 = BUMP_EXTEND - DAY_LEDGERS;
+const HANDLE_COOLDOWN_SECS: u64 = 30 * 24 * 60 * 60; // 30 days in seconds
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -35,6 +36,7 @@ pub enum Error {
     NotInitialized = 1,
     AlreadyInitialized = 2,
     HandleTaken = 3,
+    HandleCoolingDown = 9,
     NoHandle = 4,
     BioTooLong = 5,
     BadBio = 6,
@@ -77,6 +79,14 @@ pub enum DataKey {
     Fwd(Symbol),   // handle -> Address
     Rev(Address),  // Address -> handle (one handle per address)
     Meta(Address), // Address -> ProfileMeta (only while the address holds a handle)
+    Cooldown(Symbol), // handle -> CooldownInfo during cooldown
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CooldownInfo {
+    pub prev_owner: Address,
+    pub until: u64,
 }
 
 /// A handle holder's public profile. `avatar` is the packed face (layout above); `bio` is
@@ -115,6 +125,23 @@ impl RegistryContract {
     pub fn claim(env: Env, caller: Address, handle: Symbol) {
         caller.require_auth();
 
+        // Check for cooldown on the target handle
+        let ckey = DataKey::Cooldown(handle.clone());
+        if let Some(info) = env.storage().persistent().get::<DataKey, CooldownInfo>(&ckey) {
+            if info.prev_owner != caller {
+                let now = env.ledger().timestamp();
+                if now < info.until {
+                    panic_with_error!(&env, Error::HandleCoolingDown);
+                } else {
+                    // cooldown expired, remove entry
+                    env.storage().persistent().remove(&ckey);
+                }
+            } else {
+                // previous owner reclaiming, clear entry
+                env.storage().persistent().remove(&ckey);
+            }
+        }
+
         let fkey = DataKey::Fwd(handle.clone());
         if let Some(owner) = env.storage().persistent().get::<DataKey, Address>(&fkey) {
             if owner != caller {
@@ -139,6 +166,10 @@ impl RegistryContract {
                 (symbol_short!("handle"), symbol_short!("released")),
                 (caller.clone(), old),
             );
+            // set cooldown for the old handle
+            let until = env.ledger().timestamp() + HANDLE_COOLDOWN_SECS;
+            let info = CooldownInfo { prev_owner: caller.clone(), until };
+            env.storage().persistent().set(&DataKey::Cooldown(old.clone()), &info);
         }
 
         env.storage().persistent().set(&fkey, &caller);
@@ -189,6 +220,10 @@ impl RegistryContract {
             .persistent()
             .remove(&DataKey::Fwd(handle.clone()));
         env.storage().persistent().remove(&rkey);
+        // set cooldown for the released handle
+        let until = env.ledger().timestamp() + HANDLE_COOLDOWN_SECS;
+        let info = CooldownInfo { prev_owner: caller.clone(), until };
+        env.storage().persistent().set(&DataKey::Cooldown(handle.clone()), &info);
         env.events().publish(
             (symbol_short!("handle"), symbol_short!("released")),
             (caller.clone(), handle),

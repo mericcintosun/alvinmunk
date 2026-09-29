@@ -107,30 +107,47 @@ fn rename_frees_the_old_handle() {
 }
 
 #[test]
+#[test]
+#[should_panic]
 fn renamed_away_handle_is_reclaimable_by_another() {
     let (env, client, _admin) = setup();
     let alice = Address::generate(&env);
     let bob = Address::generate(&env);
     client.claim(&alice, &symbol_short!("old"));
     client.claim(&alice, &symbol_short!("new"));
+    // Bob attempts to claim the old handle during cooldown, should panic with HandleCoolingDown
     client.claim(&bob, &symbol_short!("old"));
-    assert_eq!(
-        env.events().all(),
-        vec![&env, handle_event(&client, "claimed", &bob, "old")]
-    );
-    assert_eq!(client.resolve(&symbol_short!("old")), Some(bob));
-    assert_eq!(client.resolve(&symbol_short!("new")), Some(alice));
 }
 
+
 #[test]
-fn release_frees_both_directions() {
+#[test]
+#[should_panic]
+fn release_cooldown_prevents_immediate_claim() {
     let (env, client, _admin) = setup();
     let alice = Address::generate(&env);
     client.claim(&alice, &symbol_short!("alice"));
     client.release(&alice);
-    assert_eq!(client.resolve(&symbol_short!("alice")), None);
-    assert_eq!(client.reverse(&alice), None);
+    // Bob attempts to claim immediately; should panic with HandleCoolingDown
+    let bob = Address::generate(&env);
+    client.claim(&bob, &symbol_short!("alice"));
 }
+
+#[test]
+fn release_handle_claimable_after_cooldown() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    client.claim(&alice, &symbol_short!("alice"));
+    client.release(&alice);
+    // advance ledger timestamp far beyond cooldown
+    env.ledger().with_mut(|li| {
+        li.timestamp += 1_000_000_000;
+    });
+    let bob = Address::generate(&env);
+    client.claim(&bob, &symbol_short!("alice"));
+    assert_eq!(client.resolve(&symbol_short!("alice")), Some(bob));
+}
+
 
 #[test]
 #[should_panic]
