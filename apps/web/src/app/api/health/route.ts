@@ -27,17 +27,45 @@ export async function GET(): Promise<Response> {
     },
   };
 
-  let rpcOk = false;
-  try {
-    const latest = await new rpc.Server(RPC_URL, { allowHttp: RPC_URL.startsWith('http://') }).getLatestLedger();
-    rpcOk = true;
-    checks.latestLedger = latest.sequence;
-  } catch {
-    rpcOk = false;
-  }
-  checks.rpcOk = rpcOk;
+  let rpcStatus = 'unhealthy';
+  let rpcWarning: string | undefined;
 
-  const ok = rpcOk && Boolean(process.env.NEXT_PUBLIC_REWARDS_CONTRACT_ID);
+  try {
+    const server = new rpc.Server(RPC_URL, { allowHttp: RPC_URL.startsWith('http://') });
+    
+    const timeoutPromise = new Promise<never>((_, reject) => 
+      setTimeout(() => reject(new Error('timeout')), 5000)
+    );
+    
+    const health = await Promise.race([
+      server.getHealth(),
+      timeoutPromise
+    ]);
+
+    if (health.status === 'healthy') {
+      rpcStatus = 'ok';
+      checks.latestLedger = health.latestLedger;
+      checks.ledgerRetentionWindow = health.ledgerRetentionWindow;
+      
+      const MAX_REQUIRED_WINDOW = 17280;
+      if (health.ledgerRetentionWindow != null && health.ledgerRetentionWindow < MAX_REQUIRED_WINDOW) {
+        rpcWarning = `RPC retention window (${health.ledgerRetentionWindow}) is smaller than required (${MAX_REQUIRED_WINDOW})`;
+      }
+    }
+  } catch (err: any) {
+    if (err.message === 'timeout') {
+      rpcStatus = 'timeout';
+    } else {
+      rpcStatus = 'unhealthy';
+    }
+  }
+  
+  checks.rpc = rpcStatus;
+  if (rpcWarning) {
+    checks.rpcWarning = rpcWarning;
+  }
+
+  const ok = rpcStatus === 'ok' && Boolean(process.env.NEXT_PUBLIC_REWARDS_CONTRACT_ID);
   return new Response(JSON.stringify({ ok, ...checks }), {
     status: ok ? 200 : 503,
     headers: { 'content-type': 'application/json' },
