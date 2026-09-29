@@ -71,7 +71,7 @@ TAM framing: consumer social + B2B trust-signal + DeFi identity.
 ### 8. Traction (fill with live numbers)
 - Live on testnet: `alvinmunk.vercel.app`, 5 Soroban contracts deployed + cross-verified on-chain.
 - Belts cleared: White, Yellow, Orange, Idea approved.
-- N users onboarded, M vouches, K closed loops (update from PostHog + the onboarding sheet).
+- N users onboarded, M vouches, K closed loops (update from Vercel Analytics + the onboarding sheet).
 - 134 passing tests, green CI, product analytics live.
 
 ---
