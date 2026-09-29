@@ -1,8 +1,9 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 
-const { readPublicMock, readContractMock } = vi.hoisted(() => ({
+const { readPublicMock, readContractMock, invokeAndWaitMock } = vi.hoisted(() => ({
   readPublicMock: vi.fn(),
   readContractMock: vi.fn(),
+  invokeAndWaitMock: vi.fn(),
 }));
 
 vi.mock('./contracts', async (importOriginal) => ({
@@ -10,6 +11,7 @@ vi.mock('./contracts', async (importOriginal) => ({
   questId: () => 'CQUEST',
   readPublic: readPublicMock,
   readContract: readContractMock,
+  invokeAndWait: invokeAndWaitMock,
 }));
 
 import { completeQuest, getStreak, getWeekBounds, timeUntilReset } from './quests';
@@ -39,6 +41,32 @@ describe('completeQuest', () => {
     expect(r.error).toMatch(/not merged/i);
     expect(fetchSpy).toHaveBeenCalledOnce();
 
+    vi.unstubAllGlobals();
+  });
+
+  it('explains an award refused by the attester key’s daily budget (#7)', async () => {
+    vi.stubGlobal('fetch', (async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ attester: '00'.repeat(32), sig: btoa('s'.repeat(64)) }),
+    })) as unknown as typeof fetch);
+    invokeAndWaitMock.mockRejectedValueOnce(
+      new Error('HostError: Error(Contract, #7)\nEvent log (newest first): ...'),
+    );
+    const wallet: Wallet = {
+      kind: 'freighter',
+      address: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
+      sign: async (x) => x,
+      signMessage: vi.fn(),
+    };
+
+    const r = await completeQuest(wallet, 2, { type: 'referral_tx', ref: 'G'.padEnd(56, 'B') });
+
+    expect(r).toEqual({
+      ok: false,
+      error: 'Quest rewards hit today’s limit — try again after 00:00 UTC.',
+    });
+    expect(invokeAndWaitMock).toHaveBeenCalledOnce();
     vi.unstubAllGlobals();
   });
 });

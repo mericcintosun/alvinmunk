@@ -29,6 +29,7 @@ const QUEST_ERRORS: Record<number, string> = {
   4: 'That quest doesn’t exist.',
   5: 'You’ve already completed this quest.',
   6: 'This quest isn’t active right now.',
+  7: 'Quest rewards hit today’s limit — try again after 00:00 UTC.',
 };
 
 export interface QuestResult {

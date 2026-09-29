@@ -208,8 +208,10 @@ describe('constellation backdrop under reduced motion', () => {
     restoreCanvas();
   });
 
-  function elements(): HTMLElement[] {
-    return [...container.querySelectorAll('group, sprite')];
+  // The R3F host elements the mocked renderer mounts carry the three.js transforms.
+  type SceneNode = Element & { scale: THREE.Vector3; rotation: THREE.Euler; position: THREE.Vector3 };
+  function elements(): SceneNode[] {
+    return [...container.querySelectorAll('group, sprite')] as SceneNode[];
   }
 
   function snapshot() {

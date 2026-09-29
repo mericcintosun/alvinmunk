@@ -156,8 +156,9 @@ install funnel).
 
 #### `vouch` / `minted`
 
-A half-card is minted by `from` for an unknown recipient (bound to
-`sha256(secret)`).
+A half-card is minted by `from` for an unknown recipient, bound to an ed25519
+claim key (`mint_vouch_signed`) or, on the legacy path, to `sha256(secret)`
+(`mint_vouch`). Both emit this same event.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -173,7 +174,10 @@ A half-card is minted by `from` for an unknown recipient (bound to
 
 #### `vouch` / `claimed`
 
-A recipient claims a half-card by presenting its secret.
+A recipient claims a half-card with a claim-key signature that names them
+(`claim_vouch_signed`) or, for a card minted with a claim hash, by presenting its
+secret (`claim_vouch`). Both emit this same event. See
+[Claim keys](#claim-keys-mint_vouch_signed--claim_vouch_signed--get_claim_key).
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -206,7 +210,7 @@ is forfeit (not refunded).
 | 1 | `Address` | `from` — the voucher whose stake was slashed |
 | 2 | `u64` | `stake` — the slashed amount |
 
-**Contract source**: `reputation/src/lib.rs` → `fn mint_vouch()` / `fn claim_vouch()` / `fn expire_vouch()`
+**Contract source**: `reputation/src/lib.rs` → `fn mint()` (shared by `mint_vouch_signed` / `mint_vouch`) / `fn settle_claim()` (shared by `claim_vouch_signed` / `claim_vouch`) / `fn expire_vouch()`
 
 ```rust
 // Mint:
@@ -335,6 +339,56 @@ env.events().publish(
     (symbol_short!("streak"), player.clone()), (s.weeks, s.best));
 ```
 
+### `att_key` / `budget` (Attester Budget Set)
+
+The admin set an attester key's daily Earned-XP budget with
+`set_attester_budget(key, budget)`; `0` removes the budget (unlimited). See
+[`AttesterUsage`](#attesterusage-get_attester_usage).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol("att_key")` | Event discriminator |
+| **topics[1]** | `Symbol("budget")` | Sub-type |
+
+**Data tuple**:
+
+| Index | Type | Description |
+|-------|------|-------------|
+| 0 | `BytesN<32>` | `key` — the ed25519 attester public key |
+| 1 | `u64` | `budget` — Earned XP the key may award per UTC day (`0` = unlimited) |
+
+### `att_key` / `near_cap` (Attester Budget 80%)
+
+An award took a budgeted key's usage for the day from under 80% of its budget to 80% or
+more. Only the award that crosses the line emits it (so once per key per day, unless the
+budget is raised above the usage again), letting monitoring alert before awards start
+reverting with `AttesterBudgetExceeded` (#7). Keys without a budget never emit it.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol("att_key")` | Event discriminator |
+| **topics[1]** | `Symbol("near_cap")` | Sub-type |
+
+**Data tuple**:
+
+| Index | Type | Description |
+|-------|------|-------------|
+| 0 | `BytesN<32>` | `key` — the attester public key |
+| 1 | `u64` | `used` — Earned XP the key has awarded today, including this award |
+| 2 | `u64` | `budget` — the key's daily budget |
+
+**Contract source**: `quest_registry/src/lib.rs` → `fn set_attester_budget()` / `fn spend_attester_budget()`
+
+```rust
+// Budget set:
+env.events().publish(
+    (symbol_short!("att_key"), symbol_short!("budget")), (key, budget));
+
+// 80% reached:
+env.events().publish(
+    (symbol_short!("att_key"), symbol_short!("near_cap")), (key.clone(), now, budget));
+```
+
 ---
 
 ## 3. Registry Contract (Handles)
@@ -362,7 +416,10 @@ changes nothing and emits no event.
 
 A handle is freed: the wallet released it (`release()`), or renamed away from
 it (`claim()` with a different handle, emitted right before the new `claimed`).
-Either way the handle no longer resolves and anyone may claim it.
+Either way the handle no longer resolves and enters a 30-day cooldown
+(`HANDLE_COOLDOWN_SECS`): until `until` only this wallet may claim it again, and
+`claim()` by anyone else reverts with `HandleCoolingDown` (#9). From `until` on,
+anyone may claim it.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -375,10 +432,17 @@ Either way the handle no longer resolves and anyone may claim it.
 |-------|------|-------------|
 | 0 | `Address` | `caller` — the wallet that held the handle |
 | 1 | `Symbol` | `handle` — the freed handle |
+| 2 | `u64` | `until` — ledger timestamp (unix seconds) the cooldown ends at |
+
+Index 2 was appended when handle cooldowns landed; readers that only look at
+indexes 0–1 are unaffected. A registry deployed before then emits two fields and
+has no cooldown.
 
 An indexer keyed by handle stays in sync by applying both sub-types in event
-order: `claimed` sets `handle → caller`, `released` deletes `handle`. The one
-gap is `admin_release()` (see the note below).
+order: `claimed` sets `handle → caller` (ending any cooldown on it), `released`
+deletes `handle` and marks it reserved for `caller` until `until`. The one gap
+is `admin_release()` (see the note below); the `cooldown` read view is always
+current.
 
 **Contract source**: `registry/src/lib.rs` → `fn claim()` / `fn release()`
 
@@ -386,7 +450,7 @@ gap is `admin_release()` (see the note below).
 // Rename (inside claim, before the claimed event):
 env.events().publish(
     (symbol_short!("handle"), symbol_short!("released")),
-    (caller.clone(), old));
+    (caller.clone(), old, until));
 
 // Claim:
 env.events().publish(
@@ -396,12 +460,13 @@ env.events().publish(
 // Release:
 env.events().publish(
     (symbol_short!("handle"), symbol_short!("released")),
-    (caller, handle));
+    (caller.clone(), handle, until));
 ```
 
 > **Note**: `admin_release()` does **not** emit a `handle` event (admin-only
 > operation that cleans up state silently). It does emit `meta` / `cleared` when
-> the holder had a profile.
+> the holder had a profile. It frees the handle outright: it starts no cooldown,
+> and silently ends one the handle is already in.
 
 ### `meta` / `set`
 
@@ -650,6 +715,7 @@ Quick-reference table of all event discriminators and their sub-types.
 | `vouch` | `minted`, `claimed`, `slashed` | Reputation | [↑](#vouch-async-half-card-lifecycle) |
 | `quest` | `created`, `awarded`, `att_bind`, `att_clear` | QuestRegistry | [↑](#2-questregistry-contract) |
 | `streak` | *(none)* | QuestRegistry | [↑](#streak-weekly-retention) |
+| `att_key` | `budget`, `near_cap` | QuestRegistry | [↑](#att_key--budget-attester-budget-set) |
 | `handle` | `claimed`, `released` | Registry | [↑](#3-registry-contract-handles) |
 | `meta` | `set`, `cleared` | Registry | [↑](#meta--set) |
 | `gate` | `created` | Gate | [↑](#4-gate-contract) |
@@ -703,7 +769,7 @@ pub struct Attestation {
 pub struct Vouch {
     pub id: u64,
     pub from: Address,
-    pub claim_hash: BytesN<32>,  // sha256 of the claim secret
+    pub claim_hash: BytesN<32>,  // sha256 of the claim secret; all zeros on a claim-key card
     pub note: String,            // free-text note from the voucher, <= 240 BYTES of UTF-8
     pub claimed: bool,
     pub claimer: Option<Address>,
@@ -713,8 +779,8 @@ pub struct Vouch {
 }
 ```
 
-`mint_vouch(from, claim_hash, note)` reverts with `NoteTooLong` (#12) when `note` is
-over 240 bytes (not characters: `ş` is 2 bytes, most emoji 4). That is the web app's
+`mint_vouch_signed(from, claim_key, note)` and `mint_vouch(from, claim_hash, note)` revert
+with `NoteTooLong` (#12) when `note` is over 240 bytes (not characters: `ş` is 2 bytes, most emoji 4). That is the web app's
 60-character limit at UTF-8's worst case, so a note typed there always fits. Vouches
 minted before the cap keep their note as stored.
 
@@ -727,6 +793,76 @@ Read one with `get_vouch(id)`, or read many straight from storage with RPC
 (`apps/web/src/lib/vouch-funnel.ts`), so these two keys are part of the read surface. A
 `Vouch` entry's TTL is extended only at mint (to ~150 days), so an old one can be archived
 and missing from `getLedgerEntries`; count it as unread, not as absent.
+
+This shape is **frozen** for the same reason as `Profile` below: the funnel and generated
+bindings decode exactly these nine fields. A card's claim key is therefore not a field but
+its own entry (next section).
+
+### Claim keys (`mint_vouch_signed` / `claim_vouch_signed` / `get_claim_key`)
+
+A claim-secret card (`mint_vouch` / `claim_vouch`) is front-runnable: the secret is a plain
+`claim_vouch` argument, so it is public from the claim's simulation onward, and anyone can
+resubmit it with their own address first (issue #121). Current cards bind the claim to one
+address instead:
+
+1. **Mint.** The voucher's browser draws a fresh 32-byte ed25519 seed and calls
+   `mint_vouch_signed(from, claim_key, note)` with its public key. The key is stored as the
+   persistent entry `DataKey::ClaimPubkey(id)` (storage key
+   `Vec[Symbol("ClaimPubkey"), U64(id)]`, TTL bumped with the `Vouch` at mint), the card's
+   `claim_hash` is 32 zero bytes, and the event is the usual `vouch` / `minted`. Stake,
+   daily cap and note cap are the same as `mint_vouch` (the daily cap counts both).
+2. **Share.** The link is `/claim/<id>#k=<seed as 64 hex chars>`. The seed rides in the URL
+   fragment, which browsers never send to a server; the app keeps a local copy for re-sharing.
+3. **Claim.** The claimer's browser signs the claim message below with the seed and calls
+   `claim_vouch_signed(claimer, vouch_id, sig)`. The contract requires `claimer`'s auth and
+   verifies `sig` (64 bytes, plain ed25519 over the message bytes, no pre-hash) against the
+   stored key. The seed never leaves the browser.
+
+**Claim message** — the XDR encoding of this `ScVal::Vec`:
+
+| Index | ScVal | Value |
+|-------|-------|-------|
+| 0 | `Symbol` | `"alvinmunk_vouch_claim"` — domain tag (`CLAIM_DOMAIN`) |
+| 1 | `Bytes` (32) | network id = `sha256(network passphrase)`, as the ledger reports it |
+| 2 | `Address` | the Reputation contract being called |
+| 3 | `U64` | `vouch_id` |
+| 4 | `Address` | `claimer` (a `G…` account or a `C…` passkey smart wallet) |
+
+Each element closes one replay: a signature seen in a pending claim is useless for another
+claimer (index 4), another card, even one minted with the same key (3), another deployment
+(2), or another network (1), and the tag keeps it from matching any other protocol's message.
+Test vector (vouch `7` on testnet, contract `C…` = 32 × `0x11`, claimer `G…` = 32 × `0x22`):
+
+```
+000000100000000100000005                                                  vec of 5
+0000000f00000015616c76696e6d756e6b5f766f7563685f636c61696d000000          Symbol
+0000000d00000020cee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472  network id
+00000012000000011111111111111111111111111111111111111111111111111111111111111111  contract
+000000050000000000000007                                                  u64 7
+0000001200000000000000002222222222222222222222222222222222222222222222222222222222222222  claimer
+```
+
+The contract test `claim_message_matches_the_documented_bytes` and the web test in
+`apps/web/src/lib/reputation.test.ts` both pin these bytes. **Build the message yourself**
+(`claimMessage` in `apps/web/src/lib/reputation.ts`); never sign bytes an RPC node hands
+back, since a dishonest node could return the message for its own address.
+
+**Errors.** A signature that does not verify (wrong key, wrong claimer, card, contract or
+network) traps in the host with `Error(Crypto, InvalidInput)`, not a contract code; a
+cross-contract `try_call` sees it as `Error(Context, InvalidAction)`. Calling the wrong
+entrypoint for a card reverts with `WrongClaimMethod` (#13): `claim_vouch_signed` on a
+claim-hash card, or `claim_vouch` on a claim-key card. The other claim errors are as
+before (`VouchNotFound` #4, `AlreadyClaimed` #5, `SelfVouch` #6).
+
+**Telling cards apart.** `get_claim_key(vouch_id) -> Option<BytesN<32>>` returns the stored
+key, or `None` for a claim-hash card (and an unknown id). The key is public; only the seed
+in the link can sign.
+
+**Legacy cards.** Cards minted before this upgrade keep their shape and still claim with
+`claim_vouch` and their `#s=` (or older `?s=`) link, so none are stranded; they stay
+front-runnable until claimed or expired. `mint_vouch` still works for integrations but
+mints the same front-runnable kind; the web app only calls `mint_vouch_signed`. Upgrade
+the contract before shipping a web build that calls it.
 
 ### `Profile` (`get_profile`)
 
@@ -756,8 +892,8 @@ contract, a generated binding). New per-address data ships as its own view inste
 | 1 | `u32` | `backed` — distinct people `addr` vouched for |
 
 Both are persistent counters (`DataKey::VouchedBy(addr)` / `DataKey::Backed(addr)`) that
-`claim_vouch` increments only on a **fresh first pair** — the same `Seen(from, claimer)`
-guard that gates the claim XP. Repeat vouches between the same two people, self-vouches
+a claim (`claim_vouch_signed` or `claim_vouch`) increments only on a **fresh first pair** —
+the same `Seen(from, claimer)` guard that gates the claim XP. Repeat vouches between the same two people, self-vouches
 and rejected claims never move them. Direction matters: `alice -> bob` and `bob -> alice`
 are two pairs. No new event is emitted; each increment happens alongside a
 `vouch` / `claimed` event.
@@ -783,7 +919,7 @@ pub struct PendingBonus {
 }
 ```
 
-`claim_vouch` queues one entry per fresh first pair while the claimer is unverified. The
+A claim queues one entry per fresh first pair while the claimer is unverified. The
 claimer's first Earned credit (`award_xp`) pays every entry out as a `social` event for
 its voucher and removes the queue, so the view is empty from then on — as it is for any
 address with nothing queued. Bonuses for an already-verified claimer are paid at claim
@@ -809,6 +945,26 @@ archived. Callers chunk longer lists (`reverseHandles` in `apps/web/src/lib/regi
 All three are pure reads: any caller, no auth, no writes, no TTL extension. A registry
 deployed before `reverse_many` has no such function (`Error(WasmVm, MissingValue)`,
 "non-existent contract function"), so fall back to one `reverse` per address.
+
+### Handle cooldown (`cooldown`)
+
+`cooldown(handle) -> Option<CooldownInfo>` says why a free handle can't be claimed yet:
+it was released or renamed away less than 30 days (`HANDLE_COOLDOWN_SECS`) ago.
+
+```rust
+pub struct CooldownInfo {
+    pub prev_owner: Address,  // the wallet that freed it; it may reclaim it any time
+    pub until: u64,           // ledger timestamp (unix seconds) anyone may claim it from
+}
+```
+
+`None` when the handle is held, was never freed, its cooldown has passed, or
+`admin_release` lifted it. While it is `Some`, `claim(handle)` by any address other
+than `prev_owner` reverts with `HandleCoolingDown` (#9). The window is checked against
+ledger time only, and the entry lives in temporary storage (about 60 days of ledgers)
+so it outlives `until` and then deletes itself. Pure read: any caller, no writes, no
+TTL extension. A registry deployed before cooldowns has no such function, so treat a
+failed call as "no cooldown".
 
 ### `ProfileMeta` (`get_meta`)
 
@@ -916,6 +1072,32 @@ time by up to one ledger close. A contract deployed before this view has no
 The alignment is frozen: every stored `Streak.last_week` is an index in this epoch, so
 moving weeks to another start day would break every live streak. A different alignment
 would need a versioned epoch and a migration.
+
+### `AttesterUsage` (`get_attester_usage`)
+
+`get_attester_usage(key) -> AttesterUsage` reports an attester key's daily Earned-XP
+budget and today's usage. The admin sets the budget with `set_attester_budget(key,
+budget)` (`0` = unlimited, the default for every key, so keys added before budgets existed
+are unlimited without a migration).
+
+```rust
+pub struct AttesterUsage {
+    pub budget: u64, // Earned XP the key may award per UTC day; 0 = unlimited
+    pub used: u64,   // Earned XP it awarded during `day` while a budget was set
+    pub day: u64,    // the current budget day: timestamp / 86_400
+}
+```
+
+Budget days are UTC calendar days (00:00:00 to 23:59:59), so the budget resets at
+`(day + 1) * 86_400`. `award_quest` adds the quest's XP to the key's usage for the day and
+reverts with `AttesterBudgetExceeded` (#7) if that would exceed the budget; an award that
+exactly reaches it goes through. The check runs after the existing ones, so a call that
+failed with #3–#6 before still does. Usage is only counted while a key has a budget: a
+budget set mid-day counts from the next award, and an unlimited key's awards add nothing.
+The budget belongs to the key, not to its allowlist entry or quest bindings: it covers
+every quest the key awards (quests bound to it with `set_quest_attester` included),
+survives `remove_attester_key`, and applies again if the key is re-added. A contract deployed before
+this view has no `get_attester_usage`.
 
 ### `RewardEntry`
 

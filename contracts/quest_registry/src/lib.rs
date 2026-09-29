@@ -9,6 +9,9 @@
 //! Attester scope: a quest bound to a key (`set_quest_attester`) accepts only that key,
 //! so a partner's quest key can't mint Earned XP on any other quest. Unbound quests accept
 //! any key in the global allowlist (`add_attester_key`), which is for in-house keys only.
+//!
+//! Attester budget: a key can carry a daily Earned-XP budget (`set_attester_budget`), so
+//! a leaked key mints at most one day's budget. Keys without one stay unlimited.
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short,
@@ -25,6 +28,13 @@ const DAY_LEDGERS: u32 = 17_280; // ~1 day
 const BUMP_EXTEND: u32 = 2_592_000; // ~150 days
 const BUMP_THRESHOLD: u32 = BUMP_EXTEND - DAY_LEDGERS;
 const WEEK_SECS: u64 = 604_800; // weekly retention loop (Green belt)
+const DAY_SECS: u64 = 86_400; // attester budget day: 00:00:00 to 23:59:59 UTC
+const BUDGET_WARN_PERCENT: u128 = 80; // `att_key/near_cap` fires on reaching this share
+
+// A day's usage counter lives in temporary storage and is only read during its own day.
+// Two days of ledgers keep it alive to the end of that day even when ledgers close faster
+// than 5s, on testnet too (its min_temporary_ttl is one hour).
+const USAGE_TTL: u32 = 2 * DAY_LEDGERS;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -36,6 +46,7 @@ pub enum Error {
     QuestNotFound = 4,
     AlreadyClaimed = 5,
     QuestInactive = 6,
+    AttesterBudgetExceeded = 7,
 }
 
 #[contracttype]
@@ -49,6 +60,10 @@ pub enum DataKey {
     Claimed(u32, Address),   // replay guard: (quest_id, recipient) -> bool
     Streak(Address),         // weekly retention streak per player
     QuestAttester(u32),      // quest_id -> BytesN<32>: the only key that may award it
+    /// key -> daily Earned-XP budget (u64); absent = unlimited.
+    AttesterBudget(BytesN<32>),
+    /// Temporary: (key, day) -> Earned XP the key awarded that day.
+    AttesterUsed(BytesN<32>, u64),
 }
 
 #[contracttype]
@@ -70,6 +85,17 @@ pub struct Streak {
     pub weeks: u32,
     pub last_week: u64,
     pub best: u32,
+}
+
+/// `get_attester_usage` result. `budget` is the key's daily Earned-XP budget (`0` =
+/// unlimited); `used` is what it awarded during `day` (timestamp / 86_400, UTC) while a
+/// budget was set. Usage is not counted while a key is unlimited.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AttesterUsage {
+    pub budget: u64,
+    pub used: u64,
+    pub day: u64,
 }
 
 #[contract]
@@ -199,6 +225,46 @@ impl QuestRegistryContract {
             .extend_ttl(&DataKey::Quest(id), BUMP_THRESHOLD, BUMP_EXTEND);
     }
 
+    /// Cap how much Earned XP `key` can award per UTC day (admin); `0` removes the cap.
+    /// Takes effect immediately and counts from the next award: XP the key awarded earlier
+    /// today while it was unlimited is not included. It covers every quest the key awards,
+    /// quest-bound ones included, is kept if the key is removed from the allowlist, and
+    /// applies again if it is re-added.
+    pub fn set_attester_budget(env: Env, key: BytesN<32>, budget: u64) {
+        Self::admin(&env).require_auth();
+        let k = DataKey::AttesterBudget(key.clone());
+        if budget == 0 {
+            env.storage().persistent().remove(&k);
+        } else {
+            env.storage().persistent().set(&k, &budget);
+            env.storage()
+                .persistent()
+                .extend_ttl(&k, BUMP_THRESHOLD, BUMP_EXTEND);
+        }
+        env.events().publish(
+            (symbol_short!("att_key"), symbol_short!("budget")),
+            (key, budget),
+        );
+    }
+
+    /// `key`'s daily budget and what it has used of it today (see `AttesterUsage`).
+    pub fn get_attester_usage(env: Env, key: BytesN<32>) -> AttesterUsage {
+        let day = Self::current_day(&env);
+        AttesterUsage {
+            budget: env
+                .storage()
+                .persistent()
+                .get(&DataKey::AttesterBudget(key.clone()))
+                .unwrap_or(0),
+            used: env
+                .storage()
+                .temporary()
+                .get(&DataKey::AttesterUsed(key, day))
+                .unwrap_or(0),
+            day,
+        }
+    }
+
     /// The canonical message an attester signs to authorize a quest award — exposed so the
     /// off-chain attester signs EXACTLY what the contract verifies (no byte-mismatch risk).
     pub fn quest_payload(env: Env, quest_id: u32, recipient: Address) -> Bytes {
@@ -212,6 +278,9 @@ impl QuestRegistryContract {
     ///      quest has one, otherwise a key in the global allowlist.
     ///   2. `recipient.require_auth()` proves on-chain ownership of the credited wallet —
     ///      works uniformly for classic (G…) and passkey smart-account (C…) wallets.
+    ///
+    /// The quest's XP then counts against the attester key's daily budget, if it has one:
+    /// an award past it reverts with `AttesterBudgetExceeded`.
     pub fn award_quest(
         env: Env,
         attester: BytesN<32>,
@@ -244,6 +313,8 @@ impl QuestRegistryContract {
         env.storage()
             .persistent()
             .extend_ttl(&claim_key, BUMP_THRESHOLD, BUMP_EXTEND);
+
+        Self::spend_attester_budget(&env, &attester, quest.xp);
 
         // Weekly retention streak: completing any quest in a new consecutive week
         // extends the run; a skipped week resets it (the all-time best is kept).
@@ -368,6 +439,45 @@ impl QuestRegistryContract {
             .extend_ttl(&key, BUMP_THRESHOLD, BUMP_EXTEND);
         env.events()
             .publish((symbol_short!("streak"), player.clone()), (s.weeks, s.best));
+    }
+
+    /// Count `xp` against `key`'s budget for today, if the key has a budget. Reverts with
+    /// `AttesterBudgetExceeded` when it would go past it, and emits `att_key/near_cap` on
+    /// the award that first reaches BUDGET_WARN_PERCENT of it that day.
+    fn spend_attester_budget(env: &Env, key: &BytesN<32>, xp: u64) {
+        let budget_key = DataKey::AttesterBudget(key.clone());
+        let budget: u64 = match env.storage().persistent().get(&budget_key) {
+            Some(budget) => budget,
+            None => return,
+        };
+        env.storage()
+            .persistent()
+            .extend_ttl(&budget_key, BUMP_THRESHOLD, BUMP_EXTEND);
+
+        let day = Self::current_day(env);
+        let used_key = DataKey::AttesterUsed(key.clone(), day);
+        let used: u64 = env.storage().temporary().get(&used_key).unwrap_or(0);
+        let now = match used.checked_add(xp) {
+            Some(now) if now <= budget => now,
+            _ => panic_with_error!(env, Error::AttesterBudgetExceeded),
+        };
+        env.storage().temporary().set(&used_key, &now);
+        env.storage()
+            .temporary()
+            .extend_ttl(&used_key, USAGE_TTL, USAGE_TTL);
+
+        let near = |used: u64| used as u128 * 100 >= budget as u128 * BUDGET_WARN_PERCENT;
+        if near(now) && !near(used) {
+            env.events().publish(
+                (symbol_short!("att_key"), symbol_short!("near_cap")),
+                (key.clone(), now, budget),
+            );
+        }
+    }
+
+    /// Budget days are UTC calendar days: 00:00:00 to 23:59:59.
+    fn current_day(env: &Env) -> u64 {
+        env.ledger().timestamp() / DAY_SECS
     }
 
     fn admin(env: &Env) -> Address {

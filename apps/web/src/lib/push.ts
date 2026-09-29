@@ -35,6 +35,132 @@ function isPushSupported(): boolean {
   );
 }
 
+/** Explain why push cannot be enabled before an iOS Safari app is installed. */
+export function getPushAvailabilityHint(): string | null {
+  if (typeof window === 'undefined') return null;
+
+  const userAgent = navigator.userAgent;
+  const isIosDevice =
+    /iPad|iPhone|iPod/.test(userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isIosSafari =
+    isIosDevice &&
+    /Safari/.test(userAgent) &&
+    !/(CriOS|FxiOS|EdgiOS|OPiOS)/.test(userAgent);
+  const isStandalone =
+    (typeof window.matchMedia === 'function' &&
+      window.matchMedia('(display-mode: standalone)').matches) ||
+    (navigator as Navigator & { standalone?: boolean }).standalone === true;
+
+  if (isIosSafari && !isStandalone) return 'Add to Home Screen to get notified.';
+  return null;
+}
+
+// ─── last-sent registry (rotation sync) ─────────────────────────────────────
+
+/** localStorage key holding the endpoint last successfully sent to the server. */
+const LAST_SENT_KEY = 'alvinmunk.push.lastSentEndpoint';
+
+/**
+ * Remember the endpoint the server last acknowledged for this device.
+ * Written only after the server answers 2xx so a failed POST isn't mistaken for a move.
+ * Pass null to clear the memory (after unsubscribe).
+ */
+function rememberLastSentEndpoint(endpoint: string | null): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    if (endpoint) localStorage.setItem(LAST_SENT_KEY, endpoint);
+    else localStorage.removeItem(LAST_SENT_KEY);
+  } catch {
+    // Storage may be unavailable (private mode) — rotation sync just degrades to no-op.
+  }
+}
+
+function getLastSentEndpoint(): string | null {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    return localStorage.getItem(LAST_SENT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Ask the server to move the stored record from `oldEndpoint` to `subscription.endpoint`,
+ * keeping the wallet and the accumulated vouchIds (the PATCH half of pushsubscriptionchange).
+ * On 404 (old endpoint already pruned server-side) falls back to a full POST upsert, re-attaching
+ * the locally-known vouch IDs so the server's vouchIds stay in sync.
+ */
+async function rotateSubscription(
+  oldEndpoint: string,
+  sub: PushSubscription,
+  walletAddress: string,
+  getVouchIds: () => number[] | Promise<number[]>,
+): Promise<boolean> {
+  try {
+    const res = await fetch('/api/push/subscribe', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        oldEndpoint,
+        subscription: sub.toJSON(),
+        walletAddress,
+      }),
+    });
+    if (res.ok) {
+      rememberLastSentEndpoint(sub.endpoint);
+      return true;
+    }
+    if (res.status !== 404) {
+      console.warn('[push] subscription move rejected:', res.status);
+      return false;
+    }
+    // Old record already pruned server-side — re-register from scratch, re-attaching
+    // the locally-known vouch IDs so the server's vouchIds stay in sync.
+    await registerSubscription(sub, walletAddress, await getVouchIds());
+    return true;
+  } catch (err) {
+    console.warn('[push] subscription move failed:', err);
+    return false;
+  }
+}
+
+/**
+ * Re-sync this device's subscription with the server after an endpoint rotation (#169).
+ *
+ * Compares the browser's active subscription endpoint with the endpoint last acknowledged
+ * by the server (kept in localStorage) and PATCHes /api/push/subscribe when they differ.
+ * Cheap no-op when they match; safe to call on every dashboard mount.
+ */
+export async function syncPushSubscription(
+  walletAddress: string,
+  getVouchIds: () => number[] | Promise<number[]> = () => [],
+): Promise<void> {
+  if (!isPushSupported() || !VAPID_PUBLIC_KEY) return;
+  if (getPermission() !== 'granted') return;
+
+  try {
+    const reg = await registerServiceWorker();
+    if (!reg) return;
+    const sub = await reg.pushManager.getSubscription();
+    if (!sub) return;
+
+    const lastSent = getLastSentEndpoint();
+    if (lastSent === sub.endpoint) return; // server already has this endpoint
+
+    if (lastSent) {
+      const moved = await rotateSubscription(lastSent, sub, walletAddress, async () => getVouchIds());
+      if (moved) return;
+    }
+    // No last-sent memory (cleared storage, first run after this feature ships, or the
+    // move failed) — make sure the server knows the current endpoint. POST is idempotent
+    // per endpoint, so this is safe to repeat.
+    await registerSubscription(sub, walletAddress, await getVouchIds());
+  } catch (err) {
+    console.warn('[push] subscription sync failed:', err);
+  }
+}
+
 // ─── service worker registration ─────────────────────────────────────────────
 
 let _swRegistration: ServiceWorkerRegistration | null = null;
@@ -124,21 +250,32 @@ export async function subscribeToPush(
 
   // Register with the server (idempotent — server upserts on endpoint).
   try {
-    await fetch('/api/push/subscribe', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        subscription: sub.toJSON(),
-        walletAddress,
-        vouchId,
-      }),
-    });
+    await registerSubscription(sub, walletAddress, [vouchId]);
   } catch (err) {
     // Network failure — subscription is still valid locally; server will retry next time.
     console.warn('[push] failed to register subscription with server:', err);
   }
 
   return sub;
+}
+
+/** POST the subscription (with vouchIds) to /api/push/subscribe. Throws on network failure. */
+async function registerSubscription(
+  sub: PushSubscription,
+  walletAddress: string,
+  vouchIds: number[],
+): Promise<void> {
+  const res = await fetch('/api/push/subscribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      subscription: sub.toJSON(),
+      walletAddress,
+      vouchIds: Array.from(new Set(vouchIds)),
+    }),
+  });
+  if (!res.ok) throw new Error(`subscribe POST failed: ${res.status}`);
+  rememberLastSentEndpoint(sub.endpoint);
 }
 
 /**
@@ -166,6 +303,9 @@ export async function unsubscribeFromPush(): Promise<void> {
   }
 
   await sub.unsubscribe();
+  // The server record is gone — forget the last-sent endpoint so a later re-subscribe
+  // POSTs fresh instead of trying to PATCH from a deleted endpoint.
+  rememberLastSentEndpoint(null);
 }
 
 /**

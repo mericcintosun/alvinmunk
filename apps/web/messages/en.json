@@ -73,11 +73,14 @@
   "onboard.landing.checking": "checking…",
   "onboard.landing.handleFree": "✓ @{handle} is free",
   "onboard.landing.handleTaken": "@{handle} is taken",
+  "onboard.landing.handleReserved": "@{handle} is reserved until {date}",
   "onboard.landing.pill": "no seed phrase · fees sponsored · one tap",
   "onboard.landing.openApp": "Open your app",
   "onboard.landing.errShort": "Pick a handle — 3+ letters or numbers.",
   "onboard.landing.errTaken": "@{handle} is taken — pick another.",
+  "onboard.landing.errReserved": "@{handle} was just freed and is held for its previous owner until {date} — pick another.",
   "onboard.landing.success": "You're in — @{handle} stamped on-chain.",
+  "onboard.landing.restored": "Welcome back — @{handle} restored.",
 
   "onboard.app.eyebrow": "Step 1 of 1",
   "onboard.app.title": "Create your profile",
@@ -88,16 +91,26 @@
   "onboard.app.checking": "Checking…",
   "onboard.app.handleFree": "✓ @{handle} is free",
   "onboard.app.handleTaken": "@{handle} is taken — try another",
+  "onboard.app.handleReserved": "@{handle} is reserved until {date} — try another",
   "onboard.app.submit": "Create my profile",
   "onboard.app.submitting": "Creating your profile…",
   "onboard.app.footer": "Saved on this device · fees sponsored on testnet · no seed phrase.",
   "onboard.app.errShort": "Pick a handle — 3+ letters or numbers.",
   "onboard.app.errTaken": "@{handle} is taken — pick another.",
+  "onboard.app.errReserved": "@{handle} was just freed and is held for its previous owner until {date} — pick another.",
   "onboard.app.success": "Your profile is live — @{handle} stamped on-chain.",
+  "onboard.app.or": "or",
+  "onboard.app.restore": "I already have an account",
+  "onboard.app.restoring": "Looking for your account…",
+  "onboard.app.restoreNotFound": "No account found for that passkey — create a new one, or use the device where you first signed up.",
+  "onboard.app.restoreNoHandle": "Found your account — it has no handle yet. Pick one above to finish.",
+  "onboard.app.restored": "Welcome back — @{handle} restored.",
 
   "onboard.claim.errShort": "Pick a handle — 3+ letters or numbers.",
   "onboard.claim.errTaken": "@{handle} is taken — pick another.",
+  "onboard.claim.errReserved": "@{handle} was just freed and is held for its previous owner until {date} — pick another.",
   "onboard.claim.success": "You're in — @{handle} stamped on-chain.",
+  "onboard.claim.restored": "Welcome back — @{handle} restored.",
 
   "claim.handle.title": "Pick your handle",
   "claim.handle.subtitle": "So people can find you — and vouch you back by name.",
@@ -106,6 +119,7 @@
   "claim.handle.checking": "Checking…",
   "claim.handle.free": "@{handle} is free",
   "claim.handle.taken": "@{handle} is taken",
+  "claim.handle.reserved": "@{handle} is reserved until {date}",
   "claim.handle.submit": "Claim @{handle}",
   "claim.handle.submitting": "Creating…",
   "claim.skip": "Skip for now → create your profile",
@@ -258,6 +272,7 @@
   "badges.generous.desc": "First tip sent",
   "badges.generous.next": "No tip sent yet",
 
+  "identity.handle.reserved": "@{handle} was just freed and is held for its previous owner until {date} — pick another.",
   "identity.bio.label": "Bio",
   "identity.bio.placeholder": "One line about you — plain text",
   "identity.bio.bytesHint": "Counted in bytes: accented letters take 2, most emoji 4.",
@@ -277,5 +292,7 @@
   "people.suggest.mutual.other": "{count} people you know vouched for them",
   "people.suggest.footnote": "Suggestions are based on recent on-chain vouch activity — updated as new vouches are claimed.",
   "people.suggest.view": "View",
-  "people.suggest.viewAria": "View {label}'s profile"
+  "people.suggest.viewAria": "View {label}'s profile",
+
+  "configBanner.title": "This deployment is misconfigured — nothing can be sent until it is fixed."
 }
