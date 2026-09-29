@@ -11,6 +11,7 @@
  */
 import { Asset, Memo, Operation, StellarToml, TransactionBuilder, WebAuth, type Account } from '@stellar/stellar-sdk';
 import { networkPassphrase, server } from './stellar';
+import { submitSigned } from './submit';
 import type { Wallet } from './wallet';
 
 export interface AnchorConfig {
@@ -286,13 +287,13 @@ export async function sendWithdrawalPayment(
   if (!usdcIssuer) throw new Error('This anchor does not publish its USDC issuer.');
   const account = await server.getAccount(wallet.address);
   const signedXdr = await wallet.sign(buildWithdrawalPayment(account, w, usdcIssuer));
-  const sent = await server.sendTransaction(TransactionBuilder.fromXDR(signedXdr, networkPassphrase));
-  if (sent.status === 'ERROR') throw new Error('The payment to the anchor was rejected.');
+  const signed = TransactionBuilder.fromXDR(signedXdr, networkPassphrase);
+  const hash = await submitSigned(signed, 'anchor payment');
   for (let i = 0; i < 30; i++) {
-    const res = await server.getTransaction(sent.hash);
-    if (res.status === 'SUCCESS') return sent.hash;
+    const res = await server.getTransaction(hash);
+    if (res.status === 'SUCCESS') return hash;
     if (res.status === 'FAILED') throw new Error('The payment to the anchor failed on-chain.');
     await new Promise((r) => setTimeout(r, 1000));
   }
-  return sent.hash;
+  return hash;
 }

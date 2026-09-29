@@ -20,6 +20,7 @@ import {
 } from '@stellar/stellar-sdk';
 // The app's one resolved (and validated) network config — no per-route testnet defaults.
 import { config, misconfiguredResponse } from '../../../lib/stellar';
+import { submitSigned } from '../../../lib/submit';
 import { json, withRoute } from '../../../lib/api-route';
 
 export const runtime = 'nodejs';
@@ -112,7 +113,7 @@ export const POST = withRoute('POST /api/faucet', async (req: Request): Promise<
         return json({ error: 'mint not confirmed in time', hash: sent.hash }, 504);
       }
       funded.add(recipient);
-      return json({ ok: true, hash: sent.hash, amount: DRIP });
+      return json({ ok: true, hash, amount: DRIP });
     } catch (e) {
       return json({ error: e instanceof Error ? e.message : 'faucet mint failed' }, 502);
     }

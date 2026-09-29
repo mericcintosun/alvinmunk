@@ -8,12 +8,15 @@
  *      self-referral guard), the quest id bound to one evidence type
  *      (`evidenceMatchesQuest`), then the real action checked on the network (merged PR
  *      within an optional repo allowlist, `judgeReferral`, …). Only then does the
- *      attester sign the quest_registry's canonical payload.
+ *      attester sign the quest_registry's award payload (`questPayload`), which binds
+ *      the network, the contract and an expiry (issue #142).
  *   2. Ownership — proven ON-CHAIN: the wallet submits `award_quest`, which calls
  *      `recipient.require_auth()`. There is no off-chain ownership signature.
  *   3. Replay — the quest_registry's on-chain replay guard (one completion per recipient
- *      per quest) is the hard cap; the route adds only a per-IP rate limit.
+ *      per quest) is the hard cap, and an unredeemed signature expires on-chain
+ *      QUEST_SIG_TTL_SECS after it is issued; the route adds only a per-IP rate limit.
  */
+import { Address, Keypair, hash, nativeToScVal, xdr } from '@stellar/stellar-sdk';
 
 export const MAX_REF_LEN = 200; // evidence.ref upper bound (anti-abuse)
 export const MAX_QUEST_ID = 1_000_000;
@@ -64,6 +67,64 @@ export function isGAddress(s: unknown): boolean {
 const STELLAR_ADDRESS = /^[GC][A-Z2-7]{55}$/; // classic (G…) or smart-wallet (C…)
 export function isStellarAddress(s: unknown): boolean {
   return typeof s === 'string' && STELLAR_ADDRESS.test(s);
+}
+
+/** Domain tag leading every quest award payload (the contract's `AWARD_DOMAIN`). */
+export const QUEST_AWARD_DOMAIN = 'alvinmunk_award_quest_v1';
+
+/** How long an award signature stays redeemable: `award_quest` refuses it once the ledger
+ *  time passes `expiresAt`. Long enough for a wallet prompt and a slow submit. */
+export const QUEST_SIG_TTL_SECS = 600;
+
+/** The deployment an award signature is for: the quest_registry contract and its network. */
+export interface QuestDeployment {
+  contractId: string;
+  passphrase: string;
+}
+
+/**
+ * The bytes the attester signs to award `questId` to `recipient` until `expiresAt` (unix
+ * seconds, compared with the ledger time): the XDR of the ScVal vector
+ * `[Symbol(QUEST_AWARD_DOMAIN), sha256(passphrase), contract, u32 questId, recipient,
+ * u64 expiresAt]`, byte for byte the contract's `payload` (both sides pin the same test
+ * vector). Built here, never read from an RPC node: a dishonest node could return the
+ * payload for ITS address, and the attester key would sign the award over to it.
+ */
+export function questPayload(
+  ctx: QuestDeployment,
+  questId: number,
+  recipient: string,
+  expiresAt: number,
+): Buffer {
+  return xdr.ScVal.scvVec([
+    xdr.ScVal.scvSymbol(QUEST_AWARD_DOMAIN),
+    xdr.ScVal.scvBytes(hash(Buffer.from(ctx.passphrase))),
+    new Address(ctx.contractId).toScVal(),
+    nativeToScVal(questId, { type: 'u32' }),
+    new Address(recipient).toScVal(),
+    nativeToScVal(BigInt(expiresAt), { type: 'u64' }),
+  ]).toXDR();
+}
+
+/** What `/api/attest` returns for `award_quest`: the attester's raw ed25519 public key
+ *  (hex), its signature over `questPayload` (base64), and the signed expiry. */
+export interface QuestSignature {
+  attester: string;
+  sig: string;
+  expiresAt: number;
+}
+
+/** Sign the award payload for `questId` / `recipient` with the attester secret. */
+export function signQuestPayload(
+  secret: string,
+  ctx: QuestDeployment,
+  questId: number,
+  recipient: string,
+  expiresAt: number,
+): QuestSignature {
+  const kp = Keypair.fromSecret(secret);
+  const sig = kp.sign(questPayload(ctx, questId, recipient, expiresAt));
+  return { attester: kp.rawPublicKey().toString('hex'), sig: sig.toString('base64'), expiresAt };
 }
 
 export function isValidQuestId(q: unknown): q is number {
