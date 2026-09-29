@@ -136,7 +136,6 @@ fn vouch_claim_secret_grants_asymmetric_social_xp() {
 }
 
 #[test]
-#[should_panic]
 fn claim_with_wrong_secret_reverts() {
     let (env, client, _admin) = setup();
     let alice = Address::generate(&env);
@@ -144,11 +143,13 @@ fn claim_with_wrong_secret_reverts() {
     let (_secret, hash) = secret_and_hash(&env, 7);
     let id = client.mint_vouch(&alice, &hash, &String::from_str(&env, "x"));
     let wrong = Bytes::from_array(&env, &[9u8; 32]);
-    client.claim_vouch(&bob, &id, &wrong); // panics: BadSecret
+    assert_eq!(
+        client.try_claim_vouch(&bob, &id, &wrong),
+        Err(Ok(contract_err(Error::BadSecret)))
+    );
 }
 
 #[test]
-#[should_panic]
 fn double_claim_reverts() {
     let (env, client, _admin) = setup();
     let alice = Address::generate(&env);
@@ -156,17 +157,22 @@ fn double_claim_reverts() {
     let (secret, hash) = secret_and_hash(&env, 7);
     let id = client.mint_vouch(&alice, &hash, &String::from_str(&env, "gg"));
     client.claim_vouch(&bob, &id, &secret);
-    client.claim_vouch(&bob, &id, &secret); // panics: AlreadyClaimed
+    assert_eq!(
+        client.try_claim_vouch(&bob, &id, &secret),
+        Err(Ok(contract_err(Error::AlreadyClaimed)))
+    );
 }
 
 #[test]
-#[should_panic]
 fn self_vouch_reverts() {
     let (env, client, _admin) = setup();
     let alice = Address::generate(&env);
     let (secret, hash) = secret_and_hash(&env, 7);
     let id = client.mint_vouch(&alice, &hash, &String::from_str(&env, "me"));
-    client.claim_vouch(&alice, &id, &secret); // panics: SelfVouch
+    assert_eq!(
+        client.try_claim_vouch(&alice, &id, &secret),
+        Err(Ok(contract_err(Error::SelfVouch)))
+    );
 }
 
 #[test]
@@ -191,7 +197,6 @@ fn repeated_pair_grants_no_more_social_xp() {
 }
 
 #[test]
-#[should_panic]
 fn daily_cap_reverts_on_overuse() {
     let (env, client, _admin) = setup();
     let alice = Address::generate(&env);
@@ -204,7 +209,10 @@ fn daily_cap_reverts_on_overuse() {
     }
     // the 21st mint in the same day exceeds the per-day cap.
     let (_s, h) = secret_and_hash(&env, 99);
-    client.mint_vouch(&alice, &h, &String::from_str(&env, "spam")); // panics: DailyCapReached
+    assert_eq!(
+        client.try_mint_vouch(&alice, &h, &String::from_str(&env, "spam")),
+        Err(Ok(contract_err(Error::DailyCapReached)))
+    );
 }
 
 /// The cap counts per voucher per UTC calendar day (`timestamp / DAY_SECS`), not over a
@@ -581,7 +589,6 @@ fn bonus_immediate_when_claimer_already_verified() {
 }
 
 #[test]
-#[should_panic]
 fn insufficient_stake_reverts() {
     let (env, client, _admin) = setup();
     let alice = Address::generate(&env);
@@ -592,7 +599,10 @@ fn insufficient_stake_reverts() {
     }
     assert_eq!(client.get_score(&alice), 0);
     let (_s, h) = secret_and_hash(&env, 4);
-    client.mint_vouch(&alice, &h, &String::from_str(&env, "x")); // panics: InsufficientStake
+    assert_eq!(
+        client.try_mint_vouch(&alice, &h, &String::from_str(&env, "x")),
+        Err(Ok(contract_err(Error::InsufficientStake)))
+    );
 }
 
 #[test]
@@ -610,12 +620,14 @@ fn attester_award_credits_earned_only() {
 }
 
 #[test]
-#[should_panic]
 fn non_allowlisted_attester_reverts() {
     let (env, client, _admin) = setup();
     let imposter = Address::generate(&env);
     let user = Address::generate(&env);
-    client.award_xp(&imposter, &user, &2u32, &50u64); // panics: NotAuthorized
+    assert_eq!(
+        client.try_award_xp(&imposter, &user, &2u32, &50u64),
+        Err(Ok(contract_err(Error::NotAuthorized)))
+    );
 }
 
 #[test]
