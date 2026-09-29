@@ -208,6 +208,38 @@ fn daily_cap_reverts_on_overuse() {
 }
 
 #[test]
+fn daily_cap_resets_at_utc_boundary() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    // Set timestamp to end of day 0 (UTC)
+    env.ledger().with_mut(|l| l.timestamp = DAY_SECS - 1);
+    // Mint max per day and claim each
+    for i in 0..MAX_VOUCH_PER_DAY {
+        let (s, h) = secret_and_hash(&env, i as u8);
+        let id = client.mint_vouch(&alice, &h, &String::from_str(&env, "spam"));
+        client.claim_vouch(&bob, &id, &s);
+    }
+    // 21st mint should revert with DailyCapReached
+    let (_s, h) = secret_and_hash(&env, 99);
+    assert_eq!(
+        client.try_mint_vouch(&alice, &h, &String::from_str(&env, "spam")),
+        Err(Ok(soroban_sdk::Error::from_contract_error(Error::DailyCapReached as u32)))
+    );
+    // Advance to next UTC day
+    env.ledger().with_mut(|l| l.timestamp = DAY_SECS);
+    // Mint should succeed for same voucher
+    let (s2, h2) = secret_and_hash(&env, 0);
+    let id2 = client.mint_vouch(&alice, &h2, &String::from_str(&env, "spam2"));
+    client.claim_vouch(&bob, &id2, &s2);
+    // Second voucher can mint in the same new day
+    let carol = Address::generate(&env);
+    let (s3, h3) = secret_and_hash(&env, 1);
+    let id3 = client.mint_vouch(&carol, &h3, &String::from_str(&env, "spam"));
+    client.claim_vouch(&bob, &id3, &s3);
+}
+
+#[test]
 fn starter_social_granted_once() {
     let (env, client, _admin) = setup();
     let alice = Address::generate(&env);
