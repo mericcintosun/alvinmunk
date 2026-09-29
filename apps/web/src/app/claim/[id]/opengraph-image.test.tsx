@@ -11,7 +11,10 @@ vi.mock('next/og', () => ({
   },
 }));
 
-const claimCardMock = vi.fn();
+const claimCardMock = vi.fn<(...a: unknown[]) => { type: string; props: object }>(() => ({
+  type: 'div',
+  props: {},
+}));
 vi.mock('@/lib/og-card', () => ({
   claimCard: (...a: unknown[]) => claimCardMock(...a),
 }));
@@ -26,86 +29,139 @@ vi.mock('@/lib/reputation', () => ({
 }));
 
 const reverseHandleMock = vi.fn();
-vi.mock('@/lib/registry', () => ({ reverseHandle: (...a: unknown[]) => reverseHandleMock(...a) }));
+const getMetaMock = vi.fn();
+vi.mock('@/lib/registry', () => ({
+  reverseHandle: (...a: unknown[]) => reverseHandleMock(...a),
+  getMeta: (...a: unknown[]) => getMetaMock(...a),
+}));
 
-const VOUCH = {
+const DAY = 86_400;
+const now = () => Math.floor(Date.now() / 1000);
+const G = 'G'.padEnd(56, 'B');
+const vouch = (over: object = {}) => ({
   id: 7,
-  from: 'G'.padEnd(56, 'B'),
+  from: G,
   note: 'unblocked me at 2am',
   claimed: false,
   claimer: null,
-  created: Math.floor(Date.now() / 1000) - 86_400,
-  stake: 3,
+  created: now() - DAY,
+  stake: 5,
   slashed: false,
-};
+  ...over,
+});
+
+async function render(params: { id: string }, extra: object = {}) {
+  const { default: Image } = await import('./opengraph-image');
+  await Image({ params, ...extra } as Parameters<typeof Image>[0]);
+  return claimCardMock.mock.calls.at(-1)?.[0];
+}
 
 describe('/claim/[id]/opengraph-image', () => {
   beforeEach(() => {
     imageResponseMock.mockClear();
     claimCardMock.mockClear();
+    loadFontMock.mockClear();
     getVouchMock.mockReset();
-    reverseHandleMock.mockReset();
-    reverseHandleMock.mockResolvedValue(null);
+    reverseHandleMock.mockReset().mockResolvedValue(null);
+    getMetaMock.mockReset().mockResolvedValue(null);
   });
 
-  it('renders an open card from the public id, with both font weights', async () => {
-    getVouchMock.mockResolvedValue(VOUCH);
+  it('renders an open card with the voucher, their published face and note', async () => {
+    const avatar = { kind: 'face', id: 'face-04' };
+    getVouchMock.mockResolvedValue(vouch());
     reverseHandleMock.mockResolvedValue('alice');
+    getMetaMock.mockResolvedValue({ avatar, bio: 'hi' });
 
-    const { default: Image } = await import('./opengraph-image');
-    await Image({ params: { id: '7' } });
-
+    expect(await render({ id: '7' })).toEqual({
+      status: 'open',
+      vouchId: 7,
+      from: G,
+      handle: 'alice',
+      avatar,
+      note: 'unblocked me at 2am',
+      daysLeft: 6,
+    });
     expect(getVouchMock).toHaveBeenCalledWith(7);
-    expect(reverseHandleMock).toHaveBeenCalledWith(VOUCH.from);
-    expect(claimCardMock).toHaveBeenCalledWith(
-      expect.objectContaining({ vouchId: 7, from: VOUCH.from, handle: 'alice', status: 'open', daysLeft: 6 }),
-    );
+    expect(reverseHandleMock).toHaveBeenCalledWith(G);
+    expect(getMetaMock).toHaveBeenCalledWith(G);
+  });
 
-    expect(loadFontMock).toHaveBeenCalledWith('fonts/NotoSans-Regular.ttf');
-    expect(loadFontMock).toHaveBeenCalledWith('fonts/NotoSans-Bold.ttf');
-    const [, options] = imageResponseMock.mock.calls[0] as [unknown, { fonts: Array<{ name: string; weight: number; data: string }> }];
-    expect(options.fonts).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ name: 'Noto Sans', weight: 400, data: 'font-bytes:fonts/NotoSans-Regular.ttf' }),
-        expect.objectContaining({ name: 'Noto Sans', weight: 700, data: 'font-bytes:fonts/NotoSans-Bold.ttf' }),
-      ]),
-    );
+  it('loads both a regular and a bold weight of the same family', async () => {
+    getVouchMock.mockResolvedValue(vouch());
+    await render({ id: '7' });
+
+    const [, options] = imageResponseMock.mock.calls[0] as [
+      unknown,
+      { width: number; height: number; fonts: Array<{ name: string; weight: number; data: string }> },
+    ];
+    expect(options).toMatchObject({ width: 1200, height: 630 });
+    expect(options.fonts).toEqual([
+      expect.objectContaining({ name: 'Noto Sans', weight: 400, data: 'font-bytes:fonts/NotoSans-Regular.ttf' }),
+      expect.objectContaining({ name: 'Noto Sans', weight: 700, data: 'font-bytes:fonts/NotoSans-Bold.ttf' }),
+    ]);
   });
 
   it('marks a claimed vouch as lit', async () => {
-    getVouchMock.mockResolvedValue({ ...VOUCH, claimed: true });
-    const { default: Image } = await import('./opengraph-image');
-    await Image({ params: { id: '7' } });
-    expect(claimCardMock).toHaveBeenCalledWith(expect.objectContaining({ status: 'claimed' }));
+    getVouchMock.mockResolvedValue(vouch({ claimed: true, claimer: 'GCLAIMER' }));
+    expect(await render({ id: '7' })).toMatchObject({ status: 'claimed' });
   });
 
-  it('renders a neutral card for an unknown id and never throws', async () => {
+  it.each([
+    ['the stake window has passed', { created: now() - 8 * DAY }],
+    ['the stake was already slashed', { slashed: true }],
+  ])('marks an unclaimed card as closed when %s', async (_, over) => {
+    getVouchMock.mockResolvedValue(vouch(over));
+    expect(await render({ id: '7' })).toMatchObject({ status: 'closed' });
+  });
+
+  it('keeps the address and default face when the name and face reads fail', async () => {
+    getVouchMock.mockResolvedValue(vouch());
+    reverseHandleMock.mockRejectedValue(new Error('rpc down'));
+    getMetaMock.mockRejectedValue(new Error('rpc down'));
+    expect(await render({ id: '7' })).toMatchObject({ status: 'open', from: G, handle: null, avatar: undefined });
+  });
+
+  it('renders the unknown card when no half-card has the id', async () => {
     getVouchMock.mockResolvedValue(null);
-    const { default: Image } = await import('./opengraph-image');
-    await Image({ params: { id: '9999' } });
-    expect(claimCardMock).toHaveBeenCalledWith(
-      expect.objectContaining({ from: null, handle: null, status: 'unknown' }),
-    );
+    expect(await render({ id: '9999' })).toEqual({ status: 'unknown' });
+    expect(reverseHandleMock).not.toHaveBeenCalled();
   });
 
-  it('treats a non-numeric id as unknown without reading the chain', async () => {
-    const { default: Image } = await import('./opengraph-image');
-    await Image({ params: { id: 'not-a-number' } });
-    expect(getVouchMock).not.toHaveBeenCalled();
-    expect(claimCardMock).toHaveBeenCalledWith(expect.objectContaining({ status: 'unknown' }));
+  it.each(['not-a-number', '-1', '1.5', '1e300'])(
+    'treats an id that can never be a vouch (%s) as unknown without reading the chain',
+    async (id) => {
+      expect(await render({ id })).toEqual({ status: 'unknown' });
+      expect(getVouchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('never calls a live link dead when the chain does not answer', async () => {
+    getVouchMock.mockRejectedValue(new Error('simulate get_vouch failed'));
+    expect(await render({ id: '7' })).toEqual({ status: 'unavailable' });
+    expect(imageResponseMock).toHaveBeenCalledTimes(1); // still a valid image, never a 500
   });
 
-  it('never reads the claim secret from any query/hash parameter', async () => {
-    const src = readFileSync(join(process.cwd(), 'src/app/claim/[id]/opengraph-image.tsx'), 'utf8');
-    expect(src).not.toMatch(/searchParams/);
-    expect(src).not.toMatch(/URLSearchParams/);
-    expect(src).not.toMatch(/\blocation\b/);
-    expect(src).not.toMatch(/\bhash\b/);
+  describe('the claim code', () => {
+    it('is never read: the route has no query, fragment or header access at all', () => {
+      const src = readFileSync(join(process.cwd(), 'src/app/claim/[id]/opengraph-image.tsx'), 'utf8');
+      const code = src.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+      for (const access of [/searchParams/, /URLSearchParams/, /\blocation\b/, /\bhash\b/, /\bheaders\b/, /\bcookies\b/, /parseClaimCode/, /console\./]) {
+        expect(code).not.toMatch(access);
+      }
+    });
 
-    // Even if a caller hands it an `s`, the route must ignore it.
-    getVouchMock.mockResolvedValue(VOUCH);
-    const { default: Image } = await import('./opengraph-image');
-    await Image({ params: { id: '7' }, searchParams: { s: 'SUPER_SECRET' } } as never);
-    expect(JSON.stringify(claimCardMock.mock.calls)).not.toContain('SUPER_SECRET');
+    it('never reaches the card, the image or a chain read, even when a caller hands it one', async () => {
+      const SECRET = 'SUPER_SECRET_CLAIM_SEED';
+      getVouchMock.mockResolvedValue(vouch());
+      await render({ id: '7' }, { searchParams: { s: SECRET, k: SECRET } });
+      const seen = JSON.stringify([
+        claimCardMock.mock.calls,
+        imageResponseMock.mock.calls.map(([, options]) => options),
+        getVouchMock.mock.calls,
+        reverseHandleMock.mock.calls,
+        getMetaMock.mock.calls,
+      ]);
+      expect(seen).not.toContain(SECRET);
+    });
   });
 });
