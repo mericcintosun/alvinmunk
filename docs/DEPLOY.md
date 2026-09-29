@@ -116,6 +116,8 @@ NEXT_PUBLIC_NETWORK_PASSPHRASE=Test SDF Network ; September 2015
 NEXT_PUBLIC_HORIZON_URL=https://horizon-testnet.stellar.org
 ```
 
+**Site URL (metadata, robots, sitemap):** `NEXT_PUBLIC_SITE_URL` is the public origin used for `metadataBase` (absolute `og:image` and canonical URLs), `/robots.txt` and `/sitemap.xml`. Leave it empty for local `pnpm dev` (`http://localhost:3000`); set it when you host outside Vercel. See step 6 for Vercel.
+
 **Never commit `.env.local`** — it is gitignored. Full variable list: [`.env.example`](../.env.example).
 
 ### Optional server secrets (and what degrades without them)
@@ -158,7 +160,8 @@ The app is a Next.js app under `apps/web` with serverless API routes (`/api/atte
 2. Set **Root Directory** to `apps/web`.
 3. Use a monorepo-friendly install if the lockfile/pnpm version warns, e.g. `pnpm install --no-frozen-lockfile`.
 4. In **Project → Settings → Environment Variables**, add every `NEXT_PUBLIC_*` you put in `.env.local`, plus any optional secrets you want live (`ATTESTER_SECRET_KEY`, `USDC_ISSUER_SECRET_KEY`, `PASSKEY_RELAYER_*`). Mark secrets as sensitive / not exposed to the client.
-5. Deploy (Git push or `vercel --prod` from a linked project).
+5. `NEXT_PUBLIC_SITE_URL` can stay unset on Vercel, forks included: production builds use the project's production domain (`VERCEL_PROJECT_PRODUCTION_URL`, a custom domain if one is assigned) and preview deployments their own host (`VERCEL_URL`), so a preview's link cards point at the preview. Set it only to pin a different canonical host, and then scope it to the **Production** environment — set for Preview too, it would send previews' `og:image` back to production.
+6. Deploy (Git push or `vercel --prod` from a linked project).
 
 Confirm: open `https://<your-deploy>/api/health` and walk through onboarding on the production URL.
 
