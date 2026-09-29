@@ -29,7 +29,8 @@ const QUEST_ERRORS: Record<number, string> = {
   4: 'That quest doesn’t exist.',
   5: 'You’ve already completed this quest.',
   6: 'This quest isn’t active right now.',
-  7: 'The quest signature expired — please try again to get a fresh one.',
+  7: 'Quest rewards hit today’s limit — try again after 00:00 UTC.',
+  8: 'The quest signature expired — please try again to get a fresh one.',
 };
 
 export interface QuestResult {

@@ -9,7 +9,14 @@ import { useEffect, useMemo, useRef } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Stars, Line } from '@react-three/drei';
 import * as THREE from 'three';
-import { Star, OrbitRing, useGlow, fibonacciSphere, reducedMotion } from './constellation-parts';
+import {
+  Star,
+  OrbitRing,
+  useGlow,
+  fibonacciSphere,
+  useFrameloop,
+  usePrefersReducedMotion,
+} from './constellation-parts';
 
 const HUES = [265, 157, 193, 280, 200, 157, 265, 40, 193, 270, 157, 265];
 
@@ -39,7 +46,19 @@ function Scene({ reduced }: { reduced: boolean }) {
   const centerColor = useMemo(() => new THREE.Color().setHSL(24 / 360, 1, 0.66), []);
 
   useFrame((_, d) => {
-    if (spin.current && !reduced) spin.current.rotation.y += d * 0.06;
+    // Push the constellation focal point to the right half on wide screens; keep it
+    // centered on narrow/stacked layouts. Lerp so resizes glide instead of snapping.
+    const off = size.width >= 768 ? viewport.width * 0.2 : 0;
+    if (shift.current) {
+      // Layout, not motion: under reduced motion jump straight to it (no glide).
+      shift.current.position.x = reduced
+        ? off
+        : shift.current.position.x + (off - shift.current.position.x) * 0.08;
+    }
+    // prefers-reduced-motion: freeze spin AND cursor parallax. A full-bleed parallax
+    // field behind the hero is exactly the vestibular trigger the setting is for.
+    if (reduced) return;
+    if (spin.current) spin.current.rotation.y += d * 0.06;
     const tx = -target.current.y * 0.26;
     const ty = target.current.x * 0.38;
     if (tilt.current) {
@@ -49,12 +68,6 @@ function Scene({ reduced }: { reduced: boolean }) {
     if (skyTilt.current) {
       skyTilt.current.rotation.x += (tx * 0.4 - skyTilt.current.rotation.x) * 0.03;
       skyTilt.current.rotation.y += (ty * 0.4 - skyTilt.current.rotation.y) * 0.03;
-    }
-    // Push the constellation focal point to the right half on wide screens; keep it
-    // centered on narrow/stacked layouts. Lerp so resizes glide instead of snapping.
-    if (shift.current) {
-      const off = size.width >= 768 ? viewport.width * 0.2 : 0;
-      shift.current.position.x += (off - shift.current.position.x) * 0.08;
     }
   });
 
@@ -79,10 +92,24 @@ function Scene({ reduced }: { reduced: boolean }) {
               opacity={0.16}
             />
           ))}
-          <Star glow={glow} color={centerColor} coreSize={0.3} glowScale={3} opacity={0.9} />
+          <Star
+            glow={glow}
+            color={centerColor}
+            coreSize={0.3}
+            glowScale={3}
+            opacity={0.9}
+            reduced={reduced}
+          />
           {positions.map((p, i) => (
             <group key={i} position={p}>
-              <Star glow={glow} color={colors[i % colors.length]} coreSize={0.1} glowScale={0.74} opacity={0.85} />
+              <Star
+                glow={glow}
+                color={colors[i % colors.length]}
+                coreSize={0.1}
+                glowScale={0.74}
+                opacity={0.85}
+                reduced={reduced}
+              />
             </group>
           ))}
         </group>
@@ -93,15 +120,20 @@ function Scene({ reduced }: { reduced: boolean }) {
 }
 
 export default function ConstellationBackdrop() {
-  const reduced = reducedMotion();
+  const reduced = usePrefersReducedMotion();
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const frameloop = useFrameloop(wrapRef, reduced);
   return (
-    <Canvas
-      camera={{ position: [0, 0, 8.4], fov: 52 }}
-      dpr={[1, 2]}
-      gl={{ alpha: true, antialias: true }}
-      style={{ background: 'transparent' }}
-    >
-      <Scene reduced={reduced} />
-    </Canvas>
+    <div ref={wrapRef} style={{ width: '100%', height: '100%' }}>
+      <Canvas
+        camera={{ position: [0, 0, 8.4], fov: 52 }}
+        dpr={[1, 1.5]}
+        gl={{ alpha: true, antialias: true }}
+        style={{ background: 'transparent' }}
+        frameloop={frameloop}
+      >
+        <Scene reduced={reduced} />
+      </Canvas>
+    </div>
   );
 }
