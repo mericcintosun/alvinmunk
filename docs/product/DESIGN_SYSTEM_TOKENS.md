@@ -24,7 +24,7 @@ light theme (`:root.light`) redefines every token (see §8)._
 
   /* Electric violet — primary / on-chain */
   --primary: 265 100% 66%;
-  --primary-foreground: 0 0% 100%;
+  --primary-foreground: 265 60% 6%;
 
   /* Mint green — earned / verified energy */
   --secondary: 157 84% 52%;
