@@ -10,20 +10,20 @@
  * run as a health check.
  *
  * Run from repo root:  node scripts/status.mjs
- * Env: NEXT_PUBLIC_RPC_URL, NEXT_PUBLIC_NETWORK_PASSPHRASE, NEXT_PUBLIC_*_CONTRACT_ID
+ * The RPC URL, passphrase and contract ids come from scripts/lib/env.mjs (NEXT_PUBLIC_* env,
+ * then apps/web/.env.local, then deployments/<network>.json); a missing id exits 2.
  */
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { loadDeployment } from './lib/env.mjs';
 const require = createRequire(join(dirname(fileURLToPath(import.meta.url)), '..', 'apps', 'web', 'package.json'));
-const { Account, Address, Contract, Keypair, Networks, TransactionBuilder, scValToNative, rpc } = require('@stellar/stellar-sdk');
+const { Account, Address, Contract, Keypair, TransactionBuilder, scValToNative, rpc } = require('@stellar/stellar-sdk');
 
-const RPC = process.env.NEXT_PUBLIC_RPC_URL ?? 'https://soroban-testnet.stellar.org';
-const PASSPHRASE = process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE || Networks.TESTNET;
-const REP = process.env.NEXT_PUBLIC_REPUTATION_CONTRACT_ID ?? 'CBNIZXITUVTRVW6RZGEGCI7KNF46REG4EDM4XUVHKDAV63WOHWW75SZM';
-const QUEST = process.env.NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID ?? 'CD6RZUVNQ3TV3X6MNQM25NB2YRFRGMSUGKWTMAIGJOC23C6ESHJKYNFO';
-const REWARDS = process.env.NEXT_PUBLIC_REWARDS_CONTRACT_ID ?? 'CBUKGIFOEOS74I2IUUHYNRBZODQFOFCFWIJY3DUJHOUUJV7TT2QYADOU';
-const USDC = process.env.NEXT_PUBLIC_USDC_SAC_ID ?? 'CAKT2EK2SFGNXTXVSYZLZXA5YB5QPVHLTVUMRHLJTF5RFFAFMIRNPZT2';
+const deployment = loadDeployment(['reputation', 'questRegistry', 'rewards', 'usdcSac'], { settings: ['rpcUrl'] });
+const RPC = deployment.rpcUrl;
+const PASSPHRASE = deployment.passphrase;
+const { reputation: REP, questRegistry: QUEST, rewards: REWARDS, usdcSac: USDC } = deployment.contracts;
 const server = new rpc.Server(RPC, { allowHttp: RPC.startsWith('http://') });
 
 const firstLine = (s) => String(s ?? '').split('\n')[0].trim() || 'unknown error';

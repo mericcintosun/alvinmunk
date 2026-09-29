@@ -21,7 +21,13 @@ import { withRoute } from '@/lib/api-route';
  *
  * The vouch claim funnel (`funnel`) is read from the reputation contract's storage instead
  * (lib/vouch-funnel.ts), so it holds beyond the event window. It reads every half-card, so
- * it is cached per network for a few minutes; the wallet counter stays live.
+ * it is cached per network for a few minutes.
+ *
+ * The whole response is memoized per network for STATS_TTL_MS, and concurrent requests share
+ * the scan in flight, so polling from many tabs costs one scan (1 + up to MAX_PAGES RPC calls)
+ * per window instead of one per request. The response is also cacheable by the CDN for the
+ * same window. The count only changes when someone onboards, so 30 s of staleness is harmless.
+ * The durable indexer (#109) would replace the scan entirely.
  */
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -30,6 +36,11 @@ export const revalidate = 0;
 // history; this only needs to see the last day or so of fresh onboarding.
 const LIVE_WINDOW = 17_280; // ~1 day of ledgers
 const MAX_PAGES = 25;
+
+// How long a scan is reused, here and at the CDN (`s-maxage` below must stay in step).
+const STATS_TTL_MS = 30_000;
+const CACHE_CONTROL = `public, s-maxage=${STATS_TTL_MS / 1000}, stale-while-revalidate=120`;
+
 type NetKey = 'testnet' | 'mainnet';
 
 /** An RPC URL env value, trimmed with blank treated as unset — the same normalisation as the
@@ -173,6 +184,29 @@ async function statsFor(net: NetKey) {
   };
 }
 
+type StatsResult = Awaited<ReturnType<typeof statsFor>>;
+
+const statsCache = new Map<NetKey, { expires: number; result: Promise<StatsResult> }>();
+
+/** The network's stats, shared by concurrent requests and reused for STATS_TTL_MS after the
+ *  scan finishes (a scan in flight never expires, however slow, so it is never run twice). A
+ *  scan that throws is not kept, so the next request retries it. */
+function cachedStatsFor(net: NetKey): Promise<StatsResult> {
+  const hit = statsCache.get(net);
+  if (hit && Date.now() < hit.expires) return hit.result;
+  const entry = { expires: Infinity, result: statsFor(net) };
+  statsCache.set(net, entry);
+  void entry.result.then(
+    () => {
+      entry.expires = Date.now() + STATS_TTL_MS;
+    },
+    () => {
+      if (statsCache.get(net) === entry) statsCache.delete(net);
+    },
+  );
+  return entry.result;
+}
+
 const FUNNEL_TTL_MS = 5 * 60_000;
 
 interface FunnelResult {
@@ -220,6 +254,6 @@ export const GET = withRoute('GET /api/stats', async (req: Request) => {
   if (net !== 'testnet' && net !== 'mainnet') {
     return NextResponse.json({ error: 'bad network' }, { status: 400 });
   }
-  const data = await statsFor(net);
-  return NextResponse.json(data, { headers: { 'cache-control': 'no-store' } });
+  const data = await cachedStatsFor(net);
+  return NextResponse.json(data, { headers: { 'cache-control': CACHE_CONTROL } });
 });

@@ -75,10 +75,18 @@ describe('StatsPage', () => {
       status: 500,
     });
 
+    // The page polls no faster than the route's 30 s cache: nothing fires at 10 s.
     await act(async () => {
-      vi.advanceTimersByTime(10000);
+      vi.advanceTimersByTime(10_000);
       await Promise.resolve();
     });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(20_000);
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
 
     // The user count should remain on the screen, but state switches to stale
     expect(container.textContent).toContain('12 / 50');

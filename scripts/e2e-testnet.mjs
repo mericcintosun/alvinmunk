@@ -10,24 +10,28 @@
  *
  * Run from repo root:
  *   ADMIN_SECRET_KEY=S... ATTESTER_SECRET_KEY=S... node scripts/e2e-testnet.mjs
+ * The RPC/Horizon URLs and contract ids come from scripts/lib/env.mjs (NEXT_PUBLIC_* env,
+ * then apps/web/.env.local, then deployments/testnet.json); a missing id exits 2.
  */
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import crypto from 'node:crypto';
+import { loadDeployment } from './lib/env.mjs';
 const require = createRequire(join(dirname(fileURLToPath(import.meta.url)), '..', 'apps', 'web', 'package.json'));
 const {
   Address, Asset, Contract, Keypair, Networks, Operation, TransactionBuilder,
   nativeToScVal, scValToNative, rpc, Horizon, xdr,
 } = require('@stellar/stellar-sdk');
 
-const PASS = Networks.TESTNET;
-const RPC = process.env.NEXT_PUBLIC_RPC_URL ?? 'https://soroban-testnet.stellar.org';
-const HOR = process.env.NEXT_PUBLIC_HORIZON_URL ?? 'https://horizon-testnet.stellar.org';
-const REP = process.env.NEXT_PUBLIC_REPUTATION_CONTRACT_ID ?? 'CBNIZXITUVTRVW6RZGEGCI7KNF46REG4EDM4XUVHKDAV63WOHWW75SZM';
-const QUEST = process.env.NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID ?? 'CD6RZUVNQ3TV3X6MNQM25NB2YRFRGMSUGKWTMAIGJOC23C6ESHJKYNFO';
-const REWARDS = process.env.NEXT_PUBLIC_REWARDS_CONTRACT_ID ?? 'CBUKGIFOEOS74I2IUUHYNRBZODQFOFCFWIJY3DUJHOUUJV7TT2QYADOU';
-const USDC_SAC = process.env.NEXT_PUBLIC_USDC_SAC_ID ?? 'CAKT2EK2SFGNXTXVSYZLZXA5YB5QPVHLTVUMRHLJTF5RFFAFMIRNPZT2';
+const PASS = Networks.TESTNET; // testnet only: throwaway users come from Friendbot
+const deployment = loadDeployment(['reputation', 'questRegistry', 'rewards', 'usdcSac'], {
+  network: 'testnet',
+  settings: ['rpcUrl', 'horizonUrl'],
+});
+const RPC = deployment.rpcUrl;
+const HOR = deployment.horizonUrl;
+const { reputation: REP, questRegistry: QUEST, rewards: REWARDS, usdcSac: USDC_SAC } = deployment.contracts;
 
 const ADMIN = Keypair.fromSecret(reqEnv('ADMIN_SECRET_KEY'));
 const ATTESTER = Keypair.fromSecret(reqEnv('ATTESTER_SECRET_KEY'));

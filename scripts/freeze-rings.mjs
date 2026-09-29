@@ -10,20 +10,25 @@
  * Secret-free: the admin key is read from $ADMIN_SECRET_KEY (never committed).
  * Dry-run by default — set APPLY=1 to actually freeze.
  *
+ * The RPC URL and contract ids come from scripts/lib/env.mjs (NEXT_PUBLIC_* env, then
+ * apps/web/.env.local, then deployments/testnet.json); a missing id exits 2.
+ *
  * Run from apps/web:  ADMIN_SECRET_KEY=S... [APPLY=1] node ../../scripts/freeze-rings.mjs
  */
 // stellar-sdk lives in apps/web/node_modules (pnpm, no root hoist) — resolve from there.
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { loadDeployment } from './lib/env.mjs';
 const require = createRequire(join(dirname(fileURLToPath(import.meta.url)), '..', 'apps', 'web', 'package.json'));
 const {
   Address, Contract, Keypair, Networks, TransactionBuilder, nativeToScVal, scValToNative, rpc, xdr,
 } = require('@stellar/stellar-sdk');
 
-const RPC = process.env.NEXT_PUBLIC_RPC_URL ?? 'https://soroban-testnet.stellar.org';
-const REPUTATION = process.env.NEXT_PUBLIC_REPUTATION_CONTRACT_ID ?? 'CBNIZXITUVTRVW6RZGEGCI7KNF46REG4EDM4XUVHKDAV63WOHWW75SZM';
-const REWARDS = process.env.NEXT_PUBLIC_REWARDS_CONTRACT_ID ?? 'CBUKGIFOEOS74I2IUUHYNRBZODQFOFCFWIJY3DUJHOUUJV7TT2QYADOU';
+// Testnet only: set_frozen below signs with the testnet passphrase.
+const deployment = loadDeployment(['reputation', 'rewards'], { network: 'testnet', settings: ['rpcUrl'] });
+const RPC = deployment.rpcUrl;
+const { reputation: REPUTATION, rewards: REWARDS } = deployment.contracts;
 const APPLY = process.env.APPLY === '1';
 const server = new rpc.Server(RPC);
 const toNative = (v) => scValToNative(typeof v === 'string' ? xdr.ScVal.fromXDR(v, 'base64') : v);

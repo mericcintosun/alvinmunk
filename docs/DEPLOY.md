@@ -170,6 +170,16 @@ The app is a Next.js app under `apps/web` with serverless API routes (`/api/atte
 
 Confirm: open `https://<your-deploy>/api/health` and walk through onboarding on the production URL.
 
+### Ops scripts read the same ids
+
+`scripts/status.mjs`, `scripts/bump-ttl.sh`, `scripts/e2e-testnet.mjs` and `scripts/freeze-rings.mjs` have no built-in contract ids. They get the network, RPC/Horizon URLs and ids from [`scripts/lib/env.mjs`](../scripts/lib/env.mjs), which takes each value from the first of:
+
+1. the environment (the same `NEXT_PUBLIC_*` names as `.env.local`);
+2. `apps/web/.env.local`, when its `NEXT_PUBLIC_STELLAR_NETWORK` is the network the script runs on;
+3. [`deployments/testnet.json`](../deployments/testnet.json), the committed live testnet deployment (the README table). `scripts/redeploy-all.sh` rewrites it.
+
+A missing or malformed id stops the script with exit code 2 and names the variable, before any network call. `bump-ttl.sh` also accepts `REPUTATION`, `QUEST` and `REWARDS`, but only all three together. `node scripts/lib/env.mjs` prints the resolved values as `NEXT_PUBLIC_*=…` lines. Offline tests: `node --test scripts/lib/env.test.mjs scripts/status.test.mjs` and `bash scripts/bump-ttl.test.sh`.
+
 ---
 
 ## Troubleshooting

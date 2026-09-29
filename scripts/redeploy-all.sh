@@ -64,3 +64,29 @@ echo "NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID=$QUEST"
 echo "NEXT_PUBLIC_REWARDS_CONTRACT_ID=$REWARDS"
 echo "NEXT_PUBLIC_REGISTRY_CONTRACT_ID=$REGISTRY"
 echo "NEXT_PUBLIC_GATE_CONTRACT_ID=$GATE"
+
+# The ops scripts (status, bump-ttl, e2e-testnet, freeze-rings) read their ids from this
+# manifest via scripts/lib/env.mjs, so record the new set there. Commit it with the README.
+if [ -n "$REP" ] && [ -n "$QUEST" ] && [ -n "$REWARDS" ] && [ -n "$REGISTRY" ] && [ -n "$GATE" ]; then
+  MANIFEST="$(dirname "$0")/../deployments/$NET.json"
+  mkdir -p "$(dirname "$MANIFEST")"
+  cat >"$MANIFEST" <<JSON
+{
+  "network": "$NET",
+  "passphrase": "Test SDF Network ; September 2015",
+  "rpcUrl": "https://soroban-testnet.stellar.org",
+  "horizonUrl": "https://horizon-testnet.stellar.org",
+  "contracts": {
+    "reputation": "$REP",
+    "questRegistry": "$QUEST",
+    "rewards": "$REWARDS",
+    "registry": "$REGISTRY",
+    "gate": "$GATE",
+    "usdcSac": "$USDC"
+  }
+}
+JSON
+  echo "(wrote $MANIFEST)"
+else
+  echo "  ✗ a deploy failed: deployments/$NET.json left unchanged" >&2
+fi

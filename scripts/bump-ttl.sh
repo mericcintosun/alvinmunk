@@ -10,16 +10,36 @@
 # Run this from cron (e.g. weekly) against the live IDs.
 #
 # Usage: SOURCE=alvinmunk-admin NETWORK=testnet ./scripts/bump-ttl.sh
+# Contract ids: set REPUTATION, QUEST and REWARDS together, or none of them. With none set
+# they come from scripts/lib/env.mjs (needs node): NEXT_PUBLIC_* env, then apps/web/.env.local,
+# then deployments/<NETWORK>.json. A missing id stops the keeper before any call.
 set -euo pipefail
 
+HERE="$(cd "$(dirname "$0")" && pwd)"
 SOURCE="${SOURCE:-alvinmunk-admin}"
 NETWORK="${NETWORK:-testnet}"
 LEDGERS="${LEDGERS:-535679}" # ~31 days at 5s/ledger (max_entry_ttl is 3,110,400, ~180 days)
 
-# Live testnet IDs (keep in sync with apps/web/.env.local).
-REPUTATION="${REPUTATION:-CBNIZXITUVTRVW6RZGEGCI7KNF46REG4EDM4XUVHKDAV63WOHWW75SZM}"
-QUEST="${QUEST:-CD6RZUVNQ3TV3X6MNQM25NB2YRFRGMSUGKWTMAIGJOC23C6ESHJKYNFO}"
-REWARDS="${REWARDS:-CBUKGIFOEOS74I2IUUHYNRBZODQFOFCFWIJY3DUJHOUUJV7TT2QYADOU}"
+if [ -n "${REPUTATION:-}${QUEST:-}${REWARDS:-}" ]; then
+  # A partial override would extend some contracts of one deployment and some of another.
+  if [ -z "${REPUTATION:-}" ] || [ -z "${QUEST:-}" ] || [ -z "${REWARDS:-}" ]; then
+    echo "set all of REPUTATION, QUEST and REWARDS, or none of them" >&2
+    exit 2
+  fi
+else
+  command -v node >/dev/null || {
+    echo "node is needed to read the contract ids (or set REPUTATION, QUEST and REWARDS)" >&2
+    exit 2
+  }
+  ids="$(node "$HERE/lib/env.mjs" --network "$NETWORK" reputation questRegistry rewards)" || exit 2
+  while IFS='=' read -r key value; do
+    case "$key" in
+      NEXT_PUBLIC_REPUTATION_CONTRACT_ID) REPUTATION="$value" ;;
+      NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID) QUEST="$value" ;;
+      NEXT_PUBLIC_REWARDS_CONTRACT_ID) REWARDS="$value" ;;
+    esac
+  done <<<"$ids"
+fi
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/bump-ttl.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT

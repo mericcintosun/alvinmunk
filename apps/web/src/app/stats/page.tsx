@@ -71,7 +71,7 @@ export default function StatsPage() {
         throw err; // so the poll backs off
       }
     },
-    10_000,
+    30_000, // /api/stats reuses a scan for 30 s (#444), so poll no faster
     tab,
   );
 
