@@ -27,6 +27,7 @@ This severs all economic motivation for sybils: farming vouches earns **clout**,
 
 ### 2. Hardening the treasury (USDC) path
 - **Only Earned XP (attester-signed quest) opens the treasury** — not vouches. (Keystone)
+- **A tip must move value: `amount > 0` and sender ≠ receiver.** The tip is sender-funded, so it never touches the treasury, but `tipped` is what the feed and the indexer read as "somebody received a spend" — the Green D7 de-risk metric. Without the check, a wallet could self-tip or send 0 and mint unlimited no-value events for the price of a fee. **[on-chain, #144]**
 - **Proof-of-funding (NOT KYC):** to be able to `claim_reward`/cash-out, a wallet must have **received external value at least once** (e.g. ≥ $1 USDC from an external anchor / funded account). The cheapest real uniqueness signal. **[Black belt]**
 - Per-reward replay guard + **per-claim cap + global daily cap + pause/circuit-breaker**. **[partially in the contract; complete at Black]**
 - **Off-chain indexer ring/cluster detection** (A→B→C→A, dense bidirectional clusters, common-funding source) → a **`frozen` set** that the contract checks before reward. **[Blue/Black]**

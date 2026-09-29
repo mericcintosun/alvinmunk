@@ -194,8 +194,19 @@ secret (`claim_vouch`). Both emit this same event. See
 
 #### `vouch` / `slashed`
 
-An unclaimed half-card expires after its 7-day window; the staked Social XP
-is forfeit (not refunded).
+A half-card's staked Social XP is forfeit (not refunded). There are **two paths** that
+emit this event:
+
+1. **`expire_vouch` path** — an unclaimed half-card is explicitly slashed by a keeper
+   after its 7-day window. The card remains unclaimed (`claimed: false`).
+2. **Late-claim path** — the card is claimed after its 7-day window but before anyone
+   called `expire_vouch`. In this case `vouch`/`slashed` is emitted **before**
+   `vouch`/`claimed` in the same transaction (the claimer's `social` claim-XP event
+   falls between the two), so indexers see the slash before the claim.
+   The stored vouch records `slashed: true, claimed: true`. A card `expire_vouch` already
+   slashed can still be claimed; that claim emits no second `vouch`/`slashed`.
+
+Both paths store `slashed: true` on the vouch and emit the same event shape:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -217,15 +228,23 @@ is forfeit (not refunded).
 env.events().publish(
     (symbol_short!("vouch"), symbol_short!("minted")), (id, from));
 
-// Claim:
+// Claim (timely — refund, no slash event):
 env.events().publish(
     (symbol_short!("vouch"), symbol_short!("claimed")),
     (vouch_id, vouch.from, claimer));
 
-// Slash:
+// Slash via expire_vouch (unclaimed, past deadline):
 env.events().publish(
     (symbol_short!("vouch"), symbol_short!("slashed")),
     (vouch_id, vouch.from, vouch.stake));
+
+// Late claim (past deadline): slash event emitted BEFORE claimed event.
+env.events().publish(
+    (symbol_short!("vouch"), symbol_short!("slashed")),
+    (vouch_id, vouch.from, vouch.stake));
+env.events().publish(
+    (symbol_short!("vouch"), symbol_short!("claimed")),
+    (vouch_id, vouch.from, claimer));
 ```
 
 ---
@@ -634,6 +653,16 @@ A direct USDC transfer from one wallet to another, with a social
 > topics as filter segments, so a 2-segment `['*', '*']` scan never returns `tipped`. Use a
 > 3-segment filter such as `[tipped, <from>, '*']` (`apps/web/src/lib/events.ts` →
 > `fetchTipsSent`).
+
+> **Invariants (#144)**: every `tipped` event moves value. `tip` reverts with
+> `InvalidAmount` (#8) for an `amount ≤ 0` and with `SelfTip` (#20) when `from == to`, so
+> `amount > 0` and `topics[1] != topics[2]` always hold. Before that rule the SAC accepted a
+> zero amount and a self-transfer, and a wallet could mint unlimited no-value `tipped`
+> events for the price of a fee — enough to fake "received a spend" in the feed and an
+> indexer, which is the Green belt's D7 de-risk metric. A `tipped` event from a contract
+> deployed before this rule is not re-validated; `amount > 0` and distinct wallets are the
+> normal case and only a deliberate abuse looks different. `SelfTip` (#20) sits above the
+> SAC's own 1–13 error range so a code can never be confused with the token contract's.
 
 ### `rwd_set` (Reward Registered/Updated)
 
@@ -1077,6 +1106,71 @@ added there: the allowlist grants every unbound quest. `remove_attester_key` onl
 the allowlist, so to revoke a bound key call `clear_quest_attester` (or rebind the quest)
 too. A contract deployed before this view has no `get_quest_attester`.
 
+### Quest award payload (`quest_payload` / `award_quest`)
+
+`award_quest(attester, sig, quest_id, recipient, expires_at)` credits a quest only with an
+ed25519 signature (64 bytes, plain ed25519 over the payload bytes, no pre-hash) from a key
+the quest accepts (see [Quest attester scope](#quest-attester-scope-get_quest_attester)),
+plus `recipient`'s own auth. `quest_payload(quest_id, recipient, expires_at) -> Bytes`
+returns the bytes `award_quest` rebuilds, for checking an off-chain build against a
+deployment.
+
+**Payload** — the XDR encoding of this `ScVal::Vec`:
+
+| Index | ScVal | Value |
+|-------|-------|-------|
+| 0 | `Symbol` | `"alvinmunk_award_quest_v1"` — domain tag (`AWARD_DOMAIN`) |
+| 1 | `Bytes` (32) | network id = `sha256(network passphrase)`, as the ledger reports it |
+| 2 | `Address` | the QuestRegistry contract being called |
+| 3 | `U32` | `quest_id` |
+| 4 | `Address` | `recipient` (a `G…` account or a `C…` passkey smart wallet) |
+| 5 | `U64` | `expires_at` — unix seconds, the last ledger timestamp the signature is accepted at |
+
+Each element closes one replay: the signature is useless on another network (index 1),
+against another deployment (2), for another quest (3) or wallet (4), or after its expiry
+(5), and the tag names the entrypoint and payload version, so it never matches another
+protocol's message or a later payload format (which must take a new tag). Test vector
+(quest `3` on testnet, contract `C…` = 32 × `0x11`, recipient `G…` = 32 × `0x22`,
+`expires_at` = `1790813400`, 2026-10-01 00:10:00 UTC):
+
+```
+000000100000000100000006                                                  vec of 6
+0000000f00000018616c76696e6d756e6b5f61776172645f71756573745f7631          Symbol
+0000000d00000020cee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472  network id
+00000012000000011111111111111111111111111111111111111111111111111111111111111111  contract
+0000000300000003                                                          u32 3
+0000001200000000000000002222222222222222222222222222222222222222222222222222222222222222  recipient
+00000005000000006abda4d8                                                  u64 1790813400
+```
+
+For a `C…` recipient (32 × `0x33`) index 4 is
+`00000012000000013333333333333333333333333333333333333333333333333333333333333333`.
+The contract test `quest_payload_matches_the_documented_bytes` and the web test in
+`apps/web/src/lib/attest.test.ts` both pin these bytes. **Build the payload yourself**
+(`questPayload` in `apps/web/src/lib/attest.ts`); never sign bytes an RPC node hands back,
+since a dishonest node could return the payload for its own address.
+
+**Expiry.** `/api/attest` signs with `expires_at` = its clock + 600 s (`QUEST_SIG_TTL_SECS`)
+and returns `{ ok, attester, sig, expiresAt, recipient, questId }`; `attester` is the raw
+public key in hex, `sig` is base64. The client passes `expiresAt` back as the fifth
+`award_quest` argument. The ledger timestamp trails wall-clock time by up to one ledger
+close, so the window is the attester's clock skew plus that, not exact. At
+`timestamp == expires_at` the award still goes through; from the next second it reverts
+with `SignatureExpired` (#8), and the user asks for a fresh signature.
+
+**Errors**, in the order `award_quest` checks them: `SignatureExpired` (#8), then
+`NotAuthorized` (#3) for a key the quest does not accept, then the signature. A signature
+that does not verify (wrong key, or any payload field changed, `expires_at` included)
+traps in the host with `Error(Crypto, InvalidInput)`, not a contract code. Then come
+`recipient.require_auth()`, `QuestNotFound` (#4), `QuestInactive` (#6), `AlreadyClaimed`
+(#5) and `AttesterBudgetExceeded` (#7). A rejected award records no claim.
+
+**Migration.** Before issue #142 the payload was `[quest_id, recipient, contract]` (a vec of
+3) and `award_quest` took four arguments. Signatures over that payload never verify on the
+upgraded contract, so grants issued but not redeemed before the upgrade are void. Upgrade
+the contract first, then deploy the web app, whose attester and `award_quest` call both
+need the new code.
+
 ### `Streak`
 
 ```rust
@@ -1188,6 +1282,15 @@ tightening it (`set_paused(true)` is the way to stop every payout), and with
 `CapBelowActiveReward` (#17) for a positive cap below an active row's `amount`. A negative
 cap stored by a contract deployed before that rule reads as `0`, which is how the payout
 checks always treated it.
+
+### Tip validation (`validate_tip`, in `tip`)
+
+`tip(from, to, amount)` takes no view and emits no event of its own, but the reverts are
+part of the `tipped` contract above: `InvalidAmount` (#8) for `amount ≤ 0` and `SelfTip`
+(#20) for `from == to`. Both are checked before the SAC transfer and before the event, so a
+rejected tip moves nothing and mints nothing. `tip` also requires `from.require_auth()`, is
+gated on `Paused` (#5) and on the sender not being `Frozen` (#10), and never touches the
+treasury — the daily cap counts claims only, since a tip is sender-funded.
 
 ### `Gate`
 

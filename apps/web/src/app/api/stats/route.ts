@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { rpc, scValToNative, xdr } from '@stellar/stellar-sdk';
 import roster from '@/data/onboarded-wallets.json';
 import { aggregateVouchFunnel, readVouchRecords, type VouchFunnel } from '@/lib/vouch-funnel';
+import { withRoute } from '@/lib/api-route';
 
 /**
  * Network stats — unique wallets that have interacted with the app's contracts, per network.
@@ -199,11 +200,11 @@ async function readFunnel(cfg: (typeof NETWORKS)[NetKey]): Promise<FunnelResult>
   }
 }
 
-export async function GET(req: Request) {
+export const GET = withRoute('GET /api/stats', async (req: Request) => {
   const net = (new URL(req.url).searchParams.get('network') || 'testnet') as NetKey;
   if (net !== 'testnet' && net !== 'mainnet') {
     return NextResponse.json({ error: 'bad network' }, { status: 400 });
   }
   const data = await statsFor(net);
   return NextResponse.json(data, { headers: { 'cache-control': 'no-store' } });
-}
+});

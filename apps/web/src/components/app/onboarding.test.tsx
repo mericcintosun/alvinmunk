@@ -199,5 +199,57 @@ describe('Onboarding — returning users (#278)', () => {
       expect(setProfileMock).toHaveBeenCalledWith(expect.objectContaining({ handle: 'bob', address: 'CACCOUNT' }));
       expect(toastMock.success).toHaveBeenCalledWith('Your profile is live — @bob stamped on-chain.');
     });
+
+    it('labels the submit button while the profile is being created', async () => {
+      let finish!: () => void;
+      claimHandleMock.mockReturnValue(new Promise<void>((resolve) => (finish = resolve)));
+      await mount();
+
+      await typeHandle('bob');
+      await submit();
+
+      const busy = buttonWith('Creating your profile…');
+      expect(busy).toBeDefined();
+      expect(busy.disabled).toBe(true);
+      expect(container.textContent).not.toMatch(/onboard\./);
+
+      await act(async () => finish());
+      await flush();
+      expect(buttonWith('Create my profile').disabled).toBe(false);
+    });
+  });
+
+  describe('handle status', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    const status = () => {
+      const input = container.querySelector('[aria-label="Handle"]')!;
+      return document.getElementById(input.getAttribute('aria-describedby')!)!;
+    };
+
+    it('announces availability in a live region tied to the input', async () => {
+      await mount();
+      await typeHandle('bob');
+      expect(status().getAttribute('aria-live')).toBe('polite');
+      expect(status().textContent).toBe('Checking…');
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      expect(status().textContent).toBe('✓ @bob is free');
+    });
+
+    it('blocks submit for a taken handle', async () => {
+      handleAvailabilityMock.mockResolvedValue({ status: 'taken' });
+      await mount();
+      await typeHandle('bob');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+
+      expect(status().textContent).toBe('@bob is taken — try another');
+      expect(buttonWith('Create my profile').disabled).toBe(true);
+    });
   });
 });

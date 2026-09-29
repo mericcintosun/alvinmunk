@@ -516,8 +516,9 @@ impl ReputationContract {
     }
 
     /// Shared tail of both claim paths, once the claim is authenticated: binds `claimer`,
-    /// refunds a timely stake, pays first-pair Social XP (the voucher's bonus now or queued)
-    /// and moves the people counters, then emits `claimed`.
+    /// refunds a timely stake (or sets slashed=true and emits `vouch`/`slashed` for a late
+    /// claim), pays first-pair Social XP (the voucher's bonus now or queued) and moves the
+    /// people counters, then emits `claimed`.
     fn settle_claim(env: &Env, vouch_id: u64, mut vouch: Vouch, claimer: Address) {
         if claimer == vouch.from {
             panic_with_error!(env, Error::SelfVouch);
@@ -526,16 +527,31 @@ impl ReputationContract {
         // Starter Social XP for the claimer (once), before crediting claim XP.
         Self::grant_starter(env, &claimer);
 
+        // Evaluate the deadline BEFORE persisting so the stored record is consistent.
+        let now = env.ledger().timestamp();
+        let timely = !vouch.slashed && now <= claim_deadline(&vouch);
+        // A late claim slashes here, unless `expire_vouch` already did (and announced it).
+        let slash_now = !timely && !vouch.slashed;
+        if slash_now {
+            vouch.slashed = true;
+        }
+
         vouch.claimed = true;
         vouch.claimer = Some(claimer.clone());
         env.storage()
             .persistent()
             .set(&DataKey::Vouch(vouch_id), &vouch);
 
-        // Refund the voucher's stake on a timely claim (else it stays slashed).
-        let now = env.ledger().timestamp();
-        if !vouch.slashed && now <= claim_deadline(&vouch) {
+        if timely {
+            // Timely claim: refund the escrowed stake.
             Self::add_social(env, &vouch.from, vouch.stake);
+        } else if slash_now {
+            // Late claim: emit vouch/slashed (same event as expire_vouch) BEFORE
+            // vouch/claimed so both slash paths leave identical state and events.
+            env.events().publish(
+                (symbol_short!("vouch"), symbol_short!("slashed")),
+                (vouch_id, vouch.from.clone(), vouch.stake),
+            );
         }
 
         // first-pair-only guard (kills back-and-forth pump)

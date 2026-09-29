@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Lock, Check } from 'lucide-react';
 import { getWallet } from '@/lib/wallet';
 import { getGates, isUnlocked, unlockGate, TRACK, type Gate } from '@/lib/gate';
@@ -8,6 +8,7 @@ import { getScores } from '@/lib/reputation';
 import { Frame } from '@/components/fx/frame';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { useTranslations } from '@/lib/i18n';
 
 type Row = Gate & { unlocked: boolean };
 
@@ -17,6 +18,7 @@ type Row = Gate & { unlocked: boolean };
  * (any app can `check` it). Hides itself when no gates are configured.
  */
 export function Unlockables({ address }: { address: string }) {
+  const t = useTranslations();
   const [scores, setScores] = useState<{ social: number; earned: number } | null>(null);
   const [rows, setRows] = useState<Row[] | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
@@ -48,7 +50,7 @@ export function Unlockables({ address }: { address: string }) {
       await unlockGate(w, id);
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'unlock failed');
+      setError(e instanceof Error ? e.message : t('unlockables.error'));
     } finally {
       setBusy(null);
     }
@@ -57,14 +59,13 @@ export function Unlockables({ address }: { address: string }) {
   if (rows !== null && rows.length === 0) return null;
 
   const have = (track: number) => (track === TRACK.EARNED ? scores?.earned ?? 0 : scores?.social ?? 0);
-  const trackLabel = (t: number) => (t === TRACK.EARNED ? 'Earned XP' : 'Social XP');
+  const trackLabel = (track: number) =>
+    track === TRACK.EARNED ? t('unlockables.earnedXp') : t('unlockables.socialXp');
 
   return (
-    <Frame label="perks // reputation_gated" index="ACCESS" accent="tertiary">
+    <Frame label={t('unlockables.frame')} index="ACCESS" accent="tertiary">
       <div className="border-b border-border/60 px-4 py-2.5">
-        <p className="text-xs text-muted-foreground">
-          Reputation unlocks access — every gate is readable on-chain by any app.
-        </p>
+        <p className="text-xs text-muted-foreground">{t('unlockables.intro')}</p>
       </div>
       <ul className="divide-y divide-border/50">
         {(rows ?? []).map((g) => {
@@ -87,12 +88,12 @@ export function Unlockables({ address }: { address: string }) {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{g.label}</p>
                 <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-                  needs {g.min} {trackLabel(g.track)} · you {cur}
+                  {t('unlockables.needs', { min: String(g.min), track: trackLabel(g.track), cur: String(cur) })}
                 </p>
               </div>
               {g.unlocked ? (
                 <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-secondary">
-                  ✦ unlocked
+                  {t('unlockables.unlocked')}
                 </span>
               ) : (
                 <Button
@@ -101,7 +102,7 @@ export function Unlockables({ address }: { address: string }) {
                   disabled={!pass || busy !== null}
                   onClick={() => onUnlock(g.id)}
                 >
-                  {busy === g.id ? 'unlocking…' : pass ? 'unlock' : 'locked'}
+                  {busy === g.id ? t('unlockables.unlocking') : pass ? t('unlockables.unlock') : t('unlockables.locked')}
                 </Button>
               )}
             </li>

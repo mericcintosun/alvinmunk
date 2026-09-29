@@ -13,7 +13,7 @@ import {
   xdr,
   type Transaction,
 } from '@stellar/stellar-sdk';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { server } = vi.hoisted(() => ({
   server: {
@@ -57,7 +57,7 @@ describe('invokeAndWait / invokeAndWaitHash', () => {
     server.sendTransaction.mockResolvedValue({ status: 'PENDING', hash: 'abc123' });
     server.getTransaction.mockResolvedValue({ status: 'SUCCESS', returnValue: u32(7) });
     const sign = vi.fn(async (x: string) => x);
-    const wallet: Wallet = { kind: 'freighter', address: SOURCE, sign, signMessage: vi.fn() };
+    const wallet: Wallet = { kind: 'freighter', address: SOURCE, sign };
 
     await expect(invokeAndWait(CONTRACT, 'create_quest', [u32(1)], wallet)).resolves.toBe(7);
     await expect(invokeAndWaitHash(CONTRACT, 'create_quest', [u32(1)], wallet)).resolves.toBe(
@@ -73,7 +73,6 @@ describe('invokeAndWait / invokeAndWaitHash', () => {
       kind: 'passkey',
       address: CONTRACT,
       sign: vi.fn(),
-      signMessage: vi.fn(),
       invoke,
     };
     await expect(invokeAndWait(CONTRACT, 'mint_vouch', [], wallet)).resolves.toBe(42);
@@ -83,11 +82,60 @@ describe('invokeAndWait / invokeAndWaitHash', () => {
   });
 
   it('refuses an undeployed contract before touching the wallet', async () => {
-    const wallet: Wallet = { kind: 'dev', address: SOURCE, sign: vi.fn(), signMessage: vi.fn() };
+    const wallet: Wallet = { kind: 'dev', address: SOURCE, sign: vi.fn() };
     await expect(invokeAndWaitHash('', 'add_reward', [], wallet)).rejects.toThrow(
       'Contract not deployed',
     );
     expect(wallet.sign).not.toHaveBeenCalled();
+  });
+
+  describe('when Core answers TRY_AGAIN_LATER', () => {
+    const wallet = (): Wallet => ({
+      kind: 'freighter',
+      address: SOURCE,
+      sign: vi.fn(async (x: string) => x),
+    });
+    beforeEach(() => {
+      server.getAccount.mockImplementation(async () => new Account(SOURCE, '1'));
+      server.prepareTransaction.mockImplementation(async (tx) => tx);
+      vi.useFakeTimers();
+    });
+    afterEach(() => vi.useRealTimers());
+
+    it('resubmits the same signed envelope until PENDING, then polls its hash', async () => {
+      server.sendTransaction
+        .mockResolvedValueOnce({ status: 'TRY_AGAIN_LATER', hash: 'abc123' })
+        .mockResolvedValueOnce({ status: 'TRY_AGAIN_LATER', hash: 'abc123' })
+        .mockResolvedValue({ status: 'PENDING', hash: 'abc123' });
+      server.getTransaction.mockResolvedValue({ status: 'SUCCESS', returnValue: u32(7) });
+
+      const p = invokeAndWait(CONTRACT, 'create_quest', [u32(1)], wallet());
+      await vi.runAllTimersAsync();
+      await expect(p).resolves.toBe(7);
+      expect(server.sendTransaction).toHaveBeenCalledTimes(3);
+      const [first] = server.sendTransaction.mock.calls[0];
+      for (const [sent] of server.sendTransaction.mock.calls) expect(sent).toBe(first);
+      expect(server.getTransaction).toHaveBeenCalledWith('abc123');
+    });
+
+    it('gives up with a clear, retryable error and never polls the hash', async () => {
+      server.sendTransaction.mockResolvedValue({ status: 'TRY_AGAIN_LATER', hash: 'abc123' });
+
+      const p = invokeAndWaitHash(CONTRACT, 'create_quest', [u32(1)], wallet());
+      const settled = expect(p).rejects.toThrow(/network is busy/);
+      await vi.runAllTimersAsync();
+      await settled;
+      expect(server.getTransaction).not.toHaveBeenCalled();
+    });
+
+    it('treats DUPLICATE as accepted and polls its hash', async () => {
+      server.sendTransaction.mockResolvedValue({ status: 'DUPLICATE', hash: 'dup-1' });
+      server.getTransaction.mockResolvedValue({ status: 'SUCCESS', returnValue: u32(7) });
+
+      await expect(invokeAndWait(CONTRACT, 'create_quest', [u32(1)], wallet())).resolves.toBe(7);
+      expect(server.sendTransaction).toHaveBeenCalledTimes(1);
+      expect(server.getTransaction).toHaveBeenCalledWith('dup-1');
+    });
   });
 });
 
@@ -138,7 +186,6 @@ describe('invokeCosigned', () => {
     kind: 'dev',
     address: cosignerKey.publicKey(),
     sign: vi.fn(),
-    signMessage: vi.fn(),
     signAuthEntry: vi.fn((e: xdr.SorobanAuthorizationEntry, until: number) =>
       authorizeEntry(e, cosignerKey, until, Networks.TESTNET),
     ),
@@ -160,7 +207,7 @@ describe('invokeCosigned', () => {
       )
       .mockImplementationOnce(async (tx: Transaction) => tx);
     const sign = vi.fn(async (x: string) => x);
-    const submitter: Wallet = { kind: 'freighter', address: SOURCE, sign, signMessage: vi.fn() };
+    const submitter: Wallet = { kind: 'freighter', address: SOURCE, sign };
     const co = cosigner();
 
     await expect(invokeCosigned(CONTRACT, 'transfer_handle', [], submitter, co)).resolves.toEqual({
@@ -188,7 +235,6 @@ describe('invokeCosigned', () => {
       kind: 'passkey',
       address: CONTRACT,
       sign: vi.fn(),
-      signMessage: vi.fn(),
       invoke,
     };
     await expect(invokeCosigned(CONTRACT, 'transfer_handle', [], submitter, cosigner())).resolves.toEqual(
@@ -213,8 +259,8 @@ describe('invokeCosigned', () => {
       withAuth(tx, [entry(null), entry(OTHER)]),
     );
     const sign = vi.fn(async (x: string) => x);
-    const submitter: Wallet = { kind: 'freighter', address: SOURCE, sign, signMessage: vi.fn() };
-    const noKey: Wallet = { kind: 'freighter', address: OTHER, sign: vi.fn(), signMessage: vi.fn() };
+    const submitter: Wallet = { kind: 'freighter', address: SOURCE, sign };
+    const noKey: Wallet = { kind: 'freighter', address: OTHER, sign: vi.fn() };
     await expect(invokeCosigned(CONTRACT, 'transfer_handle', [], submitter, noKey)).rejects.toThrow(
       "can't co-sign",
     );
@@ -227,7 +273,7 @@ describe('invokeCosigned', () => {
       withAuth(tx, [entry(null), entry(OTHER)]),
     );
     const sign = vi.fn(async (x: string) => x);
-    const submitter: Wallet = { kind: 'freighter', address: SOURCE, sign, signMessage: vi.fn() };
+    const submitter: Wallet = { kind: 'freighter', address: SOURCE, sign };
     await expect(
       invokeCosigned(CONTRACT, 'transfer_handle', [], submitter, cosigner()),
     ).rejects.toThrow('Nothing in this call');

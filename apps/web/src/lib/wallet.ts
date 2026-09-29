@@ -28,8 +28,6 @@ import {
   isConnected as freighterIsConnected,
   requestAccess as freighterRequestAccess,
   signTransaction as freighterSign,
-  signMessage as freighterSignMessage,
-
 } from '@stellar/freighter-api';
 import {
   accountExists,
@@ -69,9 +67,6 @@ export interface Wallet {
   address: string;
   /** Sign a base64 tx XDR, returning the signed XDR. */
   sign: (xdr: string) => Promise<string>;
-  /** Sign a plain UTF-8 message (ed25519), returning a base64 signature.
-   * Used to PROVE wallet ownership to the attester (no key leaves the client). */
-  signMessage: (message: string) => Promise<string>;
   /**
    * Smart-account-mediated contract call (passkey only). A passkey wallet's address is
    * a CONTRACT (`C…`), which can't be a classic tx source — so contract invocations are
@@ -196,10 +191,6 @@ function devWallet(kp: Keypair): Wallet {
       tx.sign(kp);
       return tx.toXDR();
     },
-    signMessage: async (message: string) => {
-      const sig = kp.sign(new TextEncoder().encode(message) as unknown as Buffer);
-      return u8ToB64(new Uint8Array(sig));
-    },
     signAuthEntry: (entry, validUntilLedger) =>
       authorizeEntry(entry, kp, validUntilLedger, networkPassphrase),
   };
@@ -265,20 +256,6 @@ export async function connectFreighter(): Promise<Wallet> {
       }
       return res.signedTxXdr;
     },
-    signMessage: async (message: string) => {
-      const res = await freighterSignMessage(message, { address, networkPassphrase });
-      if ('error' in res && res.error) {
-        const e = res.error as string | { message?: string };
-        throw new Error(typeof e === 'string' ? e : (e?.message ?? JSON.stringify(e)));
-      }
-      const { signedMessage } = res;
-      // Freighter returns a base64 string in current versions; normalize defensively in
-      // case a wallet build returns raw bytes instead (same pattern as wallet-kit.ts's
-      // SWK normalization), so callers can always treat Wallet.signMessage as string-in/out.
-      return typeof signedMessage === 'string'
-        ? signedMessage
-        : u8ToB64(new Uint8Array(signedMessage as unknown as ArrayBufferLike));
-    },
   };
 }
 
@@ -303,13 +280,6 @@ export async function connectAlbedo(): Promise<Wallet> {
     sign: async (xdr: string) => {
       const res = await albedo.tx({ xdr, network: net, pubkey });
       return res.signed_envelope_xdr;
-    },
-    signMessage: async (message: string) => {
-      // Albedo's sign_message intent signs under Albedo's own message envelope (not the
-      // same raw bytes the dev wallet signs directly) — see note in wallet.ts header re:
-      // signing schemes if this is ever consumed by an off-chain verifier.
-      const res = await albedo.signMessage({ message, pubkey });
-      return res.signed_message;
     },
   };
 }
@@ -702,11 +672,6 @@ export async function connectPasskey(mode: ConnectMode = 'create'): Promise<Wall
     sign: async () => {
       // Passkey wallets author actions via `invoke` (Soroban auth), never raw classic XDR.
       throw new Error('This action needs a classic wallet; passkey wallets sign on-chain calls only.');
-    },
-    signMessage: async () => {
-      // Quest ownership proof verifies an ed25519 G… signer; the smart-account (secp256r1)
-      // signer path is a documented follow-up in the attester. Defer like Freighter quests.
-      throw new Error('Quests with a passkey wallet are coming soon — use the in-app wallet to verify a quest for now.');
     },
   };
 }

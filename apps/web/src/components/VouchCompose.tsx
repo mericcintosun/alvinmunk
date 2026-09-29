@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Copy, Check, Share2 } from 'lucide-react';
+import React, { useState } from 'react';
+import { Copy, Check, Share2, QrCode as QrCodeIcon } from 'lucide-react';
 import { getWallet } from '@/lib/wallet';
 import { clampVouchNote, claimLink, mintVouch, VOUCH_NOTE_MAX_CHARS } from '@/lib/reputation';
 import { addMyVouch, subscribeToVouchPush } from '@/lib/myvouches';
@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { StateArt } from '@/components/ui/state-art';
 import { Sticker } from '@/components/ui/sticker';
+import { QrCode } from '@/components/fx/qr-code';
 import { humanizeError } from '@/lib/utils';
 import { useTranslations, type TFn } from '@/lib/i18n';
 import { track, trackError } from '@/lib/track';
@@ -34,11 +35,13 @@ export function VouchCompose() {
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showQr, setShowQr] = useState(false);
 
   async function onMint() {
     setBusy(true);
     setError(null);
     setLink(null);
+    setShowQr(false);
     try {
       const wallet = await getWallet();
       const noteText = note.trim() || t('vouch.compose.defaultNote');
@@ -144,6 +147,29 @@ export function VouchCompose() {
             >
               {t('vouch.compose.shareOnX')}
             </a>
+
+            {/* The claim QR encodes the bearer secret in `link`, so it stays
+                hidden until the user explicitly reveals it. */}
+            <div className="mt-3 border-t border-secondary/20 pt-3">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowQr((v) => !v)}
+                aria-expanded={showQr}
+                aria-controls="vouch-claim-qr"
+              >
+                <QrCodeIcon className="size-4" />
+                {showQr ? t('vouch.compose.qr.hide') : t('vouch.compose.qr.show')}
+              </Button>
+              {showQr && (
+                <div id="vouch-claim-qr" className="mt-3 flex flex-col items-center gap-2">
+                  <QrCode value={link} label={t('vouch.compose.qr.alt')} />
+                  <p className="max-w-xs text-center text-xs text-destructive">
+                    {t('vouch.compose.qr.warning')}
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         )}
 

@@ -33,18 +33,22 @@ vi.mock('@stellar/stellar-sdk', async (importOriginal) => {
     ...real,
     rpc: {
       ...real.rpc,
-      Server: vi.fn().mockImplementation(() => ({
-        getHealth:           getHealthMock,
-        getEvents:           getEventsMock,
-        simulateTransaction: simulateMock,
-        getLatestLedger:     vi.fn(),
-      })),
+      // `new rpc.Server(...)`: Vitest 4 constructs the implementation, so it must be a `function`.
+      Server: vi.fn().mockImplementation(function () {
+        return {
+          getHealth:           getHealthMock,
+          getEvents:           getEventsMock,
+          simulateTransaction: simulateMock,
+          getLatestLedger:     vi.fn(),
+        };
+      }),
       Api: real.rpc.Api,
     },
   };
 });
 
 import { decodeVouchClaimedEvent } from './route';
+import { DEFAULT_QUEST_IDS } from '@/lib/attest';
 
 // ── shared fixtures ───────────────────────────────────────────────────────────
 
@@ -362,5 +366,103 @@ describe('POST /api/attest — vouch_back evidence (issue #165)', () => {
     expect(res.status).toBe(422);
     const body = await res.json() as { error: string };
     expect(body.error).toMatch(/try again/);
+  });
+
+  // ── invite_converts requires an actual vouch claim link ─────────────────
+
+  it('200 when the invited wallet claimed a vouch minted by the recipient', async () => {
+    getHealthMock.mockResolvedValue({ oldestLedger: 1 });
+    getEventsMock.mockResolvedValue({ events: [fakeEvent(7, ALICE, BOB)], cursor: undefined });
+    setupPayloadSim();
+
+    const POST = await loadRoute();
+    const res = await POST(makeRequest({
+      questId: DEFAULT_QUEST_IDS.invite_converts,
+      recipient: ALICE,
+      evidence: { type: 'invite_converts', ref: BOB },
+    }));
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { ok: boolean };
+    expect(body.ok).toBe(true);
+  });
+
+  it('422 when the invited wallet was vouched but never claimed a link to the recipient', async () => {
+    getHealthMock.mockResolvedValue({ oldestLedger: 1 });
+    getEventsMock.mockResolvedValue({
+      events: [fakeEvent(7, DAVE, BOB), fakeEvent(8, CAROL, BOB)],
+      cursor: undefined,
+    });
+
+    const POST = await loadRoute();
+    const res = await POST(makeRequest({
+      questId: DEFAULT_QUEST_IDS.invite_converts,
+      recipient: ALICE,
+      evidence: { type: 'invite_converts', ref: BOB },
+    }));
+
+    expect(res.status).toBe(422);
+    const body = await res.json() as { error: string };
+    expect(body.error).toMatch(/hasn't claimed a vouch from you/);
+  });
+
+  it('422 names the event-window limit when no claim link is visible', async () => {
+    getHealthMock.mockResolvedValue({ oldestLedger: 250_000 });
+    getEventsMock.mockResolvedValue({ events: [], cursor: undefined });
+
+    const POST = await loadRoute();
+    const res = await POST(makeRequest({
+      questId: DEFAULT_QUEST_IDS.invite_converts,
+      recipient: ALICE,
+      evidence: { type: 'invite_converts', ref: BOB },
+    }));
+
+    expect(res.status).toBe(422);
+    const body = await res.json() as { error: string };
+    expect(body.error).toMatch(/hasn't claimed a vouch from you/);
+    expect(body.error).toMatch(/event window/);
+  });
+
+  it('stops scanning once the cursor reaches the latest ledger', async () => {
+    getHealthMock.mockResolvedValue({ oldestLedger: 100 });
+    // stellar-rpc always returns a cursor ("<toid>-<n>", ledger in the toid's top 32 bits).
+    const cursorAt = (ledger: number) => `${(BigInt(ledger) << 32n).toString()}-0`;
+    getEventsMock
+      .mockResolvedValueOnce({ events: [], cursor: cursorAt(10_100), latestLedger: 25_000 })
+      .mockResolvedValueOnce({ events: [], cursor: cursorAt(20_100), latestLedger: 25_000 })
+      .mockResolvedValueOnce({ events: [], cursor: cursorAt(25_000), latestLedger: 25_000 })
+      .mockResolvedValue({ events: [], cursor: cursorAt(25_000), latestLedger: 25_000 });
+
+    const POST = await loadRoute();
+    const res = await POST(makeRequest({
+      questId: DEFAULT_QUEST_IDS.invite_converts,
+      recipient: ALICE,
+      evidence: { type: 'invite_converts', ref: BOB },
+    }));
+
+    expect(res.status).toBe(422);
+    expect(getEventsMock).toHaveBeenCalledTimes(3); // not the 50-page cap
+  });
+
+  it('follows the cursor across paginated vouch/claimed results for invite_converts', async () => {
+    getHealthMock.mockResolvedValue({ oldestLedger: 1 });
+    getEventsMock
+      // The claim link (ALICE → CAROL) is only on page 2; page 1 has unrelated claims.
+      .mockResolvedValueOnce({ events: [fakeEvent(2, ALICE, DAVE), fakeEvent(3, DAVE, CAROL)], cursor: 'next-page' })
+      .mockResolvedValueOnce({ events: [fakeEvent(4, ALICE, CAROL)], cursor: undefined });
+    setupPayloadSim();
+
+    const POST = await loadRoute();
+    const res = await POST(makeRequest({
+      questId: DEFAULT_QUEST_IDS.invite_converts,
+      recipient: ALICE,
+      evidence: { type: 'invite_converts', ref: CAROL },
+    }));
+
+    expect(res.status).toBe(200);
+    expect(getEventsMock).toHaveBeenCalledTimes(2);
+    const secondCall = getEventsMock.mock.calls[1][0] as Record<string, unknown>;
+    expect(secondCall.cursor).toBe('next-page');
+    expect(secondCall).not.toHaveProperty('startLedger');
   });
 });
