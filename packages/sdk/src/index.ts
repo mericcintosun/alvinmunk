@@ -72,9 +72,12 @@ export const args = {
   i128: (n: bigint) => nativeToScVal(n, { type: 'i128' }),
   bool: (b: boolean) => xdr.ScVal.scvBool(b),
   str: (s: string) => nativeToScVal(s, { type: 'string' }),
+  strs: (ss: string[]) => xdr.ScVal.scvVec(ss.map((s) => nativeToScVal(s, { type: 'string' }))),
   sym: (s: string) => nativeToScVal(s, { type: 'symbol' }),
   // Bytes / BytesN<32> (claim hash, secret) — the host checks fixed length where needed.
   bytes: (u8: Uint8Array) => nativeToScVal(u8, { type: 'bytes' }),
+  bytesVec: (u8s: Uint8Array[]) =>
+    xdr.ScVal.scvVec(u8s.map((u8) => nativeToScVal(u8, { type: 'bytes' }))),
 };
 
 /** An address's reputation — the reputation contract's `Profile`. */
