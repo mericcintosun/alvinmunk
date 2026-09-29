@@ -73,8 +73,11 @@ await server.send(signedTxOrAssembledTxOrXdr);            // → { hash, ... } v
      `PASSKEY_RELAYER_API_KEY=<from /gen>`
    Update `isPasskeyConfigured()` to check the wallet wasm hash (+ relayer for mainnet).
 3. **`apps/web/src/lib/wallet.ts` `connectPasskey()`**: rewrite with `PasskeyKit`. First run →
-   `createWallet` (returns `signedTx` deploy) → submit it via the API route below; persist
-   `{keyId, contractId}` to localStorage. Return a `Wallet` whose `invoke(contractId, method,
+   `createKey` (the FaceID enroll), persist `{keyId, publicKey}` + a `pendingDeploy` marker, then
+   build the same deploy `createWallet` would (`PasskeyClient.deploy`) and submit it via the API
+   route below; once confirmed only `{keyId, contractId}` stay in localStorage. While the marker
+   is set, the next connect adopts a deploy that landed late or rebuilds it for the SAME passkey
+   instead of enrolling another one (issue #186). Return a `Wallet` whose `invoke(contractId, method,
    args)` builds an `AssembledTransaction` for the call, `account.sign(at, {keyId})`, then POSTs
    the signed tx to `/api/passkey-send` and decodes the result.
 4. **New `apps/web/src/app/api/passkey-send/route.ts`**: `PasskeyServer({rpcUrl, relayerUrl,

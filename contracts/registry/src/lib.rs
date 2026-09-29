@@ -15,7 +15,7 @@
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short, Address,
-    BytesN, Env, String, Symbol,
+    BytesN, Env, String, Symbol, Vec,
 };
 
 // TTLs in ledgers (5s). `extend_ttl(key, threshold, extend_to)` does nothing unless the
@@ -39,11 +39,19 @@ pub enum Error {
     BioTooLong = 5,
     BadBio = 6,
     BadAvatar = 7,
+    TooMany = 8,
 }
 
 /// Bio limit in UTF-8 BYTES (what `String::len` counts), not characters: 80 ASCII
 /// characters, fewer when they are multi-byte.
 const BIO_MAX_BYTES: u32 = 80;
+
+/// Most addresses `reverse_many` takes in one call. Each is one persistent read, so a call's
+/// footprint is up to this many `Rev` keys plus the instance and code: far inside the
+/// per-transaction limits (testnet and mainnet, checked 2026-09-29: 400 footprint entries,
+/// 200 disk reads), even when every entry is archived and read from disk. Mirrored in
+/// apps/web/src/lib/registry.ts and scripts/list-handles.mjs, which chunk longer lists.
+const REVERSE_MANY_CAP: u32 = 50;
 
 // Avatar packing — one byte per field, so the u64 reads as hex. Mirrors `encodeAvatar` in
 // apps/web/src/lib/avatar.ts; the counts are the portrait assets the app ships (`FACE_IDS`,
@@ -152,6 +160,20 @@ impl RegistryContract {
     /// address -> handle (label addresses in the feed / leaderboard / profile).
     pub fn reverse(env: Env, addr: Address) -> Option<Symbol> {
         env.storage().persistent().get(&DataKey::Rev(addr))
+    }
+
+    /// Batched `reverse`: one handle per address, in input order, `None` where an address
+    /// holds none (duplicates repeat). Lets a list view label N rows in one read. Pure read,
+    /// any caller, no TTL bumps; reverts with `TooMany` past `REVERSE_MANY_CAP` addresses.
+    pub fn reverse_many(env: Env, addrs: Vec<Address>) -> Vec<Option<Symbol>> {
+        if addrs.len() > REVERSE_MANY_CAP {
+            panic_with_error!(&env, Error::TooMany);
+        }
+        let mut out = Vec::new(&env);
+        for addr in addrs.iter() {
+            out.push_back(env.storage().persistent().get(&DataKey::Rev(addr)));
+        }
+        out
     }
 
     /// Release the caller's own handle (frees it for re-claim) and drop its profile meta.
