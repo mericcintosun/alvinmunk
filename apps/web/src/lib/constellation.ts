@@ -7,7 +7,7 @@
 import { EVENTS } from '@alvinmunk/shared';
 import { fetchReputationEvents } from './events';
 import { getCounts, getVouch, type PeopleCounts } from './reputation';
-import { foldVouchEdges } from './badges';
+import { foldVouchEdges, type ChainEvent } from './badges';
 
 /** A person who vouched you — one star in your constellation. */
 export interface VoucherStar {
@@ -90,50 +90,31 @@ export interface Suggestion {
 }
 
 /**
- * Pure second-degree suggestion engine.
+ * Pure second-degree suggestion engine, built on `foldVouchEdges` (the same fold
+ * `badges.ts` and `getPeopleCounts` above use) instead of re-parsing `vouch:claimed`
+ * topics/data — one place decides what counts as an edge.
  *
  * Treat every `vouch:claimed` edge as UNDIRECTED (A↔B when either A vouched B or B
- * vouched A). Then:
- *   1. Build `me`'s direct-connection set (all first-degree neighbours).
- *   2. For every second-degree neighbour (reachable via one hop from a first-degree
- *      neighbour), count how many first-degree neighbours share an edge to them.
+ * vouched A — `foldVouchEdges` already merges both directions into `vouchedBy` +
+ * `vouchedFor`). Then:
+ *   1. Fold `me`'s direct connections (first-degree neighbours).
+ *   2. For each first-degree neighbour, fold THEIR connections too, and count how many
+ *      first-degree neighbours share an edge to each second-degree candidate.
  *   3. Drop `me` and anyone already in the first-degree set.
  *   4. Rank descending by shared count; break ties by address (stable, deterministic).
  *   5. Return the top `max` results (default 6).
  *
  * Pure: no I/O. Feed it the full event list from `fetchReputationEvents()`.
  */
-export function suggestPeople(
-  me: string,
-  events: { topics: string[]; data: unknown[] }[],
-  max = 6,
-): Suggestion[] {
-  // Collect all undirected edges as an adjacency map: address → Set<neighbour>
-  const adj = new Map<string, Set<string>>();
+export function suggestPeople(me: string, events: ChainEvent[], max = 6): Suggestion[] {
+  const myEdges = foldVouchEdges(events, me);
+  const direct = new Set([...myEdges.vouchedBy, ...myEdges.vouchedFor]);
 
-  const addEdge = (a: string, b: string) => {
-    if (a === b) return;
-    if (!adj.has(a)) adj.set(a, new Set());
-    if (!adj.has(b)) adj.set(b, new Set());
-    adj.get(a)!.add(b);
-    adj.get(b)!.add(a);
-  };
-
-  for (const { topics, data } of events) {
-    if (topics[0] !== 'vouch' || topics[1] !== 'claimed') continue;
-    if (!Array.isArray(data) || data.length < 3) continue;
-    const from = String(data[1]);
-    const claimer = String(data[2]);
-    addEdge(from, claimer);
-  }
-
-  // First-degree neighbours of `me`
-  const direct = adj.get(me) ?? new Set<string>();
-
-  // Count shared connections for each second-degree candidate
+  // Count shared connections for each second-degree candidate.
   const shared = new Map<string, number>();
   for (const neighbour of direct) {
-    for (const candidate of adj.get(neighbour) ?? []) {
+    const theirs = foldVouchEdges(events, neighbour);
+    for (const candidate of [...theirs.vouchedBy, ...theirs.vouchedFor]) {
       if (candidate === me) continue;
       if (direct.has(candidate)) continue; // already connected
       shared.set(candidate, (shared.get(candidate) ?? 0) + 1);

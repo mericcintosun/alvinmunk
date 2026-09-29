@@ -250,5 +250,12 @@
   "identity.meta.unsupported": "Bu cihaza kaydedildi. Herkese açık yüz ve biyografi bu ağda henüz aktif değil.",
   "identity.meta.error.noHandle": "Önce @kullanıcı adını zincirde al — sonra yüzün ve biyografin herkese açık olabilir.",
   "identity.meta.error.bio": "Bu biyografi kaydedilemez — tek satır düz metin olsun, en fazla 80 bayt.",
-  "identity.meta.error.avatar": "Kayıt defteri bu yüzü henüz tanımıyor — başka birini seç."
+  "identity.meta.error.avatar": "Kayıt defteri bu yüzü henüz tanımıyor — başka birini seç.",
+
+  "people.suggest.heading": "Tanıyor olabileceğin kişiler",
+  "people.suggest.mutual.one": "Tanıdığın 1 kişi onlara kefil oldu",
+  "people.suggest.mutual.other": "Tanıdığın {count} kişi onlara kefil oldu",
+  "people.suggest.footnote": "Öneriler son zincir üstü kefalet etkinliğine dayanır — yeni kefaletler onaylandıkça güncellenir.",
+  "people.suggest.view": "Görüntüle",
+  "people.suggest.viewAria": "{label} profilini görüntüle"
 }

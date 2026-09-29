@@ -1,13 +1,12 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { Search, Star, Users, ArrowRight, Sparkles, UserPlus } from 'lucide-react';
-import { resolveHandle } from '@/lib/registry';
+import { resolveHandle, reverseHandles } from '@/lib/registry';
 import { getScores } from '@/lib/reputation';
 import { fetchReputationEvents } from '@/lib/events';
 import { suggestPeople, type Suggestion } from '@/lib/constellation';
-import { reverseHandles } from '@/lib/registry';
 import { Avatar } from '@/components/Avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { StateArt } from '@/components/ui/state-art';
 import { Frame } from '@/components/fx/frame';
 import { useWallet } from '@/components/wallet/wallet-provider';
+import { useTranslations, type TFn } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 type SearchResult = {
@@ -39,6 +39,7 @@ const MAX_SUGGESTIONS = 6;
  */
 export default function PeoplePage() {
   const { profile } = useWallet();
+  const t = useTranslations();
   const [query, setQuery] = useState('');
   const [result, setResult] = useState<SearchResult>(null);
   const [state, setState] = useState<SearchState>('idle');
@@ -47,19 +48,21 @@ export default function PeoplePage() {
   // Suggestions state
   const [suggestions, setSuggestions] = useState<Suggestion[] | null>(null);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
-  const aliveRef = useRef(true);
 
-  // Load suggestions once we know who we are
+  // Load suggestions once we know who we are. `alive` is a per-run local (not a ref
+  // shared across effect runs) so a stale fetch from a previous address can never
+  // overwrite the current one's results — see the debounce pattern in lib/i18n
+  // consumers like landing-onboard.tsx.
   useEffect(() => {
-    aliveRef.current = true;
     if (!profile?.address) return;
+    let alive = true;
 
     setSuggestionsLoading(true);
     const myAddress = profile.address;
 
     fetchReputationEvents()
       .then(async (events) => {
-        if (!aliveRef.current) return;
+        if (!alive) return;
 
         const raw = suggestPeople(myAddress, events, MAX_SUGGESTIONS);
         if (raw.length === 0) {
@@ -71,19 +74,19 @@ export default function PeoplePage() {
         // Batch-resolve handles for all suggested addresses
         const addrs = raw.map((s) => s.address);
         const handleMap = await reverseHandles(addrs).catch(() => ({} as Record<string, string | null>));
-        if (!aliveRef.current) return;
+        if (!alive) return;
 
         setSuggestions(raw.map((s) => ({ ...s, handle: handleMap[s.address] ?? null })));
         setSuggestionsLoading(false);
       })
       .catch(() => {
-        if (!aliveRef.current) return;
+        if (!alive) return;
         setSuggestions([]);
         setSuggestionsLoading(false);
       });
 
     return () => {
-      aliveRef.current = false;
+      alive = false;
     };
   }, [profile?.address]);
 
@@ -158,6 +161,7 @@ export default function PeoplePage() {
             <SuggestionPanel
               suggestions={suggestions}
               loading={suggestionsLoading}
+              t={t}
             />
           )}
 
@@ -235,16 +239,17 @@ export default function PeoplePage() {
 interface SuggestionPanelProps {
   suggestions: Suggestion[] | null;
   loading: boolean;
+  t: TFn;
 }
 
-function SuggestionPanel({ suggestions, loading }: SuggestionPanelProps) {
+function SuggestionPanel({ suggestions, loading, t }: SuggestionPanelProps) {
   // Still fetching
   if (loading || suggestions === null) {
     return (
       <div className="space-y-3">
         <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
           <Users className="size-3.5" />
-          People you might know
+          {t('people.suggest.heading')}
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
           {Array.from({ length: 4 }).map((_, i) => (
@@ -288,31 +293,26 @@ function SuggestionPanel({ suggestions, loading }: SuggestionPanelProps) {
     <div className="space-y-3">
       <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         <Users className="size-3.5" />
-        People you might know
+        {t('people.suggest.heading')}
       </p>
 
       <div className="grid gap-3 sm:grid-cols-2">
         {suggestions.map((s) => (
-          <SuggestionCard key={s.address} suggestion={s} />
+          <SuggestionCard key={s.address} suggestion={s} t={t} />
         ))}
       </div>
 
-      {/* Attribution footnote */}
-      <p className="pt-1 text-center text-[11px] text-muted-foreground/60">
-        Suggestions are based on recent on-chain vouch activity
-        {/* When #109 read API lands, this note can be removed */}
-        {' '}— updated as new vouches are claimed.
-      </p>
+      {/* Attribution footnote — when #109's read API lands, this note can be removed. */}
+      <p className="pt-1 text-center text-[11px] text-muted-foreground/60">{t('people.suggest.footnote')}</p>
     </div>
   );
 }
 
-function SuggestionCard({ suggestion: s }: { suggestion: Suggestion }) {
+function SuggestionCard({ suggestion: s, t }: { suggestion: Suggestion; t: TFn }) {
   const label = s.handle ? `@${s.handle}` : `${s.address.slice(0, 6)}…${s.address.slice(-4)}`;
-  const mutualText =
-    s.sharedCount === 1
-      ? '1 person you know vouched for them'
-      : `${s.sharedCount} people you know vouched for them`;
+  const mutualText = t(`people.suggest.mutual.${s.sharedCount === 1 ? 'one' : 'other'}`, {
+    count: String(s.sharedCount),
+  });
 
   return (
     <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-surface/30 p-3 transition-colors hover:bg-surface/50">
@@ -328,19 +328,21 @@ function SuggestionCard({ suggestion: s }: { suggestion: Suggestion }) {
         <p className="truncate text-[11px] text-muted-foreground">{mutualText}</p>
       </div>
 
-      <Link
-        href={s.handle ? `/u/${s.handle}` : `/u/${s.address}`}
-        aria-label={`View ${label}'s profile`}
-      >
-        <Button
-          variant="outline"
-          size="sm"
-          className="shrink-0 gap-1 text-xs"
-        >
+      {/* `/u/[handle]` resolves ON-CHAIN by handle — an address with no claimed handle
+          has no profile route yet, so don't link somewhere that can only ever 404. */}
+      {s.handle ? (
+        <Link href={`/u/${s.handle}`} aria-label={t('people.suggest.viewAria', { label })}>
+          <Button variant="outline" size="sm" className="shrink-0 gap-1 text-xs">
+            <UserPlus className="size-3.5" />
+            {t('people.suggest.view')}
+          </Button>
+        </Link>
+      ) : (
+        <Button variant="outline" size="sm" className="shrink-0 gap-1 text-xs" disabled>
           <UserPlus className="size-3.5" />
-          View
+          {t('people.suggest.view')}
         </Button>
-      </Link>
+      )}
     </div>
   );
 }

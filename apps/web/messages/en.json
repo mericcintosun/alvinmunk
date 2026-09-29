@@ -250,5 +250,12 @@
   "identity.meta.unsupported": "Saved on this device. Public faces and bios aren't live on this network yet.",
   "identity.meta.error.noHandle": "Claim your @handle on-chain first — then your face and bio can go public.",
   "identity.meta.error.bio": "That bio can't be saved — keep it to one line of plain text, 80 bytes max.",
-  "identity.meta.error.avatar": "The registry doesn't know that face yet — pick another."
+  "identity.meta.error.avatar": "The registry doesn't know that face yet — pick another.",
+
+  "people.suggest.heading": "People you might know",
+  "people.suggest.mutual.one": "1 person you know vouched for them",
+  "people.suggest.mutual.other": "{count} people you know vouched for them",
+  "people.suggest.footnote": "Suggestions are based on recent on-chain vouch activity — updated as new vouches are claimed.",
+  "people.suggest.view": "View",
+  "people.suggest.viewAria": "View {label}'s profile"
 }
