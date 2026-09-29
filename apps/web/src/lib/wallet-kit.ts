@@ -11,7 +11,7 @@
  * call — it never touches SSR or the marketing bundle. Only light browser/extension modules
  * are registered (no Ledger/Trezor/WalletConnect) to keep the build lean.
  */
-import { config, networkPassphrase } from './stellar';
+import { assertNetworkConfig, config, networkPassphrase } from './stellar';
 import type { Wallet } from './wallet';
 
 let inited = false;
@@ -62,6 +62,7 @@ async function ensureKit() {
  * isn't available (surfaced as a friendly error by the caller).
  */
 export async function connectViaKit(): Promise<Wallet> {
+  assertNetworkConfig();
   const kit = await ensureKit();
   const { address } = await kit.authModal();
 

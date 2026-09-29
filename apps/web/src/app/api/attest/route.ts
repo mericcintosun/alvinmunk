@@ -36,10 +36,9 @@ import {
   validateEvidence,
   type AttestEvidence,
 } from '../../../lib/attest';
-// One resolved config, shared with /api/health and the client — no per-route testnet defaults.
-// This is what makes a half-applied mainnet cutover impossible: the attester signs against
-// the same network/passphrase the rest of the app resolved (see validateNetworkConfig).
-import { config } from '../../../lib/stellar';
+// The app's one resolved (and validated) network config — no per-route testnet defaults — so
+// the attester signs for the same network, passphrase and contracts as the client.
+import { config, misconfiguredResponse } from '../../../lib/stellar';
 
 export const runtime = 'nodejs';
 
@@ -78,6 +77,10 @@ const EVENT_WINDOW = 9000; // ledgers back to scan for vouch events (testnet RPC
 const STELLAR_ADDRESS = /^[GC][A-Z2-7]{55}$/;
 
 export async function POST(req: Request): Promise<Response> {
+  // Never sign on an inconsistent config (say, a mainnet passphrase with a testnet contract).
+  const misconfigured = misconfiguredResponse();
+  if (misconfigured) return misconfigured;
+
   const secret = process.env.ATTESTER_SECRET_KEY;
   if (!secret || !QUEST_ID) {
     return json({ error: 'attester not configured (ATTESTER_SECRET_KEY / quest id)' }, 500);

@@ -109,57 +109,68 @@ export function readNetworkConfig(env: Record<string, string | undefined>): Netw
   };
 }
 
-/** Env var that supplies each contract id, in a stable order for error messages. */
-export const CONTRACT_ENV_KEYS: ReadonlyArray<readonly [keyof ContractIds, string]> = [
-  ['reputation', 'NEXT_PUBLIC_REPUTATION_CONTRACT_ID'],
-  ['questRegistry', 'NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID'],
-  ['rewards', 'NEXT_PUBLIC_REWARDS_CONTRACT_ID'],
-  ['usdcSac', 'NEXT_PUBLIC_USDC_SAC_ID'],
-  ['registry', 'NEXT_PUBLIC_REGISTRY_CONTRACT_ID'],
-  ['gate', 'NEXT_PUBLIC_GATE_CONTRACT_ID'],
-];
+/** The env var behind each contract id — validation errors name it, so the fix is obvious. */
+const CONTRACT_ENV: Record<keyof ContractIds, string> = {
+  reputation: 'NEXT_PUBLIC_REPUTATION_CONTRACT_ID',
+  questRegistry: 'NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID',
+  rewards: 'NEXT_PUBLIC_REWARDS_CONTRACT_ID',
+  usdcSac: 'NEXT_PUBLIC_USDC_SAC_ID',
+  registry: 'NEXT_PUBLIC_REGISTRY_CONTRACT_ID',
+  gate: 'NEXT_PUBLIC_GATE_CONTRACT_ID',
+};
+
+/** Does `url` name `network`'s infrastructure? (SDF's public Horizon carries no network in its name.) */
+function pointsAt(url: string, network: StellarNetwork): boolean {
+  if (network === 'testnet') return /testnet/i.test(url);
+  return /mainnet/i.test(url) || /^https?:\/\/horizon\.stellar\.org(?:[:/]|$)/i.test(url);
+}
 
 /**
- * The single validation every server route and the client call on a resolved config.
- * Returns a list of human-readable problems (empty = healthy).
- *
- * A half-applied mainnet cutover is the most likely mainnet launch failure — flipping
- * `NEXT_PUBLIC_STELLAR_NETWORK=mainnet` while leaving a testnet RPC/passphrase/contract
- * id behind — so it is rejected loudly here instead of failing in confusing ways later.
+ * Everything wrong with a resolved network config, one specific reason per problem (empty =
+ * consistent). This is THE validation: /api/health reports it, the client shows it, and the
+ * routes that sign or submit refuse to run on it — so a half-applied mainnet cutover (flipping
+ * `NEXT_PUBLIC_STELLAR_NETWORK=mainnet` but leaving a testnet RPC, passphrase or contract id
+ * behind, the likeliest mainnet launch failure) fails loudly instead of in confusing ways.
  *
  * Rules:
- *  - Always: the passphrase must match the selected network. An override that disagrees
- *    with `NEXT_PUBLIC_STELLAR_NETWORK` is rejected (this is also the "passphrase isn't
- *    the public one" rule on mainnet).
- *  - Mainnet: no RPC/Horizon URL may point at testnet, and all six contract ids must be
- *    set (an empty id would silently target the wrong network's contract).
- *  - Testnet is deliberately lenient: empty contract ids are allowed so a fresh local
- *    checkout runs out of the box before the deploy script prints the ids.
+ *  - the network is `testnet` or `mainnet`;
+ *  - the passphrase is that network's — an override that disagrees is rejected;
+ *  - the RPC and Horizon URLs are set and don't point at the other network;
+ *  - on mainnet, all six contract ids are set. Testnet allows empty ones, so a fresh
+ *    checkout runs before the deploy script has printed them.
  */
 export function validateNetworkConfig(cfg: NetworkConfig): string[] {
+  const { network } = cfg;
+  if (network !== 'testnet' && network !== 'mainnet') {
+    return [`NEXT_PUBLIC_STELLAR_NETWORK must be "testnet" or "mainnet", not "${String(network)}"`];
+  }
+  const other: StellarNetwork = network === 'mainnet' ? 'testnet' : 'mainnet';
   const errors: string[] = [];
 
-  const expectedPassphrase = PASSPHRASE[cfg.network];
-  if (cfg.networkPassphrase !== expectedPassphrase) {
+  if (cfg.networkPassphrase !== PASSPHRASE[network]) {
+    const got =
+      cfg.networkPassphrase === PASSPHRASE[other]
+        ? `the ${other} passphrase`
+        : `"${cfg.networkPassphrase}"`;
     errors.push(
-      `network passphrase does not match ${cfg.network}: got "${cfg.networkPassphrase}", expected "${expectedPassphrase}"`,
+      `NEXT_PUBLIC_NETWORK_PASSPHRASE is ${got}, but the network is ${network} ("${PASSPHRASE[network]}")`,
     );
   }
 
-  if (cfg.network === 'mainnet') {
-    const urls: ReadonlyArray<readonly [string, string]> = [
-      ['rpcUrl', cfg.rpcUrl],
-      ['horizonUrl', cfg.horizonUrl],
-    ];
-    for (const [key, url] of urls) {
-      if (/testnet/i.test(url)) {
-        errors.push(`${key} still points at testnet on mainnet: ${url}`);
-      }
+  const urls = [
+    ['NEXT_PUBLIC_RPC_URL', cfg.rpcUrl],
+    ['NEXT_PUBLIC_HORIZON_URL', cfg.horizonUrl],
+  ] as const;
+  for (const [envKey, url] of urls) {
+    if (!url) errors.push(`${envKey} is empty`);
+    else if (pointsAt(url, other)) {
+      errors.push(`${envKey} points at ${other}, but the network is ${network}: ${url}`);
     }
-    for (const [key, envKey] of CONTRACT_ENV_KEYS) {
-      if (!cfg.contracts[key]) {
-        errors.push(`missing mainnet contract id: ${envKey}`);
-      }
+  }
+
+  if (network === 'mainnet') {
+    for (const [key, envKey] of Object.entries(CONTRACT_ENV) as [keyof ContractIds, string][]) {
+      if (!cfg.contracts[key]) errors.push(`${envKey} is not set — every contract id is required on mainnet`);
     }
   }
 

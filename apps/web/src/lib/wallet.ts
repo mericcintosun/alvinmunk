@@ -27,7 +27,7 @@ import {
   signMessage as freighterSignMessage,
 
 } from '@stellar/freighter-api';
-import { config, networkPassphrase, waitForAccountReady, server } from './stellar';
+import { assertNetworkConfig, config, networkPassphrase, waitForAccountReady, server } from './stellar';
 
 export type WalletKind = 'passkey' | 'dev' | 'freighter' | 'albedo' | 'kit';
 
@@ -86,8 +86,13 @@ export function isPasskeyConfigured(): boolean {
   return Boolean(process.env.NEXT_PUBLIC_PASSKEY_WALLET_WASM_HASH);
 }
 
-/** Pick the right provider. Passkey when configured; dev otherwise (testnet only). */
+/**
+ * Pick the right provider. Passkey when configured; dev otherwise (testnet only). Like every
+ * connect below, it refuses on an inconsistent network config: no wallet, no transaction — and
+ * no passkey wallet deployed, nor dev wallet funded, on the wrong network.
+ */
 export async function getWallet(): Promise<Wallet> {
+  assertNetworkConfig();
   if (isPasskeyConfigured()) return connectPasskey();
   return getDevWallet();
 }
@@ -160,6 +165,7 @@ function sleep(ms: number): Promise<void> {
 // Satisfies the White-belt Level-1 rubric: Freighter connect/disconnect + signing.
 
 export async function connectFreighter(): Promise<Wallet> {
+  assertNetworkConfig();
   const conn = await freighterIsConnected();
   if (!conn.isConnected) {
     throw new Error('Freighter not detected. Install it from freighter.app, then retry.');
@@ -211,6 +217,7 @@ export function disconnectFreighter(): void {
 // zero-dependency SDK; dynamic-imported so it stays out of the marketing bundle.
 
 export async function connectAlbedo(): Promise<Wallet> {
+  assertNetworkConfig();
   const albedo = (await import('@albedo-link/intent')).default;
   const net = config.network === 'mainnet' ? 'public' : 'testnet';
   const { pubkey } = await albedo.publicKey({});

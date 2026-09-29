@@ -1,19 +1,22 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
+import { useTranslations } from '@/lib/i18n';
 
 /**
- * Blocking config banner. Probes /api/health once on mount and, when the server reports
- * config problems (e.g. a half-applied mainnet cutover: mainnet passphrase + testnet RPC),
- * renders an unmissable fixed alert listing each specific reason. Renders nothing when the
- * config is healthy, and stays quiet on a transient probe failure so a network blip never
- * blocks the whole app.
+ * Misconfiguration banner. Asks /api/health once on mount and, when it reports config
+ * problems (a half-applied mainnet cutover: a mainnet passphrase with a testnet RPC, a
+ * missing mainnet contract id, …), pins an unmissable alert listing each reason. Renders
+ * nothing when the config is consistent, and stays quiet when the probe itself fails, so a
+ * network blip never takes the app over.
  *
- * The server routes and this client share one resolved config, so whatever /api/health
- * reports is exactly what every transaction would use.
+ * The health route validates the same resolved config the client uses (lib/stellar), and
+ * the client refuses to hand out a wallet on it (`assertNetworkConfig`) — this banner is
+ * what tells the user why.
  */
 export function ConfigStatusBanner() {
+  const t = useTranslations();
   const [errors, setErrors] = useState<string[]>([]);
 
   useEffect(() => {
@@ -49,7 +52,7 @@ export function ConfigStatusBanner() {
       <div className="mx-auto flex max-w-3xl flex-col gap-1">
         <p className="flex items-center gap-2 text-sm font-semibold">
           <AlertCircle className="size-4 shrink-0" aria-hidden />
-          This deployment is misconfigured — network actions are unavailable.
+          {t('configBanner.title')}
         </p>
         <ul className="list-disc pl-5 text-xs">
           {errors.map((e) => (

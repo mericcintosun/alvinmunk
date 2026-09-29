@@ -23,12 +23,35 @@ export const config = readNetworkConfig({
 });
 
 /**
- * Problems with the resolved config (empty = healthy). This is THE config validation:
- * the health route reports it, the client banner blocks on it, and the server routes
- * share the same `config` above — so a half-applied mainnet cutover fails loudly and
- * consistently instead of mixing a mainnet passphrase with testnet RPC.
+ * Everything wrong with the resolved config (empty = consistent) — the one validation
+ * (`validateNetworkConfig`) run on the one config above, which the client and every server
+ * route share. /api/health reports it and fails, the banner (ConfigStatusBanner) shows it,
+ * and nothing that signs or submits runs on it (`assertNetworkConfig`,
+ * `misconfiguredResponse`): a half-applied mainnet cutover fails loudly instead of mixing a
+ * mainnet passphrase with a testnet RPC.
  */
 export const configErrors = validateNetworkConfig(config);
+
+// Loud on the server: every instance says so in its logs the moment it loads the config.
+if (configErrors.length > 0 && typeof window === 'undefined') {
+  console.error(`[config] inconsistent network config: ${configErrors.join('; ')}`);
+}
+
+/** Throws when the config is inconsistent — the client calls it before handing out a wallet. */
+export function assertNetworkConfig(): void {
+  if (configErrors.length > 0) {
+    throw new Error(`This deployment is misconfigured, so nothing can be sent: ${configErrors.join('; ')}`);
+  }
+}
+
+/** For a route that signs or submits: a 503 listing the problems when the config is inconsistent. */
+export function misconfiguredResponse(): Response | null {
+  if (configErrors.length === 0) return null;
+  return new Response(JSON.stringify({ error: 'network config is inconsistent', configErrors }), {
+    status: 503,
+    headers: { 'content-type': 'application/json' },
+  });
+}
 
 export const server = new rpc.Server(config.rpcUrl, {
   allowHttp: config.rpcUrl.startsWith('http://'),
@@ -39,8 +62,8 @@ export const horizon = new Horizon.Server(config.horizonUrl, {
   allowHttp: config.horizonUrl.startsWith('http://'),
 });
 
-// Use the resolved passphrase (honours NEXT_PUBLIC_NETWORK_PASSPHRASE) rather than
-// re-deriving it from the network name, which silently ignored a configured override.
+// The resolved passphrase: it honours NEXT_PUBLIC_NETWORK_PASSPHRASE (re-deriving it from
+// the network name ignored that override), and `configErrors` flags one that disagrees.
 export const networkPassphrase = config.networkPassphrase;
 
 /** Native XLM balance as a string, or '0' if the account isn't funded yet. */
