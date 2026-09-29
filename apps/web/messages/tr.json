@@ -510,5 +510,14 @@
   "handleTransfer.submitting": "Taşınıyor…",
   "handleTransfer.done": "@{handle} artık bu cüzdanın.",
   "handleTransfer.error.noHandle": "Uygulama içi cüzdanın artık bir kullanıcı adı yok — taşınacak bir şey kalmadı.",
-  "handleTransfer.error.targetHasHandle": "Bu cüzdanın zaten bir kullanıcı adı var — taşıma için kullanıcı adı olmayan bir cüzdan gerekir."
+  "handleTransfer.error.targetHasHandle": "Bu cüzdanın zaten bir kullanıcı adı var — taşıma için kullanıcı adı olmayan bir cüzdan gerekir.",
+
+  "appTabs.inbox": "Gelen Kutusu",
+
+  "inbox.page.title": "Gelen Kutusu",
+  "inbox.page.subtitle": "Talepler, bahşişler ve görev ödülleri — siz yokken neler oldu.",
+  "inbox.empty.title": "Her şey sessiz",
+  "inbox.empty.body": "Talepler, alınan bahşişler ve görev ödülleri burada görünecek.",
+  "inbox.error": "Gelen kutunuz şu anda yüklenemiyor — ağ yavaş olabilir. Yenilemek için çekin.",
+  "inbox.refresh": "Gelen kutusunu yenile"
 }

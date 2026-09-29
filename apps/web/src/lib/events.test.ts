@@ -17,6 +17,7 @@ import {
   fetchReputationEvents,
   fetchTipEvents,
   fetchTipsSent,
+  fetchContractEvents,
   EVENT_LEDGER_WINDOW,
   EVENT_WINDOW_TTL_MS,
   MAX_PAGES,
@@ -486,5 +487,183 @@ describe('contract event reads', () => {
       await fetchReputationEvents({ maxAgeMs: 0 }); // a fresh read scans all three pages again
       expect(getEventsMock).toHaveBeenCalledTimes(6);
     });
+  });
+});
+
+// ── fetchContractEvents — mocked-RPC unit tests ──────────────────────────────
+describe('fetchContractEvents', () => {
+  const TOPIC_SYM = (v: string) => xdr.ScVal.scvSymbol(v).toXDR('base64');
+  const WILDCARD = '*';
+
+  beforeEach(() => {
+    clearEventCache();
+    getLatestLedgerMock.mockReset().mockResolvedValue({ sequence: 20_000 });
+    getEventsMock.mockReset().mockResolvedValue({ events: [], cursor: undefined });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns [] immediately when contractId is empty, without calling RPC', async () => {
+    const events = await fetchContractEvents('', [WILDCARD, WILDCARD], 100);
+    expect(events).toEqual([]);
+    expect(getLatestLedgerMock).not.toHaveBeenCalled();
+    expect(getEventsMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects when contractId is empty and throwOnError is true', async () => {
+    await expect(
+      fetchContractEvents('', [WILDCARD, WILDCARD], 100, { throwOnError: true }),
+    ).rejects.toThrow('No contract ID');
+  });
+
+  it('sends the correct contractId and topic filter to RPC', async () => {
+    const CONTRACT = 'CQUEST';
+    const quest = TOPIC_SYM('quest');
+    const awarded = TOPIC_SYM('awarded');
+
+    await fetchContractEvents(CONTRACT, [quest, awarded], 50);
+
+    expect(getEventsMock).toHaveBeenCalledTimes(1);
+    const call = getEventsMock.mock.calls[0][0];
+    expect(call.filters[0].contractIds).toEqual([CONTRACT]);
+    expect(call.filters[0].topics).toEqual([[quest, awarded]]);
+    expect(call.limit).toBe(50);
+  });
+
+  it('decodes topics and data and returns them with the ledger', async () => {
+    const from = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 1));
+    const to = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 2));
+    const amount = xdr.ScVal.scvI128(
+      new xdr.Int128Parts({
+        lo: xdr.Uint64.fromString('5000000'),
+        hi: xdr.Int64.fromString('0'),
+      }),
+    ).toXDR('base64');
+
+    getEventsMock.mockResolvedValue({
+      events: [
+        {
+          topic: [
+            TOPIC_SYM('tipped'),
+            new Address(from).toScVal().toXDR('base64'),
+            new Address(to).toScVal().toXDR('base64'),
+          ],
+          value: amount,
+          ledger: 19_800,
+        },
+      ],
+      cursor: undefined,
+    });
+
+    const events = await fetchContractEvents('CRWD', [TOPIC_SYM('tipped'), WILDCARD, WILDCARD], 100);
+
+    expect(events).toHaveLength(1);
+    expect(events[0].ledger).toBe(19_800);
+    expect(events[0].topics[0]).toBe('tipped');
+    expect(events[0].topics[1]).toBe(from);
+    expect(events[0].topics[2]).toBe(to);
+    expect(events[0].data).toBe(5_000_000n);
+  });
+
+  it('degrades to [] when the RPC call throws, instead of propagating', async () => {
+    getEventsMock.mockRejectedValue(new Error('network timeout'));
+    const events = await fetchContractEvents('CREP', [WILDCARD, WILDCARD], 100);
+    expect(events).toEqual([]);
+  });
+
+  it('propagates the RPC error when throwOnError is true', async () => {
+    getEventsMock.mockRejectedValue(new Error('rpc unavailable'));
+    await expect(
+      fetchContractEvents('CREP', [WILDCARD, WILDCARD], 100, { throwOnError: true }),
+    ).rejects.toThrow('rpc unavailable');
+  });
+
+  it('shares one in-flight scan among concurrent callers with the same key', async () => {
+    const [a, b, c] = await Promise.all([
+      fetchContractEvents('CREP', [WILDCARD, WILDCARD], 500),
+      fetchContractEvents('CREP', [WILDCARD, WILDCARD], 500),
+      fetchContractEvents('CREP', [WILDCARD, WILDCARD], 500),
+    ]);
+    expect(getEventsMock).toHaveBeenCalledTimes(1);
+    expect(b).toBe(a);
+    expect(c).toBe(a);
+  });
+
+  it('treats different contract IDs as separate scan keys (no cross-contamination)', async () => {
+    await Promise.all([
+      fetchContractEvents('CREP', [WILDCARD, WILDCARD], 500),
+      fetchContractEvents('CRWD', [TOPIC_SYM('tipped'), WILDCARD, WILDCARD], 500),
+    ]);
+    expect(getEventsMock).toHaveBeenCalledTimes(2);
+    const ids = getEventsMock.mock.calls.map((c) => c[0].filters[0].contractIds[0]);
+    expect(ids).toContain('CREP');
+    expect(ids).toContain('CRWD');
+  });
+
+  it('reuses a settled scan within the maxAgeMs window', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const first = await fetchContractEvents('CREP', [WILDCARD, WILDCARD], 500, {
+      maxAgeMs: EVENT_WINDOW_TTL_MS,
+    });
+    now.mockReturnValue(1_000_000 + EVENT_WINDOW_TTL_MS - 1);
+    const second = await fetchContractEvents('CREP', [WILDCARD, WILDCARD], 500, {
+      maxAgeMs: EVENT_WINDOW_TTL_MS,
+    });
+    expect(getEventsMock).toHaveBeenCalledTimes(1);
+    expect(second).toBe(first);
+  });
+
+  it('re-scans when the settled cache is older than maxAgeMs', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    await fetchContractEvents('CREP', [WILDCARD, WILDCARD], 500, {
+      maxAgeMs: EVENT_WINDOW_TTL_MS,
+    });
+    now.mockReturnValue(1_000_000 + EVENT_WINDOW_TTL_MS);
+    await fetchContractEvents('CREP', [WILDCARD, WILDCARD], 500, {
+      maxAgeMs: EVENT_WINDOW_TTL_MS,
+    });
+    expect(getEventsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not cache a failed scan — the next call rescans', async () => {
+    getEventsMock.mockRejectedValueOnce(new Error('first fail'));
+    await expect(fetchContractEvents('CREP', [WILDCARD, WILDCARD], 100)).resolves.toEqual([]);
+    await expect(fetchContractEvents('CREP', [WILDCARD, WILDCARD], 100)).resolves.toEqual([]);
+    expect(getEventsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns events from quest_registry decoded with correct topics for quest-awarded pattern', async () => {
+    const recipient = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 5));
+    const questId = xdr.ScVal.scvU32(42).toXDR('base64');
+
+    getEventsMock.mockResolvedValue({
+      events: [
+        {
+          topic: [TOPIC_SYM('quest'), TOPIC_SYM('awarded')],
+          value: xdr.ScVal.scvVec([
+            xdr.ScVal.scvU32(42),
+            new Address(recipient).toScVal(),
+          ]).toXDR('base64'),
+          ledger: 19_500,
+        },
+      ],
+      cursor: undefined,
+    });
+
+    const events = await fetchContractEvents(
+      'CQUEST_REG',
+      [TOPIC_SYM('quest'), TOPIC_SYM('awarded')],
+      100,
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0].topics).toEqual(['quest', 'awarded']);
+    expect(events[0].ledger).toBe(19_500);
+    // data is a vec: [questId=42, recipient address]
+    expect(Array.isArray(events[0].data)).toBe(true);
+    expect((events[0].data as unknown[])[0]).toBe(42);
+    expect((events[0].data as unknown[])[1]).toBe(recipient);
   });
 });

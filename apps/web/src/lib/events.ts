@@ -127,8 +127,13 @@ export function clearEventCache(): void {
  * One scan per window however callers ask for it: callers that degrade and callers that
  * `throwOnError` share the same (throwing) scan, and only a successful one is kept — a
  * failed read must not blank every reader for the TTL.
+ *
+ * Exported so that `lib/inbox.ts` (rewards / quest events) and future callers can share
+ * the same decode path without duplicating the pagination + cache logic. Pass the
+ * contract id and topic filter; the rest of the behaviour is identical to the wrappers
+ * above (`fetchReputationEvents`, `fetchTipEvents`).
  */
-function fetchContractEvents(
+export function fetchContractEvents(
   contractId: string,
   topics: string[],
   limit: number,

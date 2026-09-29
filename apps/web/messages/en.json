@@ -510,5 +510,14 @@
   "handleTransfer.submitting": "Moving…",
   "handleTransfer.done": "@{handle} now belongs to this wallet.",
   "handleTransfer.error.noHandle": "The in-app wallet no longer holds a handle — there's nothing to move.",
-  "handleTransfer.error.targetHasHandle": "This wallet already holds a handle — the move needs a wallet without one."
+  "handleTransfer.error.targetHasHandle": "This wallet already holds a handle — the move needs a wallet without one.",
+
+  "appTabs.inbox": "Inbox",
+
+  "inbox.page.title": "Inbox",
+  "inbox.page.subtitle": "Claims, tips, and quest awards — what happened while you were away.",
+  "inbox.empty.title": "All quiet",
+  "inbox.empty.body": "Claims, tips received, and quest awards will appear here.",
+  "inbox.error": "Couldn't load your inbox right now — the network may be slow. Pull to refresh.",
+  "inbox.refresh": "Refresh inbox"
 }

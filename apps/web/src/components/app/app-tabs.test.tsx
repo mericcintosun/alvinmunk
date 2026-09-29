@@ -22,6 +22,15 @@ vi.mock('@/lib/focus', () => ({
     return focus.on;
   },
 }));
+// Wallet provider — stub so AppTabs doesn't need the full WalletProvider tree in tests.
+vi.mock('@/components/wallet/wallet-provider', () => ({
+  useWallet: () => ({ profile: null }),
+}));
+// Inbox — stub so the unread-count effect never calls the real RPC.
+vi.mock('@/lib/inbox', () => ({
+  getInboxItems: () => Promise.resolve([]),
+  countUnread: () => 0,
+}));
 
 import { AppTabs } from './app-tabs';
 
@@ -57,6 +66,7 @@ describe('AppTabs', () => {
     ['/app/rewards', '/app/rewards'],
     ['/app/activity', '/app/activity'],
     ['/app/people', '/app/people'],
+    ['/app/inbox', '/app/inbox'],
   ])('on %s only the %s tab is the current page', async (pathname, tab) => {
     expect(await currentAt(pathname)).toEqual([[tab, 'page']]);
   });
