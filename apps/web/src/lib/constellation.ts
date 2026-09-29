@@ -78,6 +78,76 @@ export function timeAgo(unixSecs: number): string {
   return `${Math.floor(days / 30)} month${Math.floor(days / 30) === 1 ? '' : 's'} ago`;
 }
 
+// ── People suggestions ───────────────────────────────────────────────────────
+
+/** One suggested person — address, shared-connection count, and an optional @handle. */
+export interface Suggestion {
+  address: string;
+  /** Number of people both `me` and this address share a vouch edge with. */
+  sharedCount: number;
+  /** Resolved @handle, or null when unclaimed / not yet looked up. */
+  handle: string | null;
+}
+
+/**
+ * Pure second-degree suggestion engine.
+ *
+ * Treat every `vouch:claimed` edge as UNDIRECTED (A↔B when either A vouched B or B
+ * vouched A). Then:
+ *   1. Build `me`'s direct-connection set (all first-degree neighbours).
+ *   2. For every second-degree neighbour (reachable via one hop from a first-degree
+ *      neighbour), count how many first-degree neighbours share an edge to them.
+ *   3. Drop `me` and anyone already in the first-degree set.
+ *   4. Rank descending by shared count; break ties by address (stable, deterministic).
+ *   5. Return the top `max` results (default 6).
+ *
+ * Pure: no I/O. Feed it the full event list from `fetchReputationEvents()`.
+ */
+export function suggestPeople(
+  me: string,
+  events: { topics: string[]; data: unknown[] }[],
+  max = 6,
+): Suggestion[] {
+  // Collect all undirected edges as an adjacency map: address → Set<neighbour>
+  const adj = new Map<string, Set<string>>();
+
+  const addEdge = (a: string, b: string) => {
+    if (a === b) return;
+    if (!adj.has(a)) adj.set(a, new Set());
+    if (!adj.has(b)) adj.set(b, new Set());
+    adj.get(a)!.add(b);
+    adj.get(b)!.add(a);
+  };
+
+  for (const { topics, data } of events) {
+    if (topics[0] !== 'vouch' || topics[1] !== 'claimed') continue;
+    if (!Array.isArray(data) || data.length < 3) continue;
+    const from = String(data[1]);
+    const claimer = String(data[2]);
+    addEdge(from, claimer);
+  }
+
+  // First-degree neighbours of `me`
+  const direct = adj.get(me) ?? new Set<string>();
+
+  // Count shared connections for each second-degree candidate
+  const shared = new Map<string, number>();
+  for (const neighbour of direct) {
+    for (const candidate of adj.get(neighbour) ?? []) {
+      if (candidate === me) continue;
+      if (direct.has(candidate)) continue; // already connected
+      shared.set(candidate, (shared.get(candidate) ?? 0) + 1);
+    }
+  }
+
+  return [...shared.entries()]
+    .sort(([addrA, cntA], [addrB, cntB]) => cntB - cntA || addrA.localeCompare(addrB))
+    .slice(0, max)
+    .map(([address, sharedCount]) => ({ address, sharedCount, handle: null }));
+}
+
+// ── Deterministic colour ──────────────────────────────────────────────────────
+
 /** Deterministic hue (0-359) from an address — matches the crest art seed family. */
 export function addrHue(address: string): number {
   let h = 2166136261;
