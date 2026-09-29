@@ -204,7 +204,7 @@
   "howItWorks.lim06.t": "Finansman kanıtı",
   "howItWorks.lim06.d": "Ana ağda, nakde çekmeden önce bir cüzdanın harici değer almış olması gerekir.",
   "howItWorks.devs.title": "Geliştiriciler için",
-  "howItWorks.devs.body": "alvinmunk kanonik bir onay ilkesi yayar. Herhangi bir uygulama tek bir çağrıyla cüzdanın itibarını okuyabilir.",
+  "howItWorks.devs.body": "alvinmunk kanonik bir onay ilkesi yayar. Herhangi bir uygulama, API anahtarı ya da sunucu olmadan cüzdanın itibarını doğrudan kontrattan okuyabilir.",
   "howItWorks.devs.openApp": "Uygulamayı aç",
 
   "badges.frame": "rozetler // kilometre_taşları",

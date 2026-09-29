@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { rpc, scValToNative, xdr } from '@stellar/stellar-sdk';
 import roster from '@/data/onboarded-wallets.json';
+import { aggregateVouchFunnel, readVouchRecords, type VouchFunnel } from '@/lib/vouch-funnel';
 
 /**
  * Network stats — unique wallets that have interacted with the app's contracts, per network.
@@ -15,6 +16,10 @@ import roster from '@/data/onboarded-wallets.json';
  *
  * Refresh the roster by re-running `scripts/scan-roster.mjs` (widens the window + fully
  * paginates) and committing its output. A durable indexer (issue #12) would fold both paths.
+ *
+ * The vouch claim funnel (`funnel`) is read from the reputation contract's storage instead
+ * (lib/vouch-funnel.ts), so it holds beyond the event window. It reads every half-card, so
+ * it is cached per network for a few minutes; the wallet counter stays live.
  */
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -124,6 +129,9 @@ async function statsFor(net: NetKey) {
   const rosterList = ((roster as Record<string, string[]>)[net] ?? []).filter((a) => ADDR.test(a));
   const configured = Boolean(cfg.rep || cfg.registry) || rosterList.length > 0;
 
+  // Read alongside the live scan; it does not depend on it.
+  const funnelRead = funnelFor(net);
+
   // Durable floor: the committed roster. Never decays.
   const seen = new Set<string>(rosterList);
 
@@ -134,6 +142,8 @@ async function statsFor(net: NetKey) {
   // Drop the app's own contract addresses so only real user wallets are counted.
   for (const id of cfg.exclude ?? []) if (id) seen.delete(id);
 
+  const { funnel, funnelError } = await funnelRead;
+
   const addresses = [...seen];
   return {
     network: net,
@@ -143,7 +153,51 @@ async function statsFor(net: NetKey) {
     latestLedger: latest || undefined,
     roster: rosterList.length,
     addresses: addresses.slice(0, 300),
+    funnel,
+    funnelError,
   };
+}
+
+const FUNNEL_TTL_MS = 5 * 60_000;
+
+interface FunnelResult {
+  funnel: VouchFunnel | null;
+  funnelError?: string;
+}
+
+const funnelCache = new Map<NetKey, { at: number; result: Promise<FunnelResult> }>();
+
+/** The network's funnel, shared by concurrent requests and reused for FUNNEL_TTL_MS. A
+ *  failed read is not kept, so the next request retries it. */
+function funnelFor(net: NetKey): Promise<FunnelResult> {
+  const hit = funnelCache.get(net);
+  if (hit && Date.now() - hit.at < FUNNEL_TTL_MS) return hit.result;
+  const entry = { at: Date.now(), result: readFunnel(NETWORKS[net]) };
+  funnelCache.set(net, entry);
+  void entry.result.then((r) => {
+    if (r.funnelError && funnelCache.get(net) === entry) funnelCache.delete(net);
+  });
+  return entry.result;
+}
+
+async function readFunnel(cfg: (typeof NETWORKS)[NetKey]): Promise<FunnelResult> {
+  if (!cfg.rep) return { funnel: null };
+  try {
+    const { total, records } = await readVouchRecords(new rpc.Server(cfg.rpc), cfg.rep);
+    // Same rule as the wallet count: the app's own contracts are not users.
+    const excluded = new Set(cfg.exclude?.filter(Boolean));
+    const users = records.filter((v) => !excluded.has(v.from) && !(v.claimer && excluded.has(v.claimer)));
+    return {
+      funnel: aggregateVouchFunnel(users, {
+        now: Math.floor(Date.now() / 1000),
+        unread: total - records.length,
+      }),
+    };
+  } catch (err) {
+    // Log the detail server-side only: an RPC error can carry the (possibly keyed) RPC URL.
+    console.error('[stats] vouch funnel read failed:', err);
+    return { funnel: null, funnelError: 'Vouch state could not be read from RPC right now.' };
+  }
 }
 
 export async function GET(req: Request) {
