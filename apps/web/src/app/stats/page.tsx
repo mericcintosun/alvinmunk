@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { Users, Activity, ExternalLink } from 'lucide-react';
 import { shortAddress } from '@/lib/utils';
 import { cn } from '@/lib/utils';
+import type { VouchFunnel } from '@/lib/vouch-funnel';
+import { LoopHealth } from '@/components/LoopHealth';
 
 type NetKey = 'testnet' | 'mainnet';
 
@@ -14,6 +16,8 @@ interface Stats {
   target: number;
   latestLedger?: number;
   addresses: string[];
+  funnel: VouchFunnel | null;
+  funnelError?: string;
   error?: string;
 }
 
@@ -34,19 +38,29 @@ export default function StatsPage() {
   const [tab, setTab] = useState<NetKey>('testnet');
   const [data, setData] = useState<Record<NetKey, Stats | null>>({ testnet: null, mainnet: null });
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState<Record<NetKey, boolean>>({ testnet: false, mainnet: false });
 
   useEffect(() => {
     let alive = true;
     const load = () => {
       fetch(`/api/stats?network=${tab}`, { cache: 'no-store' })
-        .then((r) => r.json())
-        .then((d: Stats) => {
+        .then((r) => {
+          if (!r.ok) throw new Error(`stats ${r.status}`);
+          return r.json() as Promise<Stats>;
+        })
+        .then((d) => {
           if (alive) {
             setData((prev) => ({ ...prev, [tab]: d }));
+            setFailed((prev) => ({ ...prev, [tab]: false }));
             setLoading(false);
           }
         })
-        .catch(() => alive && setLoading(false));
+        .catch(() => {
+          if (!alive) return;
+          // Keep the last good numbers on a failed poll; only an empty tab shows the error.
+          setFailed((prev) => ({ ...prev, [tab]: true }));
+          setLoading(false);
+        });
     };
     setLoading(!data[tab]);
     load();
@@ -108,7 +122,7 @@ export default function StatsPage() {
                 <div>
                   <p className="text-xs font-medium text-muted-foreground">Wallets on-chain</p>
                   <p className="font-display text-5xl font-semibold tabular-nums">
-                    {loading && !s ? '—' : users}
+                    {s ? users : '—'}
                   </p>
                 </div>
               </div>
@@ -134,6 +148,15 @@ export default function StatsPage() {
           </>
         )}
       </div>
+
+      {/* contract-backed claim funnel (hidden where the contracts are not live yet) */}
+      {(!s || s.configured) && (
+        <LoopHealth
+          funnel={s?.funnel}
+          loading={loading && !s}
+          error={s ? s.funnelError : failed[tab] ? 'Stats could not be loaded. Retrying…' : undefined}
+        />
+      )}
 
       {/* wallet list */}
       {s?.configured && s.addresses.length > 0 && (
