@@ -1,4 +1,5 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
+import { scValToNative } from '@stellar/stellar-sdk';
 
 const { readPublicMock, readContractMock, invokeAndWaitMock } = vi.hoisted(() => ({
   readPublicMock: vi.fn(),
@@ -48,7 +49,11 @@ describe('completeQuest', () => {
     vi.stubGlobal('fetch', (async () => ({
       ok: true,
       status: 200,
-      json: async () => ({ attester: '00'.repeat(32), sig: btoa('s'.repeat(64)) }),
+      json: async () => ({
+        attester: '00'.repeat(32),
+        sig: btoa('s'.repeat(64)),
+        expiresAt: 1_790_813_400,
+      }),
     })) as unknown as typeof fetch);
     invokeAndWaitMock.mockRejectedValueOnce(
       new Error('HostError: Error(Contract, #7)\nEvent log (newest first): ...'),
@@ -67,6 +72,59 @@ describe('completeQuest', () => {
       error: 'Quest rewards hit today’s limit — try again after 00:00 UTC.',
     });
     expect(invokeAndWaitMock).toHaveBeenCalledOnce();
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('completeQuest signature expiry', () => {
+  const wallet: Wallet = {
+    kind: 'freighter',
+    address: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
+    sign: async (x) => x,
+    signMessage: vi.fn(),
+  };
+  const attested = (extra: Record<string, unknown>) =>
+    vi.stubGlobal('fetch', (async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ attester: '00'.repeat(32), sig: btoa('s'.repeat(64)), ...extra }),
+    })) as unknown as typeof fetch);
+
+  beforeEach(() => invokeAndWaitMock.mockReset());
+
+  it('submits the signed expiry as the fifth award_quest argument, a u64', async () => {
+    attested({ expiresAt: 1_790_813_400 });
+    invokeAndWaitMock.mockResolvedValueOnce(undefined);
+    await expect(completeQuest(wallet, 2, { type: 'vouch_back', ref: '' })).resolves.toEqual({
+      ok: true,
+    });
+    const [contract, method, callArgs] = invokeAndWaitMock.mock.calls[0];
+    expect([contract, method, callArgs.length]).toEqual(['CQUEST', 'award_quest', 5]);
+    expect(callArgs[4].switch().name).toBe('scvU64');
+    expect(scValToNative(callArgs[4])).toBe(1_790_813_400n);
+    vi.unstubAllGlobals();
+  });
+
+  it('refuses an attester response without a usable expiry, before any submit', async () => {
+    for (const expiresAt of [undefined, null, '1790813400', 1.5, -1 / 0]) {
+      attested({ expiresAt });
+      const r = await completeQuest(wallet, 2, { type: 'vouch_back', ref: '' });
+      expect(r.ok, String(expiresAt)).toBe(false);
+    }
+    expect(invokeAndWaitMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it('explains a signature that expired before it reached the chain (#8)', async () => {
+    attested({ expiresAt: 1_790_813_400 });
+    invokeAndWaitMock.mockRejectedValueOnce(
+      new Error('HostError: Error(Contract, #8)\nEvent log (newest first): ...'),
+    );
+    const r = await completeQuest(wallet, 2, { type: 'vouch_back', ref: '' });
+    expect(r).toEqual({
+      ok: false,
+      error: 'The quest approval expired before it reached the chain — complete the quest again.',
+    });
     vi.unstubAllGlobals();
   });
 });

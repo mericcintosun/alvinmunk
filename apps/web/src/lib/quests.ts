@@ -30,7 +30,7 @@ const QUEST_ERRORS: Record<number, string> = {
   5: 'You’ve already completed this quest.',
   6: 'This quest isn’t active right now.',
   7: 'Quest rewards hit today’s limit — try again after 00:00 UTC.',
-  8: 'The quest signature expired — please try again to get a fresh one.',
+  8: 'The quest approval expired before it reached the chain — complete the quest again.',
 };
 
 export interface QuestResult {
@@ -192,7 +192,7 @@ export async function completeQuest(
     expiresAt?: number;
     error?: string;
   };
-  if (!res.ok || !data.attester || !data.sig || data.expiresAt == null) {
+  if (!res.ok || !data.attester || !data.sig || !Number.isSafeInteger(data.expiresAt)) {
     return { ok: false, error: data.error ?? `error ${res.status}` };
   }
 
@@ -207,7 +207,8 @@ export async function completeQuest(
         args.bytes(b64ToBytes(data.sig)),
         args.u32(questId),
         args.addr(wallet.address),
-        args.u64(BigInt(data.expiresAt!)),
+        // Signed into the payload: the contract refuses the signature after this time.
+        args.u64(BigInt(data.expiresAt as number)),
       ],
       wallet,
     );

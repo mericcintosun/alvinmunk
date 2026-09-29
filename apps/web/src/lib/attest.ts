@@ -6,8 +6,10 @@
  *
  * Hardening (belts/08 §security): v2 ownership message binds the deployment + network
  * (cross-environment replay), a per-signature in-window nonce guard, bounded inputs,
- * a self-referral guard, and an optional GitHub repo allowlist.
+ * a self-referral guard, and an optional GitHub repo allowlist. The quest award payload
+ * the attester signs binds the network, the contract and an expiry (issue #142).
  */
+import { Address, Keypair, hash, nativeToScVal, xdr } from '@stellar/stellar-sdk';
 
 export const ATTEST_VERSION = 'v2';
 export const FRESHNESS_MS = 120_000; // 2 minutes
@@ -89,6 +91,58 @@ export function ownershipMessage(c: AttestClaim, ctx: AttestContext): string {
     c.evidence?.ref ?? '',
     String(c.timestamp),
   ].join('|');
+}
+
+/** Domain tag leading every quest award payload (the contract's `AWARD_DOMAIN`). */
+export const QUEST_AWARD_DOMAIN = 'alvinmunk_award_quest_v1';
+
+/** How long an award signature stays redeemable: `award_quest` refuses it once the ledger
+ *  time passes `expiresAt`. Long enough for a wallet prompt and a slow submit. */
+export const QUEST_SIG_TTL_SECS = 600;
+
+/**
+ * The bytes the attester signs to award `questId` to `recipient` until `expiresAt` (unix
+ * seconds, compared with the ledger time): the XDR of the ScVal vector
+ * `[Symbol(QUEST_AWARD_DOMAIN), sha256(passphrase), contract, u32 questId, recipient,
+ * u64 expiresAt]`, byte for byte the contract's `payload` (both sides pin the same test
+ * vector). Built here, never read from an RPC node: a dishonest node could return the
+ * payload for ITS address, and the attester key would sign the award over to it.
+ */
+export function questPayload(
+  ctx: AttestContext,
+  questId: number,
+  recipient: string,
+  expiresAt: number,
+): Buffer {
+  return xdr.ScVal.scvVec([
+    xdr.ScVal.scvSymbol(QUEST_AWARD_DOMAIN),
+    xdr.ScVal.scvBytes(hash(Buffer.from(ctx.passphrase))),
+    new Address(ctx.contractId).toScVal(),
+    nativeToScVal(questId, { type: 'u32' }),
+    new Address(recipient).toScVal(),
+    nativeToScVal(BigInt(expiresAt), { type: 'u64' }),
+  ]).toXDR();
+}
+
+/** What `/api/attest` returns for `award_quest`: the attester's raw ed25519 public key
+ *  (hex), its signature over `questPayload` (base64), and the signed expiry. */
+export interface QuestSignature {
+  attester: string;
+  sig: string;
+  expiresAt: number;
+}
+
+/** Sign the award payload for `questId` / `recipient` with the attester secret. */
+export function signQuestPayload(
+  secret: string,
+  ctx: AttestContext,
+  questId: number,
+  recipient: string,
+  expiresAt: number,
+): QuestSignature {
+  const kp = Keypair.fromSecret(secret);
+  const sig = kp.sign(questPayload(ctx, questId, recipient, expiresAt));
+  return { attester: kp.rawPublicKey().toString('hex'), sig: sig.toString('base64'), expiresAt };
 }
 
 /** Reject stale or future-dated requests outside the replay window. */

@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
-import { Keypair, StrKey, nativeToScVal, rpc } from '@stellar/stellar-sdk';
+import { Keypair, Networks, StrKey, rpc } from '@stellar/stellar-sdk';
+import { QUEST_SIG_TTL_SECS, questPayload } from '../../../lib/attest';
 
 // POST /api/attest must refuse to sign a quest id for any evidence type other than the one
 // bound to it, and must do so before verifying anything over the network.
@@ -8,6 +9,7 @@ import { Keypair, StrKey, nativeToScVal, rpc } from '@stellar/stellar-sdk';
 const RECIPIENT = Keypair.random().publicKey();
 const REFERRED = Keypair.random().publicKey();
 const QUEST_CONTRACT = StrKey.encodeContract(Buffer.alloc(32, 7));
+const ATTESTER = Keypair.random();
 
 type Post = (req: Request) => Promise<Response>;
 let POST: Post;
@@ -27,7 +29,7 @@ function attest(body: Record<string, unknown>): Promise<Response> {
 
 beforeEach(async () => {
   vi.resetModules();
-  vi.stubEnv('ATTESTER_SECRET_KEY', Keypair.random().secret());
+  vi.stubEnv('ATTESTER_SECRET_KEY', ATTESTER.secret());
   vi.stubEnv('NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID', QUEST_CONTRACT);
   vi.stubEnv('NEXT_PUBLIC_REPUTATION_CONTRACT_ID', QUEST_CONTRACT);
   // The dashboard defaults: 2 = referral_tx, 3 = invite_converts, 4 = vouch_back; no GitHub quest.
@@ -97,15 +99,32 @@ describe('POST /api/attest quest ↔ evidence binding', () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(JSON.stringify({ data: { referral: marker } }), { status: 200 }),
     );
-    simulateSpy.mockResolvedValueOnce({
-      result: { retval: nativeToScVal(Buffer.from('payload')) },
-    } as unknown as rpc.Api.SimulateTransactionResponse);
+    const before = Math.floor(Date.now() / 1000);
     const res = await attest({ questId: 2, evidence: { type: 'referral_tx', ref: REFERRED } });
+    const after = Math.floor(Date.now() / 1000);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean; questId: number; sig: string };
+    const body = (await res.json()) as {
+      ok: boolean;
+      questId: number;
+      attester: string;
+      sig: string;
+      expiresAt: number;
+    };
     expect(body.ok).toBe(true);
     expect(body.questId).toBe(2);
-    expect(body.sig).toBeTruthy();
+    expect(body.attester).toBe(ATTESTER.rawPublicKey().toString('hex'));
+
+    // Valid for QUEST_SIG_TTL_SECS from now, in unix seconds (the ledger's unit).
+    expect(body.expiresAt).toBeGreaterThanOrEqual(before + QUEST_SIG_TTL_SECS);
+    expect(body.expiresAt).toBeLessThanOrEqual(after + QUEST_SIG_TTL_SECS);
+
+    // The signature covers this network, contract, quest, recipient and expiry...
+    const ctx = { contractId: QUEST_CONTRACT, passphrase: Networks.TESTNET };
+    const sig = Buffer.from(body.sig, 'base64');
+    expect(ATTESTER.verify(questPayload(ctx, 2, RECIPIENT, body.expiresAt), sig)).toBe(true);
+    expect(ATTESTER.verify(questPayload(ctx, 2, RECIPIENT, body.expiresAt + 1), sig)).toBe(false);
+    // ...and the payload was built here: no RPC node supplied the bytes that were signed.
+    expect(simulateSpy).not.toHaveBeenCalled();
   });
 
   it('binds a quest id configured in env, not its default', async () => {
