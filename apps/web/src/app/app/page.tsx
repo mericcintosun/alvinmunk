@@ -17,16 +17,19 @@ import { useTranslations } from '@/lib/i18n';
 // three.js stays out of SSR + the marketing bundle — lazy, client-only.
 const ConstellationHero3D = dynamic(() => import('@/components/brand/constellation-3d'), {
   ssr: false,
+  // Same frame as the hero (border outside the sized box), so the swap can't shift the page.
   loading: () => (
-    <div className={`aurora flex ${HERO_BOX} w-full items-center justify-center rounded-3xl border border-border/60`}>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={asset(BRAND['logo-mark'].file)}
-        alt=""
-        width={48}
-        height={68}
-        className="select-none opacity-80 motion-safe:animate-breathe"
-      />
+    <div className="overflow-hidden rounded-3xl border border-border/60">
+      <div className={`aurora flex ${HERO_BOX} w-full items-center justify-center`}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={asset(BRAND['logo-mark'].file)}
+          alt=""
+          width={48}
+          height={68}
+          className="select-none opacity-80 motion-safe:animate-breathe"
+        />
+      </div>
     </div>
   ),
 });
