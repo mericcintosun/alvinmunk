@@ -64,6 +64,7 @@ pub enum Error {
     NotExpired = 10,
     InsufficientStake = 11,
     NoteTooLong = 12,
+    BadSignature = 13,
 }
 
 #[contracttype]
@@ -83,6 +84,7 @@ pub enum DataKey {
     Pending(Address),          // claimer -> Vec<PendingBonus> (2nd-order voucher bonuses owed)
     VouchedBy(Address),        // u32 — distinct people who vouched for this address
     Backed(Address),           // u32 — distinct people this address vouched for
+    ClaimPubkey(u64),          // vouch id -> ed25519 public key bound at mint
 }
 
 /// Async half-card vouch. `from` mints it bound to `claim_hash = sha256(secret)`.
@@ -101,6 +103,7 @@ pub struct Vouch {
     pub created: u64,
     pub stake: u64,
     pub slashed: bool,
+    pub claim_pubkey: Option<BytesN<32>>,
 }
 
 /// A voucher's 2nd-order bonus, owed once the claimer performs a verified action.
@@ -241,11 +244,92 @@ impl ReputationContract {
             created: env.ledger().timestamp(),
             stake: VOUCH_STAKE,
             slashed: false,
+            claim_pubkey: None,
         };
         env.storage().persistent().set(&DataKey::Vouch(id), &vouch);
         env.storage()
             .persistent()
             .extend_ttl(&DataKey::Vouch(id), BUMP_THRESHOLD, BUMP_EXTEND);
+
+        env.events().publish(
+            (symbol_short!("vouch"), symbol_short!("minted")),
+            (id, from),
+        );
+        id
+    }
+
+    /// `from` mints a half-card bound to an ed25519 public key derived from a 32-byte
+    /// seed held in the share link. The link holder signs `xdr([id, claimer, contract])`
+    /// with the corresponding secret key; only the address they signed for can claim.
+    /// Escrows `VOUCH_STAKE` Social XP from `from` (refunded on a timely claim, else
+    /// slashed). New wallets get `STARTER_SOCIAL` first so the first vouch is free.
+    /// Per-day cap applies. `note` is at most `MAX_NOTE_BYTES` bytes of UTF-8.
+    /// Returns the vouch id.
+    pub fn mint_vouch_signed(
+        env: Env,
+        from: Address,
+        claim_pubkey: BytesN<32>,
+        note: String,
+    ) -> u64 {
+        from.require_auth();
+        if note.len() > MAX_NOTE_BYTES {
+            panic_with_error!(&env, Error::NoteTooLong);
+        }
+
+        // Per-day cap (temporary storage auto-GCs old days).
+        let day = env.ledger().timestamp() / DAY_SECS;
+        let dkey = DataKey::DailyCount(from.clone(), day);
+        let used: u32 = env.storage().temporary().get(&dkey).unwrap_or(0);
+        if used >= MAX_VOUCH_PER_DAY {
+            panic_with_error!(&env, Error::DailyCapReached);
+        }
+        env.storage().temporary().set(&dkey, &(used.saturating_add(1)));
+        env.storage()
+            .temporary()
+            .extend_ttl(&dkey, DAY_LEDGERS, DAY_LEDGERS * 2);
+
+        // Starter Social XP (once), then escrow the stake.
+        Self::grant_starter(&env, &from);
+        let bal: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Social(from.clone()))
+            .unwrap_or(0);
+        if bal < VOUCH_STAKE {
+            panic_with_error!(&env, Error::InsufficientStake);
+        }
+        Self::sub_social(&env, &from, VOUCH_STAKE);
+
+        let id: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::VouchSeq)
+            .unwrap_or(0u64)
+            .saturating_add(1);
+        env.storage().instance().set(&DataKey::VouchSeq, &id);
+
+        let vouch = Vouch {
+            id,
+            from: from.clone(),
+            claim_hash: BytesN::from_array(&env, &[0u8; 32]),
+            note,
+            claimed: false,
+            claimer: None,
+            created: env.ledger().timestamp(),
+            stake: VOUCH_STAKE,
+            slashed: false,
+            claim_pubkey: Some(claim_pubkey.clone()),
+        };
+        env.storage().persistent().set(&DataKey::Vouch(id), &vouch);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::Vouch(id), BUMP_THRESHOLD, BUMP_EXTEND);
+        env.storage()
+            .persistent()
+            .set(&DataKey::ClaimPubkey(id), &claim_pubkey);
+        env.storage()
+            .persistent()
+            .extend_ttl(&DataKey::ClaimPubkey(id), BUMP_THRESHOLD, BUMP_EXTEND);
 
         env.events().publish(
             (symbol_short!("vouch"), symbol_short!("minted")),
@@ -318,6 +402,89 @@ impl ReputationContract {
             }
             // On-chain people counters — increment only on a fresh first-pair claim so
             // repeat vouches and re-claims never inflate the counts.
+            Self::inc_count(&env, &DataKey::VouchedBy(claimer.clone()));
+            Self::inc_count(&env, &DataKey::Backed(vouch.from.clone()));
+        }
+
+        env.events().publish(
+            (symbol_short!("vouch"), symbol_short!("claimed")),
+            (vouch_id, vouch.from, claimer),
+        );
+    }
+
+    /// `claimer` claims a signed half-card by presenting `sig`, an ed25519 signature
+    /// over `xdr([vouch_id, claimer, current_contract_address])` made with the secret
+    /// key whose public key was bound at mint. A signature copied from another claimer
+    /// is useless: the payload includes `claimer`, and `claimer.require_auth()` binds
+    /// the call to that address. Same XP/stake/bonus semantics as `claim_vouch`.
+    pub fn claim_vouch_signed(env: Env, claimer: Address, vouch_id: u64, sig: BytesN<64>) {
+        claimer.require_auth();
+        let mut vouch: Vouch = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Vouch(vouch_id))
+            .unwrap_or_else(|| panic_with_error!(&env, Error::VouchNotFound));
+
+        if vouch.claimed {
+            panic_with_error!(&env, Error::AlreadyClaimed);
+        }
+        let pubkey: BytesN<32> = match vouch.claim_pubkey.clone() {
+            Some(pk) => pk,
+            None => env
+                .storage()
+                .persistent()
+                .get(&DataKey::ClaimPubkey(vouch_id))
+                .unwrap_or_else(|| panic_with_error!(&env, Error::BadSignature)),
+        };
+        if claimer == vouch.from {
+            panic_with_error!(&env, Error::SelfVouch);
+        }
+
+        // Payload: xdr([vouch_id, claimer, current_contract_address]).
+        let mut payload = Bytes::new(&env);
+        payload.extend_from_array(&vouch_id.to_be_bytes());
+        let claimer_xdr = claimer.clone().to_xdr(&env);
+        payload.append(&claimer_xdr);
+        let contract_xdr = env.current_contract_address().to_xdr(&env);
+        payload.append(&contract_xdr);
+
+        env.crypto()
+            .ed25519_verify(&pubkey, &payload, &sig);
+
+        // Starter Social XP for the claimer (once), before crediting claim XP.
+        Self::grant_starter(&env, &claimer);
+
+        vouch.claimed = true;
+        vouch.claimer = Some(claimer.clone());
+        env.storage()
+            .persistent()
+            .set(&DataKey::Vouch(vouch_id), &vouch);
+
+        // Refund the voucher's stake on a timely claim (else it stays slashed).
+        let now = env.ledger().timestamp();
+        if !vouch.slashed && now <= vouch.created + VOUCH_TTL_SECS {
+            Self::add_social(&env, &vouch.from, vouch.stake);
+        }
+
+        // first-pair-only guard (kills back-and-forth pump)
+        let pair = DataKey::Seen(vouch.from.clone(), claimer.clone());
+        let fresh = !env.storage().persistent().get(&pair).unwrap_or(false);
+        if fresh {
+            env.storage().persistent().set(&pair, &true);
+            env.storage()
+                .persistent()
+                .extend_ttl(&pair, BUMP_THRESHOLD, BUMP_EXTEND);
+            Self::add_social(&env, &claimer, XP_CLAIMER);
+            let verified: bool = env
+                .storage()
+                .persistent()
+                .get(&DataKey::Verified(claimer.clone()))
+                .unwrap_or(false);
+            if verified {
+                Self::add_social(&env, &vouch.from, BONUS_VOUCHER);
+            } else {
+                Self::queue_bonus(&env, &claimer, &vouch.from, BONUS_VOUCHER);
+            }
             Self::inc_count(&env, &DataKey::VouchedBy(claimer.clone()));
             Self::inc_count(&env, &DataKey::Backed(vouch.from.clone()));
         }

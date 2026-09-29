@@ -4,8 +4,8 @@
  * helpers serve passkey (sponsored) and dev wallets.
  *
  * Production note: after a stable deploy, `stellar contract bindings typescript`
- * can generate fully-typed clients; these typed wrappers (args + scValToNative) are
- * the lean equivalent for the handful of methods the MVP calls.
+ * can generate fully-typed clients; these typed wrappers (args + scValToNative)
+ * are the lean equivalent for the handful of methods the MVP calls.
  */
 import {
   Account,
@@ -120,7 +120,7 @@ export async function invokeAndWait<T = unknown>(
     .build();
 
   const prepared = await server.prepareTransaction(built);
-  const signedXdr = await wallet.sign(prepared.toXDR());
+  const signedXtr = await wallet.sign(prepared.toXDR());
   const signed = TransactionBuilder.fromXDR(signedXdr, networkPassphrase);
 
   const sent = await server.sendTransaction(signed);
@@ -136,8 +136,8 @@ export async function invokeAndWait<T = unknown>(
 /**
  * Poll getTransaction until it leaves NOT_FOUND; throw on FAILED. The poll budget must
  * outlast the tx's own validity window (`setTimeout(60)` above) — otherwise a slow ledger
- * makes us give up on a tx that actually lands, turning a successful claim into a
- * false-negative error in the funnel.
+ * makes us give up on a tx that actually lands, turning a successful claim into
+ * a false-negative error in the funnel.
  */
 async function pollTransaction(
   hash: string,
