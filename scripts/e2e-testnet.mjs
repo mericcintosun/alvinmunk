@@ -4,9 +4,9 @@
  * the integration layer behind every UX action.
  *
  * Secret-free: admin (USDC issuer) + attester keys come from env. Generates throwaway
- * users via Friendbot. Mutating-config tests (daily cap, frozen, proof-of-funding) reset
- * the contract afterwards. Records pass/fail, never aborts on one failure, exits non-zero
- * if anything failed.
+ * users via Friendbot. Mutating-config tests (daily cap, frozen, proof-of-funding, streak
+ * gate) reset the contract afterwards. Records pass/fail, never aborts on one failure, exits
+ * non-zero if anything failed.
  *
  * Run from repo root:
  *   ADMIN_SECRET_KEY=S... ATTESTER_SECRET_KEY=S... node scripts/e2e-testnet.mjs
@@ -245,6 +245,13 @@ async function expectRevert(code, fn) {
   });
 
   // ── NEGATIVE: circuit breaker (mutates config → reset after) ──
+  await test('negative: a negative daily cap reverts (#8 InvalidAmount)', async () => {
+    try {
+      await expectRevert(8, () => invoke(ADMIN, REWARDS, 'set_daily_cap', [i128(-1n)]));
+    } finally {
+      await invoke(ADMIN, REWARDS, 'set_daily_cap', [i128(500000000n)]);
+    }
+  });
   await test('negative: cap below an active reward reverts (#17 CapBelowActiveReward)', async () => {
     try {
       await expectRevert(17, () => invoke(ADMIN, REWARDS, 'set_daily_cap', [i128(1n)]));
@@ -273,6 +280,18 @@ async function expectRevert(code, fn) {
       await expectRevert(10, () => invoke(Cw, REWARDS, 'claim_reward', [A(Cw.publicKey()), u32(2)]));
     } finally {
       await invoke(ADMIN, REWARDS, 'set_frozen', [A(Cw.publicKey()), nativeToScVal(false, { type: 'bool' })]);
+    }
+  });
+
+  await test('negative: streak-gated reward reverts below the live streak (#18 StreakTooShort), reset', async () => {
+    // C clears #2's Earned XP threshold but its streak is one week old at most.
+    await invoke(ADMIN, REWARDS, 'set_reward_min_streak', [u32(2), u32(52)]);
+    try {
+      const row = (await read(REWARDS, 'get_rewards', [])).find((r) => Number(r.id) === 2);
+      assert(Number(row?.min_streak) === 52, 'get_rewards should report min_streak 52 for #2');
+      await expectRevert(18, () => invoke(Cw, REWARDS, 'claim_reward', [A(Cw.publicKey()), u32(2)]));
+    } finally {
+      await invoke(ADMIN, REWARDS, 'set_reward_min_streak', [u32(2), u32(0)]);
     }
   });
 
