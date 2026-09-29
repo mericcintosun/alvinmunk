@@ -261,6 +261,55 @@ Note: this event is emitted **after** the cross-contract call to
 | 0 | `u32` | `quest_id` |
 | 1 | `Address` | `recipient` |
 
+### `quest` / `att_bind` (Quest Attester Bound)
+
+The admin bound a quest to one attester key with `set_quest_attester(quest_id, key)`.
+From then on `award_quest` accepts only that key's signature for the quest, and the
+global `AttesterKey` allowlist no longer applies to it. Rebinding emits this again with
+the new key. Monitoring should alert on it: it changes who can mint Earned XP.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol("quest")` | Event discriminator |
+| **topics[1]** | `Symbol("att_bind")` | Sub-type |
+
+**Data tuple**:
+
+| Index | Type | Description |
+|-------|------|-------------|
+| 0 | `u32` | `quest_id` |
+| 1 | `BytesN<32>` | `key` — the ed25519 attester public key now bound to the quest |
+
+### `quest` / `att_clear` (Quest Attester Cleared)
+
+The admin removed a quest's bound key with `clear_quest_attester(quest_id)`; the quest
+falls back to the global allowlist. Clearing a quest with no binding is a no-op and emits
+nothing.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol("quest")` | Event discriminator |
+| **topics[1]** | `Symbol("att_clear")` | Sub-type |
+
+**Data tuple**:
+
+| Index | Type | Description |
+|-------|------|-------------|
+| 0 | `u32` | `quest_id` |
+| 1 | `BytesN<32>` | `key` — the key that was bound until now |
+
+**Contract source**: `quest_registry/src/lib.rs` → `fn set_quest_attester()` / `fn clear_quest_attester()`
+
+```rust
+// Bind:
+env.events().publish(
+    (symbol_short!("quest"), symbol_short!("att_bind")), (quest_id, key));
+
+// Clear:
+env.events().publish(
+    (symbol_short!("quest"), symbol_short!("att_clear")), (quest_id, old));
+```
+
 ### `streak` (Weekly Retention)
 
 Emitted whenever a player's consecutive-week streak is updated (after a quest
@@ -539,7 +588,30 @@ removes the cap with `0`. Once `claims` reaches the cap, `claim_reward` reverts 
 |------|-------------|
 | `u32` | `max_claims` — the new cap (`0` = unlimited) |
 
-**Contract source**: `rewards/src/lib.rs` → `fn tip()` / `fn add_reward()` / `fn set_reward_supply()` / `fn claim_reward()`
+### `rwd_strk` (Reward Streak Requirement Set)
+
+An admin requires a live weekly quest streak of at least `weeks` to claim a reward, on
+top of its Earned-XP threshold, or removes the requirement with `0`. `claim_reward` then
+reads the claimer's `quest_registry.get_streak` (the QuestRegistry set by
+`set_quest_registry`) and reverts with `StreakTooShort` (#18) when `weeks` is below the
+minimum. `get_streak` reads a lapsed run as `0` weeks (see [`Streak`](#streak)), so a stale
+stored count never passes. Rewards without a minimum are unchanged and make no
+QuestRegistry call. A non-zero minimum reverts with `QuestRegistryNotSet` (#19) until
+`set_quest_registry` has run; the minimum lives under its own key, so stored `RewardEntry`
+rows keep their shape.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol("rwd_strk")` | Event discriminator |
+| **topics[1]** | `u32` | `reward_id` — the reward row ID |
+
+**Data**:
+
+| Type | Description |
+|------|-------------|
+| `u32` | `weeks` — the live streak now required (`0` = none) |
+
+**Contract source**: `rewards/src/lib.rs` → `fn tip()` / `fn add_reward()` / `fn set_reward_supply()` / `fn set_reward_min_streak()` / `fn claim_reward()`
 
 ```rust
 // Tip:
@@ -553,6 +625,10 @@ env.events().publish(
 // Reward supply set:
 env.events().publish(
     (symbol_short!("rwd_cap"), reward_id), max_claims);
+
+// Reward streak requirement set:
+env.events().publish(
+    (symbol_short!("rwd_strk"), reward_id), weeks);
 
 // Reward claimed:
 env.events().publish(
@@ -572,7 +648,7 @@ Quick-reference table of all event discriminators and their sub-types.
 | `social` | *(none)* | Reputation | [↑](#social-social-track-total) |
 | `attester` | `add`, `rm` | Reputation | [↑](#attester-allowlist-change) |
 | `vouch` | `minted`, `claimed`, `slashed` | Reputation | [↑](#vouch-async-half-card-lifecycle) |
-| `quest` | `created`, `awarded` | QuestRegistry | [↑](#2-questregistry-contract) |
+| `quest` | `created`, `awarded`, `att_bind`, `att_clear` | QuestRegistry | [↑](#2-questregistry-contract) |
 | `streak` | *(none)* | QuestRegistry | [↑](#streak-weekly-retention) |
 | `handle` | `claimed`, `released` | Registry | [↑](#3-registry-contract-handles) |
 | `meta` | `set`, `cleared` | Registry | [↑](#meta--set) |
@@ -581,6 +657,7 @@ Quick-reference table of all event discriminators and their sub-types.
 | `tipped` | *(none)* | Rewards | [↑](#tipped) |
 | `rwd_set` | *(none)* | Rewards | [↑](#rwd_set-reward-registeredupdated) |
 | `rwd_cap` | *(none)* | Rewards | [↑](#rwd_cap-reward-supply-set) |
+| `rwd_strk` | *(none)* | Rewards | [↑](#rwd_strk-reward-streak-requirement-set) |
 | `reward` | *(none)* | Rewards | [↑](#reward-reward-claimed) |
 
 ---
@@ -779,6 +856,28 @@ pub struct QuestConfig {
 }
 ```
 
+### Quest attester scope (`get_quest_attester`)
+
+`get_quest_attester(quest_id) -> Option<BytesN<32>>` returns the ed25519 key bound to a
+quest, or `None` when the quest uses the global allowlist. Admin functions:
+
+| Function | Effect |
+|----------|--------|
+| `set_quest_attester(quest_id, key)` | Bind the quest to `key`, replacing any previous key. Reverts with `QuestNotFound` (#4) for an unknown quest. Emits `quest` / `att_bind`. |
+| `clear_quest_attester(quest_id)` | Remove the binding. Emits `quest` / `att_clear` when one existed. |
+
+`award_quest` then authorizes the signing key like this:
+
+- **Bound quest:** only the bound key. Any other key, including a globally allowlisted
+  one, reverts with `NotAuthorized` (#3).
+- **Unbound quest:** any key in the global allowlist (`add_attester_key`), as before.
+  Quests that were never bound behave exactly as they did before this view existed.
+
+A bound key does not need to be in the global allowlist, and a partner's key must not be
+added there: the allowlist grants every unbound quest. `remove_attester_key` only edits
+the allowlist, so to revoke a bound key call `clear_quest_attester` (or rebind the quest)
+too. A contract deployed before this view has no `get_quest_attester`.
+
 ### `Streak`
 
 ```rust
@@ -832,7 +931,10 @@ pub struct RewardEntry {
 ### `RewardStats` / `RewardInfo`
 
 `get_reward_stats(id)` returns the supply counters; `get_rewards()` returns each row
-joined with them. `max_claims == 0` means unlimited.
+joined with them and with its streak requirement (`get_reward_min_streak(id)`, also a
+view). `max_claims == 0` means unlimited; `min_streak == 0` means no streak is required.
+`min_streak` was appended when streak-gated rewards landed, so a contract deployed before
+them returns rows without it; read a missing field as `0`.
 
 ```rust
 pub struct RewardStats {
@@ -847,8 +949,20 @@ pub struct RewardInfo {
     pub active: bool,
     pub max_claims: u32,
     pub claims: u32,
+    pub min_streak: u32,
 }
 ```
+
+### Daily cap (`get_daily_cap` / `get_daily_paid`)
+
+Both return `i128` USDC stroops. `get_daily_cap()` is the treasury's max payout per UTC
+day, `0` = unlimited; `get_daily_paid()` is what claims have paid so far in the current
+UTC day (`timestamp / 86_400`). `set_daily_cap` emits no event. It reverts with
+`InvalidAmount` (#8) for a negative cap, which would otherwise lift the limit instead of
+tightening it (`set_paused(true)` is the way to stop every payout), and with
+`CapBelowActiveReward` (#17) for a positive cap below an active row's `amount`. A negative
+cap stored by a contract deployed before that rule reads as `0`, which is how the payout
+checks always treated it.
 
 ### `Gate`
 
@@ -881,7 +995,7 @@ export const EVENTS = {
   QUEST: 'quest',
   TIPPED: 'tipped',
   REWARD: 'reward',
-  // handle, meta, gate, unlocked, streak, rwd_set, rwd_cap, attester are not yet mirrored
+  // handle, meta, gate, unlocked, streak, rwd_set, rwd_cap, rwd_strk, attester are not yet mirrored
 } as const;
 ```
 

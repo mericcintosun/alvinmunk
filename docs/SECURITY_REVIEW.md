@@ -45,7 +45,7 @@ arithmetic can never wrap and the intent is self-documenting:
 | --- | --- | --- |
 | `reputation` | daily-cap counter `used + 1` | `used.saturating_add(1)` |
 | `reputation` | vouch sequence id `+ 1` | `.saturating_add(1)` |
-| `reputation` | vouch TTL `created + VOUCH_TTL_SECS` | `created.saturating_add(VOUCH_TTL_SECS)` |
+| `reputation` | vouch TTL `created + VOUCH_TTL_SECS` | `claim_deadline()` = `created.saturating_add(VOUCH_TTL_SECS)`, shared by `claim_vouch` and `expire_vouch` |
 | `quest_registry` | weekly-streak `weeks += 1` / `last_week + 1` | `.saturating_add(1)` |
 
 Re-scan after the fix: **0 critical.**

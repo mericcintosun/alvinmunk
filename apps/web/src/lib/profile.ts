@@ -14,6 +14,8 @@ export interface Profile {
   avatar?: AvatarConfig;
   /** Short plain-text bio (see `sanitizeBio`), mirrored from the registry's `set_meta`. */
   bio?: string;
+  /** Where the profile was created from, e.g. `claim`. Used for analytics. */
+  source?: string;
 }
 
 const KEY = 'alvinmunk.profile';
