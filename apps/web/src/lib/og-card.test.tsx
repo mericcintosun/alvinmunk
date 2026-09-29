@@ -16,7 +16,7 @@ vi.mock('./registry', () => ({
 vi.mock('./reputation', () => ({ getScores: async () => ({ social: 40, earned: 7 }) }));
 vi.mock('./constellation', () => ({ getPeopleCounts: async () => ({ vouchedBy: 3, backed: 2 }) }));
 
-import { ogResolve, ogCard, handleFontSize, type OgScores } from './og-card';
+import { ogResolve, ogCard, claimCard, handleFontSize, type OgScores } from './og-card';
 import { loadPng } from './og-assets';
 import { defaultAvatarId, faceFile, kitFile, type KitAvatar } from './avatar';
 
@@ -123,6 +123,52 @@ describe('ogCard', () => {
     const doc = render(ogCard({ handle: 'free', address: null, scores, bio: 'stale' }));
     expect(srcs(doc)).toEqual([]);
     expect(doc.body.textContent).not.toContain('stale');
+  });
+});
+
+describe('claimCard', () => {
+  it('renders the voucher face, @handle, note and the empty socket for an open card', () => {
+    const doc = render(
+      claimCard({
+        vouchId: 7,
+        from: G,
+        handle: 'alice',
+        note: 'unblocked me at 2am',
+        status: 'open',
+        daysLeft: 3,
+      }),
+    );
+    expect(srcs(doc)).toEqual([loadPng(faceFile(defaultAvatarId(G))).uri]);
+    expect(doc.body.textContent).toContain('@alice');
+    expect(doc.body.textContent).toContain('unblocked me at 2am');
+    expect(doc.body.textContent).toContain('YOUR HALF');
+    expect(doc.body.textContent).toContain('3 DAYS LEFT TO CLAIM');
+  });
+
+  it('falls back to the short address when the voucher has no handle', () => {
+    const doc = render(
+      claimCard({ vouchId: 7, from: G, handle: null, note: null, status: 'open', daysLeft: 1 }),
+    );
+    expect(doc.body.textContent).toContain(G.slice(0, 4));
+    expect(doc.body.textContent).toContain('1 DAY LEFT TO CLAIM');
+  });
+
+  it('gives a claimed card a distinct lit state', () => {
+    const doc = render(
+      claimCard({ vouchId: 7, from: G, handle: 'alice', note: 'hi', status: 'claimed', daysLeft: 0 }),
+    );
+    expect(doc.body.textContent).toContain('THIS STAR IS LIT');
+    expect(doc.body.textContent).toContain('LIT');
+    expect(doc.body.textContent).not.toContain('YOUR HALF');
+  });
+
+  it('renders a neutral brand card (no broken image) for an unknown id', () => {
+    const doc = render(
+      claimCard({ vouchId: 0, from: null, handle: null, note: null, status: 'unknown', daysLeft: 0 }),
+    );
+    expect(srcs(doc)).toEqual([]);
+    expect(doc.body.textContent).toContain("This half-card doesn't exist");
+    expect(doc.body.textContent).not.toContain('YOUR HALF');
   });
 });
 
