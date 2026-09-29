@@ -123,7 +123,7 @@ describe('Rewards', () => {
   });
 
   it('explains an underfunded treasury without blaming the claimer', async () => {
-    getRewardsMock.mockResolvedValue([reward(1)]);
+    table([status(reward(1))]);
     claimRewardMock.mockRejectedValue(new Error('HostError: Error(Contract, #100)'));
     await render();
     await act(async () => {
