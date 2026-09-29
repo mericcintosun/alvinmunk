@@ -333,11 +333,19 @@ impl RewardsContract {
         env.storage().instance().set(&DataKey::Paused, &paused);
     }
 
-    /// Set the max treasury payout per UTC day (0 = unlimited). Admin-only. A positive cap
-    /// below an active reward's amount is rejected (`CapBelowActiveReward`): lower or
-    /// deactivate that reward first. 0 is always accepted.
+    /// Set the max treasury payout per UTC day. Admin-only.
+    ///
+    /// - `0` means **unlimited** (no per-day ceiling). Use `set_paused(true)` to block
+    ///   all payouts entirely.
+    /// - Negative values are **rejected** with `Error::InvalidAmount`; they silently
+    ///   disable the cap instead of restricting it, which is the opposite of the intent.
+    /// - A positive cap below an active reward's amount is rejected
+    ///   (`CapBelowActiveReward`): lower or deactivate that reward first.
     pub fn set_daily_cap(env: Env, cap: i128) {
         Self::admin(&env).require_auth();
+        if cap < 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
         Self::assert_cap_covers_active_rewards(&env, cap);
         env.storage().instance().set(&DataKey::DailyCap, &cap);
     }

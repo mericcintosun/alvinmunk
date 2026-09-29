@@ -544,6 +544,31 @@ fn set_daily_cap_zero_is_always_allowed() {
     assert_eq!(f.rewards.get_daily_cap(), 0);
 }
 
+/// A negative cap silently disables the circuit breaker instead of restricting it —
+/// exactly the opposite of an operator's intent during an incident.  Reject it.
+#[test]
+fn set_daily_cap_rejects_negative_values() {
+    let f = setup();
+    // Any negative value must fail with InvalidAmount.
+    for bad in [-1i128, -100, i128::MIN] {
+        assert_eq!(
+            f.rewards.try_set_daily_cap(&bad),
+            Err(Ok(contract_err(Error::InvalidAmount))),
+            "expected InvalidAmount for cap = {bad}"
+        );
+    }
+    // The stored cap must be unchanged (still the default of 0 = unlimited).
+    assert_eq!(f.rewards.get_daily_cap(), 0);
+
+    // A single claim must still be limited by the previously set cap (here none was set,
+    // so 0 = unlimited — the claim succeeds).  This confirms the negative value was never
+    // stored and `charge_daily` still sees 0, not a negative sentinel.
+    f.rewards.add_reward(&1u32, &1u64, &100i128);
+    let user = earner(&f, 1);
+    assert_eq!(f.rewards.try_claim_reward(&user, &1u32), Ok(Ok(())));
+    assert_eq!(f.rewards.get_daily_paid(), 100);
+}
+
 #[test]
 fn reactivating_a_reward_above_the_cap_is_rejected() {
     let f = setup();
