@@ -7,7 +7,7 @@ import { Frame } from '@/components/fx/frame';
 import { StateArt } from '@/components/ui/state-art';
 import { Sticker } from '@/components/ui/sticker';
 import { cn, shortAddress } from '@/lib/utils';
-import { REPUTATION_READ_SNIPPET } from '@/lib/reputation-read-snippet';
+import { ReputationSnippet } from '@/components/ReputationSnippet';
 
 // Stellar address validation: classic (G…) OR passkey smart-account (C…)
 const STELLAR_ADDRESS = /^[GC][A-Z2-7]{55}$/;
@@ -159,17 +159,10 @@ export default async function ScorePage({ params }: ScorePageProps) {
           <h2 className="font-display text-xl font-semibold tracking-tight">For developers</h2>
         </div>
         <p className="mt-3 text-sm text-muted-foreground">
-          Read a wallet's on-chain reputation directly from Soroban testnet. No wallet required.
+          Read this wallet&apos;s Social and Earned XP straight from the reputation contract with{' '}
+          <code className="font-mono text-xs">@stellar/stellar-sdk</code>. No wallet or API key needed.
         </p>
-        <div className="mt-4 border border-border/70 bg-background/70">
-          <div className="flex items-center gap-1.5 border-b border-border/60 px-3 py-2">
-            <span className="size-2.5 rounded-full bg-destructive/70" />
-            <span className="size-2.5 rounded-full bg-warning/70" />
-            <span className="size-2.5 rounded-full bg-secondary/70" />
-            <span className="ml-2 font-mono text-[10px] text-muted-foreground">read-reputation.ts</span>
-          </div>
-          <pre className="overflow-x-auto p-5 font-mono text-xs leading-relaxed text-foreground/80">{REPUTATION_READ_SNIPPET}</pre>
-        </div>
+        <ReputationSnippet address={address} className="mt-4" />
       </section>
     </div>
   );

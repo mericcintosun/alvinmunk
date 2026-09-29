@@ -17,7 +17,7 @@ import { asset, type StickerName } from '@/lib/assets';
 import { cn } from '@/lib/utils';
 import { LandingOnboard } from '@/components/landing-onboard';
 import { useTranslations } from '@/lib/i18n';
-import { REPUTATION_READ_SNIPPET } from '@/lib/reputation-read-snippet';
+import { ReputationSnippet } from '@/components/ReputationSnippet';
 
 // Small sticker icons cycle through the live vouch ticker — heart=vouch, coin=tip, eye=seen.
 const TICKER_ICONS: StickerName[] = ['ticker-heart', 'ticker-coin', 'ticker-eye'];
@@ -265,15 +265,7 @@ export default function LandingPage() {
                   {t('landing.dev.link')}
                 </Link>
               </div>
-              <div className="border border-border/70 bg-background/70">
-                <div className="flex items-center gap-1.5 border-b border-border/60 px-3 py-2">
-                  <span className="size-2.5 rounded-full bg-destructive/70" />
-                  <span className="size-2.5 rounded-full bg-warning/70" />
-                  <span className="size-2.5 rounded-full bg-secondary/70" />
-                  <span className="ml-2 font-mono text-[10px] text-muted-foreground">reputation.ts</span>
-                </div>
-                <pre className="overflow-x-auto p-5 font-mono text-xs leading-relaxed text-foreground/80">{REPUTATION_READ_SNIPPET}</pre>
-              </div>
+              <ReputationSnippet className="min-w-0" />
             </div>
           </Frame>
         </Reveal>
