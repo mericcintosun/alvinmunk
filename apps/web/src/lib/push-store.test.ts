@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 
 // A tiny stand-in for the Upstash REST client: values are JSON-serialized like the real
 // client's automatic (de)serialization, sets hold string members.
@@ -7,7 +7,7 @@ const { RedisMock, fake } = vi.hoisted(() => {
   const fake = {
     strings: new Map<string, string>(),
     sets: new Map<string, Set<string>>(),
-    srem: null as unknown as ReturnType<typeof vi.fn>,
+    srem: null as unknown as Mock<(key: string, member: string) => Promise<number>>,
   };
   const client = () => {
     fake.srem = vi.fn(async (key: string, member: string) =>
