@@ -3,8 +3,8 @@
  * serverless attester route. No standing backend — leaderboard reads RPC directly
  * (belts/00-strategy: defer the indexer until scale demands it).
  */
-import { Horizon, rpc, Networks } from '@stellar/stellar-sdk';
-import { readNetworkConfig } from '@alvinmunk/shared';
+import { Horizon, rpc } from '@stellar/stellar-sdk';
+import { readNetworkConfig, validateNetworkConfig } from '@alvinmunk/shared';
 
 // Next.js only inlines LITERAL `process.env.NEXT_PUBLIC_*` member expressions into the
 // client bundle — passing the whole `process.env` object would leave these undefined in
@@ -22,6 +22,14 @@ export const config = readNetworkConfig({
   NEXT_PUBLIC_GATE_CONTRACT_ID: process.env.NEXT_PUBLIC_GATE_CONTRACT_ID,
 });
 
+/**
+ * Problems with the resolved config (empty = healthy). This is THE config validation:
+ * the health route reports it, the client banner blocks on it, and the server routes
+ * share the same `config` above — so a half-applied mainnet cutover fails loudly and
+ * consistently instead of mixing a mainnet passphrase with testnet RPC.
+ */
+export const configErrors = validateNetworkConfig(config);
+
 export const server = new rpc.Server(config.rpcUrl, {
   allowHttp: config.rpcUrl.startsWith('http://'),
 });
@@ -31,8 +39,9 @@ export const horizon = new Horizon.Server(config.horizonUrl, {
   allowHttp: config.horizonUrl.startsWith('http://'),
 });
 
-export const networkPassphrase =
-  config.network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
+// Use the resolved passphrase (honours NEXT_PUBLIC_NETWORK_PASSPHRASE) rather than
+// re-deriving it from the network name, which silently ignored a configured override.
+export const networkPassphrase = config.networkPassphrase;
 
 /** Native XLM balance as a string, or '0' if the account isn't funded yet. */
 export async function getXlmBalance(address: string): Promise<string> {

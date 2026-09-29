@@ -3,6 +3,7 @@ import {
   artSeed,
   stampArt,
   readNetworkConfig,
+  validateNetworkConfig,
   PASSPHRASE,
   SCHEMA,
   rankLeaderboard,
@@ -54,6 +55,99 @@ describe('readNetworkConfig', () => {
   it('reads contract ids from env', () => {
     const c = readNetworkConfig({ NEXT_PUBLIC_REPUTATION_CONTRACT_ID: 'CREP' });
     expect(c.contracts.reputation).toBe('CREP');
+  });
+});
+
+/** A fully-wired mainnet env — one builder so each test flips a single field. */
+function mainnetEnv(overrides: Record<string, string | undefined> = {}) {
+  return {
+    NEXT_PUBLIC_STELLAR_NETWORK: 'mainnet',
+    NEXT_PUBLIC_RPC_URL: 'https://mainnet.sorobanrpc.com',
+    NEXT_PUBLIC_HORIZON_URL: 'https://horizon.stellar.org',
+    NEXT_PUBLIC_NETWORK_PASSPHRASE: PASSPHRASE.mainnet,
+    NEXT_PUBLIC_REPUTATION_CONTRACT_ID: 'CREP',
+    NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID: 'CQUEST',
+    NEXT_PUBLIC_REWARDS_CONTRACT_ID: 'CREWARDS',
+    NEXT_PUBLIC_USDC_SAC_ID: 'CUSDC',
+    NEXT_PUBLIC_REGISTRY_CONTRACT_ID: 'CREGISTRY',
+    NEXT_PUBLIC_GATE_CONTRACT_ID: 'CGATE',
+    ...overrides,
+  };
+}
+
+describe('validateNetworkConfig', () => {
+  it('accepts a fully-wired mainnet config', () => {
+    expect(validateNetworkConfig(readNetworkConfig(mainnetEnv()))).toEqual([]);
+  });
+
+  it('accepts an empty-contract testnet config (fresh local checkout)', () => {
+    expect(validateNetworkConfig(readNetworkConfig({}))).toEqual([]);
+  });
+
+  it('rejects a testnet passphrase override on mainnet', () => {
+    const errors = validateNetworkConfig(
+      readNetworkConfig(mainnetEnv({ NEXT_PUBLIC_NETWORK_PASSPHRASE: PASSPHRASE.testnet })),
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('passphrase');
+    expect(errors[0]).toContain(PASSPHRASE.mainnet);
+  });
+
+  it('rejects a mainnet passphrase override on testnet', () => {
+    const errors = validateNetworkConfig(
+      readNetworkConfig({
+        NEXT_PUBLIC_STELLAR_NETWORK: 'testnet',
+        NEXT_PUBLIC_NETWORK_PASSPHRASE: PASSPHRASE.mainnet,
+      }),
+    );
+    expect(errors.some((e) => e.includes('passphrase'))).toBe(true);
+  });
+
+  it('rejects a testnet RPC url on mainnet', () => {
+    const errors = validateNetworkConfig(
+      readNetworkConfig(mainnetEnv({ NEXT_PUBLIC_RPC_URL: 'https://soroban-testnet.stellar.org' })),
+    );
+    expect(errors).toContain('rpcUrl still points at testnet on mainnet: https://soroban-testnet.stellar.org');
+  });
+
+  it('rejects a testnet Horizon url on mainnet', () => {
+    const errors = validateNetworkConfig(
+      readNetworkConfig(mainnetEnv({ NEXT_PUBLIC_HORIZON_URL: 'https://horizon-testnet.stellar.org' })),
+    );
+    expect(errors.some((e) => e.startsWith('horizonUrl still points at testnet'))).toBe(true);
+  });
+
+  it('rejects every unset contract id on mainnet, naming the env var', () => {
+    const errors = validateNetworkConfig(
+      readNetworkConfig(
+        mainnetEnv({
+          NEXT_PUBLIC_REPUTATION_CONTRACT_ID: '',
+          NEXT_PUBLIC_REWARDS_CONTRACT_ID: '',
+          NEXT_PUBLIC_GATE_CONTRACT_ID: '',
+        }),
+      ),
+    );
+    const missing = errors.filter((e) => e.startsWith('missing mainnet contract id'));
+    expect(missing).toHaveLength(3);
+    expect(missing).toContain('missing mainnet contract id: NEXT_PUBLIC_REPUTATION_CONTRACT_ID');
+    expect(missing).toContain('missing mainnet contract id: NEXT_PUBLIC_REWARDS_CONTRACT_ID');
+    expect(missing).toContain('missing mainnet contract id: NEXT_PUBLIC_GATE_CONTRACT_ID');
+  });
+
+  it('reports mixed configs with one specific reason per problem', () => {
+    const errors = validateNetworkConfig(
+      readNetworkConfig(
+        mainnetEnv({
+          NEXT_PUBLIC_NETWORK_PASSPHRASE: PASSPHRASE.testnet,
+          NEXT_PUBLIC_RPC_URL: 'https://soroban-testnet.stellar.org',
+          NEXT_PUBLIC_USDC_SAC_ID: '',
+        }),
+      ),
+    );
+    expect(errors).toHaveLength(3);
+    expect(errors.filter((e) => e.includes('passphrase'))).toHaveLength(1);
+    expect(errors.filter((e) => e.includes('rpcUrl'))).toHaveLength(1);
+    expect(errors.filter((e) => e.includes('NEXT_PUBLIC_USDC_SAC_ID'))).toHaveLength(1);
   });
 });
 

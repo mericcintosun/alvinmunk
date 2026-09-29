@@ -99,6 +99,63 @@ export function readNetworkConfig(env: Record<string, string | undefined>): Netw
   };
 }
 
+/** Env var that supplies each contract id, in a stable order for error messages. */
+export const CONTRACT_ENV_KEYS: ReadonlyArray<readonly [keyof ContractIds, string]> = [
+  ['reputation', 'NEXT_PUBLIC_REPUTATION_CONTRACT_ID'],
+  ['questRegistry', 'NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID'],
+  ['rewards', 'NEXT_PUBLIC_REWARDS_CONTRACT_ID'],
+  ['usdcSac', 'NEXT_PUBLIC_USDC_SAC_ID'],
+  ['registry', 'NEXT_PUBLIC_REGISTRY_CONTRACT_ID'],
+  ['gate', 'NEXT_PUBLIC_GATE_CONTRACT_ID'],
+];
+
+/**
+ * The single validation every server route and the client call on a resolved config.
+ * Returns a list of human-readable problems (empty = healthy).
+ *
+ * A half-applied mainnet cutover is the most likely mainnet launch failure — flipping
+ * `NEXT_PUBLIC_STELLAR_NETWORK=mainnet` while leaving a testnet RPC/passphrase/contract
+ * id behind — so it is rejected loudly here instead of failing in confusing ways later.
+ *
+ * Rules:
+ *  - Always: the passphrase must match the selected network. An override that disagrees
+ *    with `NEXT_PUBLIC_STELLAR_NETWORK` is rejected (this is also the "passphrase isn't
+ *    the public one" rule on mainnet).
+ *  - Mainnet: no RPC/Horizon URL may point at testnet, and all six contract ids must be
+ *    set (an empty id would silently target the wrong network's contract).
+ *  - Testnet is deliberately lenient: empty contract ids are allowed so a fresh local
+ *    checkout runs out of the box before the deploy script prints the ids.
+ */
+export function validateNetworkConfig(cfg: NetworkConfig): string[] {
+  const errors: string[] = [];
+
+  const expectedPassphrase = PASSPHRASE[cfg.network];
+  if (cfg.networkPassphrase !== expectedPassphrase) {
+    errors.push(
+      `network passphrase does not match ${cfg.network}: got "${cfg.networkPassphrase}", expected "${expectedPassphrase}"`,
+    );
+  }
+
+  if (cfg.network === 'mainnet') {
+    const urls: ReadonlyArray<readonly [string, string]> = [
+      ['rpcUrl', cfg.rpcUrl],
+      ['horizonUrl', cfg.horizonUrl],
+    ];
+    for (const [key, url] of urls) {
+      if (/testnet/i.test(url)) {
+        errors.push(`${key} still points at testnet on mainnet: ${url}`);
+      }
+    }
+    for (const [key, envKey] of CONTRACT_ENV_KEYS) {
+      if (!cfg.contracts[key]) {
+        errors.push(`missing mainnet contract id: ${envKey}`);
+      }
+    }
+  }
+
+  return errors;
+}
+
 /** Deterministic generative-art seed from a wallet address (Genesis Stamp / vouch sigil). */
 export function artSeed(address: string): number {
   let h = 2166136261;

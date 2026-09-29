@@ -1,10 +1,16 @@
 /**
- * Health / readiness probe (Green-belt observability). Reports RPC reachability,
- * attester+faucet config presence (NOT the secrets), and the wired contract ids, so
- * uptime checks and the ops status script have a single endpoint to hit. No auth, no
- * secrets — safe to expose. Returns 200 when the core deps look healthy, 503 otherwise.
+ * Health / readiness probe (Green-belt observability). Reports RPC reachability, the
+ * resolved network config (validated — see validateNetworkConfig), attester+faucet config
+ * presence (NOT the secrets), and the wired contract ids, so uptime checks and the ops
+ * status script have a single endpoint to hit. No auth, no secrets — safe to expose.
+ * Returns 200 when the core deps look healthy, 503 otherwise.
+ *
+ * A half-applied mainnet cutover (mainnet passphrase + testnet RPC, or a missing mainnet
+ * contract id) shows up here as `configErrors` with a specific reason per problem, so the
+ * deploy is caught before it does anything confusing on-chain.
  */
 import { rpc } from '@stellar/stellar-sdk';
+import { config, configErrors } from '../../../lib/stellar';
 
 export const runtime = 'nodejs';
 // Read env + RPC at REQUEST time, never at build. Without this, Next statically
@@ -13,23 +19,25 @@ export const runtime = 'nodejs';
 // probe would falsely report them unconfigured even though they exist at runtime.
 export const dynamic = 'force-dynamic';
 
-const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL ?? 'https://soroban-testnet.stellar.org';
-
 export async function GET(): Promise<Response> {
   const checks: Record<string, unknown> = {
-    network: process.env.NEXT_PUBLIC_STELLAR_NETWORK ?? 'testnet',
+    network: config.network,
+    // Empty array = healthy. Each entry is a specific, actionable reason.
+    configErrors,
     attesterConfigured: Boolean(process.env.ATTESTER_SECRET_KEY),
     faucetConfigured: Boolean(process.env.USDC_ISSUER_SECRET_KEY),
     contracts: {
-      reputation: process.env.NEXT_PUBLIC_REPUTATION_CONTRACT_ID ?? null,
-      questRegistry: process.env.NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID ?? null,
-      rewards: process.env.NEXT_PUBLIC_REWARDS_CONTRACT_ID ?? null,
+      reputation: config.contracts.reputation || null,
+      questRegistry: config.contracts.questRegistry || null,
+      rewards: config.contracts.rewards || null,
     },
   };
 
   let rpcOk = false;
   try {
-    const latest = await new rpc.Server(RPC_URL, { allowHttp: RPC_URL.startsWith('http://') }).getLatestLedger();
+    const latest = await new rpc.Server(config.rpcUrl, {
+      allowHttp: config.rpcUrl.startsWith('http://'),
+    }).getLatestLedger();
     rpcOk = true;
     checks.latestLedger = latest.sequence;
   } catch {
@@ -37,7 +45,9 @@ export async function GET(): Promise<Response> {
   }
   checks.rpcOk = rpcOk;
 
-  const ok = rpcOk && Boolean(process.env.NEXT_PUBLIC_REWARDS_CONTRACT_ID);
+  // Config errors alone are enough to fail the probe: a mixed network config would make
+  // every transaction fail, so the deploy must not be considered ready.
+  const ok = rpcOk && configErrors.length === 0;
   return new Response(JSON.stringify({ ok, ...checks }), {
     status: ok ? 200 : 503,
     headers: { 'content-type': 'application/json' },
