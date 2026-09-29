@@ -7,7 +7,8 @@ import { txExplorerUrl } from '@/lib/stellar';
 import { useTranslations, type TFn } from '@/lib/i18n';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { humanizeError, shortAddress } from '@/lib/utils';
+import { shortAddr } from '@alvinmunk/shared';
+import { humanizeError } from '@/lib/utils';
 
 // Registry codes `transfer_handle` can revert with → i18n messages.
 function transferErrors(t: TFn): Record<number, string> {
@@ -80,7 +81,7 @@ export function HandleTransfer({ wallet }: { wallet: Wallet }) {
             <p className="text-xs text-muted-foreground">
               {t('handleTransfer.body', {
                 handle: holdings.handle,
-                from: shortAddress(holdings.from.address),
+                from: shortAddr(holdings.from.address),
               })}
             </p>
             <p className="text-xs text-muted-foreground">{t('handleTransfer.xpNote')}</p>
