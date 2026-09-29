@@ -16,8 +16,8 @@ const UNTIL = new Date('2026-10-29T12:00:00Z');
 const RESERVED = { status: 'reserved', until: UNTIL } as const;
 const UNTIL_EN = UNTIL.toLocaleDateString('en', { dateStyle: 'medium' });
 
-const DEV_WALLET: Wallet = { kind: 'dev', address: 'GDEV', sign: async (x) => x, signMessage: async () => '' };
-const PASSKEY_WALLET: Wallet = { kind: 'passkey', address: 'CPASSKEY', sign: async (x) => x, signMessage: async () => '' };
+const DEV_WALLET: Wallet = { kind: 'dev', address: 'GDEV', sign: async (x) => x };
+const PASSKEY_WALLET: Wallet = { kind: 'passkey', address: 'CPASSKEY', sign: async (x) => x };
 
 const {
   store,

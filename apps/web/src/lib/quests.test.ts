@@ -52,7 +52,6 @@ describe('completeQuest', () => {
       kind: 'freighter',
       address: 'G'.padEnd(56, 'A'),
       sign: async (x) => x,
-      signMessage: vi.fn(),
     };
 
     const r = await completeQuest(wallet, 2, { type: 'github_pr', ref: 'owner/repo#1' });
@@ -73,7 +72,6 @@ describe('completeQuest', () => {
     kind: 'freighter',
     address: OWNER,
     sign: async (x) => x,
-    signMessage: vi.fn(),
   };
 
   beforeEach(() => {
@@ -205,7 +203,6 @@ describe('completeQuest', () => {
       kind: 'freighter',
       address: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
       sign: async (x) => x,
-      signMessage: vi.fn(),
     };
 
     const r = await completeQuest(wallet, 2, { type: 'referral_tx', ref: 'G'.padEnd(56, 'B') });
@@ -224,7 +221,6 @@ describe('completeQuest signature expiry', () => {
     kind: 'freighter',
     address: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
     sign: async (x) => x,
-    signMessage: vi.fn(),
   };
   const attested = (extra: Record<string, unknown>) =>
     vi.stubGlobal('fetch', (async () => ({

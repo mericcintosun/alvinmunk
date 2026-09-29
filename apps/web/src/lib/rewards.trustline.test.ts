@@ -27,7 +27,6 @@ const wallet = (): Wallet => ({
   kind: 'dev',
   address: SOURCE,
   sign: vi.fn(async (x: string) => x),
-  signMessage: vi.fn(),
 });
 
 describe('enableUsdc submit', () => {
