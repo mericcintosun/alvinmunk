@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { Keypair, StrKey, nativeToScVal, rpc } from '@stellar/stellar-sdk';
 
 // POST /api/attest must refuse to sign a quest id for any evidence type other than the one
@@ -12,8 +12,8 @@ const QUEST_CONTRACT = StrKey.encodeContract(Buffer.alloc(32, 7));
 type Post = (req: Request) => Promise<Response>;
 let POST: Post;
 let fetchSpy: ReturnType<typeof vi.fn>;
-let simulateSpy: ReturnType<typeof vi.spyOn>;
-let ledgerSpy: ReturnType<typeof vi.spyOn>;
+let simulateSpy: MockInstance<rpc.Server['simulateTransaction']>;
+let ledgerSpy: MockInstance<rpc.Server['getLatestLedger']>;
 
 function attest(body: Record<string, unknown>): Promise<Response> {
   return POST(

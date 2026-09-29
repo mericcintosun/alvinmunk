@@ -339,6 +339,56 @@ env.events().publish(
     (symbol_short!("streak"), player.clone()), (s.weeks, s.best));
 ```
 
+### `att_key` / `budget` (Attester Budget Set)
+
+The admin set an attester key's daily Earned-XP budget with
+`set_attester_budget(key, budget)`; `0` removes the budget (unlimited). See
+[`AttesterUsage`](#attesterusage-get_attester_usage).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol("att_key")` | Event discriminator |
+| **topics[1]** | `Symbol("budget")` | Sub-type |
+
+**Data tuple**:
+
+| Index | Type | Description |
+|-------|------|-------------|
+| 0 | `BytesN<32>` | `key` — the ed25519 attester public key |
+| 1 | `u64` | `budget` — Earned XP the key may award per UTC day (`0` = unlimited) |
+
+### `att_key` / `near_cap` (Attester Budget 80%)
+
+An award took a budgeted key's usage for the day from under 80% of its budget to 80% or
+more. Only the award that crosses the line emits it (so once per key per day, unless the
+budget is raised above the usage again), letting monitoring alert before awards start
+reverting with `AttesterBudgetExceeded` (#7). Keys without a budget never emit it.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol("att_key")` | Event discriminator |
+| **topics[1]** | `Symbol("near_cap")` | Sub-type |
+
+**Data tuple**:
+
+| Index | Type | Description |
+|-------|------|-------------|
+| 0 | `BytesN<32>` | `key` — the attester public key |
+| 1 | `u64` | `used` — Earned XP the key has awarded today, including this award |
+| 2 | `u64` | `budget` — the key's daily budget |
+
+**Contract source**: `quest_registry/src/lib.rs` → `fn set_attester_budget()` / `fn spend_attester_budget()`
+
+```rust
+// Budget set:
+env.events().publish(
+    (symbol_short!("att_key"), symbol_short!("budget")), (key, budget));
+
+// 80% reached:
+env.events().publish(
+    (symbol_short!("att_key"), symbol_short!("near_cap")), (key.clone(), now, budget));
+```
+
 ---
 
 ## 3. Registry Contract (Handles)
@@ -654,6 +704,7 @@ Quick-reference table of all event discriminators and their sub-types.
 | `vouch` | `minted`, `claimed`, `slashed` | Reputation | [↑](#vouch-async-half-card-lifecycle) |
 | `quest` | `created`, `awarded`, `att_bind`, `att_clear` | QuestRegistry | [↑](#2-questregistry-contract) |
 | `streak` | *(none)* | QuestRegistry | [↑](#streak-weekly-retention) |
+| `att_key` | `budget`, `near_cap` | QuestRegistry | [↑](#att_key--budget-attester-budget-set) |
 | `handle` | `claimed`, `released` | Registry | [↑](#3-registry-contract-handles) |
 | `meta` | `set`, `cleared` | Registry | [↑](#meta--set) |
 | `gate` | `created` | Gate | [↑](#4-gate-contract) |
@@ -990,6 +1041,32 @@ time by up to one ledger close. A contract deployed before this view has no
 The alignment is frozen: every stored `Streak.last_week` is an index in this epoch, so
 moving weeks to another start day would break every live streak. A different alignment
 would need a versioned epoch and a migration.
+
+### `AttesterUsage` (`get_attester_usage`)
+
+`get_attester_usage(key) -> AttesterUsage` reports an attester key's daily Earned-XP
+budget and today's usage. The admin sets the budget with `set_attester_budget(key,
+budget)` (`0` = unlimited, the default for every key, so keys added before budgets existed
+are unlimited without a migration).
+
+```rust
+pub struct AttesterUsage {
+    pub budget: u64, // Earned XP the key may award per UTC day; 0 = unlimited
+    pub used: u64,   // Earned XP it awarded during `day` while a budget was set
+    pub day: u64,    // the current budget day: timestamp / 86_400
+}
+```
+
+Budget days are UTC calendar days (00:00:00 to 23:59:59), so the budget resets at
+`(day + 1) * 86_400`. `award_quest` adds the quest's XP to the key's usage for the day and
+reverts with `AttesterBudgetExceeded` (#7) if that would exceed the budget; an award that
+exactly reaches it goes through. The check runs after the existing ones, so a call that
+failed with #3–#6 before still does. Usage is only counted while a key has a budget: a
+budget set mid-day counts from the next award, and an unlimited key's awards add nothing.
+The budget belongs to the key, not to its allowlist entry or quest bindings: it covers
+every quest the key awards (quests bound to it with `set_quest_attester` included),
+survives `remove_attester_key`, and applies again if the key is re-added. A contract deployed before
+this view has no `get_attester_usage`.
 
 ### `RewardEntry`
 
