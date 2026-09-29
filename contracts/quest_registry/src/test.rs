@@ -57,12 +57,18 @@ fn setup_in(env: Env) -> Fixture<'static> {
 }
 
 /// Sign the contract's canonical payload with `sk` and award the quest.
+/// `expires_at` defaults to `ledger.timestamp() + 600` when passed as 0.
 fn award(f: &Fixture, sk: &SigningKey, quest_id: u32, recipient: &Address) {
+    award_at(f, sk, quest_id, recipient, f.env.ledger().timestamp() + 600);
+}
+
+/// Like `award` but with an explicit `expires_at` so expiry tests can set it precisely.
+fn award_at(f: &Fixture, sk: &SigningKey, quest_id: u32, recipient: &Address, expires_at: u64) {
     let pubkey = BytesN::from_array(&f.env, &sk.verifying_key().to_bytes());
-    let payload = f.quest.quest_payload(&quest_id, recipient);
+    let payload = f.quest.quest_payload(&quest_id, recipient, &expires_at);
     let msg: std::vec::Vec<u8> = payload.iter().collect();
     let sig = BytesN::from_array(&f.env, &sk.sign(&msg).to_bytes());
-    f.quest.award_quest(&pubkey, &sig, &quest_id, recipient);
+    f.quest.award_quest(&pubkey, &sig, &quest_id, recipient, &expires_at);
 }
 
 fn set_time(f: &Fixture, timestamp: u64) {
@@ -122,10 +128,11 @@ fn award_quest_forged_signature_reverts() {
     f.quest.create_quest(&1u32, &2u32, &50u64);
     // Allowlisted pubkey, but the signature is from a DIFFERENT key — ed25519_verify panics.
     let wrong = signing_key(8);
-    let payload = f.quest.quest_payload(&1u32, &user);
+    let expires_at = f.env.ledger().timestamp() + 600u64;
+    let payload = f.quest.quest_payload(&1u32, &user, &expires_at);
     let msg: std::vec::Vec<u8> = payload.iter().collect();
     let sig = BytesN::from_array(&f.env, &wrong.sign(&msg).to_bytes());
-    f.quest.award_quest(&f.attester_pub, &sig, &1u32, &user);
+    f.quest.award_quest(&f.attester_pub, &sig, &1u32, &user, &expires_at);
 }
 
 #[test]
@@ -144,6 +151,64 @@ fn award_inactive_quest_reverts() {
     f.quest.create_quest(&1u32, &2u32, &50u64);
     f.quest.set_quest_active(&1u32, &false);
     award(&f, &f.attester_sk, 1, &user); // panics: QuestInactive
+}
+
+#[test]
+#[should_panic]
+fn expired_signature_is_rejected() {
+    // Reproduce the original bug: a signature issued at t=0 must be rejected once the
+    // ledger clock moves past `expires_at`.
+    let f = setup();
+    let user = Address::generate(&f.env);
+    f.quest.create_quest(&1u32, &2u32, &50u64);
+
+    // Issue a signature that expires at t=600.
+    let expires_at = 600u64;
+    f.env.ledger().with_mut(|l| l.timestamp = 0);
+    let payload = f.quest.quest_payload(&1u32, &user, &expires_at);
+    let msg: std::vec::Vec<u8> = payload.iter().collect();
+    let sig = BytesN::from_array(&f.env, &f.attester_sk.sign(&msg).to_bytes());
+
+    // Advance clock by one year — the signature should now be expired.
+    f.env.ledger().with_mut(|l| l.timestamp = 365 * 24 * 3600);
+
+    // panics: SignatureExpired
+    f.quest.award_quest(&f.attester_pub, &sig, &1u32, &user, &expires_at);
+}
+
+#[test]
+fn just_valid_signature_is_accepted() {
+    // A signature signed and redeemed at exactly `expires_at` must be accepted (boundary).
+    let f = setup();
+    let user = Address::generate(&f.env);
+    f.quest.create_quest(&1u32, &2u32, &50u64);
+
+    let expires_at = 600u64;
+    f.env.ledger().with_mut(|l| l.timestamp = expires_at); // exactly on the deadline
+    award_at(&f, &f.attester_sk, 1, &user, expires_at);
+    assert_eq!(f.rep.get_earned(&user), 50);
+}
+
+#[test]
+#[should_panic]
+fn tampered_expiry_is_rejected() {
+    // The attester signs with expires_at=X; the client submits expires_at=Y (where Y >> X
+    // to extend the window). The XDR payload won't match → ed25519_verify panics.
+    let f = setup();
+    let user = Address::generate(&f.env);
+    f.quest.create_quest(&1u32, &2u32, &50u64);
+
+    // Attester signs payload with expires_at = 600 (now+10m).
+    let signed_expires_at = 600u64;
+    f.env.ledger().with_mut(|l| l.timestamp = 0);
+    let payload = f.quest.quest_payload(&1u32, &user, &signed_expires_at);
+    let msg: std::vec::Vec<u8> = payload.iter().collect();
+    let sig = BytesN::from_array(&f.env, &f.attester_sk.sign(&msg).to_bytes());
+
+    // Client passes a tampered expiry one year in the future — contract recomputes payload
+    // with that value, which won't match the signature → ed25519_verify panics.
+    let tampered_expires_at = 365u64 * 24 * 3600;
+    f.quest.award_quest(&f.attester_pub, &sig, &1u32, &user, &tampered_expires_at);
 }
 
 #[test]

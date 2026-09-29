@@ -29,6 +29,7 @@ const QUEST_ERRORS: Record<number, string> = {
   4: 'That quest doesn’t exist.',
   5: 'You’ve already completed this quest.',
   6: 'This quest isn’t active right now.',
+  7: 'The quest signature expired — please try again to get a fresh one.',
 };
 
 export interface QuestResult {
@@ -187,9 +188,10 @@ export async function completeQuest(
   const data = (await res.json().catch(() => ({}))) as {
     attester?: string;
     sig?: string;
+    expiresAt?: number;
     error?: string;
   };
-  if (!res.ok || !data.attester || !data.sig) {
+  if (!res.ok || !data.attester || !data.sig || data.expiresAt == null) {
     return { ok: false, error: data.error ?? `error ${res.status}` };
   }
 
@@ -204,6 +206,7 @@ export async function completeQuest(
         args.bytes(b64ToBytes(data.sig)),
         args.u32(questId),
         args.addr(wallet.address),
+        args.u64(BigInt(data.expiresAt!)),
       ],
       wallet,
     );

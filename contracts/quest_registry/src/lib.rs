@@ -32,6 +32,9 @@ pub enum Error {
     QuestNotFound = 4,
     AlreadyClaimed = 5,
     QuestInactive = 6,
+    /// The attester signature has passed its `expires_at` deadline. The client must
+    /// request a fresh signature and resubmit — expired bearer grants are never accepted.
+    SignatureExpired = 7,
 }
 
 #[contracttype]
@@ -153,8 +156,8 @@ impl QuestRegistryContract {
 
     /// The canonical message an attester signs to authorize a quest award — exposed so the
     /// off-chain attester signs EXACTLY what the contract verifies (no byte-mismatch risk).
-    pub fn quest_payload(env: Env, quest_id: u32, recipient: Address) -> Bytes {
-        Self::payload(&env, quest_id, &recipient)
+    pub fn quest_payload(env: Env, quest_id: u32, recipient: Address, expires_at: u64) -> Bytes {
+        Self::payload(&env, quest_id, &recipient, expires_at)
     }
 
     /// Award a verified quest to `recipient`. Replay-guarded. Dual authorization:
@@ -163,13 +166,23 @@ impl QuestRegistryContract {
     ///      tx, so the serverless attester stays stateless.
     ///   2. `recipient.require_auth()` proves on-chain ownership of the credited wallet —
     ///      works uniformly for classic (G…) and passkey smart-account (C…) wallets.
+    ///
+    /// `expires_at` is the ledger timestamp (seconds) after which the signature is invalid.
+    /// The attester sets it to `now + 600` (10 minutes) so stale bearer grants are always
+    /// rejected — even if a bug window produced valid signatures before a key rotation.
     pub fn award_quest(
         env: Env,
         attester: BytesN<32>,
         sig: BytesN<64>,
         quest_id: u32,
         recipient: Address,
+        expires_at: u64,
     ) {
+        // --- Expiry check: reject any signature past its deadline. ---
+        if env.ledger().timestamp() > expires_at {
+            panic_with_error!(&env, Error::SignatureExpired);
+        }
+
         if !env
             .storage()
             .persistent()
@@ -178,7 +191,7 @@ impl QuestRegistryContract {
         {
             panic_with_error!(&env, Error::NotAuthorized);
         }
-        let message = Self::payload(&env, quest_id, &recipient);
+        let message = Self::payload(&env, quest_id, &recipient, expires_at);
         env.crypto().ed25519_verify(&attester, &message, &sig);
         recipient.require_auth();
 
@@ -260,13 +273,18 @@ impl QuestRegistryContract {
 
     // --- internal ---
 
-    /// Canonical signing payload: XDR of [quest_id, recipient, this_contract]. Binding the
-    /// contract address stops a signature being replayed against another deployment.
-    fn payload(env: &Env, quest_id: u32, recipient: &Address) -> Bytes {
+    /// Canonical signing payload: XDR of [domain_tag, quest_id, recipient, this_contract,
+    /// expires_at]. The domain tag ("award_quest_v1") names the exact entrypoint and
+    /// version — a different upgrade() function with the same [u32, Address, Address, u64]
+    /// shape can never reuse a quest signature. Binding the contract address stops replay
+    /// against another deployment.
+    fn payload(env: &Env, quest_id: u32, recipient: &Address, expires_at: u64) -> Bytes {
         let mut parts: Vec<Val> = Vec::new(env);
+        parts.push_back(Symbol::new(env, "award_quest_v1").into_val(env));
         parts.push_back(quest_id.into_val(env));
         parts.push_back(recipient.clone().into_val(env));
         parts.push_back(env.current_contract_address().into_val(env));
+        parts.push_back(expires_at.into_val(env));
         parts.to_xdr(env)
     }
 
