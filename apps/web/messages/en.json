@@ -253,6 +253,7 @@
   "rewards.title": "Rank rewards",
   "rewards.earnedXp": "Earned XP",
   "rewards.subtitle": "Earned XP unlocks real USDC — rank buys something. Vouches (Social XP) never do.",
+  "rewards.dailyLeft": "{amount} USDC left in today's reward budget",
   "rewards.noRewards": "No rewards registered yet.",
   "rewards.noneLeft": "none left",
   "rewards.leftOfCap": "{left} of {cap} left",
