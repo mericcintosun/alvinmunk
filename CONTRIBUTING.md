@@ -10,6 +10,7 @@ pnpm install                          # install JS deps
 pnpm contracts:build                  # build Soroban contracts (wasm32)
 pnpm contracts:test                   # run Rust contract tests
 pnpm typecheck && pnpm test           # TS typecheck + vitest
+pnpm check                            # every gate the CI contracts + web jobs run
 pnpm dev                              # start dev server (turbo → next dev)
 ```
 
@@ -30,21 +31,28 @@ alvinmunk/
 
 1. **Branch**: `feat/`, `fix/`, `chore/` prefixed branches off `main`
 2. **Commits**: Conventional commits preferred (`feat:`, `fix:`, `test:`, `docs:`, `chore:`)
-3. **Code style**: Prettier (JS/TS) + `cargo fmt` + `cargo clippy -D warnings` (Rust)
-4. **Testing**: All tests must pass before PR — `pnpm contracts:test && pnpm test && pnpm typecheck`
+3. **Code style**: Prettier (JS/TS) + `cargo fmt` + `cargo clippy --all-targets -- -D warnings` (Rust)
+4. **Testing**: All tests must pass before PR — run `pnpm check`, which runs the same gates as the
+   CI `contracts` and `web` jobs, in order:
+   - `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` in `contracts/`
+   - `pnpm typecheck` (`tsc --noEmit` and `tsc --noEmit -p tsconfig.test.json`), `pnpm lint` (ESLint via
+     `next lint`) and `pnpm test` (`vitest run`) across the workspace
+
+   The CI `web-e2e` job runs the Playwright smoke suite; for a UI change run it too:
+   `pnpm --dir apps/web exec playwright install chromium && pnpm --dir apps/web e2e:smoke`
 
 ## Pull Request Process
 
 1. Open a PR against `main` with a clear description
 2. Reference related issues and belt/sprint context
-3. Ensure CI passes (contract tests + web typecheck/lint/test)
+3. Ensure CI passes (contract fmt/clippy/tests, web typecheck/lint/test and the e2e smoke)
 4. Add screenshots for UI changes
 5. Update docs and README if needed
 
 ## Contract Development
 
 - Run `cd contracts && cargo test` for contract tests
-- Run `cd contracts && cargo clippy -D warnings` before committing
+- Run `cd contracts && cargo clippy --all-targets -- -D warnings` before committing
 - The live testnet contract ids are in the [README](README.md#deployed-contracts-stellar-testnet)
 - Use `scripts/deploy-testnet.sh` for fresh deploys
 

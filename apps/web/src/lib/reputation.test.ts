@@ -1,7 +1,7 @@
 // @vitest-environment node
 // Claim keys hash and sign with stellar-sdk, which needs Node's own Uint8Array; jsdom's
 // cross-realm one fails the SDK's checks.
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Keypair, StrKey } from '@stellar/stellar-sdk';
 
 const readPublicMock = vi.fn();
@@ -54,7 +54,10 @@ import {
   getProfile,
   getScores,
   getVouch,
+  forgetVouch,
   VOUCH_BATCH_MAX,
+  VOUCH_READ_CONCURRENCY,
+  VOUCH_READ_TTL_MS,
   VOUCH_NOTE_MAX_BYTES,
   VOUCH_NOTE_MAX_CHARS,
   vouchNoteBytes,
@@ -199,7 +202,12 @@ describe('getScores', () => {
 });
 
 describe('getVouch', () => {
-  beforeEach(() => sdkMock.getVouch.mockReset());
+  beforeEach(() => {
+    sdkMock.getVouch.mockReset();
+    invokeMock.mockReset();
+    forgetVouch();
+  });
+  afterEach(() => vi.restoreAllMocks());
 
   const card = {
     id: 7,
@@ -224,6 +232,98 @@ describe('getVouch', () => {
     const [a, b] = await Promise.all([getVouch(7), getVouch(7)]);
     expect(a).toBe(b);
     expect(sdkMock.getVouch).toHaveBeenCalledTimes(1);
+  });
+
+  it('reuses a settled read for cards that mount later, until the TTL passes', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    sdkMock.getVouch.mockResolvedValue(card);
+    await getVouch(7); // PendingHalfCards
+    now.mockReturnValue(1_000_000 + VOUCH_READ_TTL_MS - 1);
+    await expect(getVouch(7)).resolves.toEqual(card); // OwedBonuses, a moment later
+    expect(sdkMock.getVouch).toHaveBeenCalledTimes(1);
+
+    // Still unclaimed, so a later poll must look again: it may have been claimed since.
+    now.mockReturnValue(1_000_000 + VOUCH_READ_TTL_MS);
+    await getVouch(7);
+    expect(sdkMock.getVouch).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a claimed card for the session, but not a slashed unclaimed one', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const claimed = { ...card, claimed: true, claimer: 'GCLAIMER' };
+    const slashed = { ...card, id: 8, slashed: true }; // expired: still claimable
+    sdkMock.getVouch.mockImplementation(async (id: number) => (id === 7 ? claimed : slashed));
+    await getVouch(7);
+    await getVouch(8);
+    now.mockReturnValue(1_000_000 + 100 * VOUCH_READ_TTL_MS);
+    await expect(getVouch(7)).resolves.toEqual(claimed);
+    await expect(getVouch(8)).resolves.toEqual(slashed);
+    expect(sdkMock.getVouch.mock.calls).toEqual([[7], [8], [8]]);
+  });
+
+  it('remembers an unknown id only for the TTL (a fresh mint may not be visible yet)', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    sdkMock.getVouch.mockResolvedValueOnce(null).mockResolvedValueOnce(card);
+    await expect(getVouch(7)).resolves.toBeNull();
+    await expect(getVouch(7)).resolves.toBeNull();
+    now.mockReturnValue(1_000_000 + VOUCH_READ_TTL_MS);
+    await expect(getVouch(7)).resolves.toEqual(card);
+    expect(sdkMock.getVouch).toHaveBeenCalledTimes(2);
+  });
+
+  it('never keeps a failed read: the next card reads again', async () => {
+    sdkMock.getVouch.mockRejectedValueOnce(new Error('429')).mockResolvedValueOnce(card);
+    await expect(getVouch(7)).rejects.toThrow('429');
+    await expect(getVouch(7)).resolves.toEqual(card);
+    expect(sdkMock.getVouch).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-reads a card this tab just claimed', async () => {
+    sdkMock.getVouch.mockResolvedValueOnce(card).mockResolvedValueOnce({ ...card, claimed: true });
+    invokeMock.mockResolvedValue(undefined);
+    await getVouch(7);
+    await claimVouch({ address: 'GCLAIMER' } as never, 7, 'ab'.repeat(32));
+    await expect(getVouch(7)).resolves.toMatchObject({ claimed: true });
+    expect(sdkMock.getVouch).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not store a read that started before the card was forgotten', async () => {
+    let finish!: (v: typeof card) => void;
+    sdkMock.getVouch
+      .mockReturnValueOnce(new Promise((r) => (finish = r)))
+      .mockResolvedValueOnce({ ...card, claimed: true });
+    const early = getVouch(7);
+    forgetVouch(7); // e.g. a claim landed while the read was in flight
+    finish(card);
+    await early;
+    await expect(getVouch(7)).resolves.toMatchObject({ claimed: true });
+  });
+
+  it(`reads at most ${VOUCH_READ_CONCURRENCY} cards at once, then the rest as slots free up`, async () => {
+    const release: Array<() => void> = [];
+    let active = 0;
+    let peak = 0;
+    sdkMock.getVouch.mockImplementation(
+      (id: number) =>
+        new Promise((resolve) => {
+          peak = Math.max(peak, ++active);
+          release.push(() => {
+            active--;
+            resolve({ ...card, id });
+          });
+        }),
+    );
+    const ids = Array.from({ length: 20 }, (_, i) => i + 1);
+    const all = Promise.all(ids.map((id) => getVouch(id)));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sdkMock.getVouch).toHaveBeenCalledTimes(VOUCH_READ_CONCURRENCY);
+    while (release.length) {
+      release.shift()!();
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    expect((await all).map((v) => v?.id)).toEqual(ids);
+    expect(sdkMock.getVouch).toHaveBeenCalledTimes(20);
+    expect(peak).toBe(VOUCH_READ_CONCURRENCY);
   });
 });
 

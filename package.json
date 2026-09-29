@@ -16,6 +16,9 @@
     "contracts:build": "cd contracts && stellar contract build",
     "contracts:test": "cd contracts && cargo test",
     "contracts:fmt": "cd contracts && cargo fmt",
+    "contracts:fmt:check": "cd contracts && cargo fmt --all -- --check",
+    "contracts:lint": "cd contracts && cargo clippy --all-targets -- -D warnings",
+    "check": "pnpm run contracts:fmt:check && pnpm run contracts:lint && pnpm run contracts:test && pnpm run typecheck && pnpm run lint && pnpm run test",
     "clean": "turbo run clean && rm -rf node_modules"
   },
   "devDependencies": {

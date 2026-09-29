@@ -354,6 +354,7 @@ fn claim_after_expire_vouch_does_not_slash_twice() {
     let v = client.get_vouch(&id).unwrap();
     assert!(v.slashed && v.claimed);
     assert_eq!(client.get_score(&alice), 15); // stake stays slashed, never refunded
+    assert_eq!(client.get_score(&bob), STARTER_SOCIAL + XP_CLAIMER); // the claimer still earns
 }
 
 #[test]
@@ -370,13 +371,103 @@ fn expire_vouch_after_ttl_marks_slashed() {
 }
 
 #[test]
-#[should_panic]
 fn expire_vouch_before_ttl_reverts() {
     let (env, client, _admin) = setup();
     let alice = Address::generate(&env);
     let (_s, h) = secret_and_hash(&env, 7);
     let id = client.mint_vouch(&alice, &h, &String::from_str(&env, "x"));
-    client.expire_vouch(&id); // now=0 < TTL -> NotExpired
+    // now = 0, well inside the window
+    assert_eq!(
+        client.try_expire_vouch(&id),
+        Err(Ok(contract_err(Error::NotExpired)))
+    );
+    assert!(!client.get_vouch(&id).unwrap().slashed);
+}
+
+#[test]
+fn expire_vouch_unknown_id_reverts_with_vouch_not_found() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let (_s, h) = secret_and_hash(&env, 7);
+    let id = client.mint_vouch(&alice, &h, &String::from_str(&env, "x"));
+    env.ledger().with_mut(|l| l.timestamp = VOUCH_TTL_SECS + 1);
+    // The id right after the only minted card was never minted.
+    assert_eq!(
+        client.try_expire_vouch(&(id + 1)),
+        Err(Ok(contract_err(Error::VouchNotFound)))
+    );
+}
+
+/// Both claim entrypoints reject an id that was never minted, before checking the
+/// secret or signature.
+#[test]
+fn claim_vouch_unknown_id_reverts_with_vouch_not_found() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let (s, h) = secret_and_hash(&env, 7);
+    let id = client.mint_vouch(&alice, &h, &String::from_str(&env, "x"));
+    assert_eq!(
+        client.try_claim_vouch(&bob, &(id + 1), &s),
+        Err(Ok(contract_err(Error::VouchNotFound)))
+    );
+    assert_eq!(
+        client.try_claim_vouch_signed(&bob, &(id + 1), &BytesN::from_array(&env, &[0; 64])),
+        Err(Ok(contract_err(Error::VouchNotFound)))
+    );
+}
+
+/// A claimed card can't be slashed afterwards — not once its window has passed, and not
+/// inside it either (the claim check comes before the deadline check).
+#[test]
+fn expire_vouch_after_claim_reverts_with_already_claimed() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let (s, h) = secret_and_hash(&env, 7);
+    let id = client.mint_vouch(&alice, &h, &String::from_str(&env, "x"));
+    client.claim_vouch(&bob, &id, &s);
+    assert_eq!(
+        client.try_expire_vouch(&id),
+        Err(Ok(contract_err(Error::AlreadyClaimed)))
+    );
+    env.ledger().with_mut(|l| l.timestamp = VOUCH_TTL_SECS + 1);
+    assert_eq!(
+        client.try_expire_vouch(&id),
+        Err(Ok(contract_err(Error::AlreadyClaimed)))
+    );
+    assert!(!client.get_vouch(&id).unwrap().slashed);
+    assert_eq!(client.get_score(&alice), STARTER_SOCIAL); // the timely refund stands
+}
+
+/// A second `expire_vouch` on an already-slashed card is a no-op: it emits nothing (no
+/// second `vouch`/`slashed`) and touches no score.
+#[test]
+fn expire_vouch_is_idempotent() {
+    use soroban_sdk::{testutils::Events as _, vec, IntoVal, Val};
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let (_s, h) = secret_and_hash(&env, 7);
+    let id = client.mint_vouch(&alice, &h, &String::from_str(&env, "x"));
+    env.ledger().with_mut(|l| l.timestamp = VOUCH_TTL_SECS + 1);
+
+    client.expire_vouch(&id);
+    let slashed: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("vouch"), symbol_short!("slashed")).into_val(&env),
+        (id, alice.clone(), VOUCH_STAKE).into_val(&env),
+    );
+    assert_eq!(env.events().all(), vec![&env, slashed]);
+    let score = client.get_score(&alice);
+    assert_eq!(score, STARTER_SOCIAL - VOUCH_STAKE);
+
+    client.expire_vouch(&id); // e.g. a second keeper run
+    assert!(
+        env.events().all().is_empty(),
+        "a re-expiry must not announce anything"
+    );
+    assert_eq!(client.get_score(&alice), score);
+    assert!(client.get_vouch(&id).unwrap().slashed);
 }
 
 /// `claim_vouch` (refund) and `expire_vouch` (slash) share one deadline, `created +

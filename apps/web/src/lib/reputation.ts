@@ -15,7 +15,7 @@ import type { ProfileView, VouchView } from '@alvinmunk/sdk';
 import { invokeAndWait, readContract, readPublic, args, repId, questId } from './contracts';
 import { readClient } from './sdk';
 import { networkPassphrase } from './stellar';
-import { shareInFlight } from './utils';
+import { concurrencyLimit, shareInFlight } from './utils';
 import type { Wallet } from './wallet';
 import { SCHEMA, type Attestation } from '@alvinmunk/shared';
 
@@ -238,6 +238,7 @@ export async function claimVouchSigned(wallet: Wallet, vouchId: number, seedHex:
     [args.addr(wallet.address), args.u64(vouchId), args.bytes(sig)],
     wallet,
   );
+  forgetVouch(vouchId);
 }
 
 /** LEGACY: claim a card minted with a claim hash (links with `s=`) by presenting its secret.
@@ -250,14 +251,48 @@ export async function claimVouch(wallet: Wallet, vouchId: number, secretHex: str
     [args.addr(wallet.address), args.u64(vouchId), args.bytes(fromHex(secretHex))],
     wallet,
   );
+  forgetVouch(vouchId);
 }
 
+/** How long a read of an unclaimed (or unknown) half-card is reused. Long enough to cover
+ *  one dashboard load, whose cards mount a few seconds apart; short enough that a claim
+ *  landing while the tab is open still shows up on the next poll. */
+export const VOUCH_READ_TTL_MS = 15_000;
+
+/** Most `get_vouch` simulations in flight at once, across every caller. */
+export const VOUCH_READ_CONCURRENCY = 6;
+
 const pendingVouches = new Map<string, Promise<VouchView | null>>();
+const settledVouches = new Map<number, { view: VouchView | null; at: number }>();
+const vouchReadGate = concurrencyLimit(VOUCH_READ_CONCURRENCY);
+/** Bumped by `forgetVouch`, so a read that started before it can't store a stale view. */
+let vouchEpoch = 0;
 
 /** Read a half-card by id (no wallet needed — used by the logged-out claim funnel).
- *  Dashboard cards that scan the same stored vouches at once share each read. */
+ *  Every dashboard card scans the same stored vouches, so each id is read once per load:
+ *  concurrent callers share one read, a settled one is reused for `VOUCH_READ_TTL_MS` —
+ *  and for the whole session once claimed, as a claimed card never changes again (a slashed
+ *  one still can: it stays claimable). Failed reads are not kept. At most
+ *  `VOUCH_READ_CONCURRENCY` reads hit the RPC at once. */
 export function getVouch(vouchId: number): Promise<VouchView | null> {
-  return shareInFlight(pendingVouches, String(vouchId), () => readClient().getVouch(vouchId));
+  const hit = settledVouches.get(vouchId);
+  if (hit && (hit.view?.claimed || Date.now() - hit.at < VOUCH_READ_TTL_MS)) {
+    return Promise.resolve(hit.view);
+  }
+  return shareInFlight(pendingVouches, String(vouchId), async () => {
+    const epoch = vouchEpoch;
+    const view = await vouchReadGate(() => readClient().getVouch(vouchId));
+    if (epoch === vouchEpoch) settledVouches.set(vouchId, { view, at: Date.now() });
+    return view;
+  });
+}
+
+/** Drop what `getVouch` remembers about `vouchId` (every id when omitted), so the next read
+ *  goes to the chain — after this tab changes the card, e.g. claims it. */
+export function forgetVouch(vouchId?: number): void {
+  vouchEpoch++;
+  if (vouchId === undefined) settledVouches.clear();
+  else settledVouches.delete(vouchId);
 }
 
 /** A 2nd-order voucher bonus queued on a claimer — mirror of the contract's PendingBonus. */
