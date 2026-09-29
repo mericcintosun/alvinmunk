@@ -207,14 +207,25 @@ function makeReq(body: Record<string, unknown>, ip = '1.2.3.4'): Request {
 
 describe('POST /api/faucet — common guards', () => {
   it('returns 403 when network is mainnet', async () => {
+    // lib/stellar is mocked in this file, so the env has no effect here; route.mainnet.test.ts
+    // drives the same guard from NEXT_PUBLIC_STELLAR_NETWORK through the real config.
     state.network = 'mainnet';
     // Re-import so IS_MAINNET (computed at module load) sees the updated config.
     vi.resetModules();
     ({ POST } = (await import('./route')) as { POST: PostFn });
 
-    const res = await POST(makeReq({ recipient: G_ADDR }));
-    expect(res.status).toBe(403);
-    expect((await res.json()).error).toMatch(/mainnet/i);
+    // Both paths: a G… recipient would build a Horizon client, a C… one an RPC client.
+    for (const recipient of [G_ADDR, C_ADDR]) {
+      const res = await POST(makeReq({ recipient }));
+      expect(res.status).toBe(403);
+      expect((await res.json()).error).toMatch(/mainnet/i);
+    }
+
+    // The guard must short-circuit BEFORE any Stellar client is constructed,
+    // so no network call can be made.
+    const sdk = await import('@stellar/stellar-sdk');
+    expect(sdk.rpc.Server).not.toHaveBeenCalled();
+    expect(sdk.Horizon.Server).not.toHaveBeenCalled();
   });
 
   it('returns 500 when USDC_ISSUER_SECRET_KEY is not set', async () => {

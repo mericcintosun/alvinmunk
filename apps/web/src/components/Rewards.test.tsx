@@ -2,24 +2,20 @@ import React from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { RewardEntry } from '@/lib/rewards';
+import type { RewardEntry, RewardStatus } from '@/lib/rewards';
 
-const { getEarnedScoreMock, getRewardsMock, isClaimedMock, getStreakMock, claimRewardMock } = vi.hoisted(
-  () => ({
-    getEarnedScoreMock: vi.fn(),
-    getRewardsMock: vi.fn(),
-    isClaimedMock: vi.fn(),
-    getStreakMock: vi.fn(),
-    claimRewardMock: vi.fn(),
-  }),
-);
+const { getEarnedScoreMock, getRewardsForMock, getStreakMock, claimRewardMock } = vi.hoisted(() => ({
+  getEarnedScoreMock: vi.fn(),
+  getRewardsForMock: vi.fn(),
+  getStreakMock: vi.fn(),
+  claimRewardMock: vi.fn(),
+}));
 
 vi.mock('@/lib/reputation', () => ({ getEarnedScore: getEarnedScoreMock }));
 vi.mock('@/lib/quests', () => ({ getStreak: getStreakMock }));
 vi.mock('@/lib/rewards', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/rewards')>()),
-  getRewards: getRewardsMock,
-  isClaimed: isClaimedMock,
+  getRewardsFor: getRewardsForMock,
   claimReward: claimRewardMock,
   getUsdcBalance: vi.fn(),
 }));
@@ -49,6 +45,17 @@ const reward = (id: number, extra: Partial<RewardEntry> = {}): RewardEntry => ({
   ...extra,
 });
 
+/** A `get_rewards_for` row; `reason` is the claim_reward error code (0 = claimable). */
+const status = (entry: RewardEntry, reason = 0, claimed = false): RewardStatus => ({
+  entry,
+  claimed,
+  eligible: reason === 0,
+  reason,
+});
+
+const table = (rows: RewardStatus[], remainingToday: bigint | null = null) =>
+  getRewardsForMock.mockResolvedValue({ rows, remainingToday });
+
 describe('Rewards', () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -58,7 +65,6 @@ describe('Rewards', () => {
     document.body.appendChild(container);
     root = createRoot(container);
     getEarnedScoreMock.mockResolvedValue(50);
-    isClaimedMock.mockResolvedValue(false);
     getStreakMock.mockResolvedValue({ weeks: 2, best: 3, lastWeek: 100 });
   });
 
@@ -78,10 +84,10 @@ describe('Rewards', () => {
   const button = (li: Element) => li.querySelector('button')!;
 
   it('shows a streak requirement with the wallet’s live streak and locks it until met', async () => {
-    getRewardsMock.mockResolvedValue([
-      reward(1, { min_streak: 4 }),
-      reward(2, { min_streak: 2 }),
-      reward(3), // contract deployed before streak gates: no min_streak field
+    table([
+      status(reward(1, { min_streak: 4 }), 18),
+      status(reward(2, { min_streak: 2 })),
+      status(reward(3)), // contract deployed before streak gates: no min_streak field
     ]);
     await render();
 
@@ -101,14 +107,14 @@ describe('Rewards', () => {
 
   it('still needs the Earned XP threshold when the streak is met', async () => {
     getEarnedScoreMock.mockResolvedValue(10);
-    getRewardsMock.mockResolvedValue([reward(1, { min_streak: 1 })]);
+    table([status(reward(1, { min_streak: 1 }), 3)]);
     await render();
     expect(button(items()[0]).textContent).toBe('Locked');
   });
 
   it('reads a failed streak lookup as no streak: gated rewards stay locked, others don’t', async () => {
     getStreakMock.mockRejectedValue(new Error('rpc down'));
-    getRewardsMock.mockResolvedValue([reward(1, { min_streak: 1 }), reward(2)]);
+    table([status(reward(1, { min_streak: 1 }), 18), status(reward(2))]);
     await render();
     const [gated, plain] = items();
     expect(gated.textContent).toContain('needs a 1-week streak (you: 0)');
@@ -117,12 +123,62 @@ describe('Rewards', () => {
   });
 
   it('explains a StreakTooShort (#18) revert from claim_reward', async () => {
-    getRewardsMock.mockResolvedValue([reward(1, { min_streak: 2 })]);
+    table([status(reward(1, { min_streak: 2 }))]);
     claimRewardMock.mockRejectedValue(new Error('HostError: Error(Contract, #18)'));
     await render();
     await act(async () => {
       button(items()[0]).click();
     });
     expect(container.textContent).toContain('This reward needs a longer weekly quest streak');
+  });
+
+  it('renders the whole table from one get_rewards_for call', async () => {
+    table([status(reward(1)), status(reward(2), 4, true)]);
+    await render();
+    expect(getRewardsForMock).toHaveBeenCalledTimes(1);
+    expect(getRewardsForMock).toHaveBeenCalledWith(ME, ME);
+    const [open, done] = items();
+    expect(button(open).textContent).toBe('Claim');
+    expect(button(done).textContent).toBe('Claimed');
+    expect(button(done).disabled).toBe(true);
+  });
+
+  it('takes eligibility from the contract, not from the Earned XP badge', async () => {
+    getEarnedScoreMock.mockResolvedValue(500); // clears every threshold on its face
+    table([status(reward(1), 3)]); // …but the ledger says it doesn't
+    await render();
+    expect(button(items()[0]).textContent).toBe('Locked');
+    expect(button(items()[0]).disabled).toBe(true);
+  });
+
+  it('says once why a wallet-wide block stops every row', async () => {
+    table([status(reward(1), 10), status(reward(2), 10)]);
+    await render();
+    const notice = "This account is under review and can't claim right now.";
+    expect(container.textContent?.split(notice).length).toBe(2);
+    expect(items().map((li) => button(li).textContent)).toEqual(['Locked', 'Locked']);
+  });
+
+  it('shows today’s remaining budget and flags a row it can no longer cover', async () => {
+    table([status(reward(1)), status(reward(2, { amount: 40_000_000n }), 9)], 25_000_000n);
+    await render();
+    expect(container.textContent).toContain("2.5 USDC left in today's reward budget");
+    const [fits, over] = items();
+    expect(fits.textContent).not.toContain('daily reward limit');
+    expect(over.textContent).toContain('The daily reward limit was reached — try again tomorrow.');
+    expect(button(over).textContent).toBe('Locked');
+  });
+
+  it('shows no budget line when there is no daily cap', async () => {
+    table([status(reward(1))], null);
+    await render();
+    expect(container.textContent).not.toContain('reward budget');
+  });
+
+  it('degrades a failed status read to an empty table, never to a claimable row', async () => {
+    getRewardsForMock.mockRejectedValue(new Error('rpc down'));
+    await render();
+    expect(items()).toHaveLength(0);
+    expect(container.textContent).toContain('No rewards registered yet.');
   });
 });

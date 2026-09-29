@@ -2,6 +2,7 @@
  * alvinmunk service worker — Web Push (VAPID) receiver.
  *
  * Handles:
+ *   install       — activate the new worker immediately (skipWaiting)
  *   push          — show a "your vouch was claimed" notification
  *   notificationclick — focus/open the app when the user taps the notification
  *   pushsubscriptionchange — re-subscribe after an endpoint rotation and move the
@@ -30,6 +31,13 @@ async function readWalletAddress() {
   }
   return pushWalletAddress;
 }
+
+// ─── install ────────────────────────────────────────────────────────────────
+// Without skipWaiting an updated worker stays "waiting" until every tab running the
+// old one is closed; `activate` below then claims the open tabs.
+self.addEventListener('install', () => {
+  self.skipWaiting();
+});
 
 // ─── push ───────────────────────────────────────────────────────────────────
 self.addEventListener('push', (event) => {

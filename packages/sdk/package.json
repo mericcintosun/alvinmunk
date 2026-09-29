@@ -1,0 +1,46 @@
+{
+  "name": "@alvinmunk/sdk",
+  "version": "0.1.0",
+  "description": "Read-only client for alvinmunk reputation, handles and gates on Stellar",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "echo \"(no lint)\"",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "pnpm run build",
+    "clean": "rm -rf dist .turbo"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^16.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.12",
+    "typescript": "^5.5.4",
+    "vitest": "^4.1.11"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

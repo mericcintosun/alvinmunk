@@ -1328,6 +1328,30 @@ pub struct RewardInfo {
 }
 ```
 
+### Reward status per wallet (`get_rewards_for`)
+
+```rust
+pub struct RewardStatus {
+    pub entry: RewardInfo, // the `get_rewards` row
+    pub claimed: bool,     // `is_claimed(entry.id, who)`
+    pub eligible: bool,    // reason == 0
+    pub reason: u32,       // the Error code `claim_reward` would revert with; 0 = none
+}
+
+pub fn get_rewards_for(who: Address) -> (Vec<RewardStatus>, i128)
+```
+
+One simulation for a wallet's whole reward table: every row of `get_rewards` (inactive
+ones included, in the same order) with `who`'s status, and the treasury budget left
+today in stroops — `get_daily_cap() - get_daily_paid()`, floored at `0`, or `-1` when no
+daily cap is set. `reason` runs `claim_reward`'s checks in its order without the
+transfer, so it is the first error the claim would revert with: `Paused` (#5), `Frozen`
+(#10), `NotFunded` (#12), `RewardInactive` (#7), `AlreadyClaimed` (#4), `RewardExhausted`
+(#13), `BelowThreshold` (#3), `QuestRegistryNotSet` (#19), `StreakTooShort` (#18), then
+`DailyCapExceeded` (#9). The first three are per wallet and so the same on every row. The
+Earned-XP and streak cross-reads run at most once per call. The view is read-only and
+takes no auth. A contract deployed before this view has no `get_rewards_for`.
+
 ### Daily cap (`get_daily_cap` / `get_daily_paid`)
 
 Both return `i128` USDC stroops. `get_daily_cap()` is the treasury's max payout per UTC
