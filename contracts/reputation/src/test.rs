@@ -1050,3 +1050,24 @@ fn later_writes_top_the_ttl_back_up() {
         BUMP_EXTEND - 100 - DAY_LEDGERS * 3
     );
 }
+
+#[test]
+fn remove_attester_revokes_authorization_and_leaves_prior_awards_intact() {
+    let (env, client, _admin) = setup();
+    let att = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.add_attester(&att);
+    assert!(client.is_attester(&att));
+
+    client.award_xp(&att, &user, &2u32, &10u64);
+
+    client.remove_attester(&att);
+    assert!(!client.is_attester(&att));
+
+    assert_eq!(
+        client.try_award_xp(&att, &user, &2u32, &10u64),
+        Err(Ok(contract_err(Error::NotAuthorized)))
+    );
+    assert_eq!(client.get_earned(&user), 10);
+}
