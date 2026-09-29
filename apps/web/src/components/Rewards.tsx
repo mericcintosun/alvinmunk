@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { getWallet } from '@/lib/wallet';
 import { txExplorerUrl } from '@/lib/stellar';
 import { getEarnedScore } from '@/lib/reputation';
+import { getStreak } from '@/lib/quests';
 import { claimReward, getRewards, getUsdcBalance, isClaimed, stroopsToUsdc, usdcToStroops, type RewardEntry } from '@/lib/rewards';
 import {
   getAnchorConfig,
@@ -32,17 +33,27 @@ const REWARD_ERRORS: Record<number, string> = {
   10: 'This account is under review and can’t claim right now.',
   12: 'You need to receive funds first before claiming (mainnet rule).',
   13: 'This reward’s pool is used up.',
+  // 15–17 and 19 are admin-only (add_reward / set_reward_active / set_daily_cap /
+  // set_reward_min_streak).
+  15: 'A reward needs an Earned XP threshold above zero.',
+  16: 'This reward pays more than the daily limit allows.',
+  17: 'The daily limit can’t go below an active reward’s payout.',
+  18: 'This reward needs a longer weekly quest streak — complete a quest every week to build it.',
+  19: 'Streak-gated rewards aren’t set up on this contract yet.',
 };
 
 /**
  * Rank -> reward unlock table (Green belt). Each reward is admin-registered on-chain
  * (Earned-XP threshold -> USDC); the contract pays the STORED amount, so rank buys
  * something real and the treasury can't be drained. Earned-gated (vouches never unlock it).
+ * A reward can also require a live weekly quest streak (`min_streak`); `get_streak`
+ * already reads a lapsed run as 0, so the count shown is the one the contract checks.
  */
 type Row = RewardEntry & { claimed: boolean };
 
 export function Rewards({ address }: { address: string }) {
   const [earned, setEarned] = useState<number | null>(null);
+  const [streak, setStreak] = useState<number>(0);
   const [rows, setRows] = useState<Row[] | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
   const [hash, setHash] = useState<string | null>(null);
@@ -51,11 +62,15 @@ export function Rewards({ address }: { address: string }) {
   const refresh = useCallback(async () => {
     // Timeout the gating reads so a slow RPC degrades to "no rewards" instead of an
     // endless skeleton in front of a tester/judge.
-    const [e, table] = await Promise.all([
+    const [e, table, weeks] = await Promise.all([
       withTimeout(getEarnedScore(address, address), 12_000, 'score').catch(() => 0),
       withTimeout(getRewards(address), 12_000, 'rewards').catch(() => [] as RewardEntry[]),
+      withTimeout(getStreak(address, address), 12_000, 'streak')
+        .then((st) => st.weeks)
+        .catch(() => 0),
     ]);
     setEarned(e);
+    setStreak(weeks);
     const withClaimed = await Promise.all(
       table.map(async (r) => ({
         ...r,
@@ -112,7 +127,8 @@ export function Rewards({ address }: { address: string }) {
         ) : (
           <ul className="flex flex-col gap-2">
             {rows.map((r) => {
-              const unlocked = (earned ?? 0) >= Number(r.threshold);
+              const minStreak = r.min_streak ?? 0;
+              const unlocked = (earned ?? 0) >= Number(r.threshold) && streak >= minStreak;
               const cap = r.max_claims ?? 0;
               const left = cap > 0 ? Math.max(0, cap - (r.claims ?? 0)) : null;
               const soldOut = left === 0;
@@ -127,6 +143,11 @@ export function Rewards({ address }: { address: string }) {
                     {left !== null && (
                       <span className="ml-2 text-xs text-muted-foreground">
                         · {soldOut ? 'none left' : `${left} of ${cap} left`}
+                      </span>
+                    )}
+                    {minStreak > 0 && (
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        · needs a {minStreak}-week streak (you: {streak})
                       </span>
                     )}
                   </span>

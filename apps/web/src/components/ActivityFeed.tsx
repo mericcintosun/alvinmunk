@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { shortAddr } from '@alvinmunk/shared';
 import { Sparkles } from 'lucide-react';
 import { fetchActivity, type FeedItem } from '@/lib/feed';
-import { reverseHandle } from '@/lib/registry';
+import { reverseHandles } from '@/lib/registry';
 import { Frame } from '@/components/fx/frame';
 import { Avatar } from '@/components/Avatar';
 import { StateArt } from '@/components/ui/state-art';
@@ -28,9 +28,7 @@ export function ActivityFeed() {
     const addrs = [...new Set(items.flatMap((i) => [i.from, i.to]))].filter((a) => !(a in handles));
     if (addrs.length === 0) return;
     let alive = true;
-    Promise.all(addrs.map(async (a) => [a, await reverseHandle(a).catch(() => null)] as const)).then(
-      (pairs) => alive && setHandles((h) => ({ ...h, ...Object.fromEntries(pairs) })),
-    );
+    reverseHandles(addrs).then((map) => alive && setHandles((h) => ({ ...h, ...map })));
     return () => {
       alive = false;
     };
