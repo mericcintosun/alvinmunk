@@ -208,6 +208,54 @@ describe('push-store without KV', () => {
     expect(store.memGet(`sub:${A}`)).toBeNull();
   });
 
+  it('memSet indexes the record by its endpoint, not by the `sub:` store key', async () => {
+    const record = {
+      endpoint: A,
+      subscription: sub(A),
+      walletAddress: 'gabc',
+      vouchIds: [1],
+      updatedAt: Date.now(),
+    };
+
+    // Same shape memGet(`sub:${key}`) is called with elsewhere: the key passed to memSet
+    // already carries the `sub:` prefix, so indexing it verbatim (instead of the bare
+    // endpoint) would make getSubscriptionsForWallet's lookups miss.
+    store.memSet(`sub:${A}`, record);
+
+    expect(store.memGet(`sub:${A}`)).toEqual(record);
+    expect(await store.getSubscriptionsForWallet('GABC')).toEqual([record]);
+  });
+
+  it('memDel drops only the removed endpoint from the wallet index, leaving siblings indexed', async () => {
+    const recordA = {
+      endpoint: A,
+      subscription: sub(A),
+      walletAddress: 'gabc',
+      vouchIds: [1],
+      updatedAt: Date.now(),
+    };
+    const recordB = {
+      endpoint: B,
+      subscription: sub(B),
+      walletAddress: 'gabc',
+      vouchIds: [2],
+      updatedAt: Date.now(),
+    };
+    store.memSet(`sub:${A}`, recordA);
+    store.memSet(`sub:${B}`, recordB);
+
+    store.memDel(`sub:${A}`);
+
+    expect(store.memGet(`sub:${A}`)).toBeNull();
+    expect(await store.getSubscriptionsForWallet('gabc')).toEqual([recordB]);
+  });
+
+  it('memDel on an endpoint that was never stored is a no-op', async () => {
+    expect(() => store.memDel(`sub:${A}`)).not.toThrow();
+    expect(store.memGet(`sub:${A}`)).toBeNull();
+    expect(await store.getSubscriptionsForWallet('gabc')).toEqual([]);
+  });
+
   it('uses the in-memory store and never builds an Upstash client', async () => {
     expect(store.getKv()).toBeNull();
 
