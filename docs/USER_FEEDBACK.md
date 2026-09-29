@@ -60,7 +60,7 @@ Add this block to `README.md` (update the numbers, the sheet link, and the commi
 
 For each onboarded user you need on-chain proof:
 - The wallet address column in the sheet is the anchor.
-- For a quick proof list, pull recent `vouch:claimed` / `tipped` events and link the tx or the account on Stellar Expert. The leaderboard/activity feed and `/api/stats` already read these events over RPC `getEvents` (`lib/events.ts`, `app/api/stats/route.ts`); `scripts/status.mjs` only reads contract state via simulation — it does not read events.
+- For a quick proof list, pull recent `vouch:claimed` / `tipped` events and link the tx or the account on Stellar Expert. The leaderboard/activity feed and `/api/stats` already read these events over RPC `getEvents` (`lib/events.ts`, `app/api/stats/route.ts`); `scripts/status.mjs` only reads contract state via simulation — it does not read events. Since #144 a `tipped` event always carries a positive `amount` between two *different* wallets, so a row backed by one is real traction rather than a zero or self-tip.
 - Keep a short `docs/feedback/onboarded_users.md` table: handle, address, first on-chain action, Stellar Expert link.
 
 ---

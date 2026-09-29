@@ -287,6 +287,73 @@ fn stake_slashed_when_claimed_after_ttl() {
     // No refund: Alice stays slashed at 15. Bob still gets the first-pair claim XP.
     assert_eq!(client.get_score(&alice), 15);
     assert_eq!(client.get_score(&bob), 30);
+    // The stored vouch must record the slash (#122: was always false before the fix).
+    assert!(client.get_vouch(&id).unwrap().slashed);
+}
+
+/// A late claim emits exactly one `vouch`/`slashed` carrying the stake BEFORE
+/// `vouch`/`claimed` — the same event order as `expire_vouch` (issue #122).
+#[test]
+fn late_claim_emits_slashed_then_claimed_events() {
+    use soroban_sdk::{testutils::Events as _, vec, IntoVal, Val};
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let (s, h) = secret_and_hash(&env, 7);
+    let id = client.mint_vouch(&alice, &h, &String::from_str(&env, "x"));
+    env.ledger().with_mut(|l| l.timestamp = VOUCH_TTL_SECS + 1);
+    client.claim_vouch(&bob, &id, &s);
+
+    // No social/refund event because the stake is slashed, not refunded.
+    // Events in order:
+    //   1. vouch/slashed(id, alice, VOUCH_STAKE)  <- emitted before claimed
+    //   2. social(bob, XP_CLAIMER, 30)            <- fresh-pair claim XP
+    //   3. vouch/claimed(id, alice, bob)
+    let slashed: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("vouch"), symbol_short!("slashed")).into_val(&env),
+        (id, alice.clone(), VOUCH_STAKE).into_val(&env),
+    );
+    let bob_xp: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("social"), bob.clone()).into_val(&env),
+        (XP_CLAIMER, 30u64).into_val(&env),
+    );
+    let claimed: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("vouch"), symbol_short!("claimed")).into_val(&env),
+        (id, alice.clone(), bob.clone()).into_val(&env),
+    );
+    assert_eq!(env.events().all(), vec![&env, slashed, bob_xp, claimed]);
+}
+
+/// A card `expire_vouch` already slashed can still be claimed, but its stake is slashed
+/// once: the claim neither refunds it nor announces a second `vouch`/`slashed`.
+#[test]
+fn claim_after_expire_vouch_does_not_slash_twice() {
+    use soroban_sdk::{testutils::Events as _, IntoVal};
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let (s, h) = secret_and_hash(&env, 7);
+    let id = client.mint_vouch(&alice, &h, &String::from_str(&env, "x"));
+    env.ledger().with_mut(|l| l.timestamp = VOUCH_TTL_SECS + 1);
+    client.expire_vouch(&id);
+    client.claim_vouch(&bob, &id, &s);
+
+    // Events of the claim transaction only: no second slash.
+    let slashed_topics: soroban_sdk::Vec<soroban_sdk::Val> =
+        (symbol_short!("vouch"), symbol_short!("slashed")).into_val(&env);
+    let slashes = env
+        .events()
+        .all()
+        .iter()
+        .filter(|(_, topics, _)| *topics == slashed_topics)
+        .count();
+    assert_eq!(slashes, 0);
+    let v = client.get_vouch(&id).unwrap();
+    assert!(v.slashed && v.claimed);
+    assert_eq!(client.get_score(&alice), 15); // stake stays slashed, never refunded
 }
 
 #[test]

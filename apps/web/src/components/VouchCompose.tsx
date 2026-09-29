@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Copy, Check, Share2, Plus, X } from 'lucide-react';
+import React, { useState } from 'react';
+import { Copy, Check, Share2, Plus, X, QrCode as QrCodeIcon } from 'lucide-react';
 import { getWallet } from '@/lib/wallet';
 import {
   clampVouchNote,
@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { StateArt } from '@/components/ui/state-art';
 import { Sticker } from '@/components/ui/sticker';
+import { QrCode } from '@/components/fx/qr-code';
 import { humanizeError } from '@/lib/utils';
 import { useTranslations, type TFn } from '@/lib/i18n';
 import { track, trackError } from '@/lib/track';
@@ -36,7 +37,6 @@ function buildVouchErrors(t: TFn): Record<number, string> {
   };
 }
 
-const DEFAULT_NOTE = 'vouched for you';
 /** Rows the "several people" form opens with — fewer is the one-person form. */
 const BATCH_MIN_ROWS = 2;
 
@@ -57,6 +57,7 @@ export function VouchCompose() {
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showQr, setShowQr] = useState(false);
 
   function switchMode(next: 'one' | 'many') {
     if (busy || next === mode) return;
@@ -68,9 +69,10 @@ export function VouchCompose() {
     setBusy(true);
     setError(null);
     setLink(null);
+    setShowQr(false);
     try {
       const wallet = await getWallet();
-      const noteText = note.trim() || DEFAULT_NOTE;
+      const noteText = note.trim() || t('vouch.compose.defaultNote');
       const { id, seed } = await mintVouch(wallet, noteText);
       addMyVouch({ id, seed, note: noteText, created: Math.floor(Date.now() / 1000), walletAddress: wallet.address });
       // Fire-and-forget push subscription — silently ignored if VAPID not configured or
@@ -97,7 +99,7 @@ export function VouchCompose() {
     setCards([]);
     try {
       const wallet = await getWallet();
-      const noteTexts = notes.map((n) => n.trim() || DEFAULT_NOTE);
+      const noteTexts = notes.map((n) => n.trim() || t('vouch.compose.defaultNote'));
       const minted = await mintVouches(wallet, noteTexts);
       const created = Math.floor(Date.now() / 1000);
       const origin = typeof window !== 'undefined' ? window.location.origin : '';
@@ -247,7 +249,7 @@ export function VouchCompose() {
                 </div>
                 <a
                   href={`https://twitter.com/intent/tweet?${new URLSearchParams({
-                    text: `${note.trim() || t('vouch.compose.shareXText')} — claim your half of the sky:`,
+                    text: `${note.trim() || t('vouch.compose.shareXText')} ${t('vouch.compose.shareXSuffix')}`,
                     url: link,
                   }).toString()}`}
                   target="_blank"
@@ -256,6 +258,29 @@ export function VouchCompose() {
                 >
                   {t('vouch.compose.shareOnX')}
                 </a>
+
+                {/* The claim QR encodes the bearer secret in `link`, so it stays
+                    hidden until the user explicitly reveals it. */}
+                <div className="mt-3 border-t border-secondary/20 pt-3">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setShowQr((v) => !v)}
+                    aria-expanded={showQr}
+                    aria-controls="vouch-claim-qr"
+                  >
+                    <QrCodeIcon className="size-4" />
+                    {showQr ? t('vouch.compose.qr.hide') : t('vouch.compose.qr.show')}
+                  </Button>
+                  {showQr && (
+                    <div id="vouch-claim-qr" className="mt-3 flex flex-col items-center gap-2">
+                      <QrCode value={link} label={t('vouch.compose.qr.alt')} />
+                      <p className="max-w-xs text-center text-xs text-destructive">
+                        {t('vouch.compose.qr.warning')}
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </>

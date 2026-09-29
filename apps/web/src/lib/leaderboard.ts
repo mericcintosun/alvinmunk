@@ -16,21 +16,15 @@ import {
   type LeaderboardEntry,
 } from '@alvinmunk/shared';
 import { fetchReputationEvents } from './events';
+import { readJSON, writeJSON } from './storage';
 
 const SNAPSHOT_KEY = 'alvinmunk.leaderboard.snapshot';
 
 function loadSnapshot(): SocialRecord[] {
-  if (typeof localStorage === 'undefined') return [];
-  try {
-    return JSON.parse(localStorage.getItem(SNAPSHOT_KEY) ?? '[]') as SocialRecord[];
-  } catch {
-    return [];
-  }
+  return readJSON<SocialRecord[]>(SNAPSHOT_KEY, []);
 }
 function saveSnapshot(records: SocialRecord[]): void {
-  if (typeof localStorage !== 'undefined') {
-    localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(records));
-  }
+  writeJSON(SNAPSHOT_KEY, records);
 }
 
 /** Pull recent reputation events → social records + claimed vouch pairs. */

@@ -1,13 +1,21 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { rpc } from '@stellar/stellar-sdk';
 
+/** The ids the core loop needs, as `readNetworkConfig` resolves them (unset = ''). */
+const REQUIRED_IDS = {
+  reputation: 'CREP',
+  registry: 'CREG',
+  questRegistry: 'CQUEST',
+  rewards: 'CREWARDS',
+};
+
 const { state } = vi.hoisted(() => ({
   state: {
     configErrors: [] as string[],
     config: {
       network: 'testnet',
       rpcUrl: 'https://rpc.test',
-      contracts: { reputation: 'CREP', questRegistry: 'CQUEST', rewards: 'CREWARDS' },
+      contracts: {} as Record<'reputation' | 'registry' | 'questRegistry' | 'rewards' | 'gate', string>,
     },
   },
 }));
@@ -43,7 +51,9 @@ function freshLatestLedger(ageSeconds = 0) {
 }
 
 function mockServer(getHealth: ReturnType<typeof vi.fn>, getLatestLedger: ReturnType<typeof vi.fn>) {
-  vi.mocked(rpc.Server).mockImplementation(() => {
+  // The route calls `new rpc.Server(...)`, and Vitest 4 constructs the implementation with `new`,
+  // so it has to be a `function` (an arrow function is not constructible).
+  vi.mocked(rpc.Server).mockImplementation(function () {
     return { getHealth, getLatestLedger } as unknown as InstanceType<typeof rpc.Server>;
   });
 }
@@ -56,13 +66,38 @@ function healthyRpc() {
   );
 }
 
+const RELAYER = {
+  PASSKEY_RELAYER_URL: 'https://relayer.example.test',
+  PASSKEY_RELAYER_API_KEY: 'relayer-api-key-secret',
+};
+const PUSH = {
+  NEXT_PUBLIC_VAPID_PUBLIC_KEY: 'vapid-public',
+  VAPID_PUBLIC_KEY: 'vapid-public',
+  VAPID_PRIVATE_KEY: 'vapid-private-secret',
+  VAPID_SUBJECT: 'mailto:ops@example.test',
+};
+// Read from the environment by the route but not set by a test unless it says so.
+const OPTIONAL_ENV = [
+  'NEXT_PUBLIC_PASSKEY_WALLET_WASM_HASH',
+  'ATTESTER_SECRET_KEY',
+  'USDC_ISSUER_SECRET_KEY',
+  ...Object.keys(RELAYER),
+  ...Object.keys(PUSH),
+];
+
 describe('/api/health', () => {
+  let envBak: NodeJS.ProcessEnv;
+
   beforeEach(() => {
+    envBak = { ...process.env };
+    for (const key of OPTIONAL_ENV) delete process.env[key];
     state.configErrors = [];
-    state.config.contracts.rewards = 'CREWARDS';
+    state.config.network = 'testnet';
+    state.config.contracts = { ...REQUIRED_IDS, gate: '' };
   });
 
   afterEach(() => {
+    process.env = envBak;
     vi.restoreAllMocks();
   });
 
@@ -77,6 +112,7 @@ describe('/api/health', () => {
 
     const res = await GET();
     expect(res.status).toBe(200);
+    expect(res.headers.get('x-request-id')).toBeTruthy(); // added by withRoute (#183)
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.rpc).toBe('ok');
@@ -205,5 +241,141 @@ describe('/api/health', () => {
     const res = await GET();
     expect(res.status).toBe(503);
     expect((await res.json()).contracts.rewards).toBeNull();
+  });
+
+  it('reports all five contract ids and the relayer and push flags', async () => {
+    healthyRpc();
+    Object.assign(process.env, RELAYER, PUSH);
+    state.config.contracts.gate = 'CGATE';
+
+    const res = await GET();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.contracts).toEqual({
+      reputation: 'CREP',
+      registry: 'CREG',
+      questRegistry: 'CQUEST',
+      rewards: 'CREWARDS',
+      gate: 'CGATE',
+    });
+    expect(body.relayerConfigured).toBe(true);
+    expect(body.pushConfigured).toBe(true);
+    expect(body.missing).toEqual([]);
+    expect(body.warnings).toEqual([]);
+  });
+
+  it.each([
+    ['reputation', 'NEXT_PUBLIC_REPUTATION_CONTRACT_ID'],
+    ['registry', 'NEXT_PUBLIC_REGISTRY_CONTRACT_ID'],
+    ['questRegistry', 'NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID'],
+    ['rewards', 'NEXT_PUBLIC_REWARDS_CONTRACT_ID'],
+  ] as const)('returns 503 when the %s id is missing', async (key, envName) => {
+    healthyRpc();
+    state.config.contracts[key] = '';
+
+    const res = await GET();
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(body.rpc).toBe('ok'); // the config alone fails the probe
+    expect(body.contracts[key]).toBeNull();
+    expect(body.missing).toEqual([envName]);
+  });
+
+  it('warns about unset optional features on testnet without failing', async () => {
+    healthyRpc();
+
+    const res = await GET();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.contracts.gate).toBeNull();
+    expect(body.relayerConfigured).toBe(false);
+    expect(body.pushConfigured).toBe(false);
+    expect(body.missing).toEqual([]);
+    expect(body.warnings).toEqual([
+      'NEXT_PUBLIC_GATE_CONTRACT_ID is not set: reputation gates are unavailable',
+      'PASSKEY_RELAYER_URL, PASSKEY_RELAYER_API_KEY not set: passkey onboarding is unavailable (the dev wallet is used)',
+      'NEXT_PUBLIC_VAPID_PUBLIC_KEY, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT not set: push notifications are skipped',
+    ]);
+  });
+
+  it('names only the push variables that are unset', async () => {
+    healthyRpc();
+    Object.assign(process.env, PUSH);
+    delete process.env.VAPID_SUBJECT; // /api/push/notify skips without it
+
+    const body = await (await GET()).json();
+    expect(body.pushConfigured).toBe(false);
+    expect(body.warnings).toContain('VAPID_SUBJECT not set: push notifications are skipped');
+  });
+
+  it('requires the relayer on mainnet, where the dev wallet is disabled', async () => {
+    healthyRpc();
+    state.config.network = 'mainnet';
+
+    let res = await GET();
+    expect(res.status).toBe(503);
+    let body = await res.json();
+    expect(body.missing).toEqual(['PASSKEY_RELAYER_URL', 'PASSKEY_RELAYER_API_KEY']);
+    expect(body.warnings.some((w: string) => w.includes('PASSKEY_RELAYER'))).toBe(false);
+
+    Object.assign(process.env, RELAYER);
+    res = await GET();
+    expect(res.status).toBe(200);
+    body = await res.json();
+    expect(body.relayerConfigured).toBe(true);
+  });
+
+  it('requires the relayer once the passkey wallet is enabled', async () => {
+    healthyRpc();
+    process.env.NEXT_PUBLIC_PASSKEY_WALLET_WASM_HASH = 'abc123';
+    process.env.PASSKEY_RELAYER_URL = RELAYER.PASSKEY_RELAYER_URL; // key still unset
+
+    const res = await GET();
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.relayerConfigured).toBe(false);
+    expect(body.missing).toEqual(['PASSKEY_RELAYER_API_KEY']);
+  });
+
+  it('reports a down RPC and missing ids together', async () => {
+    mockServer(
+      vi.fn().mockRejectedValue(new Error('ECONNREFUSED')),
+      vi.fn().mockRejectedValue(new Error('ECONNREFUSED')),
+    );
+    state.config.contracts.reputation = '';
+
+    const res = await GET();
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.rpc).toBe('unhealthy');
+    expect(body.missing).toEqual(['NEXT_PUBLIC_REPUTATION_CONTRACT_ID']);
+  });
+
+  it('never echoes a secret, only whether it is set', async () => {
+    healthyRpc();
+    Object.assign(process.env, RELAYER, PUSH, {
+      ATTESTER_SECRET_KEY: 'SATTESTERSECRET',
+      USDC_ISSUER_SECRET_KEY: 'SISSUERSECRET',
+    });
+
+    const res = await GET();
+    const text = await res.text();
+    for (const secret of [
+      'SATTESTERSECRET',
+      'SISSUERSECRET',
+      RELAYER.PASSKEY_RELAYER_API_KEY,
+      RELAYER.PASSKEY_RELAYER_URL,
+      PUSH.VAPID_PRIVATE_KEY,
+    ]) {
+      expect(text).not.toContain(secret);
+    }
+    const body = JSON.parse(text);
+    expect(body.attesterConfigured).toBe(true);
+    expect(body.faucetConfigured).toBe(true);
+    expect(body.relayerConfigured).toBe(true);
+    expect(body.pushConfigured).toBe(true);
   });
 });

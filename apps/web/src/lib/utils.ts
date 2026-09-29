@@ -6,12 +6,6 @@ export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
 }
 
-/** Middle-truncate a Stellar address: GABC…WXYZ */
-export function shortAddress(addr: string, lead = 4, tail = 4): string {
-  if (!addr || addr.length <= lead + tail + 1) return addr;
-  return `${addr.slice(0, lead)}…${addr.slice(-tail)}`;
-}
-
 /** Extract a Soroban contract error code from a thrown error/message, if present. */
 export function contractErrorCode(e: unknown): number | null {
   const msg = e instanceof Error ? e.message : String(e ?? '');
@@ -19,26 +13,47 @@ export function contractErrorCode(e: unknown): number | null {
   return m ? Number(m[1]) : null;
 }
 
+/** The flows that move USDC through the token SAC, where its balance / trustline errors mean something. */
+export type ErrorFlow = 'tip' | 'reward';
+
 /**
  * Turn a raw chain/network error into one calm human sentence (brand voice). Pass a
  * `codeMap` of contract error codes → messages for the contract being called; falls back
- * to the first line of the message (never the scary diagnostic-event dump).
+ * to the first line of the message (never the scary diagnostic-event dump). `flow` opts a
+ * USDC-moving caller into the SAC balance / trustline copy; every other flow never sees it.
  */
-export function humanizeError(e: unknown, codeMap: Record<number, string> = {}): string {
+export function humanizeError(
+  e: unknown,
+  codeMap: Record<number, string> = {},
+  flow?: ErrorFlow,
+): string {
   const raw = e instanceof Error ? e.message : String(e ?? 'Something went wrong');
   // Host-level signals first — they're clearer than a contract code AND dodge code
   // collisions (e.g. a token SAC's own #10 "insufficient balance" vs a contract's #10).
   const lower = raw.toLowerCase();
-  if (
-    lower.includes('not sufficient') ||
-    lower.includes('insufficient') ||
-    lower.includes('zero balance')
-  ) {
-    return "You don't have enough USDC to cover that — claim a reward or get test USDC first.";
+
+  // A classic tx rejected for its XLM fee names its result code (lib/contracts.ts).
+  if (lower.includes('txinsufficientbalance') || lower.includes('txinsufficientfee')) {
+    return 'You need a little more XLM to cover the network fee.';
   }
-  if (lower.includes('trustline')) {
-    return "The recipient hasn't enabled this USDC, so they can't receive the tip yet. Try another passkey wallet, or someone who's enabled USDC.";
+
+  if (flow) {
+    // The token SAC's balance errors ("balance is not sufficient to spend", "zero balance…").
+    if (
+      lower.includes('balanceerror') ||
+      lower.includes('insufficient balance') ||
+      lower.includes('not sufficient') ||
+      lower.includes('zero balance')
+    ) {
+      return "You don't have enough USDC to cover that — claim a reward or get test USDC first.";
+    }
+    if (lower.includes('trustline')) {
+      return flow === 'tip'
+        ? "The recipient hasn't enabled this USDC, so they can't receive the tip yet. Try another passkey wallet, or someone who's enabled USDC."
+        : "You haven't enabled USDC yet, so you can't receive the reward. Enable it in your wallet first.";
+    }
   }
+
   const code = contractErrorCode(e);
   if (code != null && codeMap[code]) return codeMap[code];
   // Drop Soroban's "Event log (newest first): …" diagnostic tail and take the first line.

@@ -3,6 +3,10 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// I18nProvider's JSX compiles against a global `React` (it has no local import of its
+// own) — see app-tabs.test.tsx for the same pattern.
+(globalThis as { React?: typeof React }).React = React;
+
 const { getScoresMock, getPeopleCountsMock } = vi.hoisted(() => ({
   getScoresMock: vi.fn(),
   getPeopleCountsMock: vi.fn(),
@@ -12,6 +16,7 @@ vi.mock('@/lib/reputation', () => ({ getScores: getScoresMock }));
 vi.mock('@/lib/constellation', () => ({ getPeopleCounts: getPeopleCountsMock }));
 
 import { StatStrip } from './stat-strip';
+import { I18nProvider } from '@/lib/i18n';
 
 describe('StatStrip', () => {
   let container: HTMLDivElement;
@@ -59,5 +64,26 @@ describe('StatStrip', () => {
     expect(tile('Vouched by')).toContain('7');
     expect(tile('Earned XP')).toContain('30');
     expect(container.textContent).not.toContain('Your constellation is still quiet');
+  });
+
+  it('formats large counts with the active locale digit grouping, not a fixed en-US format', async () => {
+    localStorage.setItem('alvinmunk_locale', 'tr');
+    try {
+      getScoresMock.mockResolvedValue({ social: 12_345, earned: 0 });
+      getPeopleCountsMock.mockResolvedValue({ vouchedBy: 0, backed: 0 });
+      await act(async () => {
+        root.render(
+          <I18nProvider>
+            <StatStrip address="GB123" />
+          </I18nProvider>,
+        );
+        await Promise.resolve();
+      });
+      // tr-TR groups thousands with '.', not en-US's ','.
+      expect(tile('Sosyal XP')).toContain('12.345');
+      expect(tile('Sosyal XP')).not.toContain('12,345');
+    } finally {
+      localStorage.removeItem('alvinmunk_locale');
+    }
   });
 });

@@ -1,8 +1,9 @@
 #![cfg(test)]
 //! Integration tests for the Rewards -> Reputation CROSS-CONTRACT read
 //! (`claim_reward` gates USDC payout on `get_earned`) + the USDC SAC transfer +
-//! the on-chain reward registry (caller can never dictate the payout amount), and the
-//! Rewards -> QuestRegistry `get_streak` read behind streak-gated rewards.
+//! the on-chain reward registry (caller can never dictate the payout amount), the
+//! Rewards -> QuestRegistry `get_streak` read behind streak-gated rewards, and the
+//! `tip` shape checks that keep every `tipped` event moving value (#144).
 extern crate std;
 use super::*;
 use alvinmunk_quest_registry::{QuestRegistryContract, QuestRegistryContractClient};
@@ -13,7 +14,7 @@ use soroban_sdk::{
         storage::{Persistent as _, Temporary as _},
         Address as _, Events as _, Ledger as _,
     },
-    token, Env, FromVal, IntoVal,
+    token, Env, FromVal, IntoVal, TryFromVal,
 };
 
 struct Fixture<'a> {
@@ -83,13 +84,14 @@ fn setup_in(env: Env) -> Fixture<'static> {
 }
 
 /// Award `quest_id` the way the off-chain attester does: an ed25519 signature over the
-/// QuestRegistry's payload. Advances the recipient's weekly streak.
+/// QuestRegistry's payload, valid for 10 minutes. Advances the recipient's weekly streak.
 fn award_quest(f: &Fixture, quest_id: u32, recipient: &Address) {
-    let payload = f.quest.quest_payload(&quest_id, recipient);
+    let expires_at = f.env.ledger().timestamp() + 600;
+    let payload = f.quest.quest_payload(&quest_id, recipient, &expires_at);
     let msg: std::vec::Vec<u8> = payload.iter().collect();
     let sig = BytesN::from_array(&f.env, &f.attester_sk.sign(&msg).to_bytes());
     f.quest
-        .award_quest(&f.attester_pub, &sig, &quest_id, recipient);
+        .award_quest(&f.attester_pub, &sig, &quest_id, recipient, &expires_at);
 }
 
 #[test]
@@ -344,6 +346,42 @@ proptest! {
             let user = earner(&f, threshold);
             f.rewards.claim_reward(&user, &1u32);
             prop_assert_eq!(token::TokenClient::new(&f.env, &f.usdc).balance(&user), amount);
+        }
+    }
+
+    /// Invariant (#144): `tip` moves value or it fails. For ANY amount and any
+    /// sender/receiver pair it is accepted exactly when `amount > 0` and the two wallets
+    /// differ, and on success the receiver is credited exactly `amount` — so every
+    /// `tipped` event is proof that a real spend was received, never a zero-amount or
+    /// self-minted one. `from` is funded with 1_000, so an amount above that fails in the
+    /// SAC (the pre-existing insufficient-balance path), not in the new checks.
+    #[test]
+    fn tip_only_moves_value(amount in any::<i128>(), same_wallet in any::<bool>()) {
+        let f = setup();
+        let from = Address::generate(&f.env);
+        let to = Address::generate(&f.env);
+        fund(&f, &from, 1_000);
+        let other = if same_wallet { from.clone() } else { to.clone() };
+
+        let res = f.rewards.try_tip(&from, &other, &amount);
+        let refused = res.is_err();
+        // Read the events NOW: the balance reads in the success branch would clear them.
+        let events = tipped(&f);
+        if amount <= 0 {
+            prop_assert_eq!(res, Err(Ok(contract_err(Error::InvalidAmount))));
+        } else if same_wallet {
+            prop_assert_eq!(res, Err(Ok(contract_err(Error::SelfTip))));
+        } else if amount > 1_000 {
+            prop_assert!(res.is_err()); // the SAC's insufficient balance
+        } else {
+            prop_assert_eq!(res, Ok(Ok(())));
+            let tok = token::TokenClient::new(&f.env, &f.usdc);
+            prop_assert_eq!(tok.balance(&to), amount);
+            prop_assert_eq!(tok.balance(&from), 1_000 - amount);
+            prop_assert_eq!(events.len(), 1);
+        }
+        if refused {
+            prop_assert!(events.is_empty()); // a refused tip never mints the event
         }
     }
 }
@@ -729,6 +767,216 @@ fn non_admin_cannot_set_quest_registry() {
     let client = RewardsContractClient::new(&env, &id);
     client.init(&admin, &Address::generate(&env), &Address::generate(&env));
     client.set_quest_registry(&Address::generate(&env));
+}
+
+// --- tip validation (#144): every `tipped` event must move value ---
+
+/// Mint `amount` USDC to `who`, so a rejected tip can only be this contract's own check
+/// and never the SAC's "insufficient balance".
+fn fund(f: &Fixture, who: &Address, amount: i128) {
+    token::StellarAssetClient::new(&f.env, &f.usdc).mint(who, &amount);
+}
+
+/// The `tipped` events recorded by the LAST top-level call, as (from, to, amount).
+///
+/// The test env's event buffer is reset by every top-level invocation — a read clears
+/// it too — so this has to be read straight after the call under test, BEFORE any
+/// balance/`is_claimed`-style read that would wipe the very events being asserted.
+fn tipped(f: &Fixture) -> std::vec::Vec<(Address, Address, i128)> {
+    f.env
+        .events()
+        .all()
+        .into_iter()
+        .filter(|(_, topics, _)| {
+            topics.len() == 3
+                && topics.get(0).map(|v| Symbol::try_from_val(&f.env, &v))
+                    == Some(Ok(symbol_short!("tipped")))
+        })
+        .map(|(_, topics, data)| {
+            (
+                Address::from_val(&f.env, &topics.get(1).unwrap()),
+                Address::from_val(&f.env, &topics.get(2).unwrap()),
+                i128::from_val(&f.env, &data),
+            )
+        })
+        .collect()
+}
+
+/// Balances of every wallet a tip test uses, read after {@link tipped}.
+fn balances(f: &Fixture, addrs: &[&Address]) -> std::vec::Vec<i128> {
+    let tok = token::TokenClient::new(&f.env, &f.usdc);
+    addrs.iter().map(|a| tok.balance(a)).collect()
+}
+
+/// The baseline the rejected cases below are measured against: a real tip debits the
+/// sender, credits the receiver, and emits exactly one `tipped` naming both.
+#[test]
+fn tip_moves_usdc_and_emits_tipped() {
+    let f = setup();
+    let alice = Address::generate(&f.env);
+    let bob = Address::generate(&f.env);
+    fund(&f, &alice, 1_000);
+
+    f.rewards.tip(&alice, &bob, &250i128);
+    let events = tipped(&f); // read first: the balance reads below clear the buffer
+
+    assert_eq!(events, std::vec![(alice.clone(), bob.clone(), 250i128)]);
+    assert_eq!(balances(&f, &[&alice, &bob]), std::vec![750, 250]);
+}
+
+/// The smallest tip that moves anything still goes through: 1 stroop is positive.
+#[test]
+fn tip_accepts_the_smallest_positive_amount() {
+    let f = setup();
+    let alice = Address::generate(&f.env);
+    let bob = Address::generate(&f.env);
+    fund(&f, &alice, 1_000);
+
+    f.rewards.tip(&alice, &bob, &1i128);
+    let events = tipped(&f);
+
+    assert_eq!(events, std::vec![(alice.clone(), bob.clone(), 1i128)]);
+    assert_eq!(balances(&f, &[&alice, &bob]), std::vec![999, 1]);
+}
+
+/// #144: `tip(a, b, 0)` used to succeed from a wallet holding no USDC at all and still
+/// emit `tipped`. `alice` is funded so the SAC cannot be the thing that fails — the
+/// contract's own check has to be.
+#[test]
+fn tip_rejects_a_zero_amount_from_a_funded_wallet() {
+    let f = setup();
+    let alice = Address::generate(&f.env);
+    let bob = Address::generate(&f.env);
+    fund(&f, &alice, 1_000);
+
+    let res = f.rewards.try_tip(&alice, &bob, &0i128);
+    let events = tipped(&f);
+
+    assert_eq!(res, Err(Ok(contract_err(Error::InvalidAmount))));
+    assert!(events.is_empty());
+    assert_eq!(balances(&f, &[&alice, &bob]), std::vec![1_000, 0]);
+}
+
+/// The original repro, unfunded: an empty wallet could "tip" anyone for the price of a
+/// fee. Funded or not, the zero amount is refused before the SAC is ever called.
+#[test]
+fn tip_rejects_a_zero_amount_from_an_unfunded_wallet() {
+    let f = setup();
+    let alice = Address::generate(&f.env);
+    let bob = Address::generate(&f.env);
+
+    let res = f.rewards.try_tip(&alice, &bob, &0i128);
+    let events = tipped(&f);
+
+    assert_eq!(res, Err(Ok(contract_err(Error::InvalidAmount))));
+    assert!(events.is_empty());
+    assert_eq!(balances(&f, &[&alice, &bob]), std::vec![0, 0]);
+}
+
+/// The SAC's own `check_nonnegative_amount` already refused a negative tip; this pins
+/// the same typed error for the whole non-positive range, including `i128::MIN`.
+#[test]
+fn tip_rejects_a_negative_amount() {
+    let f = setup();
+    let alice = Address::generate(&f.env);
+    let bob = Address::generate(&f.env);
+    fund(&f, &alice, 1_000);
+
+    for bad in [-1i128, -1_000, i128::MIN] {
+        let res = f.rewards.try_tip(&alice, &bob, &bad);
+        let events = tipped(&f);
+        assert_eq!(
+            res,
+            Err(Ok(contract_err(Error::InvalidAmount))),
+            "amount = {bad}"
+        );
+        assert!(events.is_empty(), "amount = {bad}");
+    }
+    assert_eq!(balances(&f, &[&alice, &bob]), std::vec![1_000, 0]);
+}
+
+/// #144: `tip(a, a, 50)` used to succeed — the SAC moves the balance to itself, so the
+/// balance was unchanged while a `tipped` event claimed a spend had been received.
+#[test]
+fn tip_rejects_a_self_tip() {
+    let f = setup();
+    let alice = Address::generate(&f.env);
+    fund(&f, &alice, 1_000);
+
+    let res = f.rewards.try_tip(&alice, &alice, &50i128);
+    let events = tipped(&f);
+
+    assert_eq!(res, Err(Ok(contract_err(Error::SelfTip))));
+    assert!(events.is_empty());
+    assert_eq!(balances(&f, &[&alice]), std::vec![1_000]); // unchanged
+}
+
+/// A self-tip the sender can't afford is still `SelfTip` (the funding gap is a
+/// pre-existing SAC path) — the new check is what refuses the shape, not the balance.
+#[test]
+fn a_self_tip_is_refused_before_the_balance_is_consulted() {
+    let f = setup();
+    let pauper = Address::generate(&f.env); // holds no USDC at all
+
+    let res = f.rewards.try_tip(&pauper, &pauper, &50i128);
+    let events = tipped(&f);
+
+    assert_eq!(res, Err(Ok(contract_err(Error::SelfTip))));
+    assert!(events.is_empty());
+}
+
+/// Both checks are in `tip` and the amount is read first, so a zero self-tip reports
+/// `InvalidAmount` rather than `SelfTip`. The client-side check mirrors this order.
+#[test]
+fn a_zero_self_tip_reports_the_amount_first() {
+    let f = setup();
+    let alice = Address::generate(&f.env);
+    fund(&f, &alice, 1_000);
+
+    let res = f.rewards.try_tip(&alice, &alice, &0i128);
+    let events = tipped(&f);
+
+    assert_eq!(res, Err(Ok(contract_err(Error::InvalidAmount))));
+    assert!(events.is_empty());
+}
+
+/// A refused tip changes nothing: the guard only blocks the no-value shapes, and a
+/// real tip to a third wallet still works afterwards.
+#[test]
+fn a_refused_tip_leaves_the_next_real_tip_untouched() {
+    let f = setup();
+    let alice = Address::generate(&f.env);
+    let bob = Address::generate(&f.env);
+    let carol = Address::generate(&f.env);
+    fund(&f, &alice, 1_000);
+
+    let zero = f.rewards.try_tip(&alice, &bob, &0i128);
+    assert!(tipped(&f).is_empty());
+    let selfie = f.rewards.try_tip(&alice, &alice, &10i128);
+    assert!(tipped(&f).is_empty());
+    assert!(zero.is_err() && selfie.is_err());
+
+    f.rewards.tip(&alice, &carol, &40i128);
+    let events = tipped(&f);
+
+    assert_eq!(events, std::vec![(alice.clone(), carol.clone(), 40i128)]);
+    assert_eq!(balances(&f, &[&alice, &bob, &carol]), std::vec![960, 0, 40]);
+}
+
+/// A paused contract still reports `Paused` first, so the admin stop stays the clearest
+/// error even for a tip shape that is also invalid.
+#[test]
+fn a_paused_contract_reports_paused_before_tip_validation() {
+    let f = setup();
+    let alice = Address::generate(&f.env);
+    fund(&f, &alice, 1_000);
+    f.rewards.set_paused(&true);
+
+    let res = f.rewards.try_tip(&alice, &alice, &0i128);
+    let events = tipped(&f);
+
+    assert_eq!(res, Err(Ok(contract_err(Error::Paused))));
+    assert!(events.is_empty());
 }
 
 // --- add_reward / set_daily_cap validation (#146) ---

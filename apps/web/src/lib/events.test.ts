@@ -14,6 +14,7 @@ vi.mock('./stellar', () => ({
 import {
   decodeScVal,
   fetchReputationEvents,
+  fetchTipEvents,
   fetchTipsSent,
   EVENT_LEDGER_WINDOW,
   MAX_PAGES,
@@ -276,6 +277,18 @@ describe('contract event reads', () => {
     // ('tipped', from, to) has THREE topics; a 2-segment filter would never match it.
     expect(filter.topics).toEqual([[sym('tipped'), new Address(from).toScVal().toXDR('base64'), '*']]);
     expect(events).toEqual([{ topics: ['tipped', from, to], data: 5n, ledger: 19_999 }]);
+  });
+
+  it('reads every tip in the window with a three-segment tipped filter', async () => {
+    getLatestLedgerMock.mockResolvedValue({ sequence: 20_000 });
+    getEventsMock.mockResolvedValue({ events: [] });
+
+    await fetchTipEvents();
+
+    const filter = getEventsMock.mock.calls[0][0].filters[0];
+    expect(filter.contractIds).toEqual(['CRWD']);
+    // ('tipped', from, to) has THREE topics; a 2-segment wildcard would never match it.
+    expect(filter.topics).toEqual([[sym('tipped'), '*', '*']]);
   });
 
   it('returns no tips for a malformed sender without calling RPC', async () => {
