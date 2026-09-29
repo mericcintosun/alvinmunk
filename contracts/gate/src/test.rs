@@ -494,7 +494,7 @@ fn replacing_a_gate_switches_between_single_and_composite() {
         "After",
     );
     assert!(!f.gate.check(&user, &60u32));
-    assert!(f.gate.is_unlocked(&user, &60u32)); // existing unlocks are kept
+    assert!(!f.gate.is_unlocked(&user, &60u32)); // unlocked the old definition, not this one
     assert_eq!(f.gate.get_gates().len(), 1); // same id, listed once
     assert_eq!(
         f.gate.get_gate(&60u32).unwrap().label,
@@ -654,4 +654,263 @@ fn upgrade_to_identical_wasm_preserves_composite_gates() {
     assert!(f.gate.check(&user, &2u32));
     earn_social(&f, &user, 1);
     assert!(f.gate.check(&user, &1u32));
+}
+
+// --- Unlocks are tied to the gate definition they passed (#149) ---
+
+fn label(f: &Fixture, s: &str) -> String {
+    String::from_str(&f.env, s)
+}
+
+/// Write a pre-#149 unlock (a bare `true`) straight into storage, as a deployed contract
+/// holds it before the upgrade.
+fn legacy_unlock(f: &Fixture, user: &Address, id: u32) {
+    f.env.as_contract(&f.gate.address, || {
+        f.env
+            .storage()
+            .persistent()
+            .set(&DataKey::Unlocked(user.clone(), id), &true)
+    });
+}
+
+#[test]
+fn raising_the_threshold_invalidates_old_unlocks() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    earn(&f, &user, 30);
+    f.gate
+        .create_gate(&1u32, &TRACK_EARNED, &30u64, &label(&f, "Bounty"));
+    f.gate.unlock(&user, &1u32);
+    assert!(f.gate.is_unlocked(&user, &1u32));
+    assert_eq!(f.gate.get_gate_version(&1u32), 0);
+
+    f.gate
+        .create_gate(&1u32, &TRACK_EARNED, &1000u64, &label(&f, "Bounty"));
+    assert_eq!(f.gate.get_gate_version(&1u32), 1);
+    assert!(!f.gate.check(&user, &1u32));
+    assert!(!f.gate.is_unlocked(&user, &1u32)); // passed the weaker rule, not this one
+                                                // The record still says which definition it passed.
+    assert_eq!(f.gate.get_unlock(&user, &1u32).unwrap().version, 0);
+
+    // Clearing the new bar and unlocking again re-qualifies under version 1.
+    earn(&f, &user, 970);
+    f.gate.unlock(&user, &1u32);
+    assert!(f.gate.is_unlocked(&user, &1u32));
+    assert_eq!(f.gate.get_unlock(&user, &1u32).unwrap().version, 1);
+}
+
+#[test]
+fn changing_the_track_invalidates_old_unlocks() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    earn_social(&f, &user, 2); // Social 50, Earned 0
+    f.gate
+        .create_gate(&2u32, &TRACK_SOCIAL, &40u64, &label(&f, "Circle"));
+    f.gate.unlock(&user, &2u32);
+    assert!(f.gate.is_unlocked(&user, &2u32));
+
+    // The same threshold on the Earned track: a clout unlock must not read as verified.
+    f.gate
+        .create_gate(&2u32, &TRACK_EARNED, &40u64, &label(&f, "Circle"));
+    assert!(!f.gate.check(&user, &2u32));
+    assert!(!f.gate.is_unlocked(&user, &2u32));
+}
+
+#[test]
+fn a_disabled_gate_reports_no_unlock_until_it_is_re_enabled() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    earn(&f, &user, 50);
+    f.gate
+        .create_gate(&3u32, &TRACK_EARNED, &30u64, &label(&f, "Perk"));
+    f.gate.unlock(&user, &3u32);
+    let record = f.gate.get_unlock(&user, &3u32).unwrap();
+
+    f.gate.set_gate_active(&3u32, &false);
+    assert!(!f.gate.check(&user, &3u32));
+    assert!(!f.gate.is_unlocked(&user, &3u32)); // a disabled gate grants nothing
+    assert_eq!(f.gate.get_unlock(&user, &3u32), Some(record.clone())); // history kept
+
+    // Pausing is not a redefinition: re-enabling brings the same unlock back.
+    f.gate.set_gate_active(&3u32, &true);
+    assert_eq!(f.gate.get_gate_version(&3u32), 0);
+    assert!(f.gate.is_unlocked(&user, &3u32));
+    assert_eq!(f.gate.get_unlock(&user, &3u32), Some(record));
+}
+
+#[test]
+fn every_redefinition_path_bumps_the_version() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    earn(&f, &user, 50);
+    earn_social(&f, &user, 1);
+
+    composite(
+        &f,
+        4,
+        &[rule(TRACK_SOCIAL, 10), rule(TRACK_EARNED, 10)],
+        RuleMode::AllOf,
+        "a",
+    );
+    assert_eq!(f.gate.get_gate_version(&4u32), 0); // a new composite gate starts at 0
+    f.gate.unlock(&user, &4u32);
+    assert!(f.gate.is_unlocked(&user, &4u32));
+
+    // Composite -> composite, even one the wallet still passes.
+    composite(
+        &f,
+        4,
+        &[rule(TRACK_SOCIAL, 10), rule(TRACK_EARNED, 20)],
+        RuleMode::AllOf,
+        "a",
+    );
+    assert_eq!(f.gate.get_gate_version(&4u32), 1);
+    assert!(f.gate.check(&user, &4u32));
+    assert!(!f.gate.is_unlocked(&user, &4u32));
+    f.gate.unlock(&user, &4u32);
+
+    // Composite -> single, then single -> composite.
+    f.gate
+        .create_gate(&4u32, &TRACK_EARNED, &10u64, &label(&f, "a"));
+    assert_eq!(f.gate.get_gate_version(&4u32), 2);
+    assert!(!f.gate.is_unlocked(&user, &4u32));
+    composite(&f, 4, &[rule(TRACK_EARNED, 10)], RuleMode::AnyOf, "a");
+    assert_eq!(f.gate.get_gate_version(&4u32), 3);
+    assert!(!f.gate.is_unlocked(&user, &4u32));
+
+    // Other gates keep their own version.
+    f.gate
+        .create_gate(&5u32, &TRACK_EARNED, &10u64, &label(&f, "b"));
+    assert_eq!(f.gate.get_gate_version(&5u32), 0);
+    assert_eq!(f.gate.get_gate_version(&99u32), 0); // unknown gate
+}
+
+#[test]
+fn a_rejected_redefinition_keeps_the_version_and_unlocks() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    earn(&f, &user, 50);
+    f.gate
+        .create_gate(&1u32, &TRACK_EARNED, &30u64, &label(&f, "x"));
+    f.gate.unlock(&user, &1u32);
+
+    let bad_track = f
+        .gate
+        .try_create_gate(&1u32, &9u32, &30u64, &label(&f, "x"));
+    assert_eq!(bad_track, Err(Ok(Error::BadTrack.into())));
+    let empty =
+        f.gate
+            .try_create_gate_rules(&1u32, &Vec::new(&f.env), &RuleMode::AllOf, &label(&f, "x"));
+    assert_eq!(empty, Err(Ok(Error::EmptyRules.into())));
+
+    assert_eq!(f.gate.get_gate_version(&1u32), 0);
+    assert!(f.gate.is_unlocked(&user, &1u32));
+}
+
+#[test]
+fn the_unlock_record_names_its_version_and_ledger() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    earn(&f, &user, 50);
+    f.gate
+        .create_gate(&1u32, &TRACK_EARNED, &30u64, &label(&f, "x"));
+    assert_eq!(f.gate.get_unlock(&user, &1u32), None);
+    assert!(!f.gate.is_unlocked(&user, &99u32)); // unknown gate
+
+    f.env.ledger().with_mut(|l| l.sequence_number = 1_234);
+    f.gate.unlock(&user, &1u32);
+    assert_eq!(
+        f.gate.get_unlock(&user, &1u32),
+        Some(UnlockRecord {
+            version: 0,
+            ledger: 1_234
+        })
+    );
+
+    f.gate
+        .create_gate(&1u32, &TRACK_EARNED, &30u64, &label(&f, "x"));
+    f.env.ledger().with_mut(|l| l.sequence_number = 2_345);
+    f.gate.unlock(&user, &1u32);
+    assert_eq!(
+        f.gate.get_unlock(&user, &1u32),
+        Some(UnlockRecord {
+            version: 1,
+            ledger: 2_345
+        })
+    );
+}
+
+#[test]
+fn an_unlock_stored_before_versioning_counts_until_the_next_redefinition() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    f.gate
+        .create_gate(&1u32, &TRACK_EARNED, &30u64, &label(&f, "x"));
+    legacy_unlock(&f, &user, 1);
+
+    assert!(f.gate.is_unlocked(&user, &1u32));
+    assert_eq!(
+        f.gate.get_unlock(&user, &1u32),
+        Some(UnlockRecord {
+            version: 0,
+            ledger: 0
+        })
+    );
+
+    f.gate
+        .create_gate(&1u32, &TRACK_EARNED, &30u64, &label(&f, "x"));
+    assert!(!f.gate.is_unlocked(&user, &1u32));
+    assert_eq!(f.gate.get_unlock(&user, &1u32).unwrap().version, 0);
+
+    // Unlocking again replaces the bare flag with a record.
+    earn(&f, &user, 30);
+    f.gate.unlock(&user, &1u32);
+    assert!(f.gate.is_unlocked(&user, &1u32));
+    assert_eq!(f.gate.get_unlock(&user, &1u32).unwrap().version, 1);
+}
+
+#[test]
+fn upgrading_keeps_legacy_and_versioned_unlocks() {
+    let f = setup();
+    let (old, new) = (Address::generate(&f.env), Address::generate(&f.env));
+    earn(&f, &new, 30);
+    f.gate
+        .create_gate(&1u32, &TRACK_EARNED, &30u64, &label(&f, "a"));
+    f.gate
+        .create_gate(&2u32, &TRACK_EARNED, &30u64, &label(&f, "b"));
+    f.gate
+        .create_gate(&2u32, &TRACK_EARNED, &30u64, &label(&f, "b2"));
+    legacy_unlock(&f, &old, 1);
+    f.gate.unlock(&new, &2u32);
+
+    let hash = f.env.deployer().upload_contract_wasm(GATE_WASM);
+    f.gate.upgrade(&hash);
+
+    assert!(f.gate.is_unlocked(&old, &1u32));
+    assert!(f.gate.is_unlocked(&new, &2u32));
+    assert_eq!(f.gate.get_gate_version(&2u32), 1);
+    assert_eq!(f.gate.get_unlock(&new, &2u32).unwrap().version, 1);
+    f.gate
+        .create_gate(&1u32, &TRACK_EARNED, &30u64, &label(&f, "a"));
+    assert!(!f.gate.is_unlocked(&old, &1u32));
+}
+
+#[test]
+fn the_gate_version_lives_as_long_as_the_gate() {
+    for ttls in [TESTNET_TTLS, MAINNET_TTLS] {
+        let f = setup_with_ttls(ttls);
+        f.gate
+            .create_gate(&1u32, &TRACK_EARNED, &30u64, &label(&f, "a"));
+        f.gate
+            .create_gate(&1u32, &TRACK_EARNED, &40u64, &label(&f, "a"));
+        assert_eq!(ttl(&f, &DataKey::GateVersion(1)), BUMP_EXTEND);
+
+        // Days later, toggling the gate tops its version up with it.
+        f.env
+            .ledger()
+            .with_mut(|l| l.sequence_number += DAY_LEDGERS * 3);
+        f.gate.set_gate_active(&1u32, &false);
+        assert_eq!(ttl(&f, &DataKey::Gate(1)), BUMP_EXTEND);
+        assert_eq!(ttl(&f, &DataKey::GateVersion(1)), BUMP_EXTEND);
+    }
 }

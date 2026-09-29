@@ -7,8 +7,7 @@ const mocks = vi.hoisted(() => ({
   getWallet: vi.fn(),
   getEarnedScore: vi.fn(),
   getScores: vi.fn(),
-  getRewards: vi.fn(),
-  isClaimed: vi.fn(),
+  getRewardsFor: vi.fn(),
   claimReward: vi.fn(),
   getUsdcBalance: vi.fn(),
   hasUsdcTrustline: vi.fn(),
@@ -44,8 +43,7 @@ vi.mock('@/lib/rewards', async (io) => ({
   tip: mocks.tip,
   requestTestUsdc: mocks.requestTestUsdc,
   enableUsdc: mocks.enableUsdc,
-  getRewards: mocks.getRewards,
-  isClaimed: mocks.isClaimed,
+  getRewardsFor: mocks.getRewardsFor,
   claimReward: mocks.claimReward,
 }));
 vi.mock('@/lib/anchor', async (io) => ({
@@ -89,8 +87,7 @@ describe('money-flow i18n (#238)', () => {
     mocks.getWallet.mockResolvedValue({ address: OWNER, kind: 'freighter' });
     mocks.getEarnedScore.mockResolvedValue(0);
     mocks.getScores.mockResolvedValue({ social: 0, earned: 0 });
-    mocks.getRewards.mockResolvedValue([]);
-    mocks.isClaimed.mockResolvedValue(false);
+    mocks.getRewardsFor.mockResolvedValue({ rows: [], remainingToday: null });
     mocks.getUsdcBalance.mockResolvedValue(12345000n);
     mocks.hasUsdcTrustline.mockResolvedValue(true);
     mocks.getGates.mockResolvedValue([]);
@@ -138,16 +135,27 @@ describe('money-flow i18n (#238)', () => {
 
   it('renders Rewards row states and cash-out copy in Turkish', async () => {
     mocks.getEarnedScore.mockResolvedValue(5);
-    mocks.getRewards.mockResolvedValue([
-      { id: 1, threshold: 3n, amount: 1000000n, active: true },
-      { id: 2, threshold: 50n, amount: 2000000n, active: true, max_claims: 3, claims: 1 },
-    ]);
+    mocks.getRewardsFor.mockResolvedValue({
+      rows: [
+        { entry: { id: 1, threshold: 3n, amount: 1000000n, active: true }, claimed: false, eligible: true, reason: 0 },
+        {
+          entry: { id: 2, threshold: 50n, amount: 2000000n, active: true, max_claims: 3, claims: 1 },
+          claimed: false,
+          eligible: false,
+          reason: 3,
+        },
+        { entry: { id: 3, threshold: 3n, amount: 9000000n, active: true }, claimed: false, eligible: false, reason: 9 },
+      ],
+      remainingToday: 5000000n,
+    });
     await render(<Rewards address={OWNER} />);
     expect(container.textContent).toContain('Rütbe ödülleri');
     expect(container.textContent).toContain('Kazanılan XP');
     expect(buttons()).toContain('Al');
     expect(buttons()).toContain('Kilitli');
     expect(container.textContent).toContain('3 adetten 2 kaldı');
+    expect(container.textContent).toContain('Bugünkü ödül bütçesinde 0.5 USDC kaldı');
+    expect(container.textContent).toContain(buildRewardErrors(getTranslations('tr'))[9]);
     // Anchor is unconfigured in tests, so the fallback copy must be Turkish too.
     expect(container.textContent).toContain('ana ağda geliyor');
     expect(container.textContent).not.toContain('Rank rewards');

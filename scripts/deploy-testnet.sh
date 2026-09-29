@@ -1,14 +1,22 @@
 #!/usr/bin/env bash
 # Deploy the 3 Passport contracts to testnet and wire them together.
 # Prereq: `stellar` CLI installed, an identity funded on testnet (`stellar keys generate --fund admin --network testnet`).
-# Usage: ADMIN=admin ATTESTER=attester ./scripts/deploy-testnet.sh
+# Usage: USDC_SAC=C… ADMIN=admin ATTESTER=attester [NETWORK=testnet|futurenet] ./scripts/deploy-testnet.sh
 set -euo pipefail
 
 ADMIN="${ADMIN:-admin}"
 ATTESTER="${ATTESTER:-attester}"
 NETWORK="${NETWORK:-testnet}"
-# Testnet USDC SAC — replace with the real SAC id you wrap, or the canonical mainnet USDC.
-USDC_SAC="${USDC_SAC:-REPLACE_WITH_USDC_SAC_CONTRACT_ID}"
+# The USDC SAC rewards moves (docs/DEPLOY.md §2). Required: there is no usable default.
+USDC_SAC="${USDC_SAC:-}"
+
+# Pre-flight: every check runs before the first build or deploy, so a bad input costs nothing.
+[[ "$USDC_SAC" =~ ^C[A-Z2-7]{55}$ ]] || { echo "USDC_SAC must be a contract id (C…), got '$USDC_SAC'" >&2; exit 2; }
+case "$NETWORK" in
+  testnet|futurenet) ;;
+  *) echo "refusing NETWORK=$NETWORK: this script is for testnet/futurenet (mainnet: scripts/deploy-mainnet.sh)" >&2; exit 2 ;;
+esac
+command -v stellar >/dev/null || { echo "stellar CLI not found" >&2; exit 2; }
 
 ADMIN_ADDR=$(stellar keys address "$ADMIN")
 ATTESTER_ADDR=$(stellar keys address "$ATTESTER")
@@ -23,12 +31,16 @@ deploy () { # $1 = wasm filename
   stellar contract deploy --wasm "$WASM_DIR/$1" --source "$ADMIN" --network "$NETWORK"
 }
 
+# Each id goes to stderr as soon as its deploy returns, so a later failure never loses it.
 echo "==> Deploying reputation"
 REP_ID=$(deploy alvinmunk_reputation.wasm)
+echo "REP_ID=$REP_ID" >&2
 echo "==> Deploying quest_registry"
 QUEST_ID=$(deploy alvinmunk_quest_registry.wasm)
+echo "QUEST_ID=$QUEST_ID" >&2
 echo "==> Deploying rewards"
 REWARDS_ID=$(deploy alvinmunk_rewards.wasm)
+echo "REWARDS_ID=$REWARDS_ID" >&2
 
 inv () { stellar contract invoke --id "$1" --source "$ADMIN" --network "$NETWORK" -- "${@:2}"; }
 
