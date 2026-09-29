@@ -2,11 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const readPublicMock = vi.fn();
 const invokeMock = vi.fn();
+const cosignedMock = vi.fn();
 let registry = 'CREGISTRY';
 
 vi.mock('./contracts', () => ({
   readPublic: (...a: unknown[]) => readPublicMock(...a),
   invokeAndWait: (...a: unknown[]) => invokeMock(...a),
+  invokeCosigned: (...a: unknown[]) => cosignedMock(...a),
   registryId: () => registry,
   args: {
     addr: (a: string) => ({ __addr: a }),
@@ -27,6 +29,7 @@ import {
   getHandleCooldown,
   handleAvailability,
   isHandleAvailable,
+  transferHandle,
 } from './registry';
 import type { Wallet } from './wallet';
 
@@ -264,6 +267,66 @@ describe('reverseHandles', () => {
     await expect(reverseHandles(['G001', 'G002'])).resolves.toEqual({ G001: null, G002: null });
     await expect(reverseHandles([])).resolves.toEqual({});
     expect(readPublicMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('transferHandle', () => {
+  const OLD = 'G'.padEnd(56, 'O');
+  const NEW = 'C'.padEnd(56, 'N');
+  // the in-app key co-signs; the other wallet submits with its own prompt
+  const dev = { kind: 'dev', address: OLD, signAuthEntry: vi.fn() } as unknown as Wallet;
+  const passkey = { kind: 'passkey', address: NEW, invoke: vi.fn() } as unknown as Wallet;
+
+  beforeEach(() => {
+    readPublicMock.mockReset();
+    cosignedMock.mockReset();
+    cosignedMock.mockResolvedValue({ hash: 'tx-hash', value: undefined });
+    clearMetaCache();
+    registry = 'CREGISTRY';
+  });
+
+  it('calls transfer_handle(from, to): `to` submits and the in-app `from` co-signs', async () => {
+    await expect(transferHandle(dev, passkey)).resolves.toBe('tx-hash');
+    expect(cosignedMock).toHaveBeenCalledWith(
+      'CREGISTRY',
+      'transfer_handle',
+      [{ __addr: OLD }, { __addr: NEW }],
+      passkey,
+      dev,
+    );
+  });
+
+  it('lets an in-app `to` co-sign when `from` is the wallet that can only submit', async () => {
+    const classic = { kind: 'freighter', address: NEW } as unknown as Wallet;
+    const inApp = { kind: 'dev', address: OLD, signAuthEntry: vi.fn() } as unknown as Wallet;
+    await transferHandle(classic, inApp);
+    expect(cosignedMock).toHaveBeenCalledWith(
+      'CREGISTRY',
+      'transfer_handle',
+      [{ __addr: NEW }, { __addr: OLD }],
+      classic,
+      inApp,
+    );
+  });
+
+  it('re-reads both profiles afterwards: the face and bio moved with the handle', async () => {
+    readPublicMock.mockResolvedValue({ avatar: 3n, bio: 'still me' });
+    await getMeta(OLD);
+    await getMeta(NEW);
+    expect(readPublicMock).toHaveBeenCalledTimes(2);
+    await transferHandle(dev, passkey);
+    await getMeta(OLD);
+    await getMeta(NEW);
+    expect(readPublicMock).toHaveBeenCalledTimes(4);
+  });
+
+  it('keeps the cached profiles when the transfer fails', async () => {
+    readPublicMock.mockResolvedValue(null);
+    await getMeta(OLD);
+    cosignedMock.mockRejectedValueOnce(new Error('Error(Contract, #10)'));
+    await expect(transferHandle(dev, passkey)).rejects.toThrow('#10');
+    await getMeta(OLD);
+    expect(readPublicMock).toHaveBeenCalledTimes(1);
   });
 });
 

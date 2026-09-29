@@ -10,6 +10,7 @@ import { Crest } from '@/components/brand/crest';
 import { buttonVariants } from '@/components/ui/button';
 import { shortAddr } from '@alvinmunk/shared';
 import { cn } from '@/lib/utils';
+import { useLocale, useTranslations } from '@/lib/i18n';
 
 /** Anything the account menu can hand focus to. */
 type MenuItem = HTMLAnchorElement | HTMLButtonElement;
@@ -68,6 +69,8 @@ function typeaheadMatch(
  * the button, and anything that moves focus out closes the menu.
  */
 export function ConnectButton() {
+  const t = useTranslations();
+  const { locale } = useLocale();
   const { profile, balance, disconnect } = useWallet();
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -182,7 +185,7 @@ export function ConnectButton() {
   if (!profile) {
     return (
       <Link href="/app" className={cn(buttonVariants({ size: 'sm' }))}>
-        Open app
+        {t('wallet.openApp')}
       </Link>
     );
   }
@@ -199,7 +202,7 @@ export function ConnectButton() {
 
   async function copyAddress() {
     await navigator.clipboard.writeText(profile!.address);
-    toast.success('Address copied');
+    toast.success(t('wallet.addressCopied'));
     closeMenu(true);
   }
 
@@ -224,7 +227,12 @@ export function ConnectButton() {
           <div className="px-3 py-2">
             <p className="font-mono text-xs text-muted-foreground">{shortAddr(profile.address)}</p>
             {balance != null && (
-              <p className="mt-0.5 text-xs text-muted-foreground">{Number(balance).toFixed(1)} XLM</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {new Intl.NumberFormat(locale === 'tr' ? 'tr-TR' : 'en-US', {
+                  minimumFractionDigits: 1,
+                  maximumFractionDigits: 1,
+                }).format(Number(balance))} XLM
+              </p>
             )}
           </div>
           <div className="my-1 h-px bg-border" />
@@ -235,10 +243,10 @@ export function ConnectButton() {
               onClick={() => closeMenu(true)}
               className={item}
             >
-              <User /> View profile
+              <User /> {t('wallet.viewProfile')}
             </Link>
             <button {...itemProps(1)} onClick={copyAddress} className={item}>
-              <Copy /> Copy address
+              <Copy /> {t('wallet.copyAddress')}
             </button>
             <div role="separator" className="my-1 h-px bg-border" />
             <button
@@ -246,11 +254,11 @@ export function ConnectButton() {
               onClick={() => {
                 disconnect();
                 closeMenu(true);
-                toast('Disconnected — your profile stays on-chain.');
+                toast(t('wallet.disconnected'));
               }}
               className={cn(item, 'text-destructive hover:bg-destructive/10')}
             >
-              <LogOut /> Disconnect
+              <LogOut /> {t('wallet.disconnect')}
             </button>
           </div>
         </div>

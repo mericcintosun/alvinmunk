@@ -1,16 +1,20 @@
 /**
- * Pure, framework-free helpers shared by the quest CLIENT (lib/quests.ts) and the
- * serverless ATTESTER (app/api/attest/route.ts). Keeping the canonical message and
- * the validation rules in ONE place guarantees the client signs exactly what the
- * server verifies — and lets us unit-test the security logic without the network.
+ * Pure, framework-free rules for the serverless ATTESTER (app/api/attest/route.ts), kept
+ * here so they can be unit-tested without the network. The client (lib/quests.ts,
+ * components/Quests.tsx) only shares the evidence types and default quest ids.
  *
- * Hardening (belts/08 §security): v2 ownership message binds the deployment + network
- * (cross-environment replay), a per-signature in-window nonce guard, bounded inputs,
- * a self-referral guard, and an optional GitHub repo allowlist.
+ * The model the route enforces (belts/08 §security):
+ *   1. Evidence verification — cheap shape checks (`validateEvidence`: bounded inputs,
+ *      self-referral guard), the quest id bound to one evidence type
+ *      (`evidenceMatchesQuest`), then the real action checked on the network (merged PR
+ *      within an optional repo allowlist, `judgeReferral`, …). Only then does the
+ *      attester sign the quest_registry's canonical payload.
+ *   2. Ownership — proven ON-CHAIN: the wallet submits `award_quest`, which calls
+ *      `recipient.require_auth()`. There is no off-chain ownership signature.
+ *   3. Replay — the quest_registry's on-chain replay guard (one completion per recipient
+ *      per quest) is the hard cap; the route adds only a per-IP rate limit.
  */
 
-export const ATTEST_VERSION = 'v2';
-export const FRESHNESS_MS = 120_000; // 2 minutes
 export const MAX_REF_LEN = 200; // evidence.ref upper bound (anti-abuse)
 export const MAX_QUEST_ID = 1_000_000;
 export const MAX_BODY_BYTES = 4_096; // request body upper bound
@@ -51,17 +55,6 @@ export function decodeDataEntry(base64Value: string): string | null {
 }
 /** Vouch-back threshold: how many distinct people you must have vouched for to earn it. */
 export const VOUCH_BACK_MIN = 3;
-export interface AttestClaim {
-  questId: number;
-  recipient: string;
-  evidence?: AttestEvidence;
-  timestamp: number;
-}
-/** Binds a signature to one deployment so it can't be replayed elsewhere. */
-export interface AttestContext {
-  contractId: string;
-  passphrase: string;
-}
 
 const G_ADDRESS = /^G[A-Z2-7]{55}$/;
 export function isGAddress(s: unknown): boolean {
@@ -71,30 +64,6 @@ export function isGAddress(s: unknown): boolean {
 const STELLAR_ADDRESS = /^[GC][A-Z2-7]{55}$/; // classic (G…) or smart-wallet (C…)
 export function isStellarAddress(s: unknown): boolean {
   return typeof s === 'string' && STELLAR_ADDRESS.test(s);
-}
-
-/**
- * The canonical message the recipient signs to prove wallet ownership. v2 BINDS the
- * quest-registry contract id + network passphrase, so a signature captured on
- * testnet/contract-A cannot be replayed against mainnet/contract-B. Fields are
- * '|'-joined (the passphrase contains ':' and spaces, but never '|').
- */
-export function ownershipMessage(c: AttestClaim, ctx: AttestContext): string {
-  return [
-    `attest:${ATTEST_VERSION}`,
-    ctx.passphrase,
-    ctx.contractId,
-    c.recipient,
-    String(c.questId),
-    c.evidence?.type ?? '',
-    c.evidence?.ref ?? '',
-    String(c.timestamp),
-  ].join('|');
-}
-
-/** Reject stale or future-dated requests outside the replay window. */
-export function withinFreshness(now: number, ts: unknown, windowMs = FRESHNESS_MS): boolean {
-  return typeof ts === 'number' && Number.isFinite(ts) && Math.abs(now - ts) <= windowMs;
 }
 
 export function isValidQuestId(q: unknown): q is number {
@@ -240,27 +209,6 @@ export function buildQuestEvidenceMap(
   }
   for (const id of conflicts) map.delete(id);
   return map;
-}
-
-/**
- * In-window replay guard keyed by signature; entries self-expire after the window.
- * Best-effort (per-instance, resets on cold start) — the on-chain replay guard is the
- * hard cap, this just stops rapid double-submits within the freshness window.
- */
-export function makeReplayGuard(windowMs = FRESHNESS_MS) {
-  const seen = new Map<string, number>();
-  return {
-    /** True if the signature is NEW (accept); false if it's a replay. */
-    accept(sig: string, now: number): boolean {
-      for (const [k, exp] of seen) if (exp <= now) seen.delete(k);
-      if (seen.has(sig)) return false;
-      seen.set(sig, now + windowMs);
-      return true;
-    },
-    size(): number {
-      return seen.size;
-    },
-  };
 }
 
 /** Parse "owner/repo,owner2/repo2" into a lowercased set, or null when unset. */

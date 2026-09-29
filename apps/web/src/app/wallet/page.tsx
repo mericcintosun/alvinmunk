@@ -9,12 +9,14 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { HandleTransfer } from '@/components/HandleTransfer';
 import { isStellarAddress, shortAddr } from '@alvinmunk/shared';
 
 /**
  * Level 1 + 2 multi-wallet demo: connect via the Stellar Wallets Kit picker (Freighter,
  * xBull, Albedo, Rabet, LOBSTR, Hana), show the balance, and send a testnet XLM payment
- * with pending/success/failure + tx-hash feedback. Maps 1:1 to the belt checklist.
+ * with pending/success/failure + tx-hash feedback. Maps 1:1 to the belt checklist. Also
+ * where a user outgrowing the in-app key moves its @handle to the connected wallet.
  */
 export default function WalletPage() {
   const [wallet, setWallet] = useState<Wallet | null>(null);
@@ -145,6 +147,8 @@ export default function WalletPage() {
               )}
             </CardContent>
           </Card>
+
+          <HandleTransfer wallet={wallet} />
         </div>
       )}
 

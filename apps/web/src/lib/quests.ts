@@ -183,7 +183,7 @@ export async function completeQuest(
   const res = await fetch('/api/attest', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ questId, recipient: wallet.address, evidence, timestamp: Date.now() }),
+    body: JSON.stringify({ questId, recipient: wallet.address, evidence }),
   });
   const data = (await res.json().catch(() => ({}))) as {
     attester?: string;

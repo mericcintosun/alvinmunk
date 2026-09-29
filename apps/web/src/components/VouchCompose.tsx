@@ -41,7 +41,7 @@ export function VouchCompose() {
     setLink(null);
     try {
       const wallet = await getWallet();
-      const noteText = note.trim() || 'vouched for you';
+      const noteText = note.trim() || t('vouch.compose.defaultNote');
       const { id, seed } = await mintVouch(wallet, noteText);
       addMyVouch({ id, seed, note: noteText, created: Math.floor(Date.now() / 1000), walletAddress: wallet.address });
       // Fire-and-forget push subscription — silently ignored if VAPID not configured or
@@ -135,7 +135,7 @@ export function VouchCompose() {
             </div>
             <a
               href={`https://twitter.com/intent/tweet?${new URLSearchParams({
-                text: `${note.trim() || t('vouch.compose.shareXText')} — claim your half of the sky:`,
+                text: `${note.trim() || t('vouch.compose.shareXText')} ${t('vouch.compose.shareXSuffix')}`,
                 url: link,
               }).toString()}`}
               target="_blank"

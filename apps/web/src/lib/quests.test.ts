@@ -162,6 +162,24 @@ describe('completeQuest', () => {
     vi.unstubAllGlobals();
   });
 
+  it('posts only what the attester reads — no timestamp (#182)', async () => {
+    // Ownership is proven on-chain by require_auth, so the route reads no timestamp.
+    const fetchSpy = vi.fn(async (_url: string, _init: RequestInit) => ({
+      ok: false,
+      status: 422,
+      json: async () => ({ error: 'PR not merged' }),
+    }));
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch);
+    const evidence = { type: 'github_pr', ref: 'owner/repo#1' } as const;
+
+    await completeQuest(wallet, 2, evidence);
+
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe('/api/attest');
+    expect(JSON.parse(init.body as string)).toEqual({ questId: 2, recipient: OWNER, evidence });
+    vi.unstubAllGlobals();
+  });
+
   it('explains an award refused by the attester key’s daily budget (#7)', async () => {
     vi.stubGlobal('fetch', (async () => ({
       ok: true,
