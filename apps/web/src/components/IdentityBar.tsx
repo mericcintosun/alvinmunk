@@ -279,7 +279,7 @@ export function IdentityBar() {
             {profile.bio ? (
               <p className="min-w-0 truncate text-xs text-muted-foreground">{profile.bio}</p>
             ) : (
-              <span className="font-mono text-[10px] text-muted-foreground/60">
+              <span className="font-mono text-[10px] text-muted-foreground">
                 {t('identity.bio.add')}
               </span>
             )}

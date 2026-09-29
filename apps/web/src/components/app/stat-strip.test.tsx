@@ -66,6 +66,57 @@ describe('StatStrip', () => {
     expect(container.textContent).not.toContain('Your constellation is still quiet');
   });
 
+  it('keeps the last numbers on screen while a refresh is in flight', async () => {
+    vi.useFakeTimers();
+    try {
+      getScoresMock
+        .mockResolvedValueOnce({ social: 55, earned: 30 })
+        .mockReturnValueOnce(new Promise(() => {}));
+      getPeopleCountsMock.mockResolvedValue({ vouchedBy: 7, backed: 2 });
+      await render();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+      expect(getScoresMock).toHaveBeenCalledTimes(2);
+      expect(container.querySelectorAll('.animate-pulse')).toHaveLength(0);
+      expect(tile('Social XP')).toContain('55');
+      expect(tile('Earned XP')).toContain('30');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops polling while the tab is hidden and refreshes once when it returns', async () => {
+    vi.useFakeTimers();
+    try {
+      getScoresMock.mockResolvedValue({ social: 1, earned: 0 });
+      getPeopleCountsMock.mockResolvedValue({ vouchedBy: 0, backed: 0 });
+      await render();
+      const scoresCalls = getScoresMock.mock.calls.length;
+      const peopleCalls = getPeopleCountsMock.mock.calls.length;
+
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      expect(getScoresMock.mock.calls.length).toBe(scoresCalls);
+      expect(getPeopleCountsMock.mock.calls.length).toBe(peopleCalls);
+
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      expect(getScoresMock.mock.calls.length).toBe(scoresCalls + 1);
+      expect(getPeopleCountsMock.mock.calls.length).toBe(peopleCalls + 1);
+    } finally {
+      Reflect.deleteProperty(document, 'hidden');
+      vi.useRealTimers();
+    }
+  });
+
   it('formats large counts with the active locale digit grouping, not a fixed en-US format', async () => {
     localStorage.setItem('alvinmunk_locale', 'tr');
     try {

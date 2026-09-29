@@ -227,6 +227,7 @@ alvinmunk/                # project root (the repo)
 │  ├─ src/lib/            #   wallet (passkey + dev fallback), stellar, genesis, profile
 │  └─ src/app/api/attest/ #   the ONLY server-side piece (holds attester key)
 ├─ packages/shared/       # TS types, event schemas, schema ids, art engine, contract registry
+├─ packages/sdk/          # @alvinmunk/sdk — publishable read-only client (reputation, handles, gates)
 └─ scripts/               # deploy-testnet.sh (deploy + wire the 3 contracts)
 ```
 

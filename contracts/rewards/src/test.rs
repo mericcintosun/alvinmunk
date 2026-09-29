@@ -349,6 +349,61 @@ proptest! {
         }
     }
 
+    /// Invariant (#157): `get_rewards_for` predicts `claim_reward`. For any combination of
+    /// the gates, the claim reverts with exactly the view's `reason`, or pays out when the
+    /// view calls the row eligible.
+    #[test]
+    fn get_rewards_for_agrees_with_claim_reward(
+        paused in any::<bool>(),
+        frozen in any::<bool>(),
+        funding in 0u8..3, // 0 = not required, 1 = required + unfunded, 2 = required + funded
+        active in any::<bool>(),
+        pre_claimed in any::<bool>(),
+        exhausted in any::<bool>(),
+        xp_short in any::<bool>(),
+        cap_tight in any::<bool>(),
+    ) {
+        let f = setup();
+        f.rewards.add_reward(&1u32, &30u64, &50i128);
+        let user = earner(&f, if xp_short { 29 } else { 30 });
+        let claimed = pre_claimed && !xp_short;
+        let mut claims = 0u32;
+        if claimed {
+            f.rewards.claim_reward(&user, &1u32);
+            claims += 1;
+        }
+        if exhausted {
+            let other = earner(&f, 30);
+            f.rewards.claim_reward(&other, &1u32);
+            f.rewards.set_reward_supply(&1u32, &(claims + 1));
+        }
+        if cap_tight {
+            f.rewards.add_reward(&2u32, &1u64, &50i128);
+            let filler = earner(&f, 1);
+            f.rewards.claim_reward(&filler, &2u32);
+            f.rewards.set_daily_cap(&(f.rewards.get_daily_paid() + 10));
+        }
+        if !active {
+            f.rewards.set_reward_active(&1u32, &false);
+        }
+        if funding > 0 {
+            f.rewards.set_require_funding(&true);
+            f.rewards.set_funded(&user, &(funding == 2));
+        }
+        f.rewards.set_frozen(&user, &frozen);
+        f.rewards.set_paused(&paused);
+
+        let s = status_of(&f, &user, 1);
+        prop_assert_eq!(s.claimed, claimed);
+        prop_assert_eq!(s.eligible, s.reason == 0);
+        let res = f.rewards.try_claim_reward(&user, &1u32);
+        if s.reason == 0 {
+            prop_assert_eq!(res, Ok(Ok(())));
+        } else {
+            prop_assert_eq!(res, Err(Ok(soroban_sdk::Error::from_contract_error(s.reason))));
+        }
+    }
+
     /// Invariant (#144): `tip` moves value or it fails. For ANY amount and any
     /// sender/receiver pair it is accepted exactly when `amount > 0` and the two wallets
     /// differ, and on success the receiver is credited exactly `amount` — so every
@@ -413,6 +468,9 @@ fn upgrade_to_identical_wasm_preserves_reward_table_and_treasury() {
     let token_c = token::TokenClient::new(&f.env, &f.usdc);
     assert_eq!(token_c.balance(&user), 50);
     assert_eq!(token_c.balance(&f.rewards_id), 950);
+    let (rows, remaining) = f.rewards.get_rewards_for(&user);
+    assert_eq!((rows.len(), remaining), (2, -1));
+    assert!(rows.get(0).unwrap().claimed);
 }
 
 #[test]
@@ -705,6 +763,240 @@ fn set_reward_min_streak_zero_clears_the_gate() {
     });
     assert!(!removed);
     f.rewards.claim_reward(&user, &1u32);
+}
+
+// --- get_rewards_for: one-call reward status view per wallet (#157) ---
+
+/// `who`'s row for reward `id` in `get_rewards_for`.
+fn status_of(f: &Fixture, who: &Address, id: u32) -> RewardStatus {
+    let (rows, _) = f.rewards.get_rewards_for(who);
+    rows.iter().find(|r| r.entry.id == id).unwrap()
+}
+
+/// The view's `reason` for `id` is `expected`, and `claim_reward` agrees: it reverts with
+/// exactly that error, or pays out when the view calls the row claimable.
+fn assert_reason(f: &Fixture, who: &Address, id: u32, expected: Option<Error>) {
+    let s = status_of(f, who, id);
+    assert_eq!(s.reason, expected.map_or(0, |e| e as u32));
+    assert_eq!(s.eligible, expected.is_none());
+    let res = f.rewards.try_claim_reward(who, &id);
+    match expected {
+        Some(e) => assert_eq!(res, Err(Ok(contract_err(e)))),
+        None => assert_eq!(res, Ok(Ok(()))),
+    }
+}
+
+#[test]
+fn get_rewards_for_reports_every_row_with_claimed_and_eligible() {
+    let f = setup();
+    f.rewards.add_reward(&1u32, &30u64, &50i128);
+    f.rewards.add_reward(&2u32, &60u64, &100i128);
+    f.rewards.add_reward(&3u32, &10u64, &20i128);
+    f.rewards.set_reward_supply(&2u32, &5u32);
+    f.rewards.set_reward_active(&3u32, &false);
+    let user = earner(&f, 60);
+    f.rewards.claim_reward(&user, &1u32);
+
+    let (rows, remaining) = f.rewards.get_rewards_for(&user);
+    assert_eq!(remaining, -1); // no daily cap
+
+    // Every row of the table, inactive ones included, in `get_rewards` order.
+    let ids: std::vec::Vec<u32> = rows.iter().map(|r| r.entry.id).collect();
+    assert_eq!(ids, [1, 2, 3]);
+
+    let r1 = rows.get(0).unwrap();
+    assert!(r1.claimed && !r1.eligible);
+    assert_eq!(r1.reason, Error::AlreadyClaimed as u32);
+    assert_eq!(r1.entry.claims, 1);
+
+    let r2 = rows.get(1).unwrap();
+    assert!(!r2.claimed && r2.eligible);
+    assert_eq!(r2.reason, 0);
+    assert_eq!(
+        (r2.entry.threshold, r2.entry.amount, r2.entry.max_claims),
+        (60, 100, 5)
+    );
+
+    let r3 = rows.get(2).unwrap();
+    assert!(!r3.entry.active && !r3.eligible);
+    assert_eq!(r3.reason, Error::RewardInactive as u32);
+
+    // Another wallet sees its own claim state against the same table.
+    let other = earner(&f, 60);
+    assert!(!status_of(&f, &other, 1).claimed);
+    assert!(status_of(&f, &other, 1).eligible);
+}
+
+#[test]
+fn get_rewards_for_with_no_rewards_is_empty_and_unlimited() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    let (rows, remaining) = f.rewards.get_rewards_for(&user);
+    assert_eq!((rows.len(), remaining), (0, -1));
+}
+
+#[test]
+fn get_rewards_for_returns_the_remaining_daily_budget() {
+    let f = setup();
+    f.rewards.add_reward(&1u32, &30u64, &200i128);
+    f.rewards.add_reward(&2u32, &30u64, &400i128);
+    f.rewards.add_reward(&3u32, &30u64, &300i128);
+    f.rewards.set_daily_cap(&500i128);
+    let user = earner(&f, 30);
+
+    let (_, remaining) = f.rewards.get_rewards_for(&user);
+    assert_eq!(remaining, 500);
+
+    f.rewards.claim_reward(&user, &1u32);
+    let (_, remaining) = f.rewards.get_rewards_for(&user);
+    assert_eq!(remaining, 300);
+    // 400 no longer fits today; 300 still does, exactly.
+    assert_reason(&f, &user, 2, Some(Error::DailyCapExceeded));
+    assert_eq!(status_of(&f, &user, 3).reason, 0);
+
+    // A new UTC day resets the budget.
+    f.env.ledger().with_mut(|l| l.timestamp += DAY_SECS);
+    let (_, remaining) = f.rewards.get_rewards_for(&user);
+    assert_eq!(remaining, 500);
+    assert_reason(&f, &user, 2, None);
+}
+
+#[test]
+fn get_rewards_for_reports_a_spent_budget_as_zero() {
+    let f = setup();
+    f.rewards.add_reward(&1u32, &30u64, &500i128);
+    f.rewards.add_reward(&2u32, &30u64, &10i128);
+    f.rewards.set_daily_cap(&500i128);
+    let user = earner(&f, 30);
+    f.rewards.claim_reward(&user, &1u32);
+
+    let (_, remaining) = f.rewards.get_rewards_for(&user);
+    assert_eq!(remaining, 0);
+    assert_reason(&f, &user, 2, Some(Error::DailyCapExceeded));
+}
+
+#[test]
+fn get_rewards_for_reports_paused() {
+    let f = setup();
+    f.rewards.add_reward(&1u32, &30u64, &50i128);
+    let user = earner(&f, 30);
+    f.rewards.set_paused(&true);
+    assert_reason(&f, &user, 1, Some(Error::Paused));
+}
+
+#[test]
+fn get_rewards_for_reports_frozen_on_every_row() {
+    let f = setup();
+    f.rewards.add_reward(&1u32, &30u64, &50i128);
+    f.rewards.add_reward(&2u32, &10u64, &50i128);
+    let user = earner(&f, 30);
+    f.rewards.set_frozen(&user, &true);
+
+    let (rows, _) = f.rewards.get_rewards_for(&user);
+    let frozen = Error::Frozen as u32;
+    assert!(rows.iter().all(|r| r.reason == frozen && !r.eligible));
+    assert_reason(&f, &user, 1, Some(Error::Frozen));
+}
+
+#[test]
+fn get_rewards_for_reports_unfunded_only_while_funding_is_required() {
+    let f = setup();
+    f.rewards.add_reward(&1u32, &30u64, &50i128);
+    let user = earner(&f, 30);
+    f.rewards.set_require_funding(&true);
+    assert_reason(&f, &user, 1, Some(Error::NotFunded));
+
+    f.rewards.set_funded(&user, &true);
+    assert_reason(&f, &user, 1, None);
+}
+
+#[test]
+fn get_rewards_for_reports_inactive() {
+    let f = setup();
+    f.rewards.add_reward(&1u32, &30u64, &50i128);
+    f.rewards.set_reward_active(&1u32, &false);
+    let user = earner(&f, 30);
+    assert_reason(&f, &user, 1, Some(Error::RewardInactive));
+}
+
+#[test]
+fn get_rewards_for_reports_below_threshold() {
+    let f = setup();
+    f.rewards.add_reward(&1u32, &50u64, &50i128);
+    let user = earner(&f, 49);
+    assert_reason(&f, &user, 1, Some(Error::BelowThreshold));
+}
+
+#[test]
+fn get_rewards_for_reports_an_exhausted_pool() {
+    let f = setup();
+    f.rewards.add_reward(&1u32, &30u64, &50i128);
+    f.rewards.set_reward_supply(&1u32, &1u32);
+    let first = earner(&f, 30);
+    f.rewards.claim_reward(&first, &1u32);
+
+    let late = earner(&f, 30);
+    assert_reason(&f, &late, 1, Some(Error::RewardExhausted));
+}
+
+#[test]
+fn get_rewards_for_reports_the_first_failing_check_in_claim_order() {
+    let f = setup();
+    f.rewards.add_reward(&1u32, &30u64, &50i128);
+    f.rewards.set_reward_supply(&1u32, &1u32);
+    let user = earner(&f, 30);
+    f.rewards.claim_reward(&user, &1u32); // claimed, and the pool is now used up
+    f.rewards.set_reward_active(&1u32, &false);
+    f.rewards.set_require_funding(&true);
+    f.rewards.set_frozen(&user, &true);
+    f.rewards.set_paused(&true);
+
+    assert_reason(&f, &user, 1, Some(Error::Paused));
+    f.rewards.set_paused(&false);
+    assert_reason(&f, &user, 1, Some(Error::Frozen));
+    f.rewards.set_frozen(&user, &false);
+    assert_reason(&f, &user, 1, Some(Error::NotFunded));
+    f.rewards.set_funded(&user, &true);
+    assert_reason(&f, &user, 1, Some(Error::RewardInactive));
+    f.rewards.set_reward_active(&1u32, &true);
+    assert_reason(&f, &user, 1, Some(Error::AlreadyClaimed));
+
+    // A wallet that hasn't claimed hits the used-up pool before the XP read.
+    let newcomer = earner(&f, 10);
+    f.rewards.set_funded(&newcomer, &true);
+    assert_reason(&f, &newcomer, 1, Some(Error::RewardExhausted));
+    f.rewards.set_reward_supply(&1u32, &0u32);
+    assert_reason(&f, &newcomer, 1, Some(Error::BelowThreshold));
+}
+
+#[test]
+fn get_rewards_for_reports_a_short_streak_until_it_is_met() {
+    let f = streak_setup();
+    f.rewards.add_reward(&1u32, &10u64, &100i128);
+    f.rewards.set_reward_min_streak(&1u32, &3u32);
+    // The Earned-XP threshold is checked before the streak.
+    let newcomer = Address::generate(&f.env);
+    assert_reason(&f, &newcomer, 1, Some(Error::BelowThreshold));
+
+    let user = streaker(&f, &[0, 1]); // streak 2 < 3
+    assert_reason(&f, &user, 1, Some(Error::StreakTooShort));
+
+    at_week(&f, 2);
+    award_quest(&f, 3, &user);
+    assert_reason(&f, &user, 1, None);
+}
+
+#[test]
+fn get_rewards_for_reports_a_streak_gate_without_a_quest_registry() {
+    let f = streak_setup();
+    f.rewards.add_reward(&1u32, &10u64, &100i128);
+    f.rewards.set_reward_min_streak(&1u32, &1u32);
+    let user = streaker(&f, &[0]);
+    // No entrypoint unsets the registry; drop it from storage to cover the claim-path error.
+    f.env.as_contract(&f.rewards_id, || {
+        f.env.storage().instance().remove(&DataKey::QuestRegistry)
+    });
+    assert_reason(&f, &user, 1, Some(Error::QuestRegistryNotSet));
 }
 
 #[test]
