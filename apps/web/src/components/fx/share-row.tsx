@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Copy, Check } from 'lucide-react';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { useTranslations } from '@/lib/i18n';
 
 /**
  * Share row — a Tweet-intent button + copy-link, in the technical voice. The OG image
@@ -14,6 +15,7 @@ import { cn } from '@/lib/utils';
  * the server's relative `url=` in the tweet link (#222).
  */
 export function ShareRow({ path, text, className }: { path: string; text: string; className?: string }) {
+  const t = useTranslations();
   const [copied, setCopied] = useState(false);
   const [origin, setOrigin] = useState('');
   useEffect(() => setOrigin(window.location.origin), []);
@@ -39,14 +41,14 @@ export function ShareRow({ path, text, className }: { path: string; text: string
         rel="noreferrer"
         className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'glass font-mono')}
       >
-        𝕏&nbsp; tweet
+        𝕏&nbsp; {t('shareRow.tweet')}
       </a>
       <button
         onClick={copy}
         className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'glass font-mono')}
       >
         {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-        {copied ? 'copied' : 'copy_link'}
+        {copied ? t('shareRow.copied') : t('shareRow.copyLink')}
       </button>
     </div>
   );

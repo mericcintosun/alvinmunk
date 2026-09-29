@@ -7,13 +7,27 @@
  * drifting particles + a parallaxing starfield react to the cursor). Loaded client-only
  * via dynamic(ssr:false). Shared 3D bits live in constellation-parts.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Stars, Html, Line } from '@react-three/drei';
 import * as THREE from 'three';
 import { shortAddr } from '@alvinmunk/shared';
-import { fetchVouchersOf, timeAgo, addrHue, type VoucherStar } from '@/lib/constellation';
-import { Star, OrbitRing, useGlow, fibonacciSphere, reducedMotion } from './constellation-parts';
+import {
+  fetchVouchersOf,
+  getPeopleCounts,
+  timeAgo,
+  addrHue,
+  type VoucherStar,
+} from '@/lib/constellation';
+import {
+  Star,
+  OrbitRing,
+  useGlow,
+  fibonacciSphere,
+  useFrameloop,
+  usePrefersReducedMotion,
+} from './constellation-parts';
+import { useLocale, useTranslations } from '@/lib/i18n';
 
 const RADIUS = 3.0;
 
@@ -23,12 +37,14 @@ function Scene({
   onSelect,
   hoverId,
   setHoverId,
+  locale,
 }: {
   vouchers: VoucherStar[];
   reduced: boolean;
   onSelect: (v: VoucherStar | null) => void;
   hoverId: number | null;
   setHoverId: (id: number | null) => void;
+  locale: string;
 }) {
   const skyTilt = useRef<THREE.Group>(null);
   const tilt = useRef<THREE.Group>(null);
@@ -126,7 +142,7 @@ function Scene({
                       <Html position={[0, 0.34, 0]} center distanceFactor={9} zIndexRange={[40, 0]}>
                         <div className="pointer-events-none -translate-y-2 whitespace-nowrap rounded-full border border-border bg-popover/90 px-2.5 py-1 text-[11px] text-foreground backdrop-blur">
                           <span className="font-mono">{shortAddr(v.from)}</span>
-                          {v.created ? <span className="text-muted-foreground"> · {timeAgo(v.created)}</span> : null}
+                          {v.created ? <span className="text-muted-foreground"> · {timeAgo(v.created, locale)}</span> : null}
                         </div>
                       </Html>
                     )}
@@ -140,16 +156,24 @@ function Scene({
 }
 
 export default function ConstellationHero3D({ address, handle }: { address: string; handle: string }) {
+  const t = useTranslations();
+  const { locale } = useLocale();
+  const numberFormat = new Intl.NumberFormat(locale === 'tr' ? 'tr-TR' : 'en-US');
   const [vouchers, setVouchers] = useState<VoucherStar[] | null>(null);
+  // Everyone who vouched you (durable on-chain count) — the stars only cover the RPC window.
+  const [vouchedBy, setVouchedBy] = useState<number | null>(null);
   const [selected, setSelected] = useState<VoucherStar | null>(null);
   const [hoverId, setHoverId] = useState<number | null>(null);
   // A read failure must NOT look like an empty sky — they mean opposite things.
   const [loadFailed, setLoadFailed] = useState(false);
-  const reduced = reducedMotion();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const reduced = usePrefersReducedMotion();
+  const frameloop = useFrameloop(containerRef, reduced);
 
   useEffect(() => {
     let alive = true;
     setVouchers(null);
+    setVouchedBy(null);
     setSelected(null);
     setLoadFailed(false);
     fetchVouchersOf(address)
@@ -160,77 +184,95 @@ export default function ConstellationHero3D({ address, handle }: { address: stri
           setLoadFailed(true);
         }
       });
+    getPeopleCounts(address)
+      .then((p) => {
+        if (alive) setVouchedBy(p.vouchedBy);
+      })
+      .catch(() => {
+        if (alive) setVouchedBy(0);
+      });
     return () => {
       alive = false;
     };
   }, [address]);
 
-  const count = vouchers?.length ?? 0;
+  const invalidateRef = useRef<(() => void) | null>(null);
+  const invalidate = useCallback(() => {
+    invalidateRef.current?.();
+  }, []);
+
+  // The copy counts everyone who vouched you, not just the stars the window can draw — and
+  // never fewer than the stars actually on screen.
+  const shown = vouchers?.length ?? 0;
+  const count = Math.max(vouchedBy ?? 0, shown);
 
   return (
     <section
-      aria-label="Your constellation"
+      aria-label={t('constellation.label')}
       className="relative overflow-hidden rounded-3xl border border-border/60"
     >
       <div className="aurora absolute inset-0" />
       <div className="grid-faint absolute inset-0" />
 
-      <div className="relative h-[64vh] max-h-[620px] min-h-[440px] w-full">
+      <div ref={containerRef} className="relative h-[64vh] max-h-[620px] min-h-[440px] w-full">
         <Canvas
           camera={{ position: [0, 0, 7.6], fov: 50 }}
           dpr={[1, 2]}
           gl={{ alpha: true, antialias: true }}
+          frameloop={frameloop}
           style={{ background: 'transparent' }}
         >
+          <InvalidateBridge invalidateRef={invalidateRef} />
           <Scene
             vouchers={vouchers ?? []}
             reduced={reduced}
             onSelect={setSelected}
             hoverId={hoverId}
             setHoverId={setHoverId}
+            locale={locale}
           />
         </Canvas>
 
         <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-5 sm:p-7">
           <div>
-            <p className="eyebrow">Your constellation</p>
+            <p className="eyebrow">{t('constellation.label')}</p>
             <h1 className="mt-2 font-display text-4xl font-semibold tracking-tight text-foreground text-glow sm:text-5xl">
               @{handle}
             </h1>
           </div>
           <p className="max-w-md text-sm text-muted-foreground" aria-live="polite">
-            {vouchers === null
-              ? 'Reading your sky…'
-              : loadFailed
-                ? 'Couldn’t read your sky right now — the network is slow. It’ll fill in on refresh.'
+            {vouchers === null || vouchedBy === null
+              ? t('constellation.reading')
+              : loadFailed && count === 0
+                ? t('constellation.loadError')
                 : count === 0
-                  ? 'Your sky is dark — for now. Vouch someone, and their star ignites in your orbit.'
+                  ? t('constellation.empty')
                   : count === 1
-                    ? 'One star lights your sky. Move your cursor — the field follows.'
-                    : `${count} people light your sky. Hover a star to see who.`}
+                    ? t('constellation.oneStar')
+                    : `${t('constellation.manyStars', { count: numberFormat.format(count) })}${shown > 0 ? ` ${t('constellation.hoverStar')}` : ''}`}
           </p>
         </div>
 
         {/* Accessible, non-visual mirror of the sky: keyboard/screen-reader users get the
             same social proof the 3D hover tooltips show sighted-mouse users. */}
-        {count > 0 && (
-          <ul className="sr-only" aria-label={`${count} people vouched for you`}>
+        {shown > 0 && (
+          <ul className="sr-only" aria-label={t('constellation.peopleVouchedFor', { count: numberFormat.format(count) })}>
             {vouchers!.map((v) => (
               <li key={v.vouchId}>
                 {shortAddr(v.from)}
                 {v.note ? ` — “${v.note}”` : ''}
-                {v.created ? ` (${timeAgo(v.created)})` : ''}
+                {v.created ? ` (${timeAgo(v.created, locale)})` : ''}
               </li>
             ))}
           </ul>
         )}
 
         {selected && (
-          <div className="pointer-events-auto absolute bottom-5 right-5 max-w-[16rem] rounded-2xl glass p-3.5 sm:bottom-7 sm:right-7">
+          <div className="pointer-events-auto absolute bottom-5 right-5 max-w-[16rem] rounded-2xl glass p-3.5 sm:bottom-7 sm:right-7" onPointerEnter={invalidate}>
             <button
               onClick={() => setSelected(null)}
               className="absolute right-2 top-2 text-xs text-muted-foreground hover:text-foreground"
-              aria-label="Dismiss"
+              aria-label={t('constellation.dismiss')}
             >
               ✕
             </button>
@@ -238,16 +280,27 @@ export default function ConstellationHero3D({ address, handle }: { address: stri
               {selected.note ? (
                 <span className="italic text-foreground/90">&ldquo;{selected.note}&rdquo;</span>
               ) : (
-                <span className="text-muted-foreground">vouched for you</span>
+                <span className="text-muted-foreground">{t('constellation.vouchedForYou')}</span>
               )}
             </p>
             <p className="mt-1.5 font-mono text-xs text-muted-foreground">
               {shortAddr(selected.from)}
-              {selected.created ? ` · ${timeAgo(selected.created)}` : ''}
+              {selected.created ? ` · ${timeAgo(selected.created, locale)}` : ''}
             </p>
           </div>
         )}
       </div>
     </section>
   );
+}
+
+function InvalidateBridge({ invalidateRef }: { invalidateRef: MutableRefObject<(() => void) | null> }) {
+  const { invalidate } = useThree();
+  useEffect(() => {
+    invalidateRef.current = invalidate;
+    return () => {
+      invalidateRef.current = null;
+    };
+  }, [invalidate, invalidateRef]);
+  return null;
 }

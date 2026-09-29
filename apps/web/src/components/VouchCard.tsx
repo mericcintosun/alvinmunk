@@ -53,7 +53,7 @@ export function VouchCard({
         <p className="text-sm leading-snug text-white/80">“{note}”</p>
 
         {!claimed && (
-          <div className="absolute inset-y-0 right-0 w-1/2 animate-pulse rounded-r-2xl bg-sigil/10 ring-1 ring-inset ring-sigil/30" />
+          <div className="absolute inset-y-0 right-0 w-1/2 animate-pulse rounded-r-2xl bg-onchain/10 ring-1 ring-inset ring-onchain/30" />
         )}
       </div>
 

@@ -1,16 +1,23 @@
 /**
- * Pure, framework-free helpers shared by the quest CLIENT (lib/quests.ts) and the
- * serverless ATTESTER (app/api/attest/route.ts). Keeping the canonical message and
- * the validation rules in ONE place guarantees the client signs exactly what the
- * server verifies — and lets us unit-test the security logic without the network.
+ * Pure, framework-free rules for the serverless ATTESTER (app/api/attest/route.ts), kept
+ * here so they can be unit-tested without the network. The client (lib/quests.ts,
+ * components/Quests.tsx) only shares the evidence types and default quest ids.
  *
- * Hardening (belts/08 §security): v2 ownership message binds the deployment + network
- * (cross-environment replay), a per-signature in-window nonce guard, bounded inputs,
- * a self-referral guard, and an optional GitHub repo allowlist.
+ * The model the route enforces (belts/08 §security):
+ *   1. Evidence verification — cheap shape checks (`validateEvidence`: bounded inputs,
+ *      self-referral guard), the quest id bound to one evidence type
+ *      (`evidenceMatchesQuest`), then the real action checked on the network (merged PR
+ *      within an optional repo allowlist, `judgeReferral`, …). Only then does the
+ *      attester sign the quest_registry's award payload (`questPayload`), which binds
+ *      the network, the contract and an expiry (issue #142).
+ *   2. Ownership — proven ON-CHAIN: the wallet submits `award_quest`, which calls
+ *      `recipient.require_auth()`. There is no off-chain ownership signature.
+ *   3. Replay — the quest_registry's on-chain replay guard (one completion per recipient
+ *      per quest) is the hard cap, and an unredeemed signature expires on-chain
+ *      QUEST_SIG_TTL_SECS after it is issued; the route adds only a per-IP rate limit.
  */
+import { Address, Keypair, hash, nativeToScVal, xdr } from '@stellar/stellar-sdk';
 
-export const ATTEST_VERSION = 'v2';
-export const FRESHNESS_MS = 120_000; // 2 minutes
 export const MAX_REF_LEN = 200; // evidence.ref upper bound (anti-abuse)
 export const MAX_QUEST_ID = 1_000_000;
 export const MAX_BODY_BYTES = 4_096; // request body upper bound
@@ -24,13 +31,14 @@ export interface AttestEvidence {
 }
 
 /**
- * The manageData entry name the REFERRED account must set on-chain to bind the referral.
- * Value must be the REFERRER's G-address encoded as UTF-8 bytes (Horizon stores it
- * base64-encoded; the attester decodes it and compares to `recipient`).
+ * The manageData entry name a classic REFERRED account can set on-chain to bind the
+ * referral. Value must be the REFERRER's address encoded as UTF-8 bytes (Horizon stores it
+ * base64-encoded; the attester decodes it and compares to `recipient`). Verifiable via
+ * GET /accounts/{referred} → .data["referral"].
  *
- * Onboarding flow: when a new user is invited, they include a `manageData` operation in
- * their account-creation (or first) transaction that sets this key to the inviter's address.
- * This is verifiable on-chain via GET /accounts/{referred} → .data["referral"].
+ * Passkey smart accounts (C…) can't hold manageData; any wallet can instead bind its
+ * inviter once in the registry (`set_inviter`, read back with `invited_by(addr)`), which
+ * the attester checks first — see `judgeReferral`.
  */
 export const REFERRAL_MARKER_KEY = 'referral';
 
@@ -50,17 +58,6 @@ export function decodeDataEntry(base64Value: string): string | null {
 }
 /** Vouch-back threshold: how many distinct people you must have vouched for to earn it. */
 export const VOUCH_BACK_MIN = 3;
-export interface AttestClaim {
-  questId: number;
-  recipient: string;
-  evidence?: AttestEvidence;
-  timestamp: number;
-}
-/** Binds a signature to one deployment so it can't be replayed elsewhere. */
-export interface AttestContext {
-  contractId: string;
-  passphrase: string;
-}
 
 const G_ADDRESS = /^G[A-Z2-7]{55}$/;
 export function isGAddress(s: unknown): boolean {
@@ -72,28 +69,62 @@ export function isStellarAddress(s: unknown): boolean {
   return typeof s === 'string' && STELLAR_ADDRESS.test(s);
 }
 
-/**
- * The canonical message the recipient signs to prove wallet ownership. v2 BINDS the
- * quest-registry contract id + network passphrase, so a signature captured on
- * testnet/contract-A cannot be replayed against mainnet/contract-B. Fields are
- * '|'-joined (the passphrase contains ':' and spaces, but never '|').
- */
-export function ownershipMessage(c: AttestClaim, ctx: AttestContext): string {
-  return [
-    `attest:${ATTEST_VERSION}`,
-    ctx.passphrase,
-    ctx.contractId,
-    c.recipient,
-    String(c.questId),
-    c.evidence?.type ?? '',
-    c.evidence?.ref ?? '',
-    String(c.timestamp),
-  ].join('|');
+/** Domain tag leading every quest award payload (the contract's `AWARD_DOMAIN`). */
+export const QUEST_AWARD_DOMAIN = 'alvinmunk_award_quest_v1';
+
+/** How long an award signature stays redeemable: `award_quest` refuses it once the ledger
+ *  time passes `expiresAt`. Long enough for a wallet prompt and a slow submit. */
+export const QUEST_SIG_TTL_SECS = 600;
+
+/** The deployment an award signature is for: the quest_registry contract and its network. */
+export interface QuestDeployment {
+  contractId: string;
+  passphrase: string;
 }
 
-/** Reject stale or future-dated requests outside the replay window. */
-export function withinFreshness(now: number, ts: unknown, windowMs = FRESHNESS_MS): boolean {
-  return typeof ts === 'number' && Number.isFinite(ts) && Math.abs(now - ts) <= windowMs;
+/**
+ * The bytes the attester signs to award `questId` to `recipient` until `expiresAt` (unix
+ * seconds, compared with the ledger time): the XDR of the ScVal vector
+ * `[Symbol(QUEST_AWARD_DOMAIN), sha256(passphrase), contract, u32 questId, recipient,
+ * u64 expiresAt]`, byte for byte the contract's `payload` (both sides pin the same test
+ * vector). Built here, never read from an RPC node: a dishonest node could return the
+ * payload for ITS address, and the attester key would sign the award over to it.
+ */
+export function questPayload(
+  ctx: QuestDeployment,
+  questId: number,
+  recipient: string,
+  expiresAt: number,
+): Buffer {
+  return xdr.ScVal.scvVec([
+    xdr.ScVal.scvSymbol(QUEST_AWARD_DOMAIN),
+    xdr.ScVal.scvBytes(hash(Buffer.from(ctx.passphrase))),
+    new Address(ctx.contractId).toScVal(),
+    nativeToScVal(questId, { type: 'u32' }),
+    new Address(recipient).toScVal(),
+    nativeToScVal(BigInt(expiresAt), { type: 'u64' }),
+  ]).toXDR();
+}
+
+/** What `/api/attest` returns for `award_quest`: the attester's raw ed25519 public key
+ *  (hex), its signature over `questPayload` (base64), and the signed expiry. */
+export interface QuestSignature {
+  attester: string;
+  sig: string;
+  expiresAt: number;
+}
+
+/** Sign the award payload for `questId` / `recipient` with the attester secret. */
+export function signQuestPayload(
+  secret: string,
+  ctx: QuestDeployment,
+  questId: number,
+  recipient: string,
+  expiresAt: number,
+): QuestSignature {
+  const kp = Keypair.fromSecret(secret);
+  const sig = kp.sign(questPayload(ctx, questId, recipient, expiresAt));
+  return { attester: kp.rawPublicKey().toString('hex'), sig: sig.toString('base64'), expiresAt };
 }
 
 export function isValidQuestId(q: unknown): q is number {
@@ -119,7 +150,8 @@ export function validateEvidence(
     return { ok: false, reason: 'ref must be owner/repo#number' };
   }
   if (ev.type === 'referral_tx') {
-    if (!isGAddress(ev.ref)) return { ok: false, reason: 'ref must be a G address' };
+    // a passkey smart account (C…) is referred through its registry invite binding
+    if (!isStellarAddress(ev.ref)) return { ok: false, reason: 'ref must be a G or C address' };
     if (ev.ref === recipient) return { ok: false, reason: 'cannot refer yourself' };
   }
   if (ev.type === 'invite_converts') {
@@ -130,24 +162,114 @@ export function validateEvidence(
 }
 
 /**
- * In-window replay guard keyed by signature; entries self-expire after the window.
- * Best-effort (per-instance, resets on cold start) — the on-chain replay guard is the
- * hard cap, this just stops rapid double-submits within the freshness window.
+ * What the attester read about a `referral_tx` ref. For both lookups `null` means "none"
+ * and `undefined` means "couldn't be read right now".
  */
-export function makeReplayGuard(windowMs = FRESHNESS_MS) {
-  const seen = new Map<string, number>();
+export interface ReferralFacts {
+  /** The referred wallet's Social score (`reputation.get_score`). */
+  score: bigint;
+  /**
+   * Its registry invite binding (`registry.invited_by`): the inviter's address; null when
+   * unbound, or when the registry isn't configured or predates invite bindings.
+   */
+  invitedBy: string | null | undefined;
+  /** Its decoded `referral` manageData entry; null when absent (always, for a C… account). */
+  marker: string | null | undefined;
+}
+
+/**
+ * Did `recipient` refer `ref`? The referred wallet must have done something real (a
+ * Social score above zero), so an empty account bound to you earns nothing. Its registry
+ * binding decides whenever there is one — it is write-once and signed by the referred
+ * wallet — and only a wallet with no binding falls back to the classic manageData marker.
+ */
+export function judgeReferral(
+  facts: ReferralFacts,
+  ref: string,
+  recipient: string,
+): { ok: true } | { ok: false; reason: string } {
+  if (facts.score <= 0n) {
+    return { ok: false, reason: 'that wallet hasn’t done anything here yet — no referral credit' };
+  }
+  if (facts.invitedBy === undefined) {
+    return { ok: false, reason: 'couldn’t read who invited that wallet right now — try again' };
+  }
+  if (facts.invitedBy !== null) {
+    return facts.invitedBy === recipient
+      ? { ok: true }
+      : { ok: false, reason: 'that wallet was invited by a different account' };
+  }
+  if (facts.marker === undefined) {
+    return { ok: false, reason: 'couldn’t read the referred account right now — try again' };
+  }
+  if (facts.marker !== null) {
+    if (facts.marker === recipient) return { ok: true };
+    return {
+      ok: false,
+      reason:
+        facts.marker === ref
+          ? 'referral marker is a self-referral on the referred account'
+          : 'referral marker points to a different referrer — cannot reuse this marker',
+    };
+  }
   return {
-    /** True if the signature is NEW (accept); false if it's a replay. */
-    accept(sig: string, now: number): boolean {
-      for (const [k, exp] of seen) if (exp <= now) seen.delete(k);
-      if (seen.has(sig)) return false;
-      seen.set(sig, now + windowMs);
-      return true;
-    },
-    size(): number {
-      return seen.size;
-    },
+    ok: false,
+    reason:
+      'no referral binding found — ask them to join through your invite link ' +
+      `(or set the "${REFERRAL_MARKER_KEY}" data entry to your address)`,
   };
+}
+
+/**
+ * The quest id each evidence type is bound to when its env var is unset: the ids
+ * scripts/redeploy-all.sh seeds and components/Quests.tsx targets. `github_pr` has no
+ * default, so GitHub attestations stay off until QUEST_GITHUB_ID is set.
+ */
+export const DEFAULT_QUEST_IDS = { referral_tx: 2, invite_converts: 3, vouch_back: 4 } as const;
+
+/** Quest-id env vars (per evidence type) read by `buildQuestEvidenceMap`. */
+export const QUEST_ID_ENV: Record<EvidenceType, string> = {
+  referral_tx: 'NEXT_PUBLIC_DEFAULT_QUEST_ID',
+  invite_converts: 'NEXT_PUBLIC_INVITE_QUEST_ID',
+  vouch_back: 'NEXT_PUBLIC_VOUCHBACK_QUEST_ID',
+  github_pr: 'QUEST_GITHUB_ID',
+};
+
+/**
+ * Whether `type` is THE evidence type bound to `questId`. The attester checks this BEFORE
+ * any network call: without it one qualifying action (e.g. vouch_back) could be replayed
+ * against every quest id and redeem each of them. A quest id missing from the map is
+ * rejected, so an unmapped quest can never be attested.
+ */
+export function evidenceMatchesQuest(
+  questId: number,
+  type: EvidenceType,
+  map: ReadonlyMap<number, EvidenceType>,
+): boolean {
+  return map.get(questId) === type;
+}
+
+/**
+ * Build the questId → evidence-type map from env (see `QUEST_ID_ENV`). An unset or blank
+ * var falls back to `DEFAULT_QUEST_IDS`; a set value must be a plain decimal quest id, or
+ * that type is left unmapped. Two types configured with the same quest id are ambiguous,
+ * so that id is dropped entirely and rejects every type (fail closed).
+ */
+export function buildQuestEvidenceMap(
+  env: Record<string, string | undefined>,
+): Map<number, EvidenceType> {
+  const map = new Map<number, EvidenceType>();
+  const conflicts = new Set<number>();
+  for (const type of Object.keys(QUEST_ID_ENV) as EvidenceType[]) {
+    const raw = env[QUEST_ID_ENV[type]]?.trim();
+    const fallback = (DEFAULT_QUEST_IDS as Partial<Record<EvidenceType, number>>)[type];
+    const id = raw ? (/^\d+$/.test(raw) ? Number(raw) : NaN) : fallback;
+    if (!isValidQuestId(id)) continue;
+    if (map.has(id)) conflicts.add(id);
+    else map.set(id, type);
+  }
+  for (const id of conflicts) map.delete(id);
+  return map;
 }
 
 /** Parse "owner/repo,owner2/repo2" into a lowercased set, or null when unset. */

@@ -1,15 +1,13 @@
 import { notFound } from 'next/navigation';
 import { Sparkles, Users, ShieldCheck, Code, AlertCircle } from 'lucide-react';
-import { getScores, getAttestation } from '@/lib/reputation';
+import { getScores, getQuestAttestation } from '@/lib/reputation';
+import { getPeopleCounts } from '@/lib/constellation';
 import { Crest } from '@/components/brand/crest';
 import { Frame } from '@/components/fx/frame';
-import { Stamp } from '@/components/fx/stamp';
 import { StateArt } from '@/components/ui/state-art';
 import { Sticker } from '@/components/ui/sticker';
-import { cn, shortAddress } from '@/lib/utils';
-
-// Stellar address validation: classic (G…) OR passkey smart-account (C…)
-const STELLAR_ADDRESS = /^[GC][A-Z2-7]{55}$/;
+import { isStellarAddress, shortAddr } from '@alvinmunk/shared';
+import { ReputationSnippet } from '@/components/ReputationSnippet';
 
 interface ScorePageProps {
   params: Promise<{ address: string }>;
@@ -21,7 +19,7 @@ export async function generateMetadata({ params }: ScorePageProps): Promise<{
 }> {
   const { address } = await params;
   return {
-    title: `Reputation: ${shortAddress(address)} · alvinmunk`,
+    title: `Reputation: ${shortAddr(address)} · alvinmunk`,
     description: `View the on-chain reputation for ${address} — Social XP, Earned XP, and quest attestations.`,
   };
 }
@@ -30,7 +28,7 @@ export default async function ScorePage({ params }: ScorePageProps) {
   const { address } = await params;
 
   // Validate address format
-  if (!STELLAR_ADDRESS.test(address)) {
+  if (!isStellarAddress(address)) {
     return (
       <div className="container max-w-2xl py-14">
         <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-primary/80">{'// error'}</p>
@@ -46,13 +44,18 @@ export default async function ScorePage({ params }: ScorePageProps) {
   }
 
   // Fetch reputation data (read-only, no wallet required)
-  const [scores, attestations] = await Promise.all([
+  const [scores, people, questAttestation] = await Promise.all([
     getScores(address).catch(() => ({ social: 0, earned: 0 })),
-    getAttestation(address),
+    getPeopleCounts(address).catch(() => ({ vouchedBy: 0, backed: 0 })),
+    getQuestAttestation(address).catch(() => null),
   ]);
 
-  const stars = Math.max(0, Math.round(scores.social / 10));
-  const hasActivity = scores.social > 0 || scores.earned > 0 || attestations > 0;
+  const hasActivity =
+    scores.social > 0 ||
+    scores.earned > 0 ||
+    questAttestation !== null ||
+    people.vouchedBy > 0 ||
+    people.backed > 0;
 
   if (!hasActivity) {
     return (
@@ -64,7 +67,7 @@ export default async function ScorePage({ params }: ScorePageProps) {
           <p className="text-muted-foreground">
             This address hasn&apos;t earned any Social XP, Earned XP, or completed any quests yet.
           </p>
-          <p className="font-mono text-sm text-muted-foreground">{shortAddress(address)}</p>
+          <p className="font-mono text-sm text-muted-foreground">{shortAddr(address)}</p>
         </div>
       </div>
     );
@@ -81,9 +84,9 @@ export default async function ScorePage({ params }: ScorePageProps) {
 
       {/* Address display */}
       <div className="mt-6 flex items-center gap-4">
-        <Crest address={address} size={64} points={Math.min(9, 4 + (stars % 5))} />
+        <Crest address={address} size={64} points={Math.min(9, 4 + (people.vouchedBy % 5))} />
         <div>
-          <p className="font-mono text-sm text-muted-foreground">{shortAddress(address)}</p>
+          <p className="font-mono text-sm text-muted-foreground">{shortAddr(address)}</p>
           <p className="mt-1 text-xs text-muted-foreground/70">
             {address.startsWith('C') ? 'Passkey wallet (C…)' : 'Classic wallet (G…)'}
           </p>
@@ -93,14 +96,18 @@ export default async function ScorePage({ params }: ScorePageProps) {
       {/* Stats grid */}
       <Frame label="reputation // on_chain" index="live" className="mt-8">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          {/* Stars */}
+          {/* People who vouched */}
           <div className="relative border-border/50 p-6 sm:border-r">
             <div className="flex items-center gap-2">
               <Sparkles className="size-4 text-accent" />
-              <span className="text-sm font-medium text-muted-foreground">Stars</span>
+              <span className="text-sm font-medium text-muted-foreground">Vouched by</span>
             </div>
-            <p className="mt-2 font-display text-4xl font-semibold tabular-nums">{stars}</p>
-            <p className="mt-1 text-xs text-muted-foreground">People in your sky</p>
+            <p className="mt-2 font-display text-4xl font-semibold tabular-nums">
+              {people.vouchedBy.toLocaleString()}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              People in their sky · backed {people.backed.toLocaleString()}
+            </p>
           </div>
 
           {/* Social XP */}
@@ -130,13 +137,16 @@ export default async function ScorePage({ params }: ScorePageProps) {
       </Frame>
 
       {/* Attestations */}
-      {attestations > 0 && (
-        <Frame label="quests // completed" index={`${attestations}`} className="mt-6">
+      {questAttestation && (
+        <Frame label="quests // verified" index="latest" className="mt-6">
           <div className="flex items-center gap-4 p-6">
             <Sticker name="stamp-verified" size={48} className="h-10 w-auto" />
             <div>
-              <p className="font-display text-2xl font-semibold">{attestations}</p>
-              <p className="text-sm text-muted-foreground">Quest attestations completed</p>
+              <p className="font-display text-2xl font-semibold">{Number(questAttestation.value)} XP</p>
+              <p className="text-sm text-muted-foreground">
+                Earned from verified quests · latest on{' '}
+                {new Date(questAttestation.timestamp * 1000).toLocaleDateString('en-US', { dateStyle: 'medium' })}
+              </p>
             </div>
           </div>
         </Frame>
@@ -149,51 +159,10 @@ export default async function ScorePage({ params }: ScorePageProps) {
           <h2 className="font-display text-xl font-semibold tracking-tight">For developers</h2>
         </div>
         <p className="mt-3 text-sm text-muted-foreground">
-          Read this reputation data from your own app using the public API. No wallet required.
+          Read this wallet&apos;s Social and Earned XP straight from the reputation contract with{' '}
+          <code className="font-mono text-xs">@stellar/stellar-sdk</code>. No wallet or API key needed.
         </p>
-        <div className="mt-4 border border-border/70 bg-background/70">
-          <div className="flex items-center gap-1.5 border-b border-border/60 px-3 py-2">
-            <span className="size-2.5 rounded-full bg-destructive/70" />
-            <span className="size-2.5 rounded-full bg-warning/70" />
-            <span className="size-2.5 rounded-full bg-secondary/70" />
-            <span className="ml-2 font-mono text-[10px] text-muted-foreground">read-reputation.ts</span>
-          </div>
-          <pre className="overflow-x-auto p-5 font-mono text-xs leading-relaxed text-foreground/80">
-{`import { getScores, getAttestation } from '@/lib/reputation';
-
-// Read Social and Earned XP for any address
-const { social, earned } = await getScores(address);
-// → { social: 42, earned: 30 }
-
-// Read completed quest attestations
-const attestations = await getAttestation(address);
-// → 5
-
-// Calculate stars (human-facing roll-up)
-const stars = Math.round(social / 10);
-// → 4`}
-          </pre>
-        </div>
-        <div className="mt-6 grid gap-4 sm:grid-cols-2">
-          <div className="border-border/50 border-t p-4">
-            <Stamp accent="primary">GET_SCORE</Stamp>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Returns the Social XP (clout, non-cashable) for an address.
-            </p>
-          </div>
-          <div className="border-border/50 border-t p-4">
-            <Stamp accent="secondary">GET_EARNED</Stamp>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Returns the Earned XP (USDC-eligible track) for an address.
-            </p>
-          </div>
-          <div className="border-border/50 border-t p-4 sm:col-span-2">
-            <Stamp accent="tertiary">GET_ATTESTATION</Stamp>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Returns the number of completed quest attestations for an address.
-            </p>
-          </div>
-        </div>
+        <ReputationSnippet address={address} className="mt-4" />
       </section>
     </div>
   );

@@ -1,13 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { toast } from 'sonner';
-import { useWallet } from '@/components/wallet/wallet-provider';
-import { recordGenesis } from '@/lib/genesis';
-import { claimHandle, isHandleAvailable } from '@/lib/registry';
-import { normalizeHandle, type Profile } from '@/lib/profile';
-import { humanizeError } from '@/lib/utils';
-import { track, identify, trackError } from '@/lib/track';
+import { useState } from 'react';
+import { useCreateProfile } from '@/hooks/use-create-profile';
+import { normalizeHandle } from '@/lib/profile';
 import { useTranslations } from '@/lib/i18n';
 import { Crest } from '@/components/brand/crest';
 import { AvatarPicker } from '@/components/AvatarPicker';
@@ -18,65 +13,12 @@ import { Input } from '@/components/ui/input';
 
 export function Onboarding() {
   const t = useTranslations();
-  const { connect, setProfile } = useWallet();
-  const [handle, setHandle] = useState('');
-  const [creating, setCreating] = useState(false);
   const [face, setFace] = useState<FaceId | undefined>();
-  const [avail, setAvail] = useState<'idle' | 'checking' | 'free' | 'taken'>('idle');
-
-  useEffect(() => {
-    const h = normalizeHandle(handle);
-    if (h.length < 3) {
-      setAvail('idle');
-      return;
-    }
-    setAvail('checking');
-    let alive = true;
-    const timer = setTimeout(() => {
-      isHandleAvailable(h)
-        .then((free) => alive && setAvail(free ? 'free' : 'taken'))
-        .catch(() => alive && setAvail('idle'));
-    }, 400);
-    return () => {
-      alive = false;
-      clearTimeout(timer);
-    };
-  }, [handle]);
-
-  async function createProfile() {
-    const h = normalizeHandle(handle);
-    if (h.length < 3) {
-      toast.error(t('onboard.app.errShort'));
-      return;
-    }
-    setCreating(true);
-    try {
-      const w = await connect();
-      if (!(await isHandleAvailable(h))) {
-        toast.error(t('onboard.app.errTaken', { handle: h }));
-        return;
-      }
-      const tx = w.kind === 'passkey' ? undefined : await recordGenesis(w, h);
-      await claimHandle(w, h);
-      const p: Profile = {
-        handle: h,
-        address: w.address,
-        createdAt: Date.now(),
-        genesisTx: tx,
-        avatar: face ? { kind: 'face', id: face } : undefined,
-      };
-      setProfile(p);
-      identify(w.address, { handle: h, walletKind: w.kind });
-      track('profile_created', { walletKind: w.kind });
-      toast.success(t('onboard.app.success', { handle: h }));
-    } catch (e) {
-      console.error('🛑 createProfile failed →', e);
-      trackError(e, { flow: 'create_profile' });
-      toast.error(humanizeError(e));
-    } finally {
-      setCreating(false);
-    }
-  }
+  const { handle, setHandle, avail, reservedUntil, creating, createProfile, restoring, restoreAccount } =
+    useCreateProfile({
+      from: 'app',
+      face,
+    });
 
   return (
     <div className="relative container flex max-w-md flex-col items-center gap-8 py-20">
@@ -86,17 +28,17 @@ export function Onboarding() {
         style={{ backgroundImage: `url(${asset('backgrounds/app-bg.png')})`, backgroundSize: 'cover', backgroundPosition: 'top' }}
       />
       <div className="text-center">
-        <p className="eyebrow mb-3">{t('onboard.app.eyebrow')}</p>
-        <h1 className="text-3xl font-semibold">{t('onboard.app.title')}</h1>
+        <p className="eyebrow mb-3">{t('onboard.eyebrow')}</p>
+        <h1 className="text-3xl font-semibold">{t('onboard.title')}</h1>
         <p className="mx-auto mt-2 max-w-xs text-sm text-muted-foreground text-balance">
-          {t('onboard.app.subtitle')}
+          {t('onboard.subtitle')}
         </p>
       </div>
 
       <Crest address={handle ? `profile-${handle}` : 'new-profile'} size={160} points={6} animate />
 
       <div className="flex flex-col items-center gap-2">
-        <p className="text-xs font-medium text-muted-foreground">{t('onboard.app.pickFace')}</p>
+        <p className="text-xs font-medium text-muted-foreground">{t('onboard.pickFace')}</p>
         <AvatarPicker value={face} onChange={setFace} size={48} />
       </div>
 
@@ -111,23 +53,42 @@ export function Onboarding() {
           autoFocus
           value={handle}
           onChange={(e) => setHandle(e.target.value)}
-          placeholder={t('onboard.app.placeholder')}
+          placeholder={t('onboard.placeholder')}
           className="text-center"
-          aria-label={t('onboard.app.ariaLabel')}
+          aria-label={t('onboard.ariaLabel')}
           aria-describedby="handle-status"
         />
         <p id="handle-status" aria-live="polite" className="h-4 text-xs">
-          {avail === 'checking' && <span className="text-muted-foreground">{t('onboard.app.checking')}</span>}
-          {avail === 'free' && <span className="text-secondary">{t('onboard.app.handleFree', { handle: normalizeHandle(handle) })}</span>}
-          {avail === 'taken' && <span className="text-destructive">{t('onboard.app.handleTaken', { handle: normalizeHandle(handle) })}</span>}
+          {avail === 'checking' && <span className="text-muted-foreground">{t('onboard.checking')}</span>}
+          {avail === 'free' && <span className="text-secondary">{t('onboard.handleFree', { handle: normalizeHandle(handle) })}</span>}
+          {avail === 'taken' && <span className="text-destructive">{t('onboard.handleTaken', { handle: normalizeHandle(handle) })}</span>}
+          {avail === 'reserved' && reservedUntil && <span className="text-destructive">{t('onboard.handleReserved', { handle: normalizeHandle(handle), date: reservedUntil })}</span>}
         </p>
-        <Button type="submit" size="lg" disabled={creating || avail === 'taken'} className="w-full">
-          {creating ? t('onboard.app.submitting') : t('onboard.app.submit')}
+        <Button
+          type="submit"
+          size="lg"
+          disabled={creating || restoring || avail === 'taken' || avail === 'reserved'}
+          className="w-full"
+        >
+          {creating ? t('onboard.creating') : t('onboard.submit')}
         </Button>
       </form>
 
+      <div className="flex flex-col items-center gap-1.5">
+        <p className="text-xs text-muted-foreground">{t('onboard.app.or')}</p>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={creating || restoring}
+          onClick={() => void restoreAccount()}
+        >
+          {restoring ? t('onboard.app.restoring') : t('onboard.app.restore')}
+        </Button>
+      </div>
+
       <p className="text-center text-xs text-muted-foreground text-balance">
-        {t('onboard.app.footer')}
+        {t('onboard.footer')}
       </p>
     </div>
   );
