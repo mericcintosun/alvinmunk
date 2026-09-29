@@ -416,7 +416,10 @@ changes nothing and emits no event.
 
 A handle is freed: the wallet released it (`release()`), or renamed away from
 it (`claim()` with a different handle, emitted right before the new `claimed`).
-Either way the handle no longer resolves and anyone may claim it.
+Either way the handle no longer resolves and enters a 30-day cooldown
+(`HANDLE_COOLDOWN_SECS`): until `until` only this wallet may claim it again, and
+`claim()` by anyone else reverts with `HandleCoolingDown` (#9). From `until` on,
+anyone may claim it.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -429,10 +432,17 @@ Either way the handle no longer resolves and anyone may claim it.
 |-------|------|-------------|
 | 0 | `Address` | `caller` — the wallet that held the handle |
 | 1 | `Symbol` | `handle` — the freed handle |
+| 2 | `u64` | `until` — ledger timestamp (unix seconds) the cooldown ends at |
+
+Index 2 was appended when handle cooldowns landed; readers that only look at
+indexes 0–1 are unaffected. A registry deployed before then emits two fields and
+has no cooldown.
 
 An indexer keyed by handle stays in sync by applying both sub-types in event
-order: `claimed` sets `handle → caller`, `released` deletes `handle`. The one
-gap is `admin_release()` (see the note below).
+order: `claimed` sets `handle → caller` (ending any cooldown on it), `released`
+deletes `handle` and marks it reserved for `caller` until `until`. The one gap
+is `admin_release()` (see the note below); the `cooldown` read view is always
+current.
 
 **Contract source**: `registry/src/lib.rs` → `fn claim()` / `fn release()`
 
@@ -440,7 +450,7 @@ gap is `admin_release()` (see the note below).
 // Rename (inside claim, before the claimed event):
 env.events().publish(
     (symbol_short!("handle"), symbol_short!("released")),
-    (caller.clone(), old));
+    (caller.clone(), old, until));
 
 // Claim:
 env.events().publish(
@@ -450,12 +460,13 @@ env.events().publish(
 // Release:
 env.events().publish(
     (symbol_short!("handle"), symbol_short!("released")),
-    (caller, handle));
+    (caller.clone(), handle, until));
 ```
 
 > **Note**: `admin_release()` does **not** emit a `handle` event (admin-only
 > operation that cleans up state silently). It does emit `meta` / `cleared` when
-> the holder had a profile.
+> the holder had a profile. It frees the handle outright: it starts no cooldown,
+> and silently ends one the handle is already in.
 
 ### `meta` / `set`
 
@@ -934,6 +945,26 @@ archived. Callers chunk longer lists (`reverseHandles` in `apps/web/src/lib/regi
 All three are pure reads: any caller, no auth, no writes, no TTL extension. A registry
 deployed before `reverse_many` has no such function (`Error(WasmVm, MissingValue)`,
 "non-existent contract function"), so fall back to one `reverse` per address.
+
+### Handle cooldown (`cooldown`)
+
+`cooldown(handle) -> Option<CooldownInfo>` says why a free handle can't be claimed yet:
+it was released or renamed away less than 30 days (`HANDLE_COOLDOWN_SECS`) ago.
+
+```rust
+pub struct CooldownInfo {
+    pub prev_owner: Address,  // the wallet that freed it; it may reclaim it any time
+    pub until: u64,           // ledger timestamp (unix seconds) anyone may claim it from
+}
+```
+
+`None` when the handle is held, was never freed, its cooldown has passed, or
+`admin_release` lifted it. While it is `Some`, `claim(handle)` by any address other
+than `prev_owner` reverts with `HandleCoolingDown` (#9). The window is checked against
+ledger time only, and the entry lives in temporary storage (about 60 days of ledgers)
+so it outlives `until` and then deletes itself. Pure read: any caller, no writes, no
+TTL extension. A registry deployed before cooldowns has no such function, so treat a
+failed call as "no cooldown".
 
 ### `ProfileMeta` (`get_meta`)
 

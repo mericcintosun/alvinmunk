@@ -6,14 +6,15 @@ import { useWallet } from '@/components/wallet/wallet-provider';
 import { normalizeHandle, type Profile } from '@/lib/profile';
 import { humanizeError } from '@/lib/utils';
 import { track, identify, trackError } from '@/lib/track';
-import { useTranslations } from '@/lib/i18n';
+import { useLocale, useTranslations } from '@/lib/i18n';
 import type { FaceId } from '@/lib/avatar';
 
 /** Where a create-profile flow runs from. Drives both the `onboard.<from>.*` i18n keys
  *  and the `from` field on the `profile_created` track event. */
 export type CreateProfileSource = 'app' | 'landing' | 'claim';
 
-export type HandleAvailability = 'idle' | 'checking' | 'free' | 'taken';
+/** `reserved`: freed recently and cooling down for its previous owner (see `reservedUntil`). */
+export type HandleAvailability = 'idle' | 'checking' | 'free' | 'taken' | 'reserved';
 
 export interface UseCreateProfileOptions {
   from: CreateProfileSource;
@@ -31,6 +32,8 @@ export interface UseCreateProfileResult {
   /** `normalizeHandle(handle)` — exposed so callers don't need to import/re-derive it. */
   normalizedHandle: string;
   avail: HandleAvailability;
+  /** When a `reserved` handle opens up to everyone, as a localized date; null otherwise. */
+  reservedUntil: string | null;
   creating: boolean;
   createProfile: () => Promise<void>;
 }
@@ -53,11 +56,20 @@ export interface UseCreateProfileResult {
  */
 export function useCreateProfile({ from, face, onCreated }: UseCreateProfileOptions): UseCreateProfileResult {
   const t = useTranslations();
+  const { locale } = useLocale();
   const { wallet, connect, setProfile } = useWallet();
   const [handle, setHandle] = useState('');
   const [creating, setCreating] = useState(false);
   const [avail, setAvail] = useState<HandleAvailability>('idle');
+  const [reservedUntil, setReservedUntil] = useState<string | null>(null);
   const normalizedHandle = normalizeHandle(handle);
+  // A handle its holder just released or renamed away from stays reserved for them for a
+  // while; the connected wallet (if any) is asked about, since it may be that previous owner.
+  const address = wallet?.address;
+  const day = useCallback(
+    (d: Date) => d.toLocaleDateString(locale, { dateStyle: 'medium' }),
+    [locale],
+  );
 
   useEffect(() => {
     if (normalizedHandle.length < 3) {
@@ -68,15 +80,19 @@ export function useCreateProfile({ from, face, onCreated }: UseCreateProfileOpti
     let alive = true;
     const timer = setTimeout(() => {
       import('@/lib/registry')
-        .then(({ isHandleAvailable }) => isHandleAvailable(normalizedHandle))
-        .then((free) => alive && setAvail(free ? 'free' : 'taken'))
+        .then(({ handleAvailability }) => handleAvailability(normalizedHandle, address))
+        .then((a) => {
+          if (!alive) return;
+          setAvail(a.status);
+          setReservedUntil(a.status === 'reserved' ? day(a.until) : null);
+        })
         .catch(() => alive && setAvail('idle'));
     }, 400);
     return () => {
       alive = false;
       clearTimeout(timer);
     };
-  }, [normalizedHandle]);
+  }, [normalizedHandle, address, day]);
 
   const createProfile = useCallback(async () => {
     const h = normalizedHandle;
@@ -86,14 +102,21 @@ export function useCreateProfile({ from, face, onCreated }: UseCreateProfileOpti
     }
     setCreating(true);
     try {
-      const [{ recordGenesis }, { claimHandle, isHandleAvailable }] = await Promise.all([
+      const [{ recordGenesis }, { claimHandle, handleAvailability }] = await Promise.all([
         import('@/lib/genesis'),
         import('@/lib/registry'),
       ]);
       // Reuse an already-connected wallet when there is one, so this never re-triggers
       // connect() / a second FaceID prompt (e.g. right after claimVouch on the claim page).
       const w = wallet ?? (await connect());
-      if (!(await isHandleAvailable(h))) {
+      const a = await handleAvailability(h, w.address);
+      if (a.status === 'reserved') {
+        setAvail('reserved');
+        setReservedUntil(day(a.until));
+        toast.error(t(`onboard.${from}.errReserved`, { handle: h, date: day(a.until) }));
+        return;
+      }
+      if (a.status === 'taken') {
         setAvail('taken');
         toast.error(t(`onboard.${from}.errTaken`, { handle: h }));
         return;
@@ -120,7 +143,7 @@ export function useCreateProfile({ from, face, onCreated }: UseCreateProfileOpti
     } finally {
       setCreating(false);
     }
-  }, [normalizedHandle, wallet, connect, setProfile, face, from, onCreated, t]);
+  }, [normalizedHandle, wallet, connect, setProfile, face, from, onCreated, t, day]);
 
-  return { handle, setHandle, normalizedHandle, avail, creating, createProfile };
+  return { handle, setHandle, normalizedHandle, avail, reservedUntil, creating, createProfile };
 }
