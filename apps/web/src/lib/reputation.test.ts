@@ -1,1 +1,357 @@
-aW1wb3J0IHsgZGVzY3JpYmUsIGl0LCBleHBlY3QsIHZpLCBiZWZvcmVFYWNoIH0gZnJvbSAndml0ZXN0JzsKCmNvbnN0IHJlYWRQdWJsaWNNb2NrID0gdmkuZm4oKTsKY29uc3QgaW52b2tlQW5kV2FpdE1vY2sgPSB2aS5mbigpOwoKdmkubW9jaygnLi9jb250cmFjdHMnLCAoKSA9PiAoewogIHJlcElkOiAoKSA9PiAnQ1JFUElEJywKICBxdWVzdElkOiAoKSA9PiAnQ1FVRVNUSUQnLAogIHJlYWRQdWJsaWM6ICguLi5hOiB1bmtub3duW10pID0+IHJlYWRQdWJsaWNNb2NrKC4uLmEpLAogIHJlYWRDb250cmFjdDogdmkuZm4oKSwKICBpbnZva2VBbmRXYWl0OiAoLi4uYTogdW5rbm93bltdKSA9PiBpbnZva2VBbmRXYWl0TW9jayguLi5hKSwKICBhcmdzOiB7CiAgICBhZGRyOiAoZzogc3RyaW5nKSA9PiAoeyBfX2FkZHI6IGcgfSksCiAgICB1NjQ6IChuOiBudW1iZXIpID0+ICh7IF9fdTY0OiBuIH0pLAogICAgc3RyOiAoczogc3RyaW5nKSA9PiAoeyBfX3N0cjogcyB9KSwKICAgIGJ5dGVzOiAoYjogVWludDhBcnJheSkgPT4gKHsgX19ieXRlczogYiB9KSwKICB9LAp9KSk7CgppbXBvcnQgewogIGNsYW1wVm91Y2hOb3RlLAogIGZyb21IZXgsCiB0b0hleCwKICBnZXRDb3VudHMsCiAgZ2V0UGVuZGluZywKICBnZXRQcm9maWxlLAogIGdldFNjb3JlcywKICBtaW50Vm91Y2hlcywKICBWT1VDSF9OT1RFX01BWF9CWVRFUywKICBWT1VDSF9OT1RFX01BWF9DSEFSUywKICB2b3VjaE5vdGVCeXRlcywKfSBmcm9tICcuL3JlcHV0YXRpb24nOwoKZnVuY3Rpb24gZXhwZWN0Qnl0ZXMoYWN0dWFsOiBVaW50OEFycmF5LCBleHBlY3RlZDogbnVtYmVyW10pIHsKICBleHBlY3QoQXJyYXkuZnJvbShhY3R1YWwpKS50b0VxdWFsKGV4cGVjdGVkKTsKfQoKZGVzY3JpYmUoJ2NsYWltLXNlY3JldCBoZXggaGVscGVycycsICgpID0+IHsKICBpdCgncm91bmQtdHJpcHMgcmFuZG9tIDMyLWJ5dGUgaW5wdXRzJywgKCkgPT4gewogICAgZm9yIChsZXQgc2VlZCA9IDA7IHNlZWQgPCAzMjsgc2VlZCsrKSB7CiAgICAgIGNvbnN0IGJ5dGVzID0gbmV3IFVpbnQ4QXJyYXkoMzIpOwogICAgICBmb3IgKGxldCBpID0gMDsgaSA8IGJ5dGVzLmxlbmd0aDsgaSsrKSB7CiAgICAgICAgYnl0ZXNbaV0gPSAoc2VlZCAqIDczICsgaSAqIDI5ICsgaSAqIGkpICYgMHhmZjsKICAgICAgfQoKICAgICAgZXhwZWN0KGZyb21IZXgodG9IZXgoYnl0ZXMpKSkudG9FcXVhbChieXRlcyk7CiAgICB9CiAgfSk7CgogIGl0KCd1c2VzIGxvd2VyY2FzZSBoZXggYW5kIHByZXNlcnZlcyBsZWFkaW5nIHplcm8gYnl0ZXMnLCAoKSA9PiB7CiAgICBjb25zdCBieXRlcyA9IG5ldyBVaW50OEFycmF5KFtweDAwLCAweDBhLCAweGFiLCAweGZmXSk7CgogICAgZXhwZWN0KHRvSGV4KGJ5dGVzKSkudG9CZSgnMDAwYWFiZmYnKTsKICAgIGV4cGVjdChmcm9tSGV4KCcwMDBBQUJGRicpKS50b0VxdWFsKGJ5dGVzKTsKICB9KTsKCiAgaXQoJ2lnbm9yZXMgYW4gaW5jb21wbGV0ZSB0cmFpbGluZyBuaWJibGUnLCAoKSA9PiB7CiAgICBleHBlY3RCeXRlcyhmcm9tSGV4KCdhYmMnKSwgWzB4YWJdKTsKICB9KTsKCiAgaXQoJ2NvZXJjZXMgbm9uLWhleCBieXRlIHBhaXJzIHRvIHplcm8nLCAoKSA9PiB7CiAgICBleHBlY3RCeXRlcyhmcm9tSGV4KCd6ejAxJyksIFswLCAxXSk7CiAgfSk7CgogIGl0KCdyZXR1cm5zIG5vIGJ5dGVzIGZvciBhbiBlbXB0eSBzdHJpbmcnLCAoKSA9PiB7CiAgICBleHBlY3RCeXRlcyhmcm9tSGV4KCcnKSwgW10pOwogIH0pOwp9KTsKCmRlc2NyaWJlKCd2b3VjaCBub3RlIGxpbWl0JywgKCkgPT4gewogIGl0KCdtaXJyb3JzIHRoZSBjb250cmFjdCBjYXA6IDI0MCBieXRlcywgNjAgY2hhcmFjdGVycycsICgpID0+IHsKICAgIGV4cGVjdChWT1VDSF9OT1RFX01BWF9CWVRFUykudG9CZSgyNDApOwogICAgZXhwZWN0KFZPVUNIX05PVEVfTUFYX0NIQVJTKS50b0JlKDYwKTsKICB9KTsKCiAgaXQoJ2NvdW50cyBVVEYtOCBieXRlcyBsaWtlIHRoZSBjb250cmFjdCcsICgpID0+IHsKICAgIGV4cGVjdCh2b3VjaE5vdGVCeXRlcygnYWJjJykpLnRvQmUoMyk7CiAgICBleHBlY3Qodm91Y2hOb3RlQnl0ZXMoJ8WfJykpLnRvQmUoMik7CiAgICBleHBlY3Qodm91Y2hOb3RlQnl0ZXMoJ+KCrCcpKS50b0JlKDMpOwogICAgZXhwZWN0KHZvdWNoTm90ZUJ5dGVzKCfwn5KnJykpLnRvQmUoNCk7CiAgfSk7CgogIGl0KCdrZWVwcyBhIG5vdGUgb2YgNjAgY2hhcmFjdGVycywgb25lLWJ5dGUgb3IgZm91ci1ieXRlIGFsaWtlJywgKCkgPT4gewogICAgZm9yIChjb25zdCBjaCBvZiBbJ2EnLCAnxZ8nLCAn4oKsJywgJ/CfkqcnXSkgewogICAgICBjb25zdCBub3RlID0gY2gucmVwZWF0KDYwKTsKICAgICAgZXhwZWN0KGNsYW1wVm91Y2hOb3RlKG5vdGUpKS50b0JlKG5vdGUpOwogICAgICBleHBlY3QoY2xhbXBWb3VjaE5vdGUobm90ZSArIGNoKSkudG9CZShub3RlKTsKICAgIH0KICAgIC8vIDYwIGZvdXItYnl0ZSBjaGFyYWN0ZXJzIGFyZSBleGFjdGx5IHRoZSBjb250cmFjdCdzIGNhcC4KICAgIGV4cGVjdCh2b3VjaE5vdGVCeXRlcyhjbGFtcFZvdWNoTm90ZSgn8J+SpycucmVwZWF0KDYxKSkpKS50b0JlKFZPVUNIX05PVEVfTUFYX0JZVEVTKTsKICB9KTsKCiAgaXQoJ25ldmVyIGN1dHMgYSBjaGFyYWN0ZXIgaW4gaGFsZicsICgpID0+IHsKICAgIC8vIDU5IEFTQ0lJICsgYSA0LWJ5dGUgZW1vamkgZml0czsgdGhlIGVtb2ppIGlzIGNoYXJhY3RlciA2MCBhbmQgc3RheXMgd2hvbGUuCiAgICBjb25zdCBub3RlID0gYCR7J2EnLnJlcGVhdCg1OSl98fPCfkqcnYDsKICAgIGV4cGVjdChjbGFtcFZvdWNoTm90ZShgJHtub3RlffCfkqcnKSkudG9CZShub3RlKTsKICAgIGV4cGVjdChjbGFtcFZvdWNoTm90ZSgn8J+SpycucmVwZWF0KDcwKSkpLm5vdC50b01hdGNoKC9bXHVEODAwLVx1REZGRl0kL3UpOwogIH0pOwoKICBpdCgnYWx3YXlzIGZpdHMgdGhlIGNvbnRyYWN0IGNhcCcsICgpID0+IHsKICAgIGZvciAoY29uc3QgcyBvZiBbCiAgICAgICd4Jy5yZXBlYXQoNTAwKSwKICAgICAgJ8WfJy5yZXBlYXQoNTAwKSwKICAgICAgJ+KCrCcucmVwZWF0KDUwMCksCiAgICAgICfwn4yfJy5yZXBlYXQoNTAwKSwKICAgICAgJ/CfkY3wn4+9Jy5yZXBlYXQoMTAwKSwKICAgIF0pIHsKICAgICAgZXhwZWN0KHZvdWNoTm90ZUJ5dGVzKGNsYW1wVm91Y2hOb3RlKHMpKSkudG9CZUxlc3NUaGFuT3JFcXVhbChWT1VDSF9OT1RFX01BWF9CWVRFUyk7CiAgICB9CiAgfSk7CgogIGl0KCdsZWF2ZXMgc2hvcnQgbm90ZXMgYWxvbmUnLCAoKSA9PiB7CiAgICBleHBlY3QoY2xhbXBWb3VjaE5vdGUoJycpKS50b0JlKCcnKTsKICAgIGV4cGVjdChjbGFtcFZvdWNoTm90ZSgndW5ibG9ja2VkIG1lIGF0IDJhbSDinKgnKSkudG9CZSgndW5ibG9ja2VkIG1lIGF0IDJhbSDinKgnKTsKICB9KTsKfSk7CgpkZXNjcmliZSgnZ2V0UHJvZmlsZScsICgpID0+IHsKICBiZWZvcmVFYWNoKCgpID0+IHJlYWRQdWJsaWNNb2NrLm1vY2tSZXNldCgpKTsKCiAgaXQoJ21hcHMgdGhlIGFnZ3JlZ2F0ZSB2aWV3IHRvIGEgdHlwZWQgUHJvZmlsZVZpZXcnLCBhc3luYyAoKSA9PiB7CiAgICByZWFkUHVibGljTW9jay5tb2NrUmVzb2x2ZWRPbmNlKHsgc29jaWFsOiAzMG4sIGVhcm5lZDogNTBuLCB2ZXJpZmllZDogdHJ1ZSB9KTsKICAgIGNvbnN0IHAgPSBhd2FpdCBnZXRQcm9maWxlKCdHQUREUicpOwogICAgZXhwZWN0KHApLnRvRXF1YWwoeyBzb2NpYWw6IDMwLCBlYXJuZWQ6IDUwLCB2ZXJpZmllZDogdHJ1ZSB9KTsKICAgIGV4cGVjdChyZWFkUHVibGljTW9jaykudG9IYXZlQmVlbkNhbGxlZFdpdGgoJ0NSRVBJRCcsICdnZXRfcHJvZmlsZScsIGV4cGVjdC5hbnkoQXJyYXkpKTsKICB9KTsKCiAgaXQoJ2RlZmFhdWx0cyBtaXNzaW5nIGZpZWxkcyB0byB6ZXJvL2ZhbHNlJywgYXN5bmMgKCkgPT4gewogICAgcmVhZFB1YmxpY01vY2subW9ja1Jlc29sdmVkT25jZSh1bmRlZmluZWQpOwogICAgY29uc3QgcCA9IGF3YWl0IGdldFByb2ZpbGUoJ0dBRERSJyk7CiAgICBleHBlY3QocCkudG9FcXVhbCh7IHNvY2lhbDogMCwgZWFybmVkOiAwLCB2ZXJpZmllZDogZmFsc2UgfSk7CiAgfSk7CgogIGl0KCdzaGFyZXMgb25lIGdldF9wcm9maWxlIHJlYWQgYmV0d2VlbiB3aWRnZXRzIGFza2luZyBhdCB0aGUgc2FtZSB0aW1lJywgYXN5bmMgKCkgPT4gewogICAgcmVhZFB1YmxpY01vY2subW9ja1Jlc29sdmVkKHsgc29jaWFsOiAxbiwgZWFybmVkOiAybiwgdmVyaWZpZWQ6IHRydWUgfSk7CiAgICBjb25zdCBbYSwgYl0gPSBhd2FpdCBQcm9taXNlLmFsbChbZ2V0UHJvZmlsZSgnR0FERFInKSwgZ2V0UHJvZmlsZSgnR0FERFInKV0pOwogICAgZXhwZWN0KGEpLnRvRXF1YWwoYik7CiAgICBleHBlY3QocmVhZFB1YmxpY01vY2spLnRvSGF2ZUJlZW5DYWxsZWRUaW1lcygxKTsKICAgIGF3YWl0IGdldFByb2ZpbGUoJ0dBRERSJyk7IC8vIHNldHRsZWQg4oaSIHRoZSBuZXh0IHJlYWQgaXMgZnJlc2gKICAgIGV4cGVjdChyZWFkUHVibGljTW9jaykudG9IYXZlQmVlbkNhbGxlZFRpbWVzKDIpOwogIH0pOwp9KTsKCmRlc2NyaWJlKCdnZXRTY29yZXMnLCAoKSA9PiB7CiAgYmVmb3JlRWFjaCgoKSA9PiByZWFkUHVibGljTW9jay5tb2NrUmVzZXQoKSk7CgogIGl0KCdwcmVmZXJzIHRoZSBzaW5nbGUgZ2V0X3Byb2ZpbGUgY2FsbCAoMSByb3VuZC10cmlwKScsIGFzeW5jICgpID0+IHsKICAgIHJlYWRQdWJsaWNNb2NrLm1vY2tSZXNvbHZlZE9uY2UoeyBzb2NpYWw6IDE1biwgZWFybmVkOiA1biwgdmVyaWZpZWQ6IGZhbHNlIH0pOwogICAgY29uc3QgcyA9IGF3YWl0IGdldFNjb3JlcygnR0FERFInKTsKICAgIGV4cGVjdChzKS50b0VxdWFsKHsgc29jaWFsOiAxNSwgZWFybmVkOiA1IH0pOwogICAgZXhwZWN0KHJlYWRQdWJsaWNNb2NrKS50b0hhdmVCZWVuQ2FsbGVkVGltZXMoMSk7CiAgfSk7CgogIGl0KCdmYWxscyBiYWNrIHRvIGdldF9zY29yZSArIGdldF9lYXJuZWQgd2hlbiBnZXRfcHJvZmlsZSBpcyB1bmF2YWlsYWJsZScsIGFzeW5jICgpID0+IHsKICAgIHJlYWRQdWJsaWNNb2NrCiAgICAgIC5tb2NrUmVqZWN0ZWRPbmNlKG5ldyBFcnJvcigndW5rbm93biBtZXRob2QgZ2V0X3Byb2ZpbGUnKSkKICAgICAgLm1vY2tSZXNvbHZlZE9uY2UoMTJuKSAvLyBnZXRfc2NvcmUKICAgICAgLm1vY2tSZXNvbHZlZE9uY2UoOG4pOyAvLyBnZXRfZWFybmVkCiAgICBjb25zdCBzID0gYXdhaXQgZ2V0U2NvcmVzKCdHQURDUicpOwogICAgZXhwZWN0KHMpLnRvRXF1YWwoeyBzb2NpYWw6IDEyLCBlYXJuZWQ6IDggfSk7CiAgICBleHBlY3QocmVhZFB1YmxpY01vY2spLnRvSGF2ZUJlZW5DYWxsZWRUaW1lcygzKTsKICB9KTsKfSk7CgpkZXNjcmliZSgnZ2V0Q291bnRzJywgKCkgPT4gewogIGJlZm9yZUVhY2goKCkgPT4gcmVhZFB1YmxpY01vY2subW9ja1Jlc2V0KCkpOwoKICBpdCgnbWFwcyB0aGUgKHZvdWNoZWRfYnksIGJhY2tlZCkgdHVwbGUnLCBhc3luYyAoKSA9PiB7CiAgICByZWFkUHVibGljTW9jay5tb2NrUmVzb2x2ZWRPbmNlKFszLCAxXSk7CiAgICBleHBlY3QoYXdhaXQgZ2V0Q291bnRzKCdHQURDUicpKS50b0VxdWFsKHsgdm91Y2hlZEJ5OiAzLCBiYWNrZWQ6IDEgfSk7CiAgICBleHBlY3QocmVhZFB1YmxpY01vY2spLnRvSGF2ZUJlZW5DYWxsZWRXaXRoKCdDUkVQSUQnLCAnZ2V0X2NvdW50cycsIGV4cGVjdC5hbnkoQXJyYXkpKTsKICB9KTsKCiAgaXQoJ2lzIG51bGwsIG5vdCB6ZXJvLCB3aGVuIHRoZSBjb250cmFjdCBwcmVkYXRlcyBnZXRfY291bnRzJywgYXN5bmMgKCkgPT4gewogICAgcmVhZFB1YmxpY01vY2subW9ja1JlamVjdGVkT25jZShuZXcgRXJyb3IoJ3NpbXVsYXRlIGdldF9jb3VudHMgZmFpbGVkOiBNaXNzaW5nVmFsdWUnKSk7CiAgICBleHBlY3QoYXdhaXQgZ2V0Q291bnRzKCdHQURDUicpKS50b0JlTnVsbCgpOwogIH0pOwoKICBpdCgnaXMgbnVsbCBmb3IgYW4gZW1wdHkgcmV0dXJuIHZhbHVlJywgYXN5bmMgKCkgPT4gewogICAgcmVhZFB1YmxpY01vY2subW9ja1Jlc29sdmVkT25jZSh1bmRlZmluZWQpOwogICAgZXhwZWN0KGF3YWl0IGdldENvdW50cygnR0FERFInKSkudG9CZU51bGwoKTsKICB9KTsKfSk7CgpkZXNjcmliZSgnZ2V0UGVuZGluZycsICgpID0+IHsKICBiZWZvcmVFYWNoKCgpID0+IHJlYWRQdWJsaWNNb2NrLm1vY2tSZXNldCgpKTsKCiAgaXQoJ21hcHMgdGhlIHF1ZXVlZCBQZW5kaW5nQm9udXMgZW50cmllcycsIGFzeW5jICgpID0+IHsKICAgIHJlYWRQdWJsaWNNb2NrLm1vY2tSZXNvbHZlZE9uY2UoWwogICAgICB7IHZvdWNoZXI6ICdHQUxJQ0UnLCBhbW91bnQ6IDVuIH0sCiAgICAgIHsgdm91Y2hlcjogJ0dDQVJPTCcsIGFtb3VudDogNW4gfSwKICAgIF0pOwogICAgZXhwZWN0KGF3YWl0IGdldFBlbmRpbmcoJ0dCT0InKSkudG9FcXVhbChbCiAgICAgIHsgdm91Y2hlcjogJ0dBTElDRScsIGFtb3VudDogNSB9LAogICAgICB7IHZvdWNoZXI6ICdHQ0FST0wnLCBhbW91bnQ6IDUgfSwKICAgIF0pOwogICAgZXhwZWN0KHJlYWRQdWJsaWNNb2NrKS50b0hhdmVCZWVuQ2FsbGVkV2l0aCgnQ1JFUElEJywgJ2dldF9wZW5kaW5nJywgZXhwZWN0LmFueShBcnJheSkpOwogIH0pOwoKICBpdCgnaXMgZW1wdHkgb25jZSB0aGUgY2xhaW1lciBoYXMgdmVyaWZpZWQnLCBhc3luYyAoKSA9PiB7CiAgICByZWFkUHVibGljTW9jay5tb2NrUmVzb2x2ZWRPbmNlKFtdKTsKICAgIGV4cGVjdChhd2FpdCBnZXRQZW5kaW5nKCdHQk9CJykpLnRvRXF1YWwoW10pOwogIH0pOwoKICBpdCgncmVqZWN0cyB3aGVuIHRoZSBjb250cmFjdCBwcmVkYXRlcyBnZXRfcGVuZGluZywgaW5zdGVhZCBvZiByZWFkaW5nIGFzIG5vdGhpbmcgb3dlZCcsIGFzeW5jICgpID0+IHsKICAgIHJlYWRQdWJsaWNNb2NrLm1vY2tSZWplY3RlZE9uY2UobmV3IEVycm9yKCdzaW11bGF0ZSBnZXRfcGVuZGluZyBmYWlsZWQ6IE1pc3NpbmdWYWx1ZScpKTsKICAgIGF3YWl0IGV4cGVjdChnZXRQZW5kaW5nKCdHQk9CJykpLnJlamVjdHMudG9UaHJvdygnZ2V0X3BlbmRpbmcnKTsKICB9KTsKfSk7CgpkZXNjcmliZSgnbWludFZvdWNoZXMnLCAoKSA9PiB7CiAgYmVmb3JlRWFjaCgoKSA9PiB7CiAgICByZWFkUHVibGljTW9jay5tb2NrUmVzZXQoKTsKICAgIGludm9rZUFuZFdhaXRQbW9jay5tb2NrUmVzZXQoKTsKICB9KTsKCiAgaXQoJ21pbnRzIG9uZSBoYWxmLWNhcmQgcGVyIG5vdGUgaW4gYSBzaW5nbGUgaW52b2NhdGlvbicsIGFzeW5jICgpID0+IHsKICAgIGludm9rZUFuZFdhaXRQbW9jay5tb2NrUmVzb2x2ZWQoWzExbiwgMTJuLCAxM25dKTsKICAgIGNvbnN0IHJlc3VsdCA9IGF3YWl0IG1pbnRWb3VjaGVzKCdHRlJPTScsIFsnYWxpY2UnLCAnYm9iJywgJ2Nhcm9sJ10pOwoKICAgIGV4cGVjdChpbnZva2VBbmRXYWl0TW9jaykudG9IYXZlQmVlbkNhbGxlZFRpbWVzKDEpOwogICAgZXhwZWN0KHJlc3VsdCkudG9IYXZlTGVuZ3RoKDMpOwogICAgZXhwZWN0KHJlc3VsdC5tYXAoKHIpID0+IHIuaWQpKS50b0VxdWFsKFsxMSwgMTIsIDEzXSk7CiAgICBleHBlY3QocmVzdWx0Lm1hcCgocikgPT4gci5ub3RlKSkudG9FcXVhbChbJ2FsaWNlJywgJ2JvYicsICdjYXJvbCddKTsKICAgIGZvciAoY29uc3QgciBvZiByZXN1bHQpIHsKICAgICAgZXhwZWN0KHIuc2VjcmV0KS50b01hdGNoKC9eWzAtOWEtZl17NjR9JC8pOwogICAgfQogIH0pOwoKICBpdCgnZ2VuZXJhdGVzIGEgdW5pcXVlIHNlY3JldCBwZXIgY2FyZCcsIGFzeW5jICgpID0+IHsKICAgIGludm9rZUFuZFdhaXRQbW9jay5tb2NrUmVzb2x2ZWQoWzFuLCAybiwgM24sIDRuXSk7CiAgICBjb25zdCByZXN1bHQgPSBhd2FpdCBtaW50Vm91Y2hlcygnR0ZST00nLCBbJ2EnLCAnYicsICdjJywgJ2QnXSk7CiAgICBjb25zdCBzZWNyZXRzID0gbmV3IFNldChyZXN1bHQubWFwKChyKSA9PiByLnNlY3JldCkpOwogICAgZXhwZWN0KHNlY3JldHMuc2l6ZSkudG9CZSg0KTsKICB9KTsKCiAgaXQoJ3Bhc3NlcyB0aGUgY2xhaW0gaGFzaGVzIGFuZCBub3RlcyB0byB0aGUgY29udHJhY3QnLCBhc3luYyAoKSA9PiB7CiAgICBpbnZva2VBbmRXYWl0TW9jay5tb2NrUmVzb2x2ZWQoWzddKTsKICAgIGF3YWl0IG1pbnRWb3VjaGVzKCdHRlJPTScsIFsnYWxpY2UnXSk7CgogICAgY29uc3QgWywgbWV0aG9kLCBhcmdzXSA9IGludm9rZUFuZFdhaXRQbW9jay5tb2NrLmNhbGxzWzBdOwogICAgZXhwZWN0KG1ldGhvZCkudG9CZSgnbWludF92b3VjaGVzJyk7CiAgICBleHBlY3QoYXJncykudG9IYXZlTGVuZ3RoKDMpOwogICAgZXhwZWN0KGFyZ3NbMF0pLnRvRXF1YWwoeyBfX2FkZHI6ICdHRlJPTScgfSk7CiAgICBleHBlY3QoQXJyYXkuaXNBcnJheShhcmdzWzFdKSkudG9CZS h0cnVlKTsKICAgIGV4cGVjdChhcmdzWzFdKS50b0hhdmVMZW5ndGgoMSk7CiAgICBleHBlY3QoYXJnc1sxXVswXS5fX2J5dGVzKS50b0JlSW5zdGFuY2VvZihVaW50OEFycmF5KTsKICAgIGV4cGVjdChhcmdzWzFdWzBdLl9fYnl0ZXMpLnRvSGF2ZUxlbmd0aCgzMik7CiAgICBleHBlY3QoYXJnc1syXSkudG9FcXVhbChbJ2FsaWNlJ10pOwogIH0pOwoKICBpdCgncmVqZWN0cyBhbiBlbXB0eSBiYXRjaCB3aXRob3V0IGludm9raW5nIHRoZSBjb250cmFjdCcsIGFzeW5jICgpID0+IHsKICAgIGF3YWl0IGV4cGVjdChtaW50Vm91Y2hlcygnR0ZST00nLCBbXSkpLnJlamVjdHMudG9UaHJvdygpOwogICAgZXhwZWN0KGludm9rZUFuZFdhaXRQbW9jaykubm90LnRvSGF2ZUJlZW5DYWxsZWQoKTsKICB9KTsKCiAgaXQoJ3JlamVjdHMgYSBiYXRjaCBsYXJnZXIgdGhhbiB0aGUgY29udHJhY3QgbGltaXQgd2l0aG91dCBpbnZva2luZycsIGFzeW5jICgpID0+IHsKICAgIGNvbnN0IG5vdGVzID0gQXJyYXkuZnJvbSh7IGxlbmd0aDogMTEgfSwgKF8sIGkpID0+IGBub3RlJHtpfWApOwogICAgYXdhaXQgZXhwZWN0KG1pbnRWb3VjaGVzKCdHRlJPTScsIG5vdGVzKSkucmVqZWN0cy50b1Rocm93KCk7CiAgICBleHBlY3QoaW52b2tlQW5kV2FpdE1vY2spLm5vdC50b0hhdmVCZWVuQ2FsbGVkKCk7CiAgfSk7CgogIGl0KCdjbGFtcHMgZWFjaCBub3RlIHRvIHRoZSBjb250cmFjdCBjYXAnLCBhc3luYyAoKSA9PiB7CiAgICBpbnZva2VBbmRXYWl0TW9jay5tb2NrUmVzb2x2ZWQoWzFdKTsKICAgIGF3YWl0IG1pbnRWb3VjaGVzKCdHRlJPTScsIFsn8J+SpycucmVwZWF0KDcwKV0pOwoKICAgIGNvbnN0IFssICwgYXJnc10gPSBpbnZva2VBbmRXYWl0TW9jay5tb2NrLmNhbGxzWzBdOwogICAgZXhwZWN0KGFyZ3NbMl1bMF0pLnRvQmUoJ/CfkqcnLnJlcGVhdCg2MCkpOwogIH0pOwp9KTsK
+// @vitest-environment node
+// Claim keys hash and sign with stellar-sdk, which needs Node's own Uint8Array; jsdom's
+// cross-realm one fails the SDK's checks.
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { Keypair, StrKey } from '@stellar/stellar-sdk';
+
+const readPublicMock = vi.fn();
+const { invokeMock, REP_ID, TESTNET } = vi.hoisted(() => ({
+  invokeMock: vi.fn(),
+  // 32 × 0x11 as a contract strkey — the contract of the shared claim-message vector.
+  REP_ID: 'CAIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRDB3V',
+  TESTNET: 'Test SDF Network ; September 2015',
+}));
+
+vi.mock('./stellar', () => ({ networkPassphrase: TESTNET }));
+vi.mock('./contracts', () => ({
+  repId: () => REP_ID,
+  questId: () => 'CQUESTID',
+  readPublic: (...a: unknown[]) => readPublicMock(...a),
+  readContract: vi.fn(),
+  invokeAndWait: (...a: unknown[]) => invokeMock(...a),
+  args: {
+    addr: (g: string) => ({ __addr: g }),
+    u64: (n: number) => ({ __u64: n }),
+    str: (s: string) => ({ __str: s }),
+    bytes: (b: Uint8Array) => ({ __bytes: b }),
+  },
+}));
+
+import {
+  claimLink,
+  claimMessage,
+  claimPublicKey,
+  claimVouch,
+  claimVouchSigned,
+  clampVouchNote,
+  isClaimCode,
+  mintVouch,
+  parseClaimCode,
+  signClaim,
+  fromHex,
+  toHex,
+  getCounts,
+  getPending,
+  getProfile,
+  getScores,
+  VOUCH_NOTE_MAX_BYTES,
+  VOUCH_NOTE_MAX_CHARS,
+  vouchNoteBytes,
+} from './reputation';
+
+function expectBytes(actual: Uint8Array, expected: number[]) {
+  expect(Array.from(actual)).toEqual(expected);
+}
+
+describe('claim-secret hex helpers', () => {
+  it('round-trips random 32-byte inputs', () => {
+    for (let seed = 0; seed < 32; seed++) {
+      const bytes = new Uint8Array(32);
+      for (let i = 0; i < bytes.length; i++) {
+        bytes[i] = (seed * 73 + i * 29 + i * i) & 0xff;
+      }
+
+      expect(fromHex(toHex(bytes))).toEqual(bytes);
+    }
+  });
+
+  it('uses lowercase hex and preserves leading zero bytes', () => {
+    const bytes = new Uint8Array([0x00, 0x0a, 0xab, 0xff]);
+
+    expect(toHex(bytes)).toBe('000aabff');
+    expect(fromHex('000AABFF')).toEqual(bytes);
+  });
+
+  it('ignores an incomplete trailing nibble', () => {
+    expectBytes(fromHex('abc'), [0xab]);
+  });
+
+  it('coerces non-hex byte pairs to zero', () => {
+    expectBytes(fromHex('zz01'), [0, 1]);
+  });
+
+  it('returns no bytes for an empty string', () => {
+    expectBytes(fromHex(''), []);
+  });
+});
+
+describe('vouch note limit', () => {
+  it('mirrors the contract cap: 240 bytes, 60 characters', () => {
+    expect(VOUCH_NOTE_MAX_BYTES).toBe(240);
+    expect(VOUCH_NOTE_MAX_CHARS).toBe(60);
+  });
+
+  it('counts UTF-8 bytes like the contract', () => {
+    expect(vouchNoteBytes('abc')).toBe(3);
+    expect(vouchNoteBytes('ş')).toBe(2);
+    expect(vouchNoteBytes('€')).toBe(3);
+    expect(vouchNoteBytes('💧')).toBe(4);
+  });
+
+  it('keeps a note of 60 characters, one-byte or four-byte alike', () => {
+    for (const ch of ['a', 'ş', '€', '💧']) {
+      const note = ch.repeat(60);
+      expect(clampVouchNote(note)).toBe(note);
+      expect(clampVouchNote(note + ch)).toBe(note);
+    }
+    // 60 four-byte characters are exactly the contract's cap.
+    expect(vouchNoteBytes(clampVouchNote('💧'.repeat(61)))).toBe(VOUCH_NOTE_MAX_BYTES);
+  });
+
+  it('never cuts a character in half', () => {
+    // 59 ASCII + a 4-byte emoji fits; the emoji is character 60 and stays whole.
+    const note = `${'a'.repeat(59)}💧`;
+    expect(clampVouchNote(`${note}💧`)).toBe(note);
+    expect(clampVouchNote('💧'.repeat(70))).not.toMatch(/[\uD800-\uDFFF]$/u);
+  });
+
+  it('always fits the contract cap', () => {
+    for (const s of [
+      'x'.repeat(500),
+      'ş'.repeat(500),
+      '€'.repeat(500),
+      '🌟'.repeat(500),
+      '👍🏽'.repeat(100),
+    ]) {
+      expect(vouchNoteBytes(clampVouchNote(s))).toBeLessThanOrEqual(VOUCH_NOTE_MAX_BYTES);
+    }
+  });
+
+  it('leaves short notes alone', () => {
+    expect(clampVouchNote('')).toBe('');
+    expect(clampVouchNote('unblocked me at 2am ✨')).toBe('unblocked me at 2am ✨');
+  });
+});
+
+describe('getProfile', () => {
+  beforeEach(() => readPublicMock.mockReset());
+
+  it('maps the aggregate view to a typed ProfileView', async () => {
+    readPublicMock.mockResolvedValueOnce({ social: 30n, earned: 50n, verified: true });
+    const p = await getProfile('GADDR');
+    expect(p).toEqual({ social: 30, earned: 50, verified: true });
+    expect(readPublicMock).toHaveBeenCalledWith(REP_ID, 'get_profile', expect.any(Array));
+  });
+
+  it('defaults missing fields to zero/false', async () => {
+    readPublicMock.mockResolvedValueOnce(undefined);
+    const p = await getProfile('GADDR');
+    expect(p).toEqual({ social: 0, earned: 0, verified: false });
+  });
+
+  it('shares one get_profile read between widgets asking at the same time', async () => {
+    readPublicMock.mockResolvedValue({ social: 1n, earned: 2n, verified: true });
+    const [a, b] = await Promise.all([getProfile('GADDR'), getProfile('GADDR')]);
+    expect(a).toEqual(b);
+    expect(readPublicMock).toHaveBeenCalledTimes(1);
+    await getProfile('GADDR'); // settled → the next read is fresh
+    expect(readPublicMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('getScores', () => {
+  beforeEach(() => readPublicMock.mockReset());
+
+  it('prefers the single get_profile call (1 round-trip)', async () => {
+    readPublicMock.mockResolvedValueOnce({ social: 15n, earned: 5n, verified: false });
+    const s = await getScores('GADDR');
+    expect(s).toEqual({ social: 15, earned: 5 });
+    expect(readPublicMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to get_score + get_earned when get_profile is unavailable', async () => {
+    readPublicMock
+      .mockRejectedValueOnce(new Error('unknown method get_profile'))
+      .mockResolvedValueOnce(12n) // get_score
+      .mockResolvedValueOnce(8n); // get_earned
+    const s = await getScores('GADDR');
+    expect(s).toEqual({ social: 12, earned: 8 });
+    expect(readPublicMock).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('getCounts', () => {
+  beforeEach(() => readPublicMock.mockReset());
+
+  it('maps the (vouched_by, backed) tuple', async () => {
+    readPublicMock.mockResolvedValueOnce([3, 1]);
+    expect(await getCounts('GADDR')).toEqual({ vouchedBy: 3, backed: 1 });
+    expect(readPublicMock).toHaveBeenCalledWith(REP_ID, 'get_counts', expect.any(Array));
+  });
+
+  it('is null, not zero, when the contract predates get_counts', async () => {
+    readPublicMock.mockRejectedValueOnce(new Error('simulate get_counts failed: MissingValue'));
+    expect(await getCounts('GADDR')).toBeNull();
+  });
+
+  it('is null for an empty return value', async () => {
+    readPublicMock.mockResolvedValueOnce(undefined);
+    expect(await getCounts('GADDR')).toBeNull();
+  });
+});
+
+describe('getPending', () => {
+  beforeEach(() => readPublicMock.mockReset());
+
+  it('maps the queued PendingBonus entries', async () => {
+    readPublicMock.mockResolvedValueOnce([
+      { voucher: 'GALICE', amount: 5n },
+      { voucher: 'GCAROL', amount: 5n },
+    ]);
+    expect(await getPending('GBOB')).toEqual([
+      { voucher: 'GALICE', amount: 5 },
+      { voucher: 'GCAROL', amount: 5 },
+    ]);
+    expect(readPublicMock).toHaveBeenCalledWith(REP_ID, 'get_pending', expect.any(Array));
+  });
+
+  it('is empty once the claimer has verified', async () => {
+    readPublicMock.mockResolvedValueOnce([]);
+    expect(await getPending('GBOB')).toEqual([]);
+  });
+
+  it('rejects when the contract predates get_pending, instead of reading as nothing owed', async () => {
+    readPublicMock.mockRejectedValueOnce(new Error('simulate get_pending failed: MissingValue'));
+    await expect(getPending('GBOB')).rejects.toThrow('get_pending');
+  });
+});
+
+// ── claim keys (issue #121) ──
+
+const CLASSIC = 'GARCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCFRVX'; // 32 × 0x22
+const PASSKEY = 'CAZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGGJH'; // 32 × 0x33
+const MAINNET = 'Public Global Stellar Network ; September 2015';
+
+/** Vouch 7's claim message on testnet from REP_ID — the same bytes
+ *  contracts/reputation/src/test.rs pins for the contract's `claim_message`. */
+const CLAIM_MESSAGE_HEAD = [
+  '000000100000000100000005', // vec of 5
+  '0000000f00000015616c76696e6d756e6b5f766f7563685f636c61696d000000', // Symbol("alvinmunk_vouch_claim")
+  '0000000d00000020cee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472', // BytesN<32> network id
+  '00000012000000011111111111111111111111111111111111111111111111111111111111111111', // Address, contract
+  '000000050000000000000007', // u64 vouch id
+].join('');
+const CLAIM_MESSAGE_G =
+  CLAIM_MESSAGE_HEAD + '0000001200000000000000002222222222222222222222222222222222222222222222222222222222222222';
+const CLAIM_MESSAGE_C =
+  CLAIM_MESSAGE_HEAD + '00000012000000013333333333333333333333333333333333333333333333333333333333333333';
+
+// RFC 8032 §7.1, test 1: an ed25519 seed and its public key.
+const RFC_SEED = '9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60';
+const RFC_PUBLIC = 'd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a';
+
+function verifies(publicKey: Uint8Array, message: Uint8Array, sig: Uint8Array): boolean {
+  const kp = Keypair.fromPublicKey(StrKey.encodeEd25519PublicKey(Buffer.from(publicKey)));
+  return kp.verify(Buffer.from(message), Buffer.from(sig));
+}
+
+describe('claimMessage', () => {
+  it("is the contract's claim message byte for byte, for classic and passkey claimers", () => {
+    expect(toHex(claimMessage(TESTNET, REP_ID, 7, CLASSIC))).toBe(CLAIM_MESSAGE_G);
+    expect(toHex(claimMessage(TESTNET, REP_ID, 7, PASSKEY))).toBe(CLAIM_MESSAGE_C);
+  });
+});
+
+describe('signClaim', () => {
+  const seed = fromHex(RFC_SEED);
+
+  it('derives the standard ed25519 public key from the seed', () => {
+    expect(toHex(claimPublicKey(seed))).toBe(RFC_PUBLIC);
+  });
+
+  it('signs a claim that verifies for the claimer, card, contract and network it names only', () => {
+    const pub = claimPublicKey(seed);
+    const sig = signClaim(seed, TESTNET, REP_ID, 7, CLASSIC);
+    expect(verifies(pub, claimMessage(TESTNET, REP_ID, 7, CLASSIC), sig)).toBe(true);
+    // A front-runner's address, another card, another deployment, another network.
+    expect(verifies(pub, claimMessage(TESTNET, REP_ID, 7, PASSKEY), sig)).toBe(false);
+    expect(verifies(pub, claimMessage(TESTNET, REP_ID, 8, CLASSIC), sig)).toBe(false);
+    expect(verifies(pub, claimMessage(TESTNET, PASSKEY, 7, CLASSIC), sig)).toBe(false);
+    expect(verifies(pub, claimMessage(MAINNET, REP_ID, 7, CLASSIC), sig)).toBe(false);
+  });
+});
+
+describe('vouch mint and claim', () => {
+  const wallet = { address: CLASSIC } as Parameters<typeof mintVouch>[0];
+
+  beforeEach(() => invokeMock.mockReset());
+
+  it('mints with the public key of a fresh seed and hands the seed back for the link', async () => {
+    invokeMock.mockResolvedValue(7n);
+    const { id, seed } = await mintVouch(wallet, 'gm');
+
+    expect(id).toBe(7);
+    expect(isClaimCode(seed)).toBe(true);
+    expect(invokeMock).toHaveBeenCalledWith(
+      REP_ID,
+      'mint_vouch_signed',
+      [{ __addr: CLASSIC }, { __bytes: claimPublicKey(fromHex(seed)) }, { __str: 'gm' }],
+      wallet,
+    );
+    expect(JSON.stringify(invokeMock.mock.calls)).not.toContain(seed);
+    // Every mint gets its own key.
+    const again = await mintVouch(wallet, 'gm');
+    expect(again.seed).not.toBe(seed);
+  });
+
+  it('claims with a signature for the wallet, never the seed itself', async () => {
+    invokeMock.mockResolvedValue(undefined);
+    await claimVouchSigned(wallet, 7, RFC_SEED);
+
+    const [contract, method, callArgs] = invokeMock.mock.calls[0];
+    expect([contract, method]).toEqual([REP_ID, 'claim_vouch_signed']);
+    expect(callArgs.slice(0, 2)).toEqual([{ __addr: CLASSIC }, { __u64: 7 }]);
+    const sig = (callArgs[2] as { __bytes: Uint8Array }).__bytes;
+    expect(sig).toHaveLength(64);
+    expect(verifies(fromHex(RFC_PUBLIC), claimMessage(TESTNET, REP_ID, 7, CLASSIC), sig)).toBe(true);
+    expect(toHex(sig)).not.toContain(RFC_SEED);
+  });
+
+  it('still claims an older card with its secret', async () => {
+    invokeMock.mockResolvedValue(undefined);
+    await claimVouch(wallet, 3, 'ab'.repeat(32));
+    expect(invokeMock).toHaveBeenCalledWith(
+      REP_ID,
+      'claim_vouch',
+      [{ __addr: CLASSIC }, { __u64: 3 }, { __bytes: fromHex('ab'.repeat(32)) }],
+      wallet,
+    );
+  });
+});
+
+describe('claim links', () => {
+  const seed = 'cd'.repeat(32);
+
+  it('puts the claim key in the fragment and reads it back', () => {
+    const link = claimLink('https://alvinmunk.app/', 7, { kind: 'key', code: seed });
+    expect(link).toBe(`https://alvinmunk.app/claim/7#k=${seed}`);
+    const url = new URL(link);
+    expect(url.search).toBe('');
+    expect(parseClaimCode(url.hash, url.search)).toEqual({ kind: 'key', code: seed });
+  });
+
+  it('keeps reading older links: #s= and the original ?s= query', () => {
+    expect(claimLink('https://a.b', 2, { kind: 'secret', code: seed })).toBe(`https://a.b/claim/2#s=${seed}`);
+    expect(parseClaimCode(`#s=${seed}`, '')).toEqual({ kind: 'secret', code: seed });
+    expect(parseClaimCode('', `?s=${seed}`)).toEqual({ kind: 'secret', code: seed });
+    expect(parseClaimCode('', '')).toBeNull();
+  });
+
+  it('accepts only 32 bytes of hex as a claim code', () => {
+    expect(isClaimCode(seed)).toBe(true);
+    expect(isClaimCode(seed.toUpperCase())).toBe(true);
+    expect(isClaimCode(seed.slice(1))).toBe(false);
+    expect(isClaimCode(`${seed}0`)).toBe(false);
+    expect(isClaimCode(`zz${seed.slice(2)}`)).toBe(false);
+  });
+});

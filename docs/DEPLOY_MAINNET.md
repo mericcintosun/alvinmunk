@@ -12,7 +12,7 @@ This is the step-by-step for taking the five Soroban contracts from testnet to *
 - [x] Full test suite green: 57 contract tests (`cargo test`) incl. property/fuzz, + 77 web/shared. CI green on every push.
 - [x] End-to-end integration test exists: `scripts/e2e-testnet.mjs` (deploy → invoke vouch/quest/tip/reward → assert state, happy + negative paths).
 - [x] Storage/TTL: every contract bumps TTL on long-lived keys (`BUMP_THRESHOLD`/`BUMP_EXTEND`); daily counters use temporary storage that auto-GCs. Re-profile before deploy with `scripts/bump-ttl.sh`.
-- [ ] Re-review every `require_auth`: `mint_vouch`(from), `claim_vouch`(claimer), `award_quest`(recipient + ed25519 sig), `tip`/`claim_reward`(from/to), all admin setters. Confirm no sensitive op is unauthenticated.
+- [ ] Re-review every `require_auth`: `mint_vouch_signed` / `mint_vouch`(from), `claim_vouch_signed`(claimer + ed25519 claim-key sig), `claim_vouch`(claimer), `award_quest`(recipient + ed25519 sig), `tip`/`claim_reward`(from/to), all admin setters. Confirm no sensitive op is unauthenticated.
 - [x] Cross-contract calls are read-only where they should be (`rewards`→`get_earned`, `gate`→`get_score/get_earned`) and write only via the allowlisted attester (`quest_registry`→`award_xp`).
 
 **Security**
@@ -122,7 +122,8 @@ Needs `stellar` (with `strkey decode`), `jq` and `git`. Offline tests for the ga
 - [ ] In Vercel prod env, flip `NEXT_PUBLIC_STELLAR_NETWORK=mainnet`, set the mainnet RPC/Horizon, the five mainnet contract ids, and the Circle USDC SAC id.
 - [ ] The dev wallet is hard-disabled on mainnet, so passkey infra must be live: set `NEXT_PUBLIC_PASSKEY_WALLET_WASM_HASH` + the relayer secrets (already configured on Vercel).
 - [ ] Remove/disable the testnet faucet route on mainnet (it already refuses when network=mainnet).
-- [ ] Redeploy and smoke-test onboarding + one vouch on the live mainnet app.
+- [ ] Redeploy, then `GET /api/health`: it must return `"ok": true` with `"configErrors": []`. Each entry names the env var still set for testnet (or missing) — while any remain, the app shows a red banner, hands out no wallet, and the attester and faucet answer 503.
+- [ ] Smoke-test onboarding + one vouch on the live mainnet app.
 
 **Monitoring**
 - [x] Product analytics + error tracking already wired (Vercel Analytics + Speed Insights; `lib/track.ts` custom events require a Pro plan and are no-ops on Hobby). Add Vercel alerts on error-rate spikes; per-user funnel/retention analytics needs a dedicated product-analytics tool (e.g. PostHog — a separate future feature).

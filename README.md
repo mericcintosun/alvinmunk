@@ -311,7 +311,7 @@ North-star metric: **Verified Value Loops / week** — a vouch staked & redeemed
 - **Rust stable** + `wasm32-unknown-unknown` target
 - **Stellar CLI**: `cargo install --locked stellar-cli` (or `brew install stellar-cli`)
 
-> ⚠️ **Pin versions before first build.** The dependency versions in `contracts/Cargo.toml` (`soroban-sdk`) and `apps/web/package.json` (`@stellar/stellar-sdk`, `smart-account-kit` for passkey, `@stellar/freighter-api` + `@albedo-link/intent` for the `/wallet` connect modal) are best-effort and should be verified against the latest releases — these libraries move fast.
+> ⚠️ **Pin versions before first build.** The dependency versions in `contracts/Cargo.toml` (`soroban-sdk`) and `apps/web/package.json` (`@stellar/stellar-sdk`, `passkey-kit` for passkey, `@stellar/freighter-api` + `@albedo-link/intent` for the `/wallet` connect modal) are best-effort and should be verified against the latest releases — these libraries move fast.
 
 ### 1. Install JS deps
 ```bash
@@ -331,7 +331,7 @@ pnpm -C apps/web build    # next build
 cp .env.example apps/web/.env.local   # optional; testnet defaults work as-is
 pnpm dev                              # turbo -> next dev
 ```
-**Onboarding works out-of-the-box on testnet** via a **dev wallet** (ephemeral keypair, Friendbot-funded) — Face ID / passkey kicks in once you set `NEXT_PUBLIC_WALLET_WASM_HASH` + `NEXT_PUBLIC_LAUNCHTUBE_URL`. The dev wallet is hard-disabled on mainnet.
+**Onboarding works out-of-the-box on testnet** via a **dev wallet** (ephemeral keypair, Friendbot-funded) — Face ID / passkey kicks in once you set `NEXT_PUBLIC_PASSKEY_WALLET_WASM_HASH`, `PASSKEY_RELAYER_URL`, and `PASSKEY_RELAYER_API_KEY` (see [`docs/DEPLOY.md`](./docs/DEPLOY.md) §4 and [`docs/PASSKEY_HANDOFF.md`](./docs/PASSKEY_HANDOFF.md) for full setup). The dev wallet is hard-disabled on mainnet.
 
 ### 4. Deploy contracts to testnet
 ```bash
