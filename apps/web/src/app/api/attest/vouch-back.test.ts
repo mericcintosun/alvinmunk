@@ -363,4 +363,79 @@ describe('POST /api/attest — vouch_back evidence (issue #165)', () => {
     const body = await res.json() as { error: string };
     expect(body.error).toMatch(/try again/);
   });
+
+  // ── invite_converts requires an actual vouch claim link ─────────────────
+
+  it('200 when the invited wallet claimed a vouch minted by the recipient', async () => {
+    getHealthMock.mockResolvedValue({ oldestLedger: 1 });
+    getEventsMock.mockResolvedValue({ events: [fakeEvent(7, ALICE, BOB)], cursor: undefined });
+    setupPayloadSim();
+
+    const POST = await loadRoute();
+    const res = await POST(makeRequest({
+      questId: 1,
+      recipient: ALICE,
+      evidence: { type: 'invite_converts', ref: BOB },
+    }));
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as { ok: boolean };
+    expect(body.ok).toBe(true);
+  });
+
+  it('422 when the invited wallet was vouched but never claimed a link to the recipient', async () => {
+    getHealthMock.mockResolvedValue({ oldestLedger: 1 });
+    getEventsMock.mockResolvedValue({
+      events: [fakeEvent(7, DAVE, BOB), fakeEvent(8, CAROL, BOB)],
+      cursor: undefined,
+    });
+
+    const POST = await loadRoute();
+    const res = await POST(makeRequest({
+      questId: 1,
+      recipient: ALICE,
+      evidence: { type: 'invite_converts', ref: BOB },
+    }));
+
+    expect(res.status).toBe(422);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe("that wallet hasn't claimed a vouch from this account yet");
+  });
+
+  it('422 with an explicit retention-limit reason when the invite claim is older than the RPC window', async () => {
+    getHealthMock.mockResolvedValue({ oldestLedger: 250_000 });
+    getEventsMock.mockResolvedValue({ events: [], cursor: undefined });
+
+    const POST = await loadRoute();
+    const res = await POST(makeRequest({
+      questId: 1,
+      recipient: ALICE,
+      evidence: { type: 'invite_converts', ref: BOB },
+    }));
+
+    expect(res.status).toBe(422);
+    const body = await res.json() as { error: string };
+    expect(body.error).toBe('invite too old to verify');
+  });
+
+  it('follows the cursor across paginated vouch/claimed results for invite_converts', async () => {
+    getHealthMock.mockResolvedValue({ oldestLedger: 1 });
+    getEventsMock
+      .mockResolvedValueOnce({ events: [fakeEvent(2, ALICE, CAROL)], cursor: 'next-page' })
+      .mockResolvedValueOnce({ events: [fakeEvent(4, DAVE, BOB)], cursor: undefined });
+    setupPayloadSim();
+
+    const POST = await loadRoute();
+    const res = await POST(makeRequest({
+      questId: 1,
+      recipient: ALICE,
+      evidence: { type: 'invite_converts', ref: CAROL },
+    }));
+
+    expect(res.status).toBe(200);
+    expect(getEventsMock).toHaveBeenCalledTimes(2);
+    const secondCall = getEventsMock.mock.calls[1][0] as Record<string, unknown>;
+    expect(secondCall.cursor).toBe('next-page');
+    expect(secondCall).not.toHaveProperty('startLedger');
+  });
 });
