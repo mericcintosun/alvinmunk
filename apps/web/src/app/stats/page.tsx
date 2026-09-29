@@ -116,7 +116,7 @@ export default function StatsPage() {
             <p className="mt-2 text-sm text-muted-foreground">
               Mainnet goes live at the Black belt. The counter turns on the moment the contracts deploy.
             </p>
-            <p className="mt-4 font-display text-4xl font-semibold text-muted-foreground/50">0 / {target}</p>
+            <p className="mt-4 font-display text-4xl font-semibold text-muted-foreground">0 / {target}</p>
           </div>
         ) : (
           <>
@@ -131,7 +131,7 @@ export default function StatsPage() {
                 </div>
               </div>
               <p className="font-display text-2xl font-semibold text-muted-foreground">
-                {users === undefined ? '—' : users} <span className="text-muted-foreground/50">/ {target}</span>
+                {users === undefined ? '—' : users} <span className="text-muted-foreground">/ {target}</span>
               </p>
             </div>
 

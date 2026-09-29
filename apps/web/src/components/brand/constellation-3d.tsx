@@ -28,6 +28,7 @@ import {
   usePrefersReducedMotion,
 } from './constellation-parts';
 import { useLocale, useTranslations } from '@/lib/i18n';
+import { HERO_BOX } from './hero-box';
 
 const RADIUS = 3.0;
 
@@ -214,7 +215,7 @@ export default function ConstellationHero3D({ address, handle }: { address: stri
       <div className="aurora absolute inset-0" />
       <div className="grid-faint absolute inset-0" />
 
-      <div ref={containerRef} className="relative h-[64vh] max-h-[620px] min-h-[440px] w-full">
+      <div ref={containerRef} className={`relative ${HERO_BOX} w-full`}>
         <Canvas
           camera={{ position: [0, 0, 7.6], fov: 50 }}
           dpr={[1, 2]}

@@ -224,7 +224,7 @@ export function Quests({ address }: { address: string }) {
               <Flame className="size-3.5" />
               {streak.weeks}
               {streak.best > streak.weeks && (
-                <span className="text-muted-foreground/60">
+                <span className="text-muted-foreground">
                   {' · '}
                   {t('quests.streakBest', { best: String(streak.best) })}
                 </span>

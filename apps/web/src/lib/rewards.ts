@@ -167,16 +167,47 @@ export interface RewardEntry {
   min_streak?: number;
 }
 
-/** The full unlock table (admin-registered on-chain). */
-export async function getRewards(source: string): Promise<RewardEntry[]> {
-  const v = await readContract<RewardEntry[]>(rewardsId(), 'get_rewards', [], source);
-  return (v ?? []).filter((r) => r.active);
+/** One reward row with one wallet's claim status, as `get_rewards_for` returns it. */
+export interface RewardStatus {
+  entry: RewardEntry;
+  claimed: boolean;
+  eligible: boolean;
+  /** The rewards `Error` code `claim_reward` would revert with right now (0 = claimable). */
+  reason: number;
+}
+
+export interface RewardsFor {
+  /** The ACTIVE rows, in table order. */
+  rows: RewardStatus[];
+  /** Treasury budget left today in stroops; `null` = no daily cap. */
+  remainingToday: bigint | null;
+}
+
+/**
+ * The player's reward table in ONE simulation (`get_rewards_for`): every active row with
+ * this wallet's `claimed` / `eligible` / `reason`, plus today's remaining payout budget.
+ * Every field comes from the same ledger, so a claimed reward can't show as claimable.
+ * Throws on RPC failure — the caller decides how to degrade.
+ */
+export async function getRewardsFor(who: string, source: string): Promise<RewardsFor> {
+  const v = await readContract<[RewardStatus[], bigint] | undefined>(
+    rewardsId(),
+    'get_rewards_for',
+    [args.addr(who)],
+    source,
+  );
+  const [rows = [], remaining = -1n] = v ?? [];
+  const left = BigInt(remaining);
+  return {
+    rows: rows.filter((r) => r.entry.active).map((r) => ({ ...r, reason: Number(r.reason) })),
+    remainingToday: left < 0n ? null : left,
+  };
 }
 
 // --- Admin content management. Every write is `admin.require_auth()`-gated on-chain. ---
 
 /** The whole unlock table, INACTIVE rows included — for the admin view. Throws on RPC
- *  failure so an outage isn't shown as an empty table. Players use `getRewards`. */
+ *  failure so an outage isn't shown as an empty table. Players use `getRewardsFor`. */
 export async function getAllRewards(): Promise<RewardEntry[]> {
   return (await readPublic<RewardEntry[]>(rewardsId(), 'get_rewards', [])) ?? [];
 }
@@ -270,11 +301,6 @@ export async function setRewardMinStreak(
     [args.u32(rewardId), args.u32(weeks)],
     wallet,
   );
-}
-
-/** Has this wallet already claimed `rewardId`? */
-export async function isClaimed(rewardId: number, who: string, source: string): Promise<boolean> {
-  return (await readContract<boolean>(rewardsId(), 'is_claimed', [args.u32(rewardId), args.addr(who)], source)) ?? false;
 }
 
 /**

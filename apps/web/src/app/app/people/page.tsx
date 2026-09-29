@@ -172,7 +172,7 @@ export default function PeoplePage() {
                 <p className="font-display text-sm font-medium text-muted-foreground">
                   No one goes by @{searched}
                 </p>
-                <p className="text-xs text-muted-foreground/70">
+                <p className="text-xs text-muted-foreground">
                   That handle isn&apos;t claimed yet — maybe they haven&apos;t joined. Try another.
                 </p>
               </div>
@@ -280,7 +280,7 @@ function SuggestionPanel({ suggestions, loading, t }: SuggestionPanelProps) {
             <Users className="size-4" />
             Discover the network
           </p>
-          <p className="text-xs text-muted-foreground/70">
+          <p className="text-xs text-muted-foreground">
             Type an @handle above to find someone&apos;s star.
           </p>
         </div>
@@ -303,7 +303,7 @@ function SuggestionPanel({ suggestions, loading, t }: SuggestionPanelProps) {
       </div>
 
       {/* Attribution footnote — when #109's read API lands, this note can be removed. */}
-      <p className="pt-1 text-center text-[11px] text-muted-foreground/60">{t('people.suggest.footnote')}</p>
+      <p className="pt-1 text-center text-[11px] text-muted-foreground">{t('people.suggest.footnote')}</p>
     </div>
   );
 }

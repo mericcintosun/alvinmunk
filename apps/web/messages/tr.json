@@ -253,6 +253,7 @@
   "rewards.title": "Rütbe ödülleri",
   "rewards.earnedXp": "Kazanılan XP",
   "rewards.subtitle": "Kazanılan XP gerçek USDC'nin kilidini açar — rütbe bir şey satın alır. Destekler (Sosyal XP) asla açmaz.",
+  "rewards.dailyLeft": "Bugünkü ödül bütçesinde {amount} USDC kaldı",
   "rewards.noRewards": "Henüz kayıtlı ödül yok.",
   "rewards.noneLeft": "kalmadı",
   "rewards.leftOfCap": "{cap} adetten {left} kaldı",

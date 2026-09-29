@@ -8,19 +8,21 @@ This is the step-by-step for taking the five Soroban contracts from testnet to *
 
 ## Gate 1 — Pre-deployment verification (do not skip a box)
 
+Tick a box only with a link to its evidence: a CI run, a test, or a code line. A box that is blocked stays unticked and links the issue that blocks it.
+
 **Contract correctness**
-- [x] Full test suite green: 57 contract tests (`cargo test`) incl. property/fuzz, + 77 web/shared. CI green on every push.
-- [x] End-to-end integration test exists: `scripts/e2e-testnet.mjs` (deploy → invoke vouch/quest/tip/reward → assert state, happy + negative paths).
-- [x] Storage/TTL: every contract bumps TTL on long-lived keys (`BUMP_THRESHOLD`/`BUMP_EXTEND`); daily counters use temporary storage that auto-GCs. Re-profile before deploy with `scripts/bump-ttl.sh`.
+- [ ] Full test suite green: `cargo test` in `contracts/` (incl. property/fuzz) and `pnpm test` (web + shared). CI green on every push: tick with a link to the green [CI run](https://github.com/mericcintosun/alvinmunk/actions/workflows/ci.yml?query=branch%3Amain) of the commit you deploy. Not met yet: CI on `main` is still red.
+- [ ] End-to-end integration test exists: `scripts/e2e-testnet.mjs` (deploy → invoke vouch/quest/tip/reward → assert state, happy + negative paths). Blocked: it defaults to superseded contract ids ([#243](https://github.com/mericcintosun/alvinmunk/issues/243)) and never runs in CI ([#62](https://github.com/mericcintosun/alvinmunk/issues/62)).
+- [ ] Storage/TTL: every contract bumps TTL on long-lived keys (`BUMP_THRESHOLD`/`BUMP_EXTEND`); daily counters use temporary storage that auto-GCs. Re-profile before deploy with `scripts/bump-ttl.sh`. Blocked: instance storage is never extended ([#65](https://github.com/mericcintosun/alvinmunk/issues/65)), nor are the attester allowlists ([#66](https://github.com/mericcintosun/alvinmunk/issues/66), [#67](https://github.com/mericcintosun/alvinmunk/issues/67)).
 - [ ] Re-review every `require_auth`: `mint_vouch_signed` / `mint_vouches` / `mint_vouch`(from), `claim_vouch_signed`(claimer + ed25519 claim-key sig), `claim_vouch`(claimer), `award_quest`(recipient + ed25519 sig), `tip`/`claim_reward`(from/to), all admin setters. Confirm no sensitive op is unauthenticated.
-- [x] Cross-contract calls are read-only where they should be (`rewards`→`get_earned`, `gate`→`get_score/get_earned`) and write only via the allowlisted attester (`quest_registry`→`award_xp`).
+- [x] Cross-contract calls are read-only where they should be (`rewards`→`get_earned` [rewards/src/lib.rs:371-373](../contracts/rewards/src/lib.rs#L371-L373), `gate`→`get_score/get_earned` [gate/src/lib.rs:316-326](../contracts/gate/src/lib.rs#L316-L326)) and write only via the allowlisted attester (`quest_registry`→`award_xp` [quest_registry/src/lib.rs:344-347](../contracts/quest_registry/src/lib.rs#L344-L347)).
 
 **Security**
 - [ ] Grep for `unwrap()` on user-controlled paths; prefer `?` + typed errors. (Storage `get().unwrap()` on admin-set instance keys is acceptable; document each.)
 - [ ] Confirm no panic on malformed input (fuzz already covers the XP math and payout).
-- [x] Integer math: XP uses `u64`, USDC uses `i128`; payout paths use registered amounts (caller can never set the amount). Re-check for any raw `+`/`-` that should be `checked_*`.
-- [x] Admin ops gated by `Admin.require_auth()` on all five contracts.
-- [x] USDC handled via the Stellar Asset Contract (SAC) `token::Client`, not a custom token.
+- [x] Integer math: XP uses `u64` ([reputation/src/lib.rs:349](../contracts/reputation/src/lib.rs#L349)), USDC uses `i128` ([rewards/src/lib.rs:75](../contracts/rewards/src/lib.rs#L75)); payout paths use registered amounts (caller can never set the amount: `claim_reward` pays `entry.amount`, [rewards/src/lib.rs:410](../contracts/rewards/src/lib.rs#L410)). Property test: `daily_cap_is_never_exceeded` ([rewards/src/test.rs:293](../contracts/rewards/src/test.rs#L293)). Re-check for any raw `+`/`-` that should be `checked_*`.
+- [x] Admin ops gated by `Admin.require_auth()` on all five contracts. In each, `upgrade` rejects a caller without the admin's auth (`non_admin_upgrade_reverts`): [reputation](../contracts/reputation/src/test.rs#L1297), [quest_registry](../contracts/quest_registry/src/test.rs#L925), [rewards](../contracts/rewards/src/test.rs#L420), [registry](../contracts/registry/src/test.rs#L588), [gate](../contracts/gate/src/test.rs#L179). Negative-auth tests for the other admin setters are still missing ([#98](https://github.com/mericcintosun/alvinmunk/issues/98)).
+- [x] USDC handled via the Stellar Asset Contract (SAC) `token::Client`, not a custom token: `tip` [rewards/src/lib.rs:161](../contracts/rewards/src/lib.rs#L161), `claim_reward` [rewards/src/lib.rs:410](../contracts/rewards/src/lib.rs#L410).
 
 **Security review (mandatory for Black — pick one)**
 - [ ] Third-party audit, OR
@@ -29,8 +31,8 @@ This is the step-by-step for taking the five Soroban contracts from testnet to *
 
 **Operational**
 - [ ] Admin + attester keys generated fresh for mainnet and held in a **hardware wallet**, never in CI secrets or `.env`.
-- [x] Upgrade path: all five contracts expose admin-gated `upgrade(new_wasm_hash)`.
-- [x] Emergency controls: `rewards.set_paused`, `set_daily_cap`, `set_frozen`, `set_require_funding` (turn proof-of-funding ON for mainnet).
+- [x] Upgrade path: all five contracts expose admin-gated `upgrade(new_wasm_hash)`. Tested by `upgrade_to_identical_wasm_preserves_*` in each: [reputation](../contracts/reputation/src/test.rs#L1229), [quest_registry](../contracts/quest_registry/src/test.rs#L877), [rewards](../contracts/rewards/src/test.rs#L394), [registry](../contracts/registry/src/test.rs#L543), [gate](../contracts/gate/src/test.rs#L162).
+- [x] Emergency controls: `rewards.set_paused`, `set_daily_cap`, `set_frozen`, `set_require_funding` (turn proof-of-funding ON for mainnet): [rewards/src/lib.rs:421-485](../contracts/rewards/src/lib.rs#L421-L485). Tests: [`a_paused_contract_reports_paused_before_tip_validation`](../contracts/rewards/src/test.rs#L969), [`daily_cap_blocks_over_limit_payout`](../contracts/rewards/src/test.rs#L196), [`frozen_account_cannot_claim`](../contracts/rewards/src/test.rs#L221), [`proof_of_funding_blocks_unfunded_claim_when_enabled`](../contracts/rewards/src/test.rs#L242). Pausing `claim_reward` is not tested yet ([#99](https://github.com/mericcintosun/alvinmunk/issues/99)).
 - [ ] Write a 1-page deploy SOP: who can deploy, key custody, contract-id location.
 
 ---
@@ -126,13 +128,14 @@ Needs `stellar` (with `strkey decode`), `jq` and `git`. Offline tests for the ga
 - [ ] Smoke-test onboarding + one vouch on the live mainnet app.
 
 **Monitoring**
-- [x] Product analytics + error tracking already wired (Vercel Analytics + Speed Insights; `lib/track.ts` custom events require a Pro plan and are no-ops on Hobby). Add Vercel alerts on error-rate spikes; per-user funnel/retention analytics needs a dedicated product-analytics tool (e.g. PostHog — a separate future feature).
+- [x] Product analytics wired: Vercel Analytics + Speed Insights ([components/analytics.tsx](../apps/web/src/components/analytics.tsx)); `lib/track.ts` custom events require a Pro plan and are no-ops on Hobby. Per-user funnel/retention analytics needs a dedicated product-analytics tool (e.g. PostHog — a separate future feature).
+- [ ] Error tracking: API routes log every 5xx to Vercel's runtime logs (`withRoute`, [lib/api-route.ts](../apps/web/src/lib/api-route.ts)), but nothing alerts on them. Add Vercel alerts on error-rate spikes.
 - [ ] Add contract-event monitoring (RPC `getEvents` cron, or Mercury/Subquery) alerting on: admin ops, `set_paused`, large `reward`/`tipped` amounts.
 - [ ] A simple metrics page (TVL paid, users, vouch loops/week) — even a Notion/Streamlit board.
 
 **Advanced feature (Black requires ≥1 — already satisfied)**
-- [x] **Fee Sponsorship** — gasless via the OZ Channels relayer + fee-bump (`/api/passkey-send`, `lib/wallet.ts`).
-- [x] **Account Abstraction** — passkey smart wallet with secp256r1 custom auth.
+- [x] **Fee Sponsorship** — gasless via the OZ Channels relayer + fee-bump (`/api/passkey-send`: [route](../apps/web/src/app/api/passkey-send/route.ts), [tests](../apps/web/src/app/api/passkey-send/route.test.ts); `lib/wallet.ts`).
+- [x] **Account Abstraction** — passkey smart wallet with secp256r1 custom auth ([lib/wallet.ts](../apps/web/src/lib/wallet.ts), [tests](../apps/web/src/lib/wallet.passkey.test.ts)).
 - [ ] Optional second: **SEP-24/SEP-31 anchor** cross-border off-ramp (issue #1).
 
 **Ecosystem + marketing**
