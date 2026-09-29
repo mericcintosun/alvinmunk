@@ -142,11 +142,19 @@ export const POST = withRoute('POST /api/attest', async (req: Request): Promise<
     return json({ error: reason }, 422);
   }
 
-  // 3) Verify the real-world action (network).
+  // 3) A quest the recipient already completed can't be awarded again (the contract's
+  // replay guard), so stop before verifying evidence: no GitHub/Horizon/RPC quota spent and
+  // nothing signed. One read of `is_completed`; if it fails or the deployed contract
+  // predates the view, carry on — the on-chain guard still refuses the award.
+  if (await questCompleted(body.questId, body.recipient)) {
+    return json({ error: 'You’ve already completed this quest.' }, 409);
+  }
+
+  // 4) Verify the real-world action (network).
   const verified = await verifyEvidence(body.evidence as AttestEvidence, body.recipient);
   if (!verified.ok) return json({ error: verified.reason }, 422);
 
-  // 4) Sign the award payload, built here (never read from an RPC node). The recipient
+  // 5) Sign the award payload, built here (never read from an RPC node). The recipient
   // redeems it on-chain; the contract refuses it after `expiresAt` (unix seconds, compared
   // with the ledger time, which tracks wall-clock time).
   try {
@@ -376,4 +384,32 @@ async function claimedVouchFrom(repId: string, from: string, claimer: string): P
   let found = false;
   await scanVouchClaimed(repId, (c) => (found = c.from === from && c.claimer === claimer));
   return found;
+}
+
+/**
+ * `quest_registry.is_completed(quest_id, addr)` via simulation. False when the read fails
+ * for any reason (RPC error, or a deployed contract without the view): this is only an
+ * early exit, never the guard itself.
+ */
+async function questCompleted(questId: number, addr: string): Promise<boolean> {
+  try {
+    const server = new rpc.Server(RPC_URL, { allowHttp: RPC_URL.startsWith('http://') });
+    const source = new Account(Keypair.random().publicKey(), '0');
+    const tx = new TransactionBuilder(source, { fee: '100', networkPassphrase: PASSPHRASE })
+      .addOperation(
+        new Contract(QUEST_ID).call(
+          'is_completed',
+          nativeToScVal(questId, { type: 'u32' }),
+          new Address(addr).toScVal(),
+        ),
+      )
+      .setTimeout(30)
+      .build();
+    const sim = await server.simulateTransaction(tx);
+    if (rpc.Api.isSimulationError(sim)) return false;
+    const v = sim.result?.retval;
+    return v ? scValToNative(v) === true : false;
+  } catch {
+    return false;
+  }
 }

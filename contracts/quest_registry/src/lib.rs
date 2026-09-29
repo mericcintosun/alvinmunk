@@ -360,6 +360,23 @@ impl QuestRegistryContract {
         );
     }
 
+    /// Whether `who` has completed `quest_id`: the replay guard `award_quest` sets, so a
+    /// `true` here means another award for the pair reverts with `AlreadyClaimed`. `false`
+    /// for an unknown quest. Pure read, any caller, no TTL bumps.
+    pub fn is_completed(env: Env, quest_id: u32, who: Address) -> bool {
+        Self::completed(&env, quest_id, &who)
+    }
+
+    /// Batched `is_completed` for one wallet: one flag per id, in input order (duplicates
+    /// repeat), so a quest list renders from one read. Each id is one persistent read.
+    pub fn get_completed(env: Env, who: Address, ids: Vec<u32>) -> Vec<bool> {
+        let mut out = Vec::new(&env);
+        for id in ids.iter() {
+            out.push_back(Self::completed(&env, id, &who));
+        }
+        out
+    }
+
     /// The current weekly epoch (timestamp / WEEK_SECS) — the UI's "this week". Weeks run
     /// Thursday 00:00:00 to Wednesday 23:59:59 UTC; `get_week_bounds` gives the timestamps.
     pub fn get_week(env: Env) -> u64 {
@@ -410,6 +427,13 @@ impl QuestRegistryContract {
         parts.push_back(recipient.clone().into_val(env));
         parts.push_back(expires_at.into_val(env));
         parts.to_xdr(env)
+    }
+
+    fn completed(env: &Env, quest_id: u32, who: &Address) -> bool {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Claimed(quest_id, who.clone()))
+            .unwrap_or(false)
     }
 
     /// A quest's bound key is its only attester; an unbound quest takes any globally

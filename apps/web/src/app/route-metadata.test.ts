@@ -17,11 +17,12 @@ import * as statsLayout from './stats/layout';
 import * as walletLayout from './wallet/layout';
 import * as howItWorksLayout from './how-it-works/layout';
 import * as adminLayout from './admin/layout';
+import * as scorePage from './score/[address]/page';
 
 // The /app layout renders the wallet-gated client shell; only its metadata matters here.
 vi.mock('@/components/app/app-client-layout', () => ({ AppClientLayout: () => null }));
 
-type Export = Metadata | (() => Metadata);
+type Export = Metadata | (() => Metadata | Promise<Metadata>);
 /** One route segment: its layout's metadata export (null = no layout) and, optionally,
  *  the og:image a sibling `opengraph-image` file contributes. */
 type Segment = Export | null | { metadata: Export; ogImage: string };
@@ -52,6 +53,9 @@ async function resolveWith(root: Metadata, pathname: string, ...segments: Segmen
 
 const profile = (handle: string) => () => profileLayout.generateMetadata({ params: { handle } });
 const invite = (handle: string) => () => inviteLayout.generateMetadata({ params: { handle } });
+const score = (address: string) => () =>
+  scorePage.generateMetadata({ params: Promise.resolve({ address }) });
+const SCORE_ADDRESS = 'GDIS5BDXSI2DDJNTKRZPI6MNB5XCLMN4Z6PPRPM4RQLZ3PSQ2YTERLFA';
 
 // Next's OGImage union also allows a bare string/URL, not just a descriptor object;
 // mirror that here since the resolved metadata type keeps the full union.
@@ -165,6 +169,21 @@ describe('route metadata', () => {
     },
   );
 
+  it('/score/<address> ends in one site suffix and unfurls as the score page (#204)', async () => {
+    const m = await resolve(`/score/${SCORE_ADDRESS}`, null, null, score(SCORE_ADDRESS));
+    const t = texts(m);
+    expect(t.title).toBe('Reputation: GDIS…RLFA · alvinmunk');
+    expect(t.ogTitle).toBe(t.title);
+    expect(t.twitterTitle).toBe(t.title);
+    expect(t.description).toContain(SCORE_ADDRESS);
+    expect(t.description).toMatch(/on-chain reputation/);
+    expect(t.ogDescription).toBe(t.description);
+    expect(t.twitterDescription).toBe(t.description);
+    expect(m.openGraph).toMatchObject({ type: 'website' });
+    expect(imageUrls(m.openGraph?.images)).toEqual([DEFAULT_OG]);
+    expect(m.twitter?.card).toBe('summary_large_image');
+  });
+
   it('/claim/<id> carries the claim-funnel copy and still unfurls with the default card', async () => {
     const m = await resolve('/claim/7', null, claimLayout.metadata);
     expect(texts(m)).toEqual({
@@ -190,6 +209,7 @@ describe('route metadata', () => {
       resolve('/app/vouch', appLayout.metadata, vouchLayout.metadata),
       resolve('/u/alice', null, profile('alice')),
       resolve('/v/alice', null, invite('alice')),
+      resolve(`/score/${SCORE_ADDRESS}`, null, null, score(SCORE_ADDRESS)),
     ]);
     for (const m of others) {
       expect(Object.values(texts(m))).not.toContain(CLAIM_DESCRIPTION);

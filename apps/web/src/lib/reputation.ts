@@ -29,6 +29,10 @@ export const VOUCH_NOTE_MAX_BYTES = 240;
  *  emoji alike. */
 export const VOUCH_NOTE_MAX_CHARS = VOUCH_NOTE_MAX_BYTES / 4;
 
+/** Most half-cards one `mint_vouches` call mints (the contract's `MAX_BATCH_VOUCH`): an
+ *  empty or larger batch reverts with `BadBatchSize` (#15). */
+export const VOUCH_BATCH_MAX = 10;
+
 const utf8 = new TextEncoder();
 
 /** UTF-8 length of `s` — what the contract's `String::len` checks against. */
@@ -222,6 +226,31 @@ export async function mintVouch(
     wallet,
   );
   return { id: Number(id), seed: toHex(seed) };
+}
+
+/** Mint one half-card per note in a single transaction (`mint_vouches`) — the cohort
+ *  leader's path: one signature instead of one per card. Each card gets its own fresh
+ *  claim key, exactly as `mintVouch` mints it, so each claims on its own. Resolves one
+ *  `{id, seed}` per note, in order. The contract checks every card like a single mint and
+ *  reverts the whole batch if any fails (daily cap, stake, note length). */
+export async function mintVouches(
+  wallet: Wallet,
+  notes: string[],
+): Promise<Array<{ id: number; seed: string }>> {
+  if (notes.length === 0 || notes.length > VOUCH_BATCH_MAX) {
+    throw new Error(`a batch holds 1 to ${VOUCH_BATCH_MAX} vouches, not ${notes.length}`);
+  }
+  const seeds = notes.map(() => randomBytes(32));
+  const ids = await invokeAndWait<bigint[]>(
+    repId(),
+    'mint_vouches',
+    [args.addr(wallet.address), args.bytesVec(seeds.map(claimPublicKey)), args.strs(notes)],
+    wallet,
+  );
+  if (!Array.isArray(ids) || ids.length !== notes.length) {
+    throw new Error('mint_vouches returned an unexpected result');
+  }
+  return ids.map((id, i) => ({ id: Number(id), seed: toHex(seeds[i]) }));
 }
 
 /** Claim a half-card by signing the claim for this wallet with the seed from the link.

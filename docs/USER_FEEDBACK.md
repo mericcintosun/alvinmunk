@@ -69,6 +69,6 @@ For each onboarded user you need on-chain proof:
 
 Vercel Analytics (already wired via `apps/web/src/lib/track.ts`) gives you the quantitative side to pair with the form:
 - Autocaptured pageviews + visitors (any plan), plus Web Vitals from Speed Insights.
-- `profile_created` and `vouch_minted` custom events fired by `lib/track.ts` — **Vercel Pro plan only**; on Hobby these calls are harmless no-ops.
+- `profile_created`, `vouch_minted` and `vouch_batch_minted` custom events fired by `lib/track.ts` — **Vercel Pro plan only**; on Hobby these calls are harmless no-ops.
 - Vercel Analytics is anonymous/privacy-first (no `identify`), so per-user funnels and 7-day retention are **not** measurable with this setup — read those from the form and the on-chain event readers (`/api/stats`, the leaderboard) instead.
 - Export a screenshot of the Vercel Analytics dashboard (pageviews/visitors; custom events on Pro) for the "analytics or monitoring setup" submission screenshot.
