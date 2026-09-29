@@ -260,10 +260,7 @@ fn release_frees_both_directions() {
 fn release_without_handle_reverts() {
     let (env, client, _admin) = setup();
     let alice = Address::generate(&env);
-    assert_eq!(
-        client.try_release(&alice),
-        Err(Ok(Error::NoHandle.into()))
-    );
+    assert_eq!(client.try_release(&alice), Err(Ok(Error::NoHandle.into())));
 }
 
 #[test]
