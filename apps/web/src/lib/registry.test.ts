@@ -390,9 +390,22 @@ describe('handle cooldown', () => {
     await expect(isHandleAvailable('alice', PREV)).resolves.toBe(true);
   });
 
-  it('is taken while held, and free when neither held nor cooling', async () => {
-    chain(PREV, null);
-    await expect(handleAvailability('alice', PREV)).resolves.toEqual({ status: 'taken' });
+  it('is owner-aware: a handle owned by the checking address is free for them to reclaim', async () => {
+    const OWNER = 'G'.padEnd(56, 'O');
+    const OTHER = 'G'.padEnd(56, 'X');
+    chain(OWNER, null);
+    // Owner can reclaim their own handle
+    await expect(handleAvailability('alice', OWNER)).resolves.toEqual({ status: 'free' });
+    await expect(isHandleAvailable('alice', OWNER)).resolves.toBe(true);
+    // But it's taken for anyone else
+    await expect(handleAvailability('alice', OTHER)).resolves.toEqual({ status: 'taken' });
+    await expect(isHandleAvailable('alice', OTHER)).resolves.toBe(false);
+    // And taken when no address is specified
+    await expect(handleAvailability('alice')).resolves.toEqual({ status: 'taken' });
+    await expect(isHandleAvailable('alice')).resolves.toBe(false);
+  });
+
+  it('is free when neither held nor cooling', async () => {
     chain(null, null);
     await expect(handleAvailability('alice')).resolves.toEqual({ status: 'free' });
     await expect(isHandleAvailable('alice')).resolves.toBe(true);

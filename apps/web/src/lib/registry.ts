@@ -120,7 +120,11 @@ export async function handleAvailability(
   address?: string,
 ): Promise<HandleAvailability> {
   const [owner, cooldown] = await Promise.all([resolveHandle(handle), getHandleCooldown(handle)]);
-  if (owner !== null) return { status: 'taken' };
+  if (owner !== null) {
+    // If the handle is owned by the checking address, it's available for them to reclaim
+    if (owner === address) return { status: 'free' };
+    return { status: 'taken' };
+  }
   if (cooldown && cooldown.prevOwner !== address) {
     return { status: 'reserved', until: cooldown.until };
   }
