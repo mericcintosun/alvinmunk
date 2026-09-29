@@ -2,7 +2,8 @@
  * Gate client — reputation as a capability. Lists access gates, checks/records unlocks.
  * The composable bit: `check(addr, id)` is a pure on-chain read any app can call.
  */
-import { invokeAndWait, invokeAndWaitHash, readPublic, args, gateId } from './contracts';
+import { invokeAndWait, invokeAndWaitHash, args, gateId } from './contracts';
+import { getGateClient } from './sdk';
 import type { Wallet } from './wallet';
 
 export const TRACK = { SOCIAL: 0, EARNED: 1 } as const;
@@ -23,9 +24,7 @@ export async function getGates(): Promise<Gate[]> {
 /** Every gate, active or not. Throws on RPC failure (the admin table must not read an
  *  outage as "no gates"); `getGates` is the forgiving variant for player views. */
 export async function readGates(): Promise<Gate[]> {
-  const raw = await readPublic<
-    Array<{ id: number; track: number; min: bigint; label: string; active: boolean }>
-  >(gateId(), 'get_gates', []);
+  const raw = await getGateClient().readGates();
   return (raw ?? []).map((g) => ({
     id: Number(g.id),
     track: Number(g.track),
@@ -38,20 +37,16 @@ export async function readGates(): Promise<Gate[]> {
 /** Composable read — does `address` pass gate `id`? (cross-reads reputation on-chain). */
 export async function checkGate(address: string, id: number): Promise<boolean> {
   if (!gateId()) return false;
-  return (
-    (await readPublic<boolean>(gateId(), 'check', [args.addr(address), args.u32(id)]).catch(
-      () => false,
-    )) ?? false
-  );
+  return getGateClient()
+    .checkGate(address, id)
+    .catch(() => false);
 }
 
 export async function isUnlocked(address: string, id: number): Promise<boolean> {
   if (!gateId()) return false;
-  return (
-    (await readPublic<boolean>(gateId(), 'is_unlocked', [args.addr(address), args.u32(id)]).catch(
-      () => false,
-    )) ?? false
-  );
+  return getGateClient()
+    .isUnlocked(address, id)
+    .catch(() => false);
 }
 
 export async function unlockGate(wallet: Wallet, id: number): Promise<void> {

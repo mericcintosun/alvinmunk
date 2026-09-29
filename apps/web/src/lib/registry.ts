@@ -4,6 +4,7 @@
  * Validate/normalize the handle with normalizeHandle() BEFORE calling claim.
  */
 import { invokeAndWait, readPublic, args, registryId } from './contracts';
+import { getClient } from './sdk';
 import type { Wallet } from './wallet';
 import { encodeAvatar, decodeAvatar, type AvatarConfig } from './avatar';
 import { sanitizeBio } from './profile';
@@ -12,18 +13,14 @@ import { shareInFlight } from './utils';
 /** Resolve `@handle` → address (public, wallet-free). null if unclaimed/unconfigured. */
 export async function resolveHandle(handle: string): Promise<string | null> {
   if (!registryId() || !handle) return null;
-  const v = await readPublic<string | null>(registryId(), 'resolve', [args.sym(handle)]).catch(
-    () => null,
-  );
+  const v = await getClient().resolveHandle(handle).catch(() => null);
   return v ?? null;
 }
 
 /** Reverse address → `@handle`. null if the address hasn't claimed one. */
 export async function reverseHandle(address: string): Promise<string | null> {
   if (!registryId() || !address) return null;
-  const v = await readPublic<string | null>(registryId(), 'reverse', [args.addr(address)]).catch(
-    () => null,
-  );
+  const v = await getClient().reverseHandle(address).catch(() => null);
   return v ?? null;
 }
 
@@ -65,7 +62,7 @@ export async function reverseHandles(addresses: string[]): Promise<Record<string
 function reverseChunk(chunk: string[]): Promise<(string | null)[]> {
   return shareInFlight(pendingReverse, chunk.join(','), async () => {
     try {
-      const v = await readPublic<unknown>(registryId(), 'reverse_many', [args.addrs(chunk)]);
+      const v = await getClient().reverseHandles(chunk);
       if (!Array.isArray(v) || v.length !== chunk.length) return chunk.map(() => null);
       return v.map((h) => (typeof h === 'string' ? h : null));
     } catch (e) {
@@ -161,11 +158,7 @@ export function getMeta(address: string): Promise<OnChainMeta | null> {
   const hit = metaCache.get(address);
   if (hit && Date.now() - hit.at < META_TTL_MS) return hit.value;
   const value = Promise.resolve()
-    .then(() =>
-      readPublic<{ avatar?: unknown; bio?: unknown } | null>(registryId(), 'get_meta', [
-        args.addr(address),
-      ]),
-    )
+    .then(() => getClient().getMeta(address))
     .then((raw) =>
       raw && typeof raw === 'object'
         ? {

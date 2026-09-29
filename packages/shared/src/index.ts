@@ -6,6 +6,14 @@
  * `att_set` event is frozen (belts/00-strategy §4) — changing it breaks indexing.
  */
 
+/**
+ * @alvinmunk/shared — single source of truth for contract interfaces, event
+ * schemas, and schema ids shared by the web app and (future) indexer.
+ *
+ * Keep the EVENT shapes in lockstep with the Soroban contracts. The canonical
+ * `att_set` event is frozen (belts/00-strategy §4) — changing it breaks indexing.
+ */
+
 // ── Schema ids (namespacing for attestations). Issuers agree off-chain. ──
 // `schema_id` is whatever the attester passes to `award_xp`; every deployed quest uses
 // QUEST (scripts/redeploy-all.sh). Vouches never touch Earned, so no `att_set` carries 1.
@@ -47,7 +55,8 @@ export interface Attestation {
 export interface Vouch {
   id: number;
   from: string; // voucher address
-  /** sha256(secret) — BytesN<32> */
+  /** sha256(secret) — BytesN<32>; all zeros on a card minted with a claim key
+   *  (`mint_vouch_signed`), whose key is read with `get_claim_key` */
   claim_hash: Uint8Array;
   note: string;
   claimed: boolean;
@@ -85,6 +94,16 @@ export interface NetworkConfig {
   contracts: ContractIds;
 }
 
+/** Built-in testnet contract ids (mainnet added at cutover). */
+export const TESTNET_CONTRACTS: ContractIds = {
+  reputation: '',
+  questRegistry: '',
+  rewards: '',
+  usdcSac: '',
+  registry: '',
+  gate: '',
+} as const;
+
 export const PASSPHRASE = {
   testnet: 'Test SDF Network ; September 2015',
   mainnet: 'Public Global Stellar Network ; September 2015',
@@ -108,6 +127,18 @@ export function readNetworkConfig(env: Record<string, string | undefined>): Netw
     },
   };
 }
+
+/** Default RPC URLs per network. */
+export const RPC_URL: Record<StellarNetwork, string> = {
+  testnet: 'https://soroban-testnet.stellar.org',
+  mainnet: 'https://soroban.stellar.org',
+} as const;
+
+/** Default Horizon URLs per network. */
+export const HORIZON_URL: Record<StellarNetwork, string> = {
+  testnet: 'https://horizon-testnet.stellar.org',
+  mainnet: 'https://horizon.stellar.org',
+} as const;
 
 /** Deterministic generative-art seed from a wallet address (Genesis Stamp / vouch sigil). */
 export function artSeed(address: string): number {
