@@ -19,6 +19,7 @@ pnpm dev                              # start dev server (turbo → next dev)
 alvinmunk/
 ├── apps/web/          # Next.js 14 frontend
 ├── packages/shared/   # Shared TS types & utilities
+├── packages/sdk/      # @alvinmunk/sdk, the publishable read-only client
 ├── contracts/         # Soroban Rust contracts (reputation, quest_registry, rewards, registry, gate)
 ├── belts/             # Strategy & belt roadmaps
 ├── docs/              # PRD, sprints, product docs

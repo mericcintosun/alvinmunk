@@ -176,6 +176,24 @@ describe('getProfile / getScore', () => {
     for (const c of calls) expect(c).toMatchObject({ contract: REP, args: [ADDR] });
   });
 
+  it('reads unverified on a contract that predates is_verified too', async () => {
+    const { sdk } = client(({ method }) => {
+      if (method === 'get_score') return { retval: u64(9) };
+      if (method === 'get_earned') return { retval: u64(0) };
+      return { error: missing(method) };
+    });
+    await expect(sdk.getProfile(ADDR)).resolves.toEqual({ social: 9, earned: 0, verified: false });
+  });
+
+  it('rejects when a fallback read fails for another reason', async () => {
+    const { sdk } = client(({ method }) => {
+      if (method === 'get_profile') return { error: missing('get_profile') };
+      if (method === 'is_verified') return { error: 'fetch failed' };
+      return { retval: u64(1) };
+    });
+    await expect(sdk.getProfile(ADDR)).rejects.toThrow('simulate is_verified failed: fetch failed');
+  });
+
   it('does not mistake an outage or a revert for a missing view', async () => {
     const { sdk, calls } = client(() => ({ error: 'HostError: Error(Contract, #3)' }));
     await expect(sdk.getProfile(ADDR)).rejects.toThrow('simulate get_profile failed: HostError: Error(Contract, #3)');

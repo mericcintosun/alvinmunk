@@ -155,7 +155,7 @@ importers:
     dependencies:
       '@stellar/stellar-sdk':
         specifier: ^16.0.1
-        version: 16.0.1
+        version: 16.3.0
     devDependencies:
       '@types/node':
         specifier: ^20.14.12
@@ -164,8 +164,8 @@ importers:
         specifier: ^5.5.4
         version: 5.9.3
       vitest:
-        specifier: ^2.1.8
-        version: 2.1.9(@types/node@20.19.43)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))
+        specifier: ^4.1.11
+        version: 4.1.11(@types/node@20.19.43)(jiti@1.21.7)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))
 
   packages/shared:
     dependencies:

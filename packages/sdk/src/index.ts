@@ -263,7 +263,11 @@ export function createClient(options: ClientOptions): AlvinmunkClient {
       const [social, earned, verified] = await Promise.all([
         read<bigint>('reputation', 'get_score', [who]),
         read<bigint>('reputation', 'get_earned', [who]),
-        read<boolean>('reputation', 'is_verified', [who]),
+        // A contract older still has no verification at all: nobody is verified there.
+        read<boolean>('reputation', 'is_verified', [who]).catch((e2: unknown) => {
+          if (isMissingFunction(e2)) return false;
+          throw e2;
+        }),
       ]);
       return decodeProfile({ social, earned, verified });
     }
