@@ -24,13 +24,14 @@ export interface AttestEvidence {
 }
 
 /**
- * The manageData entry name the REFERRED account must set on-chain to bind the referral.
- * Value must be the REFERRER's G-address encoded as UTF-8 bytes (Horizon stores it
- * base64-encoded; the attester decodes it and compares to `recipient`).
+ * The manageData entry name a classic REFERRED account can set on-chain to bind the
+ * referral. Value must be the REFERRER's address encoded as UTF-8 bytes (Horizon stores it
+ * base64-encoded; the attester decodes it and compares to `recipient`). Verifiable via
+ * GET /accounts/{referred} → .data["referral"].
  *
- * Onboarding flow: when a new user is invited, they include a `manageData` operation in
- * their account-creation (or first) transaction that sets this key to the inviter's address.
- * This is verifiable on-chain via GET /accounts/{referred} → .data["referral"].
+ * Passkey smart accounts (C…) can't hold manageData; any wallet can instead bind its
+ * inviter once in the registry (`set_inviter`, read back with `invited_by(addr)`), which
+ * the attester checks first — see `judgeReferral`.
  */
 export const REFERRAL_MARKER_KEY = 'referral';
 
@@ -119,7 +120,8 @@ export function validateEvidence(
     return { ok: false, reason: 'ref must be owner/repo#number' };
   }
   if (ev.type === 'referral_tx') {
-    if (!isGAddress(ev.ref)) return { ok: false, reason: 'ref must be a G address' };
+    // a passkey smart account (C…) is referred through its registry invite binding
+    if (!isStellarAddress(ev.ref)) return { ok: false, reason: 'ref must be a G or C address' };
     if (ev.ref === recipient) return { ok: false, reason: 'cannot refer yourself' };
   }
   if (ev.type === 'invite_converts') {
@@ -127,6 +129,117 @@ export function validateEvidence(
     if (ev.ref === recipient) return { ok: false, reason: 'cannot invite yourself' };
   }
   return { ok: true };
+}
+
+/**
+ * What the attester read about a `referral_tx` ref. For both lookups `null` means "none"
+ * and `undefined` means "couldn't be read right now".
+ */
+export interface ReferralFacts {
+  /** The referred wallet's Social score (`reputation.get_score`). */
+  score: bigint;
+  /**
+   * Its registry invite binding (`registry.invited_by`): the inviter's address; null when
+   * unbound, or when the registry isn't configured or predates invite bindings.
+   */
+  invitedBy: string | null | undefined;
+  /** Its decoded `referral` manageData entry; null when absent (always, for a C… account). */
+  marker: string | null | undefined;
+}
+
+/**
+ * Did `recipient` refer `ref`? The referred wallet must have done something real (a
+ * Social score above zero), so an empty account bound to you earns nothing. Its registry
+ * binding decides whenever there is one — it is write-once and signed by the referred
+ * wallet — and only a wallet with no binding falls back to the classic manageData marker.
+ */
+export function judgeReferral(
+  facts: ReferralFacts,
+  ref: string,
+  recipient: string,
+): { ok: true } | { ok: false; reason: string } {
+  if (facts.score <= 0n) {
+    return { ok: false, reason: 'that wallet hasn’t done anything here yet — no referral credit' };
+  }
+  if (facts.invitedBy === undefined) {
+    return { ok: false, reason: 'couldn’t read who invited that wallet right now — try again' };
+  }
+  if (facts.invitedBy !== null) {
+    return facts.invitedBy === recipient
+      ? { ok: true }
+      : { ok: false, reason: 'that wallet was invited by a different account' };
+  }
+  if (facts.marker === undefined) {
+    return { ok: false, reason: 'couldn’t read the referred account right now — try again' };
+  }
+  if (facts.marker !== null) {
+    if (facts.marker === recipient) return { ok: true };
+    return {
+      ok: false,
+      reason:
+        facts.marker === ref
+          ? 'referral marker is a self-referral on the referred account'
+          : 'referral marker points to a different referrer — cannot reuse this marker',
+    };
+  }
+  return {
+    ok: false,
+    reason:
+      'no referral binding found — ask them to join through your invite link ' +
+      `(or set the "${REFERRAL_MARKER_KEY}" data entry to your address)`,
+  };
+}
+
+/**
+ * The quest id each evidence type is bound to when its env var is unset: the ids
+ * scripts/redeploy-all.sh seeds and components/Quests.tsx targets. `github_pr` has no
+ * default, so GitHub attestations stay off until QUEST_GITHUB_ID is set.
+ */
+export const DEFAULT_QUEST_IDS = { referral_tx: 2, invite_converts: 3, vouch_back: 4 } as const;
+
+/** Quest-id env vars (per evidence type) read by `buildQuestEvidenceMap`. */
+export const QUEST_ID_ENV: Record<EvidenceType, string> = {
+  referral_tx: 'NEXT_PUBLIC_DEFAULT_QUEST_ID',
+  invite_converts: 'NEXT_PUBLIC_INVITE_QUEST_ID',
+  vouch_back: 'NEXT_PUBLIC_VOUCHBACK_QUEST_ID',
+  github_pr: 'QUEST_GITHUB_ID',
+};
+
+/**
+ * Whether `type` is THE evidence type bound to `questId`. The attester checks this BEFORE
+ * any network call: without it one qualifying action (e.g. vouch_back) could be replayed
+ * against every quest id and redeem each of them. A quest id missing from the map is
+ * rejected, so an unmapped quest can never be attested.
+ */
+export function evidenceMatchesQuest(
+  questId: number,
+  type: EvidenceType,
+  map: ReadonlyMap<number, EvidenceType>,
+): boolean {
+  return map.get(questId) === type;
+}
+
+/**
+ * Build the questId → evidence-type map from env (see `QUEST_ID_ENV`). An unset or blank
+ * var falls back to `DEFAULT_QUEST_IDS`; a set value must be a plain decimal quest id, or
+ * that type is left unmapped. Two types configured with the same quest id are ambiguous,
+ * so that id is dropped entirely and rejects every type (fail closed).
+ */
+export function buildQuestEvidenceMap(
+  env: Record<string, string | undefined>,
+): Map<number, EvidenceType> {
+  const map = new Map<number, EvidenceType>();
+  const conflicts = new Set<number>();
+  for (const type of Object.keys(QUEST_ID_ENV) as EvidenceType[]) {
+    const raw = env[QUEST_ID_ENV[type]]?.trim();
+    const fallback = (DEFAULT_QUEST_IDS as Partial<Record<EvidenceType, number>>)[type];
+    const id = raw ? (/^\d+$/.test(raw) ? Number(raw) : NaN) : fallback;
+    if (!isValidQuestId(id)) continue;
+    if (map.has(id)) conflicts.add(id);
+    else map.set(id, type);
+  }
+  for (const id of conflicts) map.delete(id);
+  return map;
 }
 
 /**

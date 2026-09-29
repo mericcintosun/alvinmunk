@@ -8,12 +8,15 @@
  *
  * Only cryptographically / API-verifiable quests are accepted (00-strategy §1):
  *   - github_pr   : evidence.ref = "owner/repo#123" -> PR must be merged
- *   - referral_tx : evidence.ref = "G..." address   -> must have ≥1 on-chain tx
+ *   - referral_tx : evidence.ref = a G… or C… address -> must be active (Social score > 0)
+ *                   and name the recipient as its inviter: registry `invited_by` (any wallet
+ *                   kind), else a classic account's "referral" manageData entry
  *
  * Defense-in-depth (belts/08 §security): on-chain recipient.require_auth() ownership +
- * on-chain replay guard (the hard cap), per-IP rate limit, bounded body, optional GitHub
- * repo allowlist, self-referral guard. The signature is only redeemable by the recipient
- * (they must satisfy require_auth), so issuing it carries no transfer of funds.
+ * on-chain replay guard (the hard cap), each quest id bound to one evidence type, per-IP
+ * rate limit, bounded body, optional GitHub repo allowlist, self-referral guard. The
+ * signature is only redeemable by the recipient (they must satisfy require_auth), so
+ * issuing it carries no transfer of funds.
  */
 import {
   Account,
@@ -30,8 +33,12 @@ import {
   MAX_BODY_BYTES,
   REFERRAL_MARKER_KEY,
   VOUCH_BACK_MIN,
+  buildQuestEvidenceMap,
   decodeDataEntry,
+  evidenceMatchesQuest,
+  isGAddress,
   isValidQuestId,
+  judgeReferral,
   parseRepoAllowlist,
   repoAllowed,
   validateEvidence,
@@ -69,8 +76,12 @@ const PASSPHRASE =
   process.env.NEXT_PUBLIC_STELLAR_NETWORK === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
 const QUEST_ID = process.env.NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID ?? '';
 const REP_ID = process.env.NEXT_PUBLIC_REPUTATION_CONTRACT_ID ?? '';
+const REGISTRY_ID = process.env.NEXT_PUBLIC_REGISTRY_CONTRACT_ID ?? '';
 const REPO_ALLOWLIST = parseRepoAllowlist(process.env.QUEST_GITHUB_REPOS);
 const EVENT_WINDOW = 9000; // ledgers back to scan for vouch events (testnet RPC retention)
+
+// questId → the one evidence type that may claim it (lib/attest.ts buildQuestEvidenceMap).
+const QUEST_EVIDENCE = buildQuestEvidenceMap(process.env);
 
 // Recipient may be a classic (G…) OR a passkey smart-account (C…) address.
 const STELLAR_ADDRESS = /^[GC][A-Z2-7]{55}$/;
@@ -112,11 +123,20 @@ export async function POST(req: Request): Promise<Response> {
   const shape = validateEvidence(body.evidence, body.recipient);
   if (!shape.ok) return json({ error: shape.reason }, 422);
 
-  // 2) Verify the real-world action (network).
+  // 2) The evidence must be the type bound to this quest id — checked before any network
+  // call, else one qualifying action could be signed for every quest.
+  if (!evidenceMatchesQuest(body.questId, (body.evidence as AttestEvidence).type, QUEST_EVIDENCE)) {
+    const reason = QUEST_EVIDENCE.has(body.questId)
+      ? 'evidence type does not match this quest'
+      : 'this quest cannot be attested';
+    return json({ error: reason }, 422);
+  }
+
+  // 3) Verify the real-world action (network).
   const verified = await verifyEvidence(body.evidence as AttestEvidence, body.recipient);
   if (!verified.ok) return json({ error: verified.reason }, 422);
 
-  // 3) Sign the contract's canonical payload — the recipient redeems it on-chain.
+  // 4) Sign the contract's canonical payload — the recipient redeems it on-chain.
   try {
     const signed = await signQuestPayload(secret, body.questId, body.recipient);
     logEvent({ route: 'attest', outcome: 'ok', questId: body.questId, ms: Date.now() - now });
@@ -181,40 +201,17 @@ async function verifyEvidence(
   }
 
   if (ev.type === 'referral_tx') {
-    // Fetch the referred account object (includes manageData under .data).
-    const r = await fetch(`${HORIZON}/accounts/${ev.ref}`);
-    if (r.status === 404) return { ok: false, reason: 'referred account not found on-chain' };
-    if (!r.ok) return { ok: false, reason: `horizon error ${r.status}` };
-
-    const acct = (await r.json()) as { data?: Record<string, string> };
-
-    // The referred account MUST have set a manageData entry ("referral") whose value
-    // (base64-decoded UTF-8) is exactly the referrer's address. This proves the referrer
-    // caused the relationship — not merely that the referred account is active.
-    const raw = acct.data?.[REFERRAL_MARKER_KEY];
-    if (!raw) {
-      return {
-        ok: false,
-        reason:
-          `referred account has no "${REFERRAL_MARKER_KEY}" data entry — ` +
-          'ask them to set it to your address during onboarding',
-      };
+    if (!REP_ID) return { ok: false, reason: 'reputation contract not configured' };
+    let score: bigint;
+    try {
+      score = await readU64(REP_ID, 'get_score', ev.ref);
+    } catch {
+      return { ok: false, reason: 'couldn’t read the referred wallet’s activity right now — try again' };
     }
-
-    const stored = decodeDataEntry(raw);
-    if (stored !== recipient) {
-      // Either corrupted, or someone tried to reuse a marker already claimed by
-      // another referrer. Both cases are rejected.
-      return {
-        ok: false,
-        reason:
-          stored === ev.ref
-            ? 'referral marker is a self-referral on the referred account'
-            : 'referral marker points to a different referrer — cannot reuse this marker',
-      };
-    }
-
-    return { ok: true };
+    const invitedBy = await readInvitedBy(ev.ref);
+    // A registry binding decides on its own; the classic marker is only read without one.
+    const marker = invitedBy === null && isGAddress(ev.ref) ? await readReferralMarker(ev.ref) : null;
+    return judgeReferral({ score, invitedBy, marker }, ev.ref, recipient);
   }
 
   return { ok: false, reason: 'unknown evidence type' };
@@ -232,6 +229,50 @@ async function readU64(contractId: string, method: string, addr: string): Promis
   if (rpc.Api.isSimulationError(sim)) throw new Error(sim.error);
   const v = sim.result?.retval;
   return v ? BigInt(scValToNative(v) as number | bigint) : 0n;
+}
+
+/**
+ * `registry.invited_by(addr)` via simulation: the inviter's address, null when unbound (or
+ * no registry is configured, or the deployed one predates invite bindings), undefined when
+ * the read failed.
+ */
+async function readInvitedBy(addr: string): Promise<string | null | undefined> {
+  if (!REGISTRY_ID) return null;
+  try {
+    const server = new rpc.Server(RPC_URL, { allowHttp: RPC_URL.startsWith('http://') });
+    const source = new Account(Keypair.random().publicKey(), '0');
+    const tx = new TransactionBuilder(source, { fee: '100', networkPassphrase: PASSPHRASE })
+      .addOperation(new Contract(REGISTRY_ID).call('invited_by', new Address(addr).toScVal()))
+      .setTimeout(30)
+      .build();
+    const sim = await server.simulateTransaction(tx);
+    if (rpc.Api.isSimulationError(sim)) {
+      return /Error\(WasmVm, MissingValue\)|non-existent contract function/.test(sim.error)
+        ? null
+        : undefined;
+    }
+    const v = sim.result?.retval ? scValToNative(sim.result.retval) : null;
+    return typeof v === 'string' ? v : null;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * A classic account's `referral` manageData entry, decoded (Horizon): null when the account
+ * or the entry doesn't exist, undefined when Horizon couldn't be read.
+ */
+async function readReferralMarker(ref: string): Promise<string | null | undefined> {
+  try {
+    const r = await fetch(`${HORIZON}/accounts/${ref}`);
+    if (r.status === 404) return null;
+    if (!r.ok) return undefined;
+    const acct = (await r.json()) as { data?: Record<string, string> };
+    const raw = acct.data?.[REFERRAL_MARKER_KEY];
+    return raw ? decodeDataEntry(raw) : null;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
