@@ -103,6 +103,8 @@ pub struct Vouch {
     pub slashed: bool,
 }
 
+fn claim_deadline(v: &Vouch) -> u64 { v.created.saturating_add(VOUCH_TTL_SECS) }
+
 /// A voucher's 2nd-order bonus, owed once the claimer performs a verified action.
 #[contracttype]
 #[derive(Clone)]
@@ -290,7 +292,7 @@ impl ReputationContract {
 
         // Refund the voucher's stake on a timely claim (else it stays slashed).
         let now = env.ledger().timestamp();
-        if !vouch.slashed && now <= vouch.created + VOUCH_TTL_SECS {
+        if !vouch.slashed && now <= claim_deadline(&vouch) {
             Self::add_social(&env, &vouch.from, vouch.stake);
         }
 
@@ -343,7 +345,7 @@ impl ReputationContract {
         if vouch.slashed {
             return; // already slashed — idempotent
         }
-        if env.ledger().timestamp() <= vouch.created.saturating_add(VOUCH_TTL_SECS) {
+        if env.ledger().timestamp() <= claim_deadline(&vouch) {
             panic_with_error!(&env, Error::NotExpired);
         }
         vouch.slashed = true;
