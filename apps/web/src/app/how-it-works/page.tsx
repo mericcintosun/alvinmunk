@@ -13,6 +13,7 @@ import { Sticker } from '@/components/ui/sticker';
 import { buttonVariants } from '@/components/ui/button';
 import { useTranslations } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { ReputationSnippet } from '@/components/ReputationSnippet';
 
 /** Renders `raw` with `highlight` wrapped in a <strong> — for bolding inline XP labels. */
 function SplitHighlight({ raw, highlight }: { raw: string; highlight: string }) {
@@ -140,20 +141,7 @@ export default function HowItWorks() {
         <p className="mt-3 text-sm text-muted-foreground">
           {t('howItWorks.devs.body')}
         </p>
-        <div className="mt-6 border border-border/70 bg-background/70">
-          <div className="flex items-center gap-1.5 border-b border-border/60 px-3 py-2">
-            <span className="size-2.5 rounded-full bg-destructive/70" />
-            <span className="size-2.5 rounded-full bg-warning/70" />
-            <span className="size-2.5 rounded-full bg-secondary/70" />
-            <span className="ml-2 font-mono text-[10px] text-muted-foreground">read-reputation.ts</span>
-          </div>
-          <pre className="overflow-x-auto p-5 font-mono text-xs leading-relaxed text-foreground/80">
-{`// read a Social score (non-cashable)
-const score = await getScore(address);   // → 42
-// read the cashable Earned track
-const earned = await getEarned(address); // → 30`}
-          </pre>
-        </div>
+        <ReputationSnippet className="mt-6" />
       </section>
 
       <div className="relative mt-16 flex justify-center">

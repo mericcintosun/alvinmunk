@@ -66,8 +66,9 @@ Then it:
 - for each contract in order (reputation, quest_registry, rewards, registry, gate): uploads the wasm (checking the on-chain hash equals the local sha256), deploys it, and calls `init` straight away, because `init` is open to anyone until it has run. `init` is never retried: if it fails, someone may have initialized the contract first, so never use that id;
 - sets `rewards.set_daily_cap(DAILY_CAP)` and `rewards.set_require_funding(true)`;
 - wires the attesters: `reputation.add_attester(quest_registry)` and `quest_registry.add_attester_key(<attester ed25519 key>)`, the key `/api/attest` signs with;
+- points rewards at the quest registry with `rewards.set_quest_registry(quest_registry)`, which streak-gated rewards (`set_reward_min_streak`) read `get_streak` from;
 - seeds the same quests (ids 1-4), reward table (ids 1-3: 30 / 60 / 100 Earned XP pays 0.5 / 1 / 2 USDC) and gates (1, 2) as `scripts/redeploy-all.sh`;
-- reads back `get_require_funding`, `get_daily_cap` and `is_attester(quest_registry)`;
+- reads back `get_require_funding`, `get_daily_cap`, `get_quest_registry` and `is_attester(quest_registry)`;
 - appends the commit SHA, deployer (admin) public key, attester key, USDC SAC, daily cap, CLI version, and every contract id + wasm hash to `deployment-log.md`.
 
 It never calls friendbot or the faucet and never moves USDC. If it fails or is interrupted after creating contracts, it appends an `INCOMPLETE (failed during: <step>)` entry with the ids created so far; don't wire the app to them.
@@ -124,7 +125,7 @@ Needs `stellar` (with `strkey decode`), `jq` and `git`. Offline tests for the ga
 - [ ] Redeploy and smoke-test onboarding + one vouch on the live mainnet app.
 
 **Monitoring**
-- [x] Product analytics + error tracking already wired (Vercel Analytics + Speed Insights + PostHog). Add PostHog alerts on error-rate spikes.
+- [x] Product analytics + error tracking already wired (Vercel Analytics + Speed Insights; `lib/track.ts` custom events require a Pro plan and are no-ops on Hobby). Add Vercel alerts on error-rate spikes; per-user funnel/retention analytics needs a dedicated product-analytics tool (e.g. PostHog — a separate future feature).
 - [ ] Add contract-event monitoring (RPC `getEvents` cron, or Mercury/Subquery) alerting on: admin ops, `set_paused`, large `reward`/`tipped` amounts.
 - [ ] A simple metrics page (TVL paid, users, vouch loops/week) — even a Notion/Streamlit board.
 

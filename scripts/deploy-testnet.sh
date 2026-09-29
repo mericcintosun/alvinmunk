@@ -36,6 +36,7 @@ echo "==> Initializing"
 inv "$REP_ID" init --admin "$ADMIN_ADDR"
 inv "$QUEST_ID" init --admin "$ADMIN_ADDR" --reputation "$REP_ID"
 inv "$REWARDS_ID" init --admin "$ADMIN_ADDR" --usdc "$USDC_SAC" --reputation "$REP_ID"
+inv "$REWARDS_ID" set_quest_registry --quest_registry "$QUEST_ID"
 
 echo "==> Wiring attesters (QuestRegistry contract + off-chain attester key are both attesters of Reputation)"
 inv "$REP_ID" add_attester --attester "$QUEST_ID"
