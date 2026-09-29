@@ -3,7 +3,7 @@
  * serverless attester route. No standing backend — leaderboard reads RPC directly
  * (belts/00-strategy: defer the indexer until scale demands it).
  */
-import { Horizon, rpc } from '@stellar/stellar-sdk';
+import { Horizon, Keypair, rpc, xdr } from '@stellar/stellar-sdk';
 import { readNetworkConfig, validateNetworkConfig } from '@alvinmunk/shared';
 
 // Next.js only inlines LITERAL `process.env.NEXT_PUBLIC_*` member expressions into the
@@ -53,12 +53,17 @@ export function misconfiguredResponse(): Response | null {
   });
 }
 
-export const server = new rpc.Server(config.rpcUrl, {
+// The SDK throws "Invalid URL" on an empty one, which would take the whole app (banner
+// included) down at import. A mainnet deploy without NEXT_PUBLIC_RPC_URL is already in
+// `configErrors`, so point its client at a reserved never-resolving host instead.
+const UNSET_URL = 'https://url-not-configured.invalid';
+
+export const server = new rpc.Server(config.rpcUrl || UNSET_URL, {
   allowHttp: config.rpcUrl.startsWith('http://'),
 });
 
 /** Horizon — used for balances (RPC has no simple balance endpoint). */
-export const horizon = new Horizon.Server(config.horizonUrl, {
+export const horizon = new Horizon.Server(config.horizonUrl || UNSET_URL, {
   allowHttp: config.horizonUrl.startsWith('http://'),
 });
 
@@ -117,6 +122,20 @@ export async function waitForAccountReady(address: string, tries = 20): Promise<
       await sleep(800);
     }
   }
+}
+
+/**
+ * Does the classic account `address` exist on-chain? `false` only when the RPC answers that
+ * there is no such account; an RPC failure throws, so an outage is never read as "unfunded".
+ * (`server.getAccount` can't tell the two apart: it reports every failure as "Account not
+ * found".)
+ */
+export async function accountExists(address: string): Promise<boolean> {
+  const key = xdr.LedgerKey.account(
+    new xdr.LedgerKeyAccount({ accountId: Keypair.fromPublicKey(address).xdrPublicKey() }),
+  );
+  const { entries } = await server.getLedgerEntries(key);
+  return entries.length > 0;
 }
 
 /** Explorer link for a tx hash (Stellar Expert). */

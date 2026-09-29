@@ -46,7 +46,7 @@ shadcn components are added on demand and **committed into the repo**
 
 ## 3. Version pinning & coupling (Tyler/Elliot)
 
-- **`@stellar/stellar-sdk`: pin exact** (`"16.x.y"`, no caret). Protocol-coupled; a silent
+- **`@stellar/stellar-sdk`: pin exact** (`"16.3.0"`, no caret). Protocol-coupled; a silent
   minor can break tx decoding. Keep all SDK usage behind `lib/contracts.ts` + `lib/stellar.ts`
   (the adapter) so a future bump touches one place.
 - **Next 14→15**: run `npx @next/codemod upgrade`; audit `fetch` caching + async request
@@ -83,6 +83,7 @@ library (MUI/Chakra/Mantine).
 |------|-----------|
 | Radix slows / a primitive breaks | new primitives from Base UI / React Aria; Radix ones are already vendored via shadcn |
 | SDK minor breaks tx decode | exact pin + single adapter module |
+| Transitive `axios` advisories | root `pnpm.overrides` forces `axios@^1.18.0` across the tree |
 | Hydration errors from wallet | client boundary + `dynamic(ssr:false)` |
 | OG generation rabbit-hole | start with one template + static fallback, expand later |
 | Stacked migrations break everything | one major at a time, each its own green PR |

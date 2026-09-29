@@ -6,6 +6,35 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  poweredByHeader: false,
+  async headers() {
+    return [
+      {
+        // Apply to every route (pages + API)
+        source: '/(.*)',
+        headers: [
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          {
+            key: 'Strict-Transport-Security',
+            value: 'max-age=63072000; includeSubDomains',
+          },
+          {
+            key: 'Permissions-Policy',
+            value:
+              'camera=(), microphone=(), geolocation=(), publickey-credentials-get=(self), publickey-credentials-create=(self)',
+          },
+        ],
+      },
+      {
+        // /claim/* links carry a one-time secret in the URL fragment; suppress the
+        // Referer header so it never leaks to third-party resources on that page.
+        source: '/claim/:path*',
+        headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }],
+      },
+    ];
+  },
   // @alvinmunk/shared ships raw TS; let Next transpile it from the workspace.
   // passkey-kit (+ its sibling SDKs) also ship raw, uncompiled TS → transpile them too.
   transpilePackages: ['@alvinmunk/shared', 'passkey-kit', 'passkey-kit-sdk', 'sac-sdk'],

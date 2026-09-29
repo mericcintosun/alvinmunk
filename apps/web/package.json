@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
     "e2e": "playwright test",
-    "e2e:smoke": "playwright test e2e/smoke.spec.ts",
+    "e2e:headers": "playwright test e2e/security-headers.spec.ts",
+    "e2e:smoke": "playwright test e2e/smoke.spec.ts e2e/security-headers.spec.ts",
     "clean": "rm -rf .next .turbo node_modules/.cache"
   },
   "dependencies": {
@@ -22,7 +23,7 @@
     "@react-three/drei": "^9.114.0",
     "@react-three/fiber": "^8.18.0",
     "@stellar/freighter-api": "^6.0.1",
-    "@stellar/stellar-sdk": "^16.0.1",
+    "@stellar/stellar-sdk": "16.3.0",
     "@upstash/redis": "1.39.0",
     "@vercel/analytics": "^2.0.1",
     "@vercel/speed-insights": "^2.0.0",
@@ -33,6 +34,7 @@
     "motion": "^12.40.0",
     "next": "^14.2.5",
     "passkey-kit": "^0.12.0",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "sonner": "^2.0.7",
@@ -43,6 +45,7 @@
   "devDependencies": {
     "@playwright/test": "1.61.0",
     "@types/node": "^20.14.12",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@types/three": "^0.169.0",

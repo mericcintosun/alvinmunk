@@ -53,6 +53,26 @@ describe('profile persistence', () => {
     clearProfile();
     expect(loadProfile()).toBeNull();
   });
+
+  it('degrades gracefully when localStorage getter throws', () => {
+    const original = Object.getOwnPropertyDescriptor(window, 'localStorage');
+    Object.defineProperty(window, 'localStorage', {
+      get() {
+        throw new DOMException('SecurityError', 'SecurityError');
+      },
+      configurable: true,
+    });
+
+    try {
+      expect(loadProfile()).toBeNull();
+      expect(() => saveProfile({ handle: 'x', address: 'G', createdAt: 1 })).not.toThrow();
+      expect(() => clearProfile()).not.toThrow();
+    } finally {
+      if (original) {
+        Object.defineProperty(window, 'localStorage', original);
+      }
+    }
+  });
 });
 
 describe('bio (registry set_meta rules)', () => {

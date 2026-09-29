@@ -12,6 +12,9 @@
 //!
 //! Attester budget: a key can carry a daily Earned-XP budget (`set_attester_budget`), so
 //! a leaked key mints at most one day's budget. Keys without one stay unlimited.
+//!
+//! Signature lifetime: an award signature names its network, this contract and an expiry
+//! (`expires_at`), and `award_quest` refuses it once the ledger time passes that expiry.
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short,
@@ -36,6 +39,11 @@ const BUDGET_WARN_PERCENT: u128 = 80; // `att_key/near_cap` fires on reaching th
 // than 5s, on testnet too (its min_temporary_ttl is one hour).
 const USAGE_TTL: u32 = 2 * DAY_LEDGERS;
 
+// Domain tag, first element of every signed award payload (see `payload`). It names the
+// entrypoint and payload version, so the signature can never verify for another protocol's
+// message or for a later payload format, which must use a new tag.
+const AWARD_DOMAIN: &str = "alvinmunk_award_quest_v1";
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -47,6 +55,9 @@ pub enum Error {
     AlreadyClaimed = 5,
     QuestInactive = 6,
     AttesterBudgetExceeded = 7,
+    /// The ledger time is past the award signature's `expires_at`. The client asks the
+    /// attester for a fresh signature and submits again.
+    SignatureExpired = 8,
 }
 
 #[contracttype]
@@ -265,10 +276,11 @@ impl QuestRegistryContract {
         }
     }
 
-    /// The canonical message an attester signs to authorize a quest award — exposed so the
-    /// off-chain attester signs EXACTLY what the contract verifies (no byte-mismatch risk).
-    pub fn quest_payload(env: Env, quest_id: u32, recipient: Address) -> Bytes {
-        Self::payload(&env, quest_id, &recipient)
+    /// The canonical message an attester signs to authorize a quest award (see `payload`),
+    /// exactly as `award_quest` rebuilds it. For checking an off-chain build against a
+    /// deployment: an attester must build the bytes itself, never sign what an RPC returns.
+    pub fn quest_payload(env: Env, quest_id: u32, recipient: Address, expires_at: u64) -> Bytes {
+        Self::payload(&env, quest_id, &recipient, expires_at)
     }
 
     /// Award a verified quest to `recipient`. Replay-guarded. Dual authorization:
@@ -279,6 +291,11 @@ impl QuestRegistryContract {
     ///   2. `recipient.require_auth()` proves on-chain ownership of the credited wallet —
     ///      works uniformly for classic (G…) and passkey smart-account (C…) wallets.
     ///
+    /// The signature is valid through `expires_at` (a ledger timestamp, in seconds, that
+    /// the attester sets 10 minutes ahead) and reverts with `SignatureExpired` after it, so
+    /// an unredeemed signature stops being a standing grant. `expires_at` is part of the
+    /// signed payload: a client that changes it fails signature verification.
+    ///
     /// The quest's XP then counts against the attester key's daily budget, if it has one:
     /// an award past it reverts with `AttesterBudgetExceeded`.
     pub fn award_quest(
@@ -287,11 +304,15 @@ impl QuestRegistryContract {
         sig: BytesN<64>,
         quest_id: u32,
         recipient: Address,
+        expires_at: u64,
     ) {
+        if env.ledger().timestamp() > expires_at {
+            panic_with_error!(&env, Error::SignatureExpired);
+        }
         if !Self::attester_may_award(&env, &attester, quest_id) {
             panic_with_error!(&env, Error::NotAuthorized);
         }
-        let message = Self::payload(&env, quest_id, &recipient);
+        let message = Self::payload(&env, quest_id, &recipient, expires_at);
         env.crypto().ed25519_verify(&attester, &message, &sig);
         recipient.require_auth();
 
@@ -375,13 +396,19 @@ impl QuestRegistryContract {
 
     // --- internal ---
 
-    /// Canonical signing payload: XDR of [quest_id, recipient, this_contract]. Binding the
-    /// contract address stops a signature being replayed against another deployment.
-    fn payload(env: &Env, quest_id: u32, recipient: &Address) -> Bytes {
+    /// The bytes an attester signs to award `quest_id` to `recipient`: the XDR of the ScVal
+    /// vector `[Symbol(AWARD_DOMAIN), network_id, this contract, quest_id: u32, recipient,
+    /// expires_at: u64]`. `network_id` is sha256 of the network passphrase. Mirrored by
+    /// `questPayload` in apps/web/src/lib/attest.ts; the format is documented in
+    /// docs/ON_CHAIN_EVENTS.md.
+    fn payload(env: &Env, quest_id: u32, recipient: &Address, expires_at: u64) -> Bytes {
         let mut parts: Vec<Val> = Vec::new(env);
+        parts.push_back(Symbol::new(env, AWARD_DOMAIN).into_val(env));
+        parts.push_back(env.ledger().network_id().into_val(env));
+        parts.push_back(env.current_contract_address().into_val(env));
         parts.push_back(quest_id.into_val(env));
         parts.push_back(recipient.clone().into_val(env));
-        parts.push_back(env.current_contract_address().into_val(env));
+        parts.push_back(expires_at.into_val(env));
         parts.to_xdr(env)
     }
 

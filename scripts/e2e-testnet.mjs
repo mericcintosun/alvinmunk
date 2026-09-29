@@ -113,21 +113,24 @@ function secretPair() {
   return { secret: new Uint8Array(s), hash: new Uint8Array(crypto.createHash('sha256').update(s).digest()) };
 }
 
-async function signQuest(questId, recipientPk) {
-  const payload = await read(QUEST, 'quest_payload', [u32(questId), A(recipientPk)]);
+// Like /api/attest: a signature valid for 10 minutes. The payload comes from the live
+// contract's `quest_payload` view, so this also checks the deployment's payload format.
+async function signQuest(questId, recipientPk, expiresAt) {
+  const payload = await read(QUEST, 'quest_payload', [u32(questId), A(recipientPk), u64(expiresAt)]);
   const sig = ATTESTER.sign(payload);
   const attesterBytes = ATTESTER.rawPublicKey();
   return { attesterBytes, sig };
 }
 
-async function awardQuest(recipientKp, questId, overrideSig = null) {
-  const { attesterBytes, sig } = await signQuest(questId, recipientKp.publicKey());
+async function awardQuest(recipientKp, questId, overrideSig = null, expiresAt = Math.floor(Date.now() / 1000) + 600) {
+  const { attesterBytes, sig } = await signQuest(questId, recipientKp.publicKey(), expiresAt);
   const finalSig = overrideSig ?? sig;
   return invoke(recipientKp, QUEST, 'award_quest', [
     bytes(attesterBytes),
     bytes(finalSig),
     u32(questId),
     A(recipientKp.publicKey()),
+    u64(expiresAt),
   ]);
 }
 
@@ -218,6 +221,9 @@ async function expectRevert(code, fn) {
   // ── NEGATIVE: quest replay & signature validation ──
   await test('negative: quest replay reverts (#5 AlreadyClaimed)', async () => {
     await expectRevert(5, () => awardQuest(Cw, 1));
+  });
+  await test('negative: expired quest signature reverts (#8 SignatureExpired)', async () => {
+    await expectRevert(8, () => awardQuest(Dw, 1, null, Math.floor(Date.now() / 1000) - 60));
   });
   await test('negative: quest with bad signature reverts', async () => {
     const badSig = new Uint8Array(64); // invalid zero signature

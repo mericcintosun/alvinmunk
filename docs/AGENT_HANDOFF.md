@@ -14,7 +14,7 @@ actions (vouch, verified quests, tips); reputation is spendable. Core viral loop
 - **Sprints 0–2 done; Sprint 3 (Orange) build done + deployed.** ~30% toward Master.
 - **61 tests green** (31 contract incl. proptest property/fuzz + 30 web/shared), typecheck + next build + clippy + fmt all green.
 - All 3 contracts deployed to **testnet** and verified ON-CHAIN (not just unit tests).
-- Quests are LIVE and secured (wallet-ownership proof + freshness + rate limit).
+- Quests are LIVE and secured (verified evidence + on-chain `require_auth` + on-chain replay guard + rate limit).
 - **Remaining for Orange DoD (non-code):** 10 outside testers use the share flow + submit the idea on the Rise In panel.
 
 ## 3. How to work on this project (rules that matter)
@@ -46,7 +46,7 @@ apps/web/                 Next.js 14, stellar-sdk 16 (protocol 23), @stellar/fre
   src/lib/contracts.ts    invokeAndWait / readContract / args (ScVal builders)
   src/lib/reputation.ts   mintVouch (claim-secret), claimVouch, getSocial/Earned
   src/lib/leaderboard.ts  RPC social events + localStorage snapshot cache + reciprocal-ring flag
-  src/lib/quests.ts       completeQuest (signs ownership, POSTs /api/attest)
+  src/lib/quests.ts       completeQuest (POSTs /api/attest, then submits award_quest)
   src/lib/genesis.ts      first on-chain tx (manageData); src/lib/payments.ts (Level-1 XLM send)
   src/app/api/attest/     SERVERLESS ATTESTER (the only server-side key user). Hardened.
   src/app/page.tsx        onboarding → vouch + quests + leaderboard links
@@ -76,7 +76,7 @@ Leaderboard reads RPC directly (+ localStorage cache). Indexer deferred to Blue/
 - If you change a contract's interface, you MUST redeploy + re-wire attesters (`reputation.add_attester(quest_id)`, `quest.add_attester(attester_pubkey)`) + update `.env.local` and Vercel env.
 
 ## 7. Security model (already shipped — don't regress)
-- `/api/attest` requires: ed25519 **wallet-ownership proof** (client signs `attest:v1:{recipient}:{questId}:{type}:{ref}:{ts}`, server verifies vs recipient G-address), **±120s freshness**, **per-IP rate limit**. On-chain replay guard is the hard cap.
+- `/api/attest` **verifies the evidence** (shape, quest-id ↔ evidence-type binding, then the real action on the network), **rate-limits per IP**, and only then signs the quest_registry payload. Ownership is proven **on-chain**: the wallet submits `award_quest`, which runs `recipient.require_auth()` (no off-chain ownership signature). The on-chain replay guard is the hard cap.
 - Defense-in-depth: attester only grants Earned XP; USDC payout has caps/pause/proof-of-funding (Black belt).
 - Before mainnet (Black): move attester key to KMS or a private worker; tighten verification; keep treasury circuit breakers. See the security discussion in the project memory.
 

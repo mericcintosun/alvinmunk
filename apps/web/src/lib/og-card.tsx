@@ -17,6 +17,20 @@ import {
 // Shared profile-card renderer for the OG image routes (/u and /v). Resolves the handle
 // on-chain and returns Satori-compatible JSX. Literal colors (Satori has no CSS vars).
 
+/** Calculate font size for handle based on length to fit within OG card width. */
+export function handleFontSize(handleLength: number): number {
+  const MAX_SIZE = 76;
+  const MIN_SIZE = 40;
+  const MAX_CHARS = 12;
+  
+  if (handleLength <= MAX_CHARS) return MAX_SIZE;
+  
+  // Linear interpolation from MAX_SIZE to MIN_SIZE as length increases
+  // At 12 chars: 76px, at 32 chars: 40px
+  const scaleFactor = (handleLength - MAX_CHARS) / (32 - MAX_CHARS);
+  return Math.max(MIN_SIZE, MAX_SIZE - scaleFactor * (MAX_SIZE - MIN_SIZE));
+}
+
 const BG = '#0B0512';
 const VIOLET = '#9945FF';
 const CYAN = '#37E0FF';
@@ -88,7 +102,10 @@ export function ogCard(opts: {
         background: `radial-gradient(120% 120% at 20% 0%, #1a0b2e 0%, ${BG} 60%)`,
         color: FG,
         padding: '64px',
-        fontFamily: 'sans-serif',
+        // Must match the `name` of every font entry passed to `ImageResponse` (see the two
+        // opengraph-image.tsx routes) — Satori only falls back to a font whose CSS family
+        // matches this name; nothing here declares its own fontFamily.
+        fontFamily: 'Noto Sans',
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -146,7 +163,7 @@ export function ogCard(opts: {
               join @{handle} on
             </div>
           )}
-          <div style={{ display: 'flex', fontSize: '76px', fontWeight: 700, lineHeight: 1 }}>@{handle}</div>
+          <div style={{ display: 'flex', fontSize: handleFontSize(handle.length), fontWeight: 700, lineHeight: 1, wordBreak: 'break-all' }}>@{handle}</div>
           <div style={{ display: 'flex', marginTop: '14px', color: MUTED, fontSize: '26px' }}>
             {address ? shortAddr(address) : 'available — claim it'}
           </div>
