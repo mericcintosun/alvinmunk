@@ -1,3 +1,4 @@
+import { isStellarAddress } from '@alvinmunk/shared';
 import { NextResponse } from 'next/server';
 import { rpc, scValToNative, xdr } from '@stellar/stellar-sdk';
 import roster from '@/data/onboarded-wallets.json';
@@ -28,8 +29,6 @@ export const revalidate = 0;
 // history; this only needs to see the last day or so of fresh onboarding.
 const LIVE_WINDOW = 17_280; // ~1 day of ledgers
 const MAX_PAGES = 25;
-const ADDR = /^[GC][A-Z2-7]{55}$/;
-
 type NetKey = 'testnet' | 'mainnet';
 
 const NETWORKS: Record<
@@ -71,7 +70,7 @@ const TARGET: Record<NetKey, number> = { testnet: 50, mainnet: 20 };
 
 function collectAddrs(v: unknown, out: Set<string>): void {
   if (typeof v === 'string') {
-    if (ADDR.test(v)) out.add(v);
+    if (isStellarAddress(v)) out.add(v);
   } else if (Array.isArray(v)) {
     for (const x of v) collectAddrs(x, out);
   } else if (v && typeof v === 'object') {
@@ -126,7 +125,7 @@ async function liveScan(cfg: (typeof NETWORKS)[NetKey]): Promise<{ seen: Set<str
 
 async function statsFor(net: NetKey) {
   const cfg = NETWORKS[net];
-  const rosterList = ((roster as Record<string, string[]>)[net] ?? []).filter((a) => ADDR.test(a));
+  const rosterList = ((roster as Record<string, string[]>)[net] ?? []).filter((a) => isStellarAddress(a));
   const configured = Boolean(cfg.rep || cfg.registry) || rosterList.length > 0;
 
   // Read alongside the live scan; it does not depend on it.

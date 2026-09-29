@@ -35,6 +35,27 @@ function isPushSupported(): boolean {
   );
 }
 
+/** Explain why push cannot be enabled before an iOS Safari app is installed. */
+export function getPushAvailabilityHint(): string | null {
+  if (typeof window === 'undefined') return null;
+
+  const userAgent = navigator.userAgent;
+  const isIosDevice =
+    /iPad|iPhone|iPod/.test(userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isIosSafari =
+    isIosDevice &&
+    /Safari/.test(userAgent) &&
+    !/(CriOS|FxiOS|EdgiOS|OPiOS)/.test(userAgent);
+  const isStandalone =
+    (typeof window.matchMedia === 'function' &&
+      window.matchMedia('(display-mode: standalone)').matches) ||
+    (navigator as Navigator & { standalone?: boolean }).standalone === true;
+
+  if (isIosSafari && !isStandalone) return 'Add to Home Screen to get notified.';
+  return null;
+}
+
 // ─── last-sent registry (rotation sync) ─────────────────────────────────────
 
 /** localStorage key holding the endpoint last successfully sent to the server. */
