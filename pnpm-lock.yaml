@@ -136,8 +136,8 @@ importers:
         specifier: ^5.5.4
         version: 5.9.3
       vitest:
-        specifier: ^2.1.8
-        version: 2.1.9(@types/node@20.19.43)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))
+        specifier: ^4.1.11
+        version: 4.1.11(@types/node@20.19.43)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))
 
   packages/shared:
     devDependencies:
@@ -148,8 +148,8 @@ importers:
         specifier: ^5.5.4
         version: 5.9.3
       vitest:
-        specifier: ^2.1.8
-        version: 2.1.9(@types/node@20.19.43)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))
+        specifier: ^4.1.11
+        version: 4.1.11(@types/node@20.19.43)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))
 
 packages:
 
@@ -1743,30 +1743,33 @@ packages:
   '@vitest/expect@2.1.9':
     resolution: {integrity: sha512-UJCIkTBenHeKT1TTlKMJWy1laZewsRIzYighyYiJKZreqtdxSos/S1t+ktRMQWu2CKqaarrkeszJx1cgC5tGZw==}
 
-  '@vitest/mocker@2.1.9':
+  '@vitest/expect@4.1.11':
+    resolution: {integrity: sha512-UJCIkTBenHeKT1TTlKMJWy1laZewsRIzYighyYiJKZreqtdxSos/S1t+ktRMQWu2CKqaarrkeszJx1cgC5tGZw==}
+
+  '@vitest/mocker@4.1.11':
     resolution: {integrity: sha512-tVL6uJgoUdi6icpxmdrn5YNo3g3Dxv+IHJBr0GXHaEdTcw3F+cPKnsXFhli6nO+f/6SDKPHEK1UN+k+TQv0Ehg==}
     peerDependencies:
       msw: ^2.4.9
-      vite: ^5.0.0
+      vite: ^6.0.0 || ^7.0.0
     peerDependenciesMeta:
       msw:
         optional: true
       vite:
         optional: true
 
-  '@vitest/pretty-format@2.1.9':
+  '@vitest/pretty-format@4.1.11':
     resolution: {integrity: sha512-KhRIdGV2U9HOUzxfiHmY8IFHTdqtOhIzCpd8WRdJiE7D/HUcZVD0EgQCVjm+Q9gkUXWgBvMmTtZgIG48wq7sOQ==}
 
-  '@vitest/runner@2.1.9':
+  '@vitest/runner@4.1.11':
     resolution: {integrity: sha512-ZXSSqTFIrzduD63btIfEyOmNcBmQvgOVsPNPe0jYtESiXkhd8u2erDLnMxmGrDCwHCCHE7hxwRDCT3pt0esT4g==}
 
-  '@vitest/snapshot@2.1.9':
+  '@vitest/snapshot@4.1.11':
     resolution: {integrity: sha512-oBO82rEjsxLNJincVhLhaxxZdEtV0EFHMK5Kmx5sJ6H9L183dHECjiefOAdnqpIgT5eZwT04PoggUnW88vOBNQ==}
 
-  '@vitest/spy@2.1.9':
+  '@vitest/spy@4.1.11':
     resolution: {integrity: sha512-E1B35FwzXXTs9FHNK6bDszs7mtydNi5MIfUWpceJ8Xbfb1gBMscAnwLbEu+B44ed6W3XjL9/ehLPHR1fkf1KLQ==}
 
-  '@vitest/utils@2.1.9':
+  '@vitest/utils@4.1.11':
     resolution: {integrity: sha512-v0psaMSkNJ3A2NMrUEHFRzJtDPFn+/VWZ5WxImB21T9fjucJRmS7xCS3ppEnARb9y11OAzaD+P2Ps+b+BGX5iQ==}
 
   '@wallet-standard/base@1.1.1':
@@ -9978,7 +9981,7 @@ snapshots:
       debug: 4.4.3
       es-module-lexer: 1.7.0
       pathe: 1.1.2
-      vite: 5.4.21(@types/node@20.19.43)
+      vite: 7.1.11(@types/node@20.19.43)
     transitivePeerDependencies:
       - '@types/node'
       - less
@@ -9990,24 +9993,24 @@ snapshots:
       - supports-color
       - terser
 
-  vite@5.4.21(@types/node@20.19.43):
+  vite@7.1.11(@types/node@20.19.43):
     dependencies:
-      esbuild: 0.21.5
+      esbuild: 0.25.11
       postcss: 8.5.15
       rollup: 4.62.2
     optionalDependencies:
       '@types/node': 20.19.43
       fsevents: 2.3.3
 
-  vitest@2.1.9(@types/node@20.19.43)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6)):
+  vitest@4.1.11(@types/node@20.19.43)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6)):
     dependencies:
-      '@vitest/expect': 2.1.9
-      '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@20.19.43))
-      '@vitest/pretty-format': 2.1.9
-      '@vitest/runner': 2.1.9
-      '@vitest/snapshot': 2.1.9
-      '@vitest/spy': 2.1.9
-      '@vitest/utils': 2.1.9
+      '@vitest/expect': 4.1.11
+      '@vitest/mocker': 4.1.11(vite@7.1.11(@types/node@20.19.43))
+      '@vitest/pretty-format': 4.1.11
+      '@vitest/runner': 4.1.11
+      '@vitest/snapshot': 4.1.11
+      '@vitest/spy': 4.1.11
+      '@vitest/utils': 4.1.11
       chai: 5.3.3
       debug: 4.4.3
       expect-type: 1.3.0
@@ -10018,8 +10021,8 @@ snapshots:
       tinyexec: 0.3.2
       tinypool: 1.1.1
       tinyrainbow: 1.2.0
-      vite: 5.4.21(@types/node@20.19.43)
-      vite-node: 2.1.9(@types/node@20.19.43)
+      vite: 7.1.11(@types/node@20.19.43)
+      vite-node: 4.1.11(@types/node@20.19.43)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 20.19.43
