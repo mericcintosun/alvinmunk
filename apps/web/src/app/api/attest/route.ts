@@ -170,10 +170,6 @@ async function verifyEvidence(
   if (ev.type === 'invite_converts') {
     if (!REP_ID) return { ok: false, reason: 'reputation contract not configured' };
     try {
-      const result = await scanClaimedVouchBy(REP_ID, recipient, ev.ref);
-      if (result.found) return { ok: true };
-      if (result.tooOld) return { ok: false, reason: 'invite too old to verify' };
-      return { ok: false, reason: "that wallet hasn't claimed a vouch from this account yet" };
       if (await claimedVouchFrom(REP_ID, recipient, ev.ref)) return { ok: true };
       return {
         ok: false,
@@ -375,44 +371,6 @@ async function countVouchesClaimedBy(repId: string, from: string): Promise<numbe
   return claimers.size;
 }
 
-/**
- * Scan `vouch/claimed` events for a specific claim link: recipient minted the vouch and
- * the invited wallet later claimed it. Returns whether the event was found and whether the
- * RPC retention window likely hid an older but valid claim.
- */
-async function scanClaimedVouchBy(
-  repId: string,
-  from: string,
-  claimer: string,
-): Promise<{ found: boolean; tooOld: boolean }> {
-  const server = new rpc.Server(RPC_URL, { allowHttp: RPC_URL.startsWith('http://') });
-
-  const health = await server.getHealth();
-  const startLedger = health.oldestLedger ?? 1;
-  const t0 = nativeToScVal('vouch',   { type: 'symbol' }).toXDR('base64');
-  const t1 = nativeToScVal('claimed', { type: 'symbol' }).toXDR('base64');
-  const filters = [{ type: 'contract' as const, contractIds: [repId], topics: [[t0, t1]] }];
-
-  let cursor: string | undefined;
-  for (let page = 0; page < VOUCH_CLAIMED_MAX_PAGES; page++) {
-    const res = await server.getEvents(
-      cursor
-        ? { filters, cursor, limit: 1000 }
-        : { filters, startLedger, limit: 1000 },
-    );
-
-    for (const e of res.events) {
-      const decoded = decodeVouchClaimedEvent(scValToNative(e.value));
-      if (decoded && decoded.from === from && decoded.claimer === claimer) {
-        return { found: true, tooOld: false };
-      }
-    }
-
-    cursor = res.cursor;
-    if (!cursor) break;
-  }
-
-  return { found: false, tooOld: startLedger > 1 };
 /** Whether `claimer` claimed a vouch minted by `from` within the RPC's retention window. */
 async function claimedVouchFrom(repId: string, from: string, claimer: string): Promise<boolean> {
   let found = false;

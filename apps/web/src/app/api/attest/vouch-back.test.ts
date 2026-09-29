@@ -374,7 +374,6 @@ describe('POST /api/attest — vouch_back evidence (issue #165)', () => {
 
     const POST = await loadRoute();
     const res = await POST(makeRequest({
-      questId: 1,
       questId: DEFAULT_QUEST_IDS.invite_converts,
       recipient: ALICE,
       evidence: { type: 'invite_converts', ref: BOB },
@@ -394,7 +393,6 @@ describe('POST /api/attest — vouch_back evidence (issue #165)', () => {
 
     const POST = await loadRoute();
     const res = await POST(makeRequest({
-      questId: 1,
       questId: DEFAULT_QUEST_IDS.invite_converts,
       recipient: ALICE,
       evidence: { type: 'invite_converts', ref: BOB },
@@ -402,10 +400,6 @@ describe('POST /api/attest — vouch_back evidence (issue #165)', () => {
 
     expect(res.status).toBe(422);
     const body = await res.json() as { error: string };
-    expect(body.error).toBe("that wallet hasn't claimed a vouch from this account yet");
-  });
-
-  it('422 with an explicit retention-limit reason when the invite claim is older than the RPC window', async () => {
     expect(body.error).toMatch(/hasn't claimed a vouch from you/);
   });
 
@@ -415,7 +409,6 @@ describe('POST /api/attest — vouch_back evidence (issue #165)', () => {
 
     const POST = await loadRoute();
     const res = await POST(makeRequest({
-      questId: 1,
       questId: DEFAULT_QUEST_IDS.invite_converts,
       recipient: ALICE,
       evidence: { type: 'invite_converts', ref: BOB },
@@ -423,7 +416,6 @@ describe('POST /api/attest — vouch_back evidence (issue #165)', () => {
 
     expect(res.status).toBe(422);
     const body = await res.json() as { error: string };
-    expect(body.error).toBe('invite too old to verify');
     expect(body.error).toMatch(/hasn't claimed a vouch from you/);
     expect(body.error).toMatch(/event window/);
   });
@@ -452,8 +444,6 @@ describe('POST /api/attest — vouch_back evidence (issue #165)', () => {
   it('follows the cursor across paginated vouch/claimed results for invite_converts', async () => {
     getHealthMock.mockResolvedValue({ oldestLedger: 1 });
     getEventsMock
-      .mockResolvedValueOnce({ events: [fakeEvent(2, ALICE, CAROL)], cursor: 'next-page' })
-      .mockResolvedValueOnce({ events: [fakeEvent(4, DAVE, BOB)], cursor: undefined });
       // The claim link (ALICE → CAROL) is only on page 2; page 1 has unrelated claims.
       .mockResolvedValueOnce({ events: [fakeEvent(2, ALICE, DAVE), fakeEvent(3, DAVE, CAROL)], cursor: 'next-page' })
       .mockResolvedValueOnce({ events: [fakeEvent(4, ALICE, CAROL)], cursor: undefined });
@@ -461,7 +451,6 @@ describe('POST /api/attest — vouch_back evidence (issue #165)', () => {
 
     const POST = await loadRoute();
     const res = await POST(makeRequest({
-      questId: 1,
       questId: DEFAULT_QUEST_IDS.invite_converts,
       recipient: ALICE,
       evidence: { type: 'invite_converts', ref: CAROL },
