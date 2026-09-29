@@ -1,6 +1,6 @@
-// Note: 'use client' means metadata must be defined in a parent layout or a separate
-// metadata export file. The title/description for this route are set in the root layout
-// template ('%s · alvinmunk') — "How it works" becomes "How it works · alvinmunk".
+// Note: 'use client' means metadata must be defined in a parent layout. This route's
+// title/description live in how-it-works/layout.tsx and use the root title template
+// ('%s · alvinmunk') — "How it works" becomes "How it works · alvinmunk".
 
 'use client';
 

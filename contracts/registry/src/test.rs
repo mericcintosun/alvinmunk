@@ -182,6 +182,10 @@ fn upgrade_to_identical_wasm_preserves_handles() {
 
     assert_eq!(client.resolve(&symbol_short!("alice")), Some(alice.clone()));
     assert_eq!(client.reverse(&alice), Some(symbol_short!("alice")));
+    assert_eq!(
+        client.reverse_many(&vec![&env, alice.clone()]),
+        vec![&env, Some(symbol_short!("alice"))]
+    );
     // the fixture build serves the profile written before the upgrade, and still takes writes
     let before = ProfileMeta {
         avatar: FACE_03,
@@ -275,6 +279,121 @@ fn resolve_does_not_extend_the_handle() {
         ttl(&env, &client, &DataKey::Fwd(symbol_short!("alice"))),
         BUMP_EXTEND - DAY_LEDGERS * 3
     );
+}
+
+// --- Batched reverse lookup ---
+
+/// `n` fresh addresses; every other one claims a handle (`h0`, `h2`, ...).
+fn some_claimed(env: &Env, client: &RegistryContractClient, n: u32) -> Vec<Address> {
+    let mut addrs = Vec::new(env);
+    for i in 0..n {
+        let a = Address::generate(env);
+        if i % 2 == 0 {
+            client.claim(&a, &Symbol::new(env, &std::format!("h{i}")));
+        }
+        addrs.push_back(a);
+    }
+    addrs
+}
+
+#[test]
+fn reverse_many_returns_handles_in_input_order() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let carol = Address::generate(&env); // never claims
+    client.claim(&alice, &symbol_short!("alice"));
+    client.claim(&bob, &symbol_short!("bob"));
+    assert_eq!(
+        client.reverse_many(&vec![&env, bob.clone(), carol, alice.clone(), bob]),
+        vec![
+            &env,
+            Some(symbol_short!("bob")),
+            None,
+            Some(symbol_short!("alice")),
+            Some(symbol_short!("bob")),
+        ]
+    );
+}
+
+#[test]
+fn reverse_many_matches_reverse_after_rename_and_release() {
+    let (env, client, _admin) = setup();
+    let addrs = some_claimed(&env, &client, 6);
+    client.claim(&addrs.get(0).unwrap(), &symbol_short!("renamed"));
+    client.release(&addrs.get(2).unwrap());
+    let mut expected = Vec::new(&env);
+    for a in addrs.iter() {
+        expected.push_back(client.reverse(&a));
+    }
+    assert_eq!(expected.get(0).unwrap(), Some(symbol_short!("renamed")));
+    assert_eq!(expected.get(2).unwrap(), None);
+    assert_eq!(client.reverse_many(&addrs), expected);
+}
+
+#[test]
+fn reverse_many_of_nothing_is_empty() {
+    let (env, client, _admin) = setup();
+    assert_eq!(client.reverse_many(&vec![&env]), vec![&env]);
+}
+
+#[test]
+fn reverse_many_takes_up_to_the_cap_and_reverts_past_it() {
+    let (env, client, _admin) = setup();
+    let mut addrs = some_claimed(&env, &client, REVERSE_MANY_CAP);
+    let handles = client.reverse_many(&addrs);
+    assert_eq!(handles.len(), REVERSE_MANY_CAP);
+    assert_eq!(handles.get(0).unwrap(), Some(symbol_short!("h0")));
+    assert_eq!(handles.get(1).unwrap(), None);
+
+    addrs.push_back(Address::generate(&env));
+    assert_eq!(
+        client.try_reverse_many(&addrs),
+        Err(Ok(Error::TooMany.into()))
+    );
+}
+
+/// `reverse_many` is a pure read (the web app only simulates it): it writes nothing and
+/// extends nothing, just like `reverse`.
+#[test]
+fn reverse_many_does_not_write_or_extend() {
+    let (env, client) = setup_with_ttls(TESTNET_TTLS);
+    let addrs = some_claimed(&env, &client, 4);
+    env.ledger()
+        .with_mut(|l| l.sequence_number += DAY_LEDGERS * 3);
+
+    client.reverse_many(&addrs);
+    let used = env.cost_estimate().resources();
+    assert_eq!(used.write_entries, 0);
+    assert_eq!(used.persistent_entry_rent_bumps, 0);
+    assert_eq!(
+        ttl(&env, &client, &DataKey::Rev(addrs.get(0).unwrap())),
+        BUMP_EXTEND - DAY_LEDGERS * 3
+    );
+}
+
+/// A full batch against the release build stays far inside the per-transaction limits
+/// `REVERSE_MANY_CAP` was sized for (testnet and mainnet, checked 2026-09-29).
+#[test]
+fn a_full_reverse_many_fits_one_transaction() {
+    const TX_MAX_INSTRUCTIONS: i64 = 400_000_000;
+    const TX_MAX_FOOTPRINT_ENTRIES: u32 = 400;
+    const TX_MAX_DISK_READ_BYTES: u32 = 200_000;
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let id = env.register(REGISTRY_WASM, ());
+    let client = RegistryContractClient::new(&env, &id);
+    client.init(&Address::generate(&env));
+    let addrs = some_claimed(&env, &client, REVERSE_MANY_CAP);
+
+    client.reverse_many(&addrs);
+    let used = env.cost_estimate().resources();
+    // one `Rev` key per address, plus the instance and the code
+    assert_eq!(used.read_entries, REVERSE_MANY_CAP + 2, "{used:?}");
+    assert!(used.read_entries < TX_MAX_FOOTPRINT_ENTRIES / 4, "{used:?}");
+    assert!(used.read_bytes < TX_MAX_DISK_READ_BYTES / 4, "{used:?}");
+    assert!(used.instructions < TX_MAX_INSTRUCTIONS / 4, "{used:?}");
 }
 
 // --- Profile meta (avatar + bio) ---
