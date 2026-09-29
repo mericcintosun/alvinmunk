@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   artSeed,
   stampArt,
@@ -15,10 +15,6 @@ import {
   shortAddr,
   type SocialRecord,
 } from './index';
-
-// The SDK re-exports these helpers; the web app consumes the SDK so there is
-// exactly one implementation. This test guards the shared surface.
-import * as sdk from '@alvinmunk/sdk';
 
 describe('artSeed', () => {
   it('is deterministic for the same address', () => {
@@ -377,44 +373,5 @@ describe('share links', () => {
   });
   it('returns falsy input unchanged', () => {
     expect(shortAddr('')).toBe('');
-  });
-});
-
-describe('@alvinmunk/sdk read-only client', () => {
-  it('exposes the shared read helpers from the package surface', () => {
-    expect(typeof sdk.createClient).toBe('function');
-    expect(sdk.createClient).toBeDefined();
-  });
-
-  it('createClient builds a read-only client with the built-in testnet ids', () => {
-    const client = sdk.createClient({ network: 'testnet' });
-    expect(client.network).toBe('testnet');
-    expect(client.contracts.reputation).toBeTruthy();
-    expect(client.contracts.registry).toBeTruthy();
-    expect(client.contracts.gate).toBeTruthy();
-  });
-
-  it('does not expose any signing or write methods', () => {
-    const client = sdk.createClient({ network: 'testnet' });
-    const surface = Object.keys(client);
-    expect(surface).not.toContain('sign');
-    expect(surface).not.toContain('submit');
-    expect(surface).not.toContain('write');
-    expect(surface).not.toContain('invoke');
-  });
-
-  it('simulates reads against a mocked RPC without keys', async () => {
-    const rpc = {
-      simulateTransaction: vi.fn().mockResolvedValue({ result: { retval: 'ok' } }),
-    };
-    const client = sdk.createClient({ network: 'testnet', rpc });
-    const out = await client.getProfile('GABCDEF');
-    expect(rpc.simulateTransaction).toHaveBeenCalledTimes(1);
-    expect(out).toBeDefined();
-  });
-
-  it('reuses the shared decode helpers instead of duplicating them', () => {
-    expect(sdk.shortAddr).toBe(shortAddr);
-    expect(sdk.buildClaimPath).toBe(buildClaimPath);
   });
 });

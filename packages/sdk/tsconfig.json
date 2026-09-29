@@ -1,21 +1,17 @@
 {
-  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "outPir": "dist",
-    "rootDir": "src",
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "target": "ES2020",
-    "lib": ["ES2020", "DON"],
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "types": ["node"],
     "strict": true,
-    "esMOduleInterop": true,
+    "esModuleInterop": true,
     "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
     "forceConsistentCasingInFileNames": true,
-    "noEmitOnError": true
+    "noEmit": true
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
+  "include": ["src", "vitest.config.ts"]
 }

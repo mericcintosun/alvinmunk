@@ -6,9 +6,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // @alvinmunk/shared ships raw TS; let Next transpile it from the workspace.
+  // @alvinmunk/shared and @alvinmunk/sdk ship raw TS in the workspace; let Next transpile them.
   // passkey-kit (+ its sibling SDKs) also ship raw, uncompiled TS → transpile them too.
-  transpilePackages: ['@alvinmunk/shared', 'passkey-kit', 'passkey-kit-sdk', 'sac-sdk'],
+  transpilePackages: ['@alvinmunk/shared', '@alvinmunk/sdk', 'passkey-kit', 'passkey-kit-sdk', 'sac-sdk'],
   experimental: {
     // stellar-sdk pulls some node-ish deps; keep server externals tidy.
     serverComponentsExternalPackages: ['@stellar/stellar-sdk'],
