@@ -14,11 +14,13 @@
  *     happy path (signature verified cryptographically).
  */
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
-import { Address, Keypair, StrKey, nativeToScVal, rpc, scValToNative } from '@stellar/stellar-sdk';
+import { Address, Keypair, Networks, StrKey, nativeToScVal, rpc, scValToNative } from '@stellar/stellar-sdk';
+import { QUEST_SIG_TTL_SECS, questPayload } from '../../../lib/attest';
 
 const RECIPIENT = Keypair.random().publicKey();
 const REFERRED = Keypair.random().publicKey();
 const QUEST_CONTRACT = StrKey.encodeContract(Buffer.alloc(32, 7));
+const ATTESTER = Keypair.random();
 const REGISTRY_CONTRACT = StrKey.encodeContract(Buffer.alloc(32, 9));
 const PASSKEY_REFERRED = StrKey.encodeContract(Buffer.alloc(32, 3));
 
@@ -28,7 +30,6 @@ const sim = (retval: unknown) =>
 const simError = (error: string) => ({ error }) as unknown as rpc.Api.SimulateTransactionResponse;
 const score = (n: number) => sim(nativeToScVal(n, { type: 'u64' }));
 const address = (a: string) => sim(new Address(a).toScVal());
-const payload = () => sim(nativeToScVal(Buffer.from('payload')));
 /** `is_completed` replies: the recipient has (or hasn't) completed the quest. */
 const completed = (done: boolean) => sim(nativeToScVal(done));
 const open = () => completed(false);
@@ -51,7 +52,7 @@ function attest(body: Record<string, unknown>): Promise<Response> {
 
 beforeEach(async () => {
   vi.resetModules();
-  vi.stubEnv('ATTESTER_SECRET_KEY', Keypair.random().secret());
+  vi.stubEnv('ATTESTER_SECRET_KEY', ATTESTER.secret());
   vi.stubEnv('NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID', QUEST_CONTRACT);
   vi.stubEnv('NEXT_PUBLIC_REPUTATION_CONTRACT_ID', QUEST_CONTRACT);
   vi.stubEnv('NEXT_PUBLIC_REGISTRY_CONTRACT_ID', '');
@@ -64,7 +65,7 @@ beforeEach(async () => {
   vi.stubGlobal('fetch', fetchSpy);
   simulateSpy = vi.spyOn(rpc.Server.prototype, 'simulateTransaction');
   // Every read a test expects is queued with mockResolvedValueOnce; anything else fails
-  // instead of reaching a real RPC node.
+  // instead of reaching a real RPC node (the is_completed early exit then carries on).
   simulateSpy.mockRejectedValue(new Error('unexpected simulateTransaction'));
   ledgerSpy = vi.spyOn(rpc.Server.prototype, 'getLatestLedger');
   ({ POST } = (await import('./route')) as { POST: Post });
@@ -121,7 +122,9 @@ describe('POST /api/attest quest ↔ evidence binding', () => {
   });
 
   it('lets the bound type through to verification', async () => {
-    simulateSpy.mockResolvedValueOnce(open()).mockResolvedValueOnce(score(5));
+    simulateSpy
+      .mockResolvedValueOnce(open())
+      .mockResolvedValueOnce(score(5));
     const res = await attest({ questId: 2, evidence: { type: 'referral_tx', ref: REFERRED } });
     expect(res.status).toBe(422);
     expect(((await res.json()) as { error: string }).error).toMatch(/^no referral binding found/);
@@ -136,14 +139,33 @@ describe('POST /api/attest quest ↔ evidence binding', () => {
     );
     simulateSpy
       .mockResolvedValueOnce(open())
-      .mockResolvedValueOnce(score(5))
-      .mockResolvedValueOnce(payload());
+      .mockResolvedValueOnce(score(5));
+    const before = Math.floor(Date.now() / 1000);
     const res = await attest({ questId: 2, evidence: { type: 'referral_tx', ref: REFERRED } });
+    const after = Math.floor(Date.now() / 1000);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean; questId: number; sig: string };
+    const body = (await res.json()) as {
+      ok: boolean;
+      questId: number;
+      attester: string;
+      sig: string;
+      expiresAt: number;
+    };
     expect(body.ok).toBe(true);
     expect(body.questId).toBe(2);
-    expect(body.sig).toBeTruthy();
+    expect(body.attester).toBe(ATTESTER.rawPublicKey().toString('hex'));
+
+    // Valid for QUEST_SIG_TTL_SECS from now, in unix seconds (the ledger's unit).
+    expect(body.expiresAt).toBeGreaterThanOrEqual(before + QUEST_SIG_TTL_SECS);
+    expect(body.expiresAt).toBeLessThanOrEqual(after + QUEST_SIG_TTL_SECS);
+
+    // The signature covers this network, contract, quest, recipient and expiry...
+    const ctx = { contractId: QUEST_CONTRACT, passphrase: Networks.TESTNET };
+    const sig = Buffer.from(body.sig, 'base64');
+    expect(ATTESTER.verify(questPayload(ctx, 2, RECIPIENT, body.expiresAt), sig)).toBe(true);
+    expect(ATTESTER.verify(questPayload(ctx, 2, RECIPIENT, body.expiresAt + 1), sig)).toBe(false);
+    // ...and the payload was built here: no RPC node supplied the bytes that were signed.
+    expect(methods()).toEqual(['is_completed', 'get_score']);
   });
 
   it('binds a quest id configured in env, not its default', async () => {
@@ -156,7 +178,6 @@ describe('POST /api/attest quest ↔ evidence binding', () => {
     expect(res.status).toBe(422);
     expectNoNetwork();
     // github_pr is now attestable on quest 1 (the GitHub API is reached)
-    simulateSpy.mockResolvedValueOnce(open());
     const gh = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'o/r#1' } });
     expect(gh.status).toBe(422);
     expect(await gh.json()).toEqual({ error: 'github 404' });
@@ -175,12 +196,11 @@ describe('POST /api/attest referral_tx via the registry invite binding', () => {
     simulateSpy
       .mockResolvedValueOnce(open())
       .mockResolvedValueOnce(score(5))
-      .mockResolvedValueOnce(address(RECIPIENT))
-      .mockResolvedValueOnce(payload());
+      .mockResolvedValueOnce(address(RECIPIENT));
     const res = await attest({ questId: 2, evidence: { type: 'referral_tx', ref: PASSKEY_REFERRED } });
     expect(res.status).toBe(200);
     expect(((await res.json()) as { sig: string }).sig).toBeTruthy();
-    expect(methods()).toEqual(['is_completed', 'get_score', 'invited_by', 'quest_payload']);
+    expect(methods()).toEqual(['is_completed', 'get_score', 'invited_by']);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -219,8 +239,7 @@ describe('POST /api/attest referral_tx via the registry invite binding', () => {
       .mockResolvedValueOnce(score(5))
       .mockResolvedValueOnce(
         simError('HostError: Error(WasmVm, MissingValue) trying to invoke non-existent contract function'),
-      )
-      .mockResolvedValueOnce(payload());
+      );
     const res = await attest({ questId: 2, evidence: { type: 'referral_tx', ref: REFERRED } });
     expect(res.status).toBe(200);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -461,40 +480,39 @@ describe('POST /api/attest — status codes (issue #180)', () => {
     expect(body.error).toMatch(/github 404/i);
   });
 
-  // ── 502: signing failure ──────────────────────────────────────────────────
+  // ── signing: local, never fed by an RPC node (issue #142) ───────────────────
 
-  it('502 when simulateTransaction returns a simulation error', async () => {
+  it('signs with no RPC read but the completion check, so a failing node can neither block nor feed it', async () => {
     vi.resetModules();
     vi.stubEnv('QUEST_GITHUB_ID', '1');
     ({ POST } = (await import('./route')) as { POST: Post });
     fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ merged: true }), { status: 200 }));
-    simulateSpy.mockResolvedValueOnce(open()).mockResolvedValueOnce(simError('contract panic'));
+    simulateSpy.mockRejectedValue(new Error('rpc timeout'));
     const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#1' } });
-    expect(res.status).toBe(502);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toMatch(/payload read failed/i);
+    expect(res.status).toBe(200);
+    expect(methods()).toEqual(['is_completed']);
   });
 
-  it('502 when simulateTransaction throws', async () => {
+  it('500 when the attester secret is malformed, with no signature', async () => {
     vi.resetModules();
+    vi.stubEnv('ATTESTER_SECRET_KEY', 'SNOTASECRET');
     vi.stubEnv('QUEST_GITHUB_ID', '1');
     ({ POST } = (await import('./route')) as { POST: Post });
     fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ merged: true }), { status: 200 }));
-    simulateSpy.mockResolvedValueOnce(open()).mockRejectedValueOnce(new Error('rpc timeout'));
     const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#1' } });
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(500);
+    expect(((await res.json()) as { sig?: string }).sig).toBeUndefined();
   });
 
   // ── 200: happy path — github_pr, signature verified cryptographically ─────
 
-  it('200 with valid github_pr evidence — returned sig verifies over the mocked payload', async () => {
+  it('200 with valid github_pr evidence — returned sig verifies over the award payload', async () => {
     const attesterKp = Keypair.random();
     vi.resetModules();
     vi.stubEnv('ATTESTER_SECRET_KEY', attesterKp.secret());
     vi.stubEnv('QUEST_GITHUB_ID', '5');
     ({ POST } = (await import('./route')) as { POST: Post });
     fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ merged: true }), { status: 200 }));
-    simulateSpy.mockResolvedValueOnce(open()).mockResolvedValueOnce(payload());
 
     const res = await attest({
       questId: 5,
@@ -506,6 +524,7 @@ describe('POST /api/attest — status codes (issue #180)', () => {
       ok: boolean;
       attester: string;
       sig: string;
+      expiresAt: number;
       recipient: string;
       questId: number;
     };
@@ -514,13 +533,14 @@ describe('POST /api/attest — status codes (issue #180)', () => {
     expect(body.questId).toBe(5);
 
     // Cryptographic verification: rebuild the keypair from the returned public key and
-    // verify the sig over the known fake payload (payload() encodes Buffer.from('payload')).
+    // verify the sig over the payload for this network, contract, quest, wallet and expiry.
     expect(attesterKp.rawPublicKey().toString('hex')).toBe(body.attester);
     const sigBytes = Buffer.from(body.sig, 'base64');
-    const fakePayload = Buffer.from('payload');
-    expect(attesterKp.verify(fakePayload, sigBytes)).toBe(true);
-    const tampered = Buffer.from(fakePayload);
-    tampered[0] ^= 0xff;
+    const ctx = { contractId: QUEST_CONTRACT, passphrase: Networks.TESTNET };
+    const signed = questPayload(ctx, 5, RECIPIENT, body.expiresAt);
+    expect(attesterKp.verify(signed, sigBytes)).toBe(true);
+    const tampered = Buffer.from(signed);
+    tampered[tampered.length - 1] ^= 0xff;
     expect(attesterKp.verify(tampered, sigBytes)).toBe(false);
   });
 
@@ -533,8 +553,7 @@ describe('POST /api/attest — status codes (issue #180)', () => {
     );
     simulateSpy
       .mockResolvedValueOnce(open())
-      .mockResolvedValueOnce(score(5))
-      .mockResolvedValueOnce(payload());
+      .mockResolvedValueOnce(score(5));
 
     const res = await attest({
       questId: 2,
@@ -543,9 +562,18 @@ describe('POST /api/attest — status codes (issue #180)', () => {
     });
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean; recipient: string };
+    const body = (await res.json()) as {
+      ok: boolean;
+      recipient: string;
+      sig: string;
+      expiresAt: number;
+    };
     expect(body.ok).toBe(true);
     expect(body.recipient).toBe(PASSKEY_REFERRED);
+    // The payload names the passkey wallet (a contract address) as the recipient.
+    const ctx = { contractId: QUEST_CONTRACT, passphrase: Networks.TESTNET };
+    const sig = Buffer.from(body.sig, 'base64');
+    expect(ATTESTER.verify(questPayload(ctx, 2, PASSKEY_REFERRED, body.expiresAt), sig)).toBe(true);
   });
 
   // ── rate-limit sweep (hits.size > 500) ─────────────────────────────────────

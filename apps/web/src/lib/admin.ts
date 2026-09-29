@@ -1,8 +1,13 @@
 /**
- * Admin content management (/admin, issue #296) — the rules behind the page, kept pure so
- * they are unit-tested: who sees the controls, input checks that mirror each contract's own,
- * the plain-language consequence every write is confirmed with, and friendly copy for the
- * contract errors those writes can hit.
+ * Contract-mirroring input rules, kept pure so they are unit-tested: who sees the admin
+ * controls, the checks each write is held to before anyone signs, the plain-language
+ * consequence every write is confirmed with, and friendly copy for the contract errors
+ * those writes can hit.
+ *
+ * Most of it backs the /admin content page (issue #296); `validateTip` is the one
+ * player-facing check, and it lives here because it is the same shape of rule as the rest —
+ * a mirror of a contract guard, in the same order the contract applies it, so a bad
+ * transaction is caught before a signature rather than after.
  *
  * This module does NOT authorize anything. Every content write is `admin.require_auth()`-
  * gated on-chain, so a wallet that isn't the admin can never change content, whatever the
@@ -154,6 +159,20 @@ export function validateSupply(
     );
   }
   return ok({ reward, maxClaims: maxClaims.value });
+}
+
+/**
+ * `tip` input (#144). Mirrors the contract's `validate_tip`: the amount must be more than
+ * 0 USDC (`InvalidAmount`) and the receiver must be a DIFFERENT wallet from the sender
+ * (`SelfTip`) — a zero or self tip mints a `tipped` event that moves no value, which
+ * fakes "somebody received a spend" in the feed and the indexer. The same two checks, in
+ * the same order, so a shape the chain would reject never costs a fee to discover.
+ */
+export function validateTip(input: { to: string; amount: string }, from: string): Checked<bigint> {
+  const amount = parseUsdc(input.amount);
+  if (!amount.ok) return amount;
+  if (input.to === from) return fail('That’s your own wallet — enter someone else to tip.');
+  return ok(amount.value);
 }
 
 export interface GateDraft {

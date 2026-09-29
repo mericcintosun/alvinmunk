@@ -51,7 +51,9 @@ function freshLatestLedger(ageSeconds = 0) {
 }
 
 function mockServer(getHealth: ReturnType<typeof vi.fn>, getLatestLedger: ReturnType<typeof vi.fn>) {
-  vi.mocked(rpc.Server).mockImplementation(() => {
+  // The route calls `new rpc.Server(...)`, and Vitest 4 constructs the implementation with `new`,
+  // so it has to be a `function` (an arrow function is not constructible).
+  vi.mocked(rpc.Server).mockImplementation(function () {
     return { getHealth, getLatestLedger } as unknown as InstanceType<typeof rpc.Server>;
   });
 }
@@ -110,6 +112,7 @@ describe('/api/health', () => {
 
     const res = await GET();
     expect(res.status).toBe(200);
+    expect(res.headers.get('x-request-id')).toBeTruthy(); // added by withRoute (#183)
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.rpc).toBe('ok');

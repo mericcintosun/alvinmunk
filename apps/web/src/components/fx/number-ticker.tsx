@@ -3,6 +3,18 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useInView } from 'motion/react';
 import { cn } from '@/lib/utils';
+import { useLocale, type Locale } from '@/lib/i18n';
+
+/** Locale → BCP-47 tag so figures use the active locale's separators (1.234,50 in TR). */
+const NUMBER_LOCALE: Record<Locale, string> = { en: 'en-US', tr: 'tr-TR' };
+
+/** Format a figure with the active locale's separators. Exported for tests. */
+export function formatNumber(value: number, decimals: number, locale: Locale): string {
+  return value.toLocaleString(NUMBER_LOCALE[locale] ?? 'en-US', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+}
 
 /**
  * Count-up number that animates once it scrolls into view (eased). Used for XP / USDC /
@@ -30,6 +42,7 @@ export function NumberTicker({
   const from = useRef(0);
   const displayed = useRef(0);
   const inView = useInView(ref, { once: true, margin: '-40px' });
+  const { locale } = useLocale();
   const [display, setDisplay] = useState(0);
 
   useEffect(() => {
@@ -70,10 +83,7 @@ export function NumberTicker({
   return (
     <span ref={ref} className={cn('tabular-nums', className)}>
       {prefix}
-      {display.toLocaleString('en-US', {
-        minimumFractionDigits: decimals,
-        maximumFractionDigits: decimals,
-      })}
+      {formatNumber(display, decimals, locale)}
       {suffix}
     </span>
   );

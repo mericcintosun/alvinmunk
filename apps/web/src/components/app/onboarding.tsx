@@ -28,17 +28,17 @@ export function Onboarding() {
         style={{ backgroundImage: `url(${asset('backgrounds/app-bg.png')})`, backgroundSize: 'cover', backgroundPosition: 'top' }}
       />
       <div className="text-center">
-        <p className="eyebrow mb-3">{t('onboard.app.eyebrow')}</p>
-        <h1 className="text-3xl font-semibold">{t('onboard.app.title')}</h1>
+        <p className="eyebrow mb-3">{t('onboard.eyebrow')}</p>
+        <h1 className="text-3xl font-semibold">{t('onboard.title')}</h1>
         <p className="mx-auto mt-2 max-w-xs text-sm text-muted-foreground text-balance">
-          {t('onboard.app.subtitle')}
+          {t('onboard.subtitle')}
         </p>
       </div>
 
       <Crest address={handle ? `profile-${handle}` : 'new-profile'} size={160} points={6} animate />
 
       <div className="flex flex-col items-center gap-2">
-        <p className="text-xs font-medium text-muted-foreground">{t('onboard.app.pickFace')}</p>
+        <p className="text-xs font-medium text-muted-foreground">{t('onboard.pickFace')}</p>
         <AvatarPicker value={face} onChange={setFace} size={48} />
       </div>
 
@@ -53,16 +53,16 @@ export function Onboarding() {
           autoFocus
           value={handle}
           onChange={(e) => setHandle(e.target.value)}
-          placeholder={t('onboard.app.placeholder')}
+          placeholder={t('onboard.placeholder')}
           className="text-center"
-          aria-label={t('onboard.app.ariaLabel')}
+          aria-label={t('onboard.ariaLabel')}
           aria-describedby="handle-status"
         />
         <p id="handle-status" aria-live="polite" className="h-4 text-xs">
-          {avail === 'checking' && <span className="text-muted-foreground">{t('onboard.app.checking')}</span>}
-          {avail === 'free' && <span className="text-secondary">{t('onboard.app.handleFree', { handle: normalizeHandle(handle) })}</span>}
-          {avail === 'taken' && <span className="text-destructive">{t('onboard.app.handleTaken', { handle: normalizeHandle(handle) })}</span>}
-          {avail === 'reserved' && reservedUntil && <span className="text-destructive">{t('onboard.app.handleReserved', { handle: normalizeHandle(handle), date: reservedUntil })}</span>}
+          {avail === 'checking' && <span className="text-muted-foreground">{t('onboard.checking')}</span>}
+          {avail === 'free' && <span className="text-secondary">{t('onboard.handleFree', { handle: normalizeHandle(handle) })}</span>}
+          {avail === 'taken' && <span className="text-destructive">{t('onboard.handleTaken', { handle: normalizeHandle(handle) })}</span>}
+          {avail === 'reserved' && reservedUntil && <span className="text-destructive">{t('onboard.handleReserved', { handle: normalizeHandle(handle), date: reservedUntil })}</span>}
         </p>
         <Button
           type="submit"
@@ -70,7 +70,7 @@ export function Onboarding() {
           disabled={creating || restoring || avail === 'taken' || avail === 'reserved'}
           className="w-full"
         >
-          {creating ? t('onboard.app.submitting') : t('onboard.app.submit')}
+          {creating ? t('onboard.creating') : t('onboard.submit')}
         </Button>
       </form>
 
@@ -88,7 +88,7 @@ export function Onboarding() {
       </div>
 
       <p className="text-center text-xs text-muted-foreground text-balance">
-        {t('onboard.app.footer')}
+        {t('onboard.footer')}
       </p>
     </div>
   );

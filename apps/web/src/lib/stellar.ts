@@ -53,12 +53,17 @@ export function misconfiguredResponse(): Response | null {
   });
 }
 
-export const server = new rpc.Server(config.rpcUrl, {
+// The SDK throws "Invalid URL" on an empty one, which would take the whole app (banner
+// included) down at import. A mainnet deploy without NEXT_PUBLIC_RPC_URL is already in
+// `configErrors`, so point its client at a reserved never-resolving host instead.
+const UNSET_URL = 'https://url-not-configured.invalid';
+
+export const server = new rpc.Server(config.rpcUrl || UNSET_URL, {
   allowHttp: config.rpcUrl.startsWith('http://'),
 });
 
 /** Horizon — used for balances (RPC has no simple balance endpoint). */
-export const horizon = new Horizon.Server(config.horizonUrl, {
+export const horizon = new Horizon.Server(config.horizonUrl || UNSET_URL, {
   allowHttp: config.horizonUrl.startsWith('http://'),
 });
 

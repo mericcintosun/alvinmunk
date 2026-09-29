@@ -1,6 +1,10 @@
-# Agent Handoff — alvinmunk / alvinmunk
+# Agent Handoff — alvinmunk (archived, 2026-06-22 snapshot)
 
-_For the next AI agent session. Read this first, then `belts/00-strategy.md` and `belts/08-anti-sybil.md`._
+> **Historical — do not follow.** This was a one-off session handoff from June 2026. Its state,
+> architecture, contract ids and deploy steps are superseded. For current information see the
+> [README](../../README.md) (live testnet contract ids), [CONTRIBUTING](../../CONTRIBUTING.md)
+> (workflow and gotchas), [`docs/DEPLOY.md`](../DEPLOY.md) and
+> [`docs/ON_CHAIN_EVENTS.md`](../ON_CHAIN_EVENTS.md).
 
 ## 1. What this project is
 **alvinmunk** (repo/package name) ships **alvinmunk** (product name): a social, non-betting
@@ -14,7 +18,7 @@ actions (vouch, verified quests, tips); reputation is spendable. Core viral loop
 - **Sprints 0–2 done; Sprint 3 (Orange) build done + deployed.** ~30% toward Master.
 - **61 tests green** (31 contract incl. proptest property/fuzz + 30 web/shared), typecheck + next build + clippy + fmt all green.
 - All 3 contracts deployed to **testnet** and verified ON-CHAIN (not just unit tests).
-- Quests are LIVE and secured (wallet-ownership proof + freshness + rate limit).
+- Quests are LIVE and secured (verified evidence + on-chain `require_auth` + on-chain replay guard + rate limit).
 - **Remaining for Orange DoD (non-code):** 10 outside testers use the share flow + submit the idea on the Rise In panel.
 
 ## 3. How to work on this project (rules that matter)
@@ -32,8 +36,7 @@ actions (vouch, verified quests, tips); reputation is spendable. Core viral loop
 6. **One project, one track per month** (official rule). SCF/funding comes via reaching Master Belt,
    NOT a separate parallel project. Don't revive the "separate SCF project" idea.
 7. **Commits are the user's job.** Don't `git commit`/`push` unless asked. Deploy only when asked.
-8. **Persistent memory** lives at `~/.claude/projects/-Users-mericcintosun-alvinmunk/memory/` —
-   read `stellar-passport-project.md` for the full decision history; update it when you make big decisions.
+8. **Decision history** was kept in the maintainer's private notes (not part of this repo).
 
 ## 4. Architecture (where things are)
 ```
@@ -46,7 +49,7 @@ apps/web/                 Next.js 14, stellar-sdk 16 (protocol 23), @stellar/fre
   src/lib/contracts.ts    invokeAndWait / readContract / args (ScVal builders)
   src/lib/reputation.ts   mintVouch (claim-secret), claimVouch, getSocial/Earned
   src/lib/leaderboard.ts  RPC social events + localStorage snapshot cache + reciprocal-ring flag
-  src/lib/quests.ts       completeQuest (signs ownership, POSTs /api/attest)
+  src/lib/quests.ts       completeQuest (POSTs /api/attest, then submits award_quest)
   src/lib/genesis.ts      first on-chain tx (manageData); src/lib/payments.ts (Level-1 XLM send)
   src/app/api/attest/     SERVERLESS ATTESTER (the only server-side key user). Hardened.
   src/app/page.tsx        onboarding → vouch + quests + leaderboard links
@@ -61,22 +64,20 @@ scripts/deploy-testnet.sh · scripts/screenshots.mjs (playwright)
 Leaderboard reads RPC directly (+ localStorage cache). Indexer deferred to Blue/Black.
 
 ## 5. Live deploy facts
-- Vercel project `mericcintosun/alvinmunk`, org `team_YQ5WK4Onim7LNOVsBBq7yTF2`, projectId `prj_B3mYdNUOjRVGZCeqHv2u6dqcuIvz`.
+- Vercel project `mericcintosun/alvinmunk` (org and project identifiers removed from the public repo).
 - **Root Directory = apps/web** (set via API), **installCommand = `pnpm install --no-frozen-lockfile`** (lockfile was pnpm@10 vs packageManager 9.7.0).
 - Env vars set in Vercel **production**: 8× `NEXT_PUBLIC_*` + `ATTESTER_SECRET_KEY` (testnet key, encrypted, server-only).
 - Redeploy: `vercel --prod --yes` from repo root. GitHub repo connected (`github.com/mericcintosun/alvinmunk`).
 
-## 6. Testnet contract IDs (also in apps/web/.env.local, gitignored)
-- Reputation:     `CBNIZXITUVTRVW6RZGEGCI7KNF46REG4EDM4XUVHKDAV63WOHWW75SZM`
-- QuestRegistry:  `CD6RZUVNQ3TV3X6MNQM25NB2YRFRGMSUGKWTMAIGJOC23C6ESHJKYNFO` (redeployed Green: weekly streak + `quest.active` enforced; old `CA4LP…AZX` de-allowlisted in Reputation)
-- Rewards:        `CBUKGIFOEOS74I2IUUHYNRBZODQFOFCFWIJY3DUJHOUUJV7TT2QYADOU` (Green v4: reward registry + daily-cap circuit breaker + frozen-set gate + proof-of-funding toggle (`set_require_funding`, OFF on testnet); supersedes CDABZ…/CC3XB…/CDEO3…. Daily cap 50 USDC; treasury 10 USDC)
+## 6. Testnet contract IDs
+- _Removed: the ids listed here were superseded. The live set is in the [README](../../README.md#deployed-contracts-stellar-testnet)._
 - Ops scripts: `scripts/bump-ttl.sh` (TTL keeper), `scripts/freeze-rings.mjs` (ring detector → set_frozen; APPLY=1 + ADMIN_SECRET_KEY), `scripts/status.mjs` (on-chain ops snapshot; exits 1 if any read fails, so it can run as a health check; offline tests: `node --test scripts/status.test.mjs`). Health probe: `/api/health`.
 - USDC test SAC:  `CAKT2EK2SFGNXTXVSYZLZXA5YB5QPVHLTVUMRHLJTF5RFFAFMIRNPZT2`
 - CLI identities (in `stellar keys`): `passport-admin` (admin+issuer), `passport-attester` (allowlisted), `passport-alice/bob/carol/dave/eve/frank` (test users).
-- If you change a contract's interface, you MUST redeploy + re-wire attesters (`reputation.add_attester(quest_id)`, `quest.add_attester(attester_pubkey)`) + update `.env.local` and Vercel env.
+- If you change a contract's interface, you MUST redeploy + re-wire attesters (`reputation.add_attester(quest_id)`, then allowlist the attester's ed25519 key on quest_registry with `add_attester_key(<32-byte pubkey>)` — `quest.add_attester` writes the dead address list, #69) + update `.env.local` and Vercel env.
 
 ## 7. Security model (already shipped — don't regress)
-- `/api/attest` requires: ed25519 **wallet-ownership proof** (client signs `attest:v1:{recipient}:{questId}:{type}:{ref}:{ts}`, server verifies vs recipient G-address), **±120s freshness**, **per-IP rate limit**. On-chain replay guard is the hard cap.
+- `/api/attest` **verifies the evidence** (shape, quest-id ↔ evidence-type binding, then the real action on the network), **rate-limits per IP**, and only then signs the quest_registry payload. Ownership is proven **on-chain**: the wallet submits `award_quest`, which runs `recipient.require_auth()` (no off-chain ownership signature). The on-chain replay guard is the hard cap.
 - Defense-in-depth: attester only grants Earned XP; USDC payout has caps/pause/proof-of-funding (Black belt).
 - Before mainnet (Black): move attester key to KMS or a private worker; tighten verification; keep treasury circuit breakers. See the security discussion in the project memory.
 

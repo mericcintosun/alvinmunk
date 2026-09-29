@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { Sparkles, Users, ShieldCheck, Code, AlertCircle } from 'lucide-react';
-import { getScores, getAttestation } from '@/lib/reputation';
+import { getScores, getQuestAttestation } from '@/lib/reputation';
 import { getPeopleCounts } from '@/lib/constellation';
 import { Crest } from '@/components/brand/crest';
 import { Frame } from '@/components/fx/frame';
@@ -44,16 +44,16 @@ export default async function ScorePage({ params }: ScorePageProps) {
   }
 
   // Fetch reputation data (read-only, no wallet required)
-  const [scores, people, attestations] = await Promise.all([
+  const [scores, people, questAttestation] = await Promise.all([
     getScores(address).catch(() => ({ social: 0, earned: 0 })),
     getPeopleCounts(address).catch(() => ({ vouchedBy: 0, backed: 0 })),
-    getAttestation(address),
+    getQuestAttestation(address).catch(() => null),
   ]);
 
   const hasActivity =
     scores.social > 0 ||
     scores.earned > 0 ||
-    attestations > 0 ||
+    questAttestation !== null ||
     people.vouchedBy > 0 ||
     people.backed > 0;
 
@@ -137,13 +137,16 @@ export default async function ScorePage({ params }: ScorePageProps) {
       </Frame>
 
       {/* Attestations */}
-      {attestations > 0 && (
-        <Frame label="quests // completed" index={`${attestations}`} className="mt-6">
+      {questAttestation && (
+        <Frame label="quests // verified" index="latest" className="mt-6">
           <div className="flex items-center gap-4 p-6">
             <Sticker name="stamp-verified" size={48} className="h-10 w-auto" />
             <div>
-              <p className="font-display text-2xl font-semibold">{attestations}</p>
-              <p className="text-sm text-muted-foreground">Quest attestations completed</p>
+              <p className="font-display text-2xl font-semibold">{Number(questAttestation.value)} XP</p>
+              <p className="text-sm text-muted-foreground">
+                Earned from verified quests · latest on{' '}
+                {new Date(questAttestation.timestamp * 1000).toLocaleDateString('en-US', { dateStyle: 'medium' })}
+              </p>
             </div>
           </div>
         </Frame>
