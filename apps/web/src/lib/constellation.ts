@@ -4,10 +4,10 @@
  * render real faces/stars, not numbers. Wallet-free — reads RPC events + the on-chain
  * get_vouch view (durable indexer deferred to Blue/Black, belts/00-strategy).
  */
-import { EVENTS } from '@alvinmunk/shared';
+import { artSeed, EVENTS } from '@alvinmunk/shared';
 import { fetchReputationEvents } from './events';
 import { getCounts, getVouch, type PeopleCounts } from './reputation';
-import { foldVouchEdges } from './badges';
+import { foldVouchEdges, type ChainEvent } from './badges';
 
 /** A person who vouched you — one star in your constellation. */
 export interface VoucherStar {
@@ -66,24 +66,73 @@ export async function getPeopleCounts(address: string): Promise<PeopleCounts> {
 }
 
 /** Warm relative time from a unix-seconds timestamp. */
-export function timeAgo(unixSecs: number): string {
+export function timeAgo(unixSecs: number, locale = 'en'): string {
   if (!unixSecs) return '';
   const s = Math.max(0, Math.floor(Date.now() / 1000) - unixSecs);
   const days = Math.floor(s / 86_400);
-  if (days <= 0) return 'today';
-  if (days === 1) return 'yesterday';
-  if (days < 7) return `${days} days ago`;
+  const localeTag = locale === 'tr' ? 'tr-TR' : 'en-US';
+  const naturalRelativeTime = new Intl.RelativeTimeFormat(localeTag, { numeric: 'auto' });
+  const numericRelativeTime = new Intl.RelativeTimeFormat(localeTag, { numeric: 'always' });
+  if (days <= 0) return naturalRelativeTime.format(0, 'day');
+  if (days === 1) return naturalRelativeTime.format(-1, 'day');
+  if (days < 7) return numericRelativeTime.format(-days, 'day');
   const weeks = Math.floor(days / 7);
-  if (weeks < 5) return `${weeks} week${weeks === 1 ? '' : 's'} ago`;
-  return `${Math.floor(days / 30)} month${Math.floor(days / 30) === 1 ? '' : 's'} ago`;
+  if (weeks < 5) return numericRelativeTime.format(-weeks, 'week');
+  return numericRelativeTime.format(-Math.floor(days / 30), 'month');
 }
+
+// ── People suggestions ───────────────────────────────────────────────────────
+
+/** One suggested person — address, shared-connection count, and an optional @handle. */
+export interface Suggestion {
+  address: string;
+  /** Number of people both `me` and this address share a vouch edge with. */
+  sharedCount: number;
+  /** Resolved @handle, or null when unclaimed / not yet looked up. */
+  handle: string | null;
+}
+
+/**
+ * Pure second-degree suggestion engine, built on `foldVouchEdges` (the same fold
+ * `badges.ts` and `getPeopleCounts` above use) instead of re-parsing `vouch:claimed`
+ * topics/data — one place decides what counts as an edge.
+ *
+ * Treat every `vouch:claimed` edge as UNDIRECTED (A↔B when either A vouched B or B
+ * vouched A — `foldVouchEdges` already merges both directions into `vouchedBy` +
+ * `vouchedFor`). Then:
+ *   1. Fold `me`'s direct connections (first-degree neighbours).
+ *   2. For each first-degree neighbour, fold THEIR connections too, and count how many
+ *      first-degree neighbours share an edge to each second-degree candidate.
+ *   3. Drop `me` and anyone already in the first-degree set.
+ *   4. Rank descending by shared count; break ties by address (stable, deterministic).
+ *   5. Return the top `max` results (default 6).
+ *
+ * Pure: no I/O. Feed it the full event list from `fetchReputationEvents()`.
+ */
+export function suggestPeople(me: string, events: ChainEvent[], max = 6): Suggestion[] {
+  const myEdges = foldVouchEdges(events, me);
+  const direct = new Set([...myEdges.vouchedBy, ...myEdges.vouchedFor]);
+
+  // Count shared connections for each second-degree candidate.
+  const shared = new Map<string, number>();
+  for (const neighbour of direct) {
+    const theirs = foldVouchEdges(events, neighbour);
+    for (const candidate of [...theirs.vouchedBy, ...theirs.vouchedFor]) {
+      if (candidate === me) continue;
+      if (direct.has(candidate)) continue; // already connected
+      shared.set(candidate, (shared.get(candidate) ?? 0) + 1);
+    }
+  }
+
+  return [...shared.entries()]
+    .sort(([addrA, cntA], [addrB, cntB]) => cntB - cntA || addrA.localeCompare(addrB))
+    .slice(0, max)
+    .map(([address, sharedCount]) => ({ address, sharedCount, handle: null }));
+}
+
+// ── Deterministic colour ──────────────────────────────────────────────────────
 
 /** Deterministic hue (0-359) from an address — matches the crest art seed family. */
 export function addrHue(address: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < address.length; i++) {
-    h ^= address.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return (h >>> 0) % 360;
+  return artSeed(address) % 360;
 }

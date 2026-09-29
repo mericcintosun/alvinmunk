@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight, QrCode as QrCodeIcon } from 'lucide-react';
-import { resolveHandle } from '@/lib/registry';
+import { resolveHandle, getMeta } from '@/lib/registry';
 import { getPeopleCounts } from '@/lib/constellation';
 import { Crest } from '@/components/brand/crest';
 import { Avatar } from '@/components/Avatar';
@@ -15,7 +15,9 @@ import { Button, buttonVariants } from '@/components/ui/button';
 import { QrCode } from '@/components/fx/qr-code';
 import { useWallet } from '@/components/wallet/wallet-provider';
 import { useTranslations } from '@/lib/i18n';
-import { cn, shortAddress } from '@/lib/utils';
+import { shortAddr } from '@alvinmunk/shared';
+import { cn } from '@/lib/utils';
+import type { AvatarConfig } from '@/lib/avatar';
 
 /**
  * Vouch-invite deep link — `/v/<handle>` is shared by @handle to recruit. The visitor
@@ -29,6 +31,7 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
   const handle = params.handle.toLowerCase();
   const [address, setAddress] = useState<string | null | undefined>(undefined);
   const [vouchedBy, setVouchedBy] = useState<number | null>(null);
+  const [avatar, setAvatar] = useState<AvatarConfig | undefined>(undefined);
   const [showInviteQr, setShowInviteQr] = useState(false);
   const [origin, setOrigin] = useState('');
 
@@ -43,13 +46,19 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
       /* storage unavailable */
     }
     let alive = true;
+    setAvatar(undefined);
     resolveHandle(handle)
       .then(async (addr) => {
         if (!alive) return;
         setAddress(addr);
         if (!addr) return;
-        const people = await getPeopleCounts(addr).catch(() => ({ vouchedBy: 0, backed: 0 }));
-        if (alive) setVouchedBy(people.vouchedBy);
+        const [people, meta] = await Promise.all([
+          getPeopleCounts(addr).catch(() => ({ vouchedBy: 0, backed: 0 })),
+          getMeta(addr), // the inviter's published face; null → deterministic default
+        ]);
+        if (!alive) return;
+        setVouchedBy(people.vouchedBy);
+        setAvatar(meta?.avatar);
       })
       .catch(() => alive && setAddress(null));
     return () => {
@@ -75,14 +84,14 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
       <Frame label={`invite // @${handle}`} index="REF" className="mt-7" tilt tape="tr">
         <div className="flex items-center gap-5 p-7">
           {address ? (
-            <Avatar address={address} handle={handle} size={96} />
+            <Avatar address={address} avatar={avatar} handle={handle} size={96} />
           ) : (
             <Crest address={`unclaimed-${handle}`} size={96} points={7} animate />
           )}
           <div className="min-w-0">
             <div className="font-display text-2xl font-semibold">@{handle}</div>
             <p className="mt-1 font-mono text-xs text-muted-foreground">
-              {address ? shortAddress(address) : 'new to the sky'}
+              {address ? shortAddr(address) : 'new to the sky'}
             </p>
             <div className="mt-2">
               <Stamp accent="secondary">

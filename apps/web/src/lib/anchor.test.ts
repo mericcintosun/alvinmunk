@@ -18,11 +18,12 @@ import {
   getWithdrawalStatus,
   isAnchorConfigured,
   isTerminalStatus,
+  sendWithdrawalPayment,
   startWithdrawal,
   type AnchorToml,
   type Withdrawal,
 } from './anchor';
-import { networkPassphrase } from './stellar';
+import { networkPassphrase, server } from './stellar';
 import type { Wallet } from './wallet';
 
 describe('anchor config hook', () => {
@@ -245,5 +246,35 @@ describe('buildWithdrawalPayment', () => {
   it('refuses to pay before the anchor is waiting for the transfer', () => {
     expect(() => build({ ...base, status: 'incomplete' })).toThrow(/not waiting/);
     expect(() => build({ ...base, withdrawAnchorAccount: undefined })).toThrow(/where to send/);
+  });
+});
+
+describe('sendWithdrawalPayment', () => {
+  const issuer = Keypair.random().publicKey();
+  const w: Withdrawal = {
+    id: 'tx-1',
+    status: 'pending_user_transfer_start',
+    amountIn: '5.0000000',
+    withdrawAnchorAccount: serverKp.publicKey(),
+  };
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('never polls a payment Core kept answering TRY_AGAIN_LATER to', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(server, 'getAccount').mockResolvedValue(new Account(clientKp.publicKey(), '1'));
+    const send = vi
+      .spyOn(server, 'sendTransaction')
+      .mockResolvedValue({ status: 'TRY_AGAIN_LATER', hash: 'P1', latestLedger: 1, latestLedgerCloseTime: 0 });
+    const poll = vi.spyOn(server, 'getTransaction');
+
+    const p = sendWithdrawalPayment(fakeWallet().wallet, w, issuer);
+    const settled = expect(p).rejects.toThrow(/network is busy/);
+    await vi.runAllTimersAsync();
+    await settled;
+    expect(send.mock.calls.length).toBeGreaterThan(1);
+    expect(poll).not.toHaveBeenCalled();
   });
 });

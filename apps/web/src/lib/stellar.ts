@@ -3,8 +3,8 @@
  * serverless attester route. No standing backend — leaderboard reads RPC directly
  * (belts/00-strategy: defer the indexer until scale demands it).
  */
-import { Horizon, rpc, Networks } from '@stellar/stellar-sdk';
-import { readNetworkConfig } from '@alvinmunk/shared';
+import { Horizon, Keypair, rpc, xdr } from '@stellar/stellar-sdk';
+import { readNetworkConfig, validateNetworkConfig } from '@alvinmunk/shared';
 
 // Next.js only inlines LITERAL `process.env.NEXT_PUBLIC_*` member expressions into the
 // client bundle — passing the whole `process.env` object would leave these undefined in
@@ -22,17 +22,54 @@ export const config = readNetworkConfig({
   NEXT_PUBLIC_GATE_CONTRACT_ID: process.env.NEXT_PUBLIC_GATE_CONTRACT_ID,
 });
 
-export const server = new rpc.Server(config.rpcUrl, {
+/**
+ * Everything wrong with the resolved config (empty = consistent) — the one validation
+ * (`validateNetworkConfig`) run on the one config above, which the client and every server
+ * route share. /api/health reports it and fails, the banner (ConfigStatusBanner) shows it,
+ * and nothing that signs or submits runs on it (`assertNetworkConfig`,
+ * `misconfiguredResponse`): a half-applied mainnet cutover fails loudly instead of mixing a
+ * mainnet passphrase with a testnet RPC.
+ */
+export const configErrors = validateNetworkConfig(config);
+
+// Loud on the server: every instance says so in its logs the moment it loads the config.
+if (configErrors.length > 0 && typeof window === 'undefined') {
+  console.error(`[config] inconsistent network config: ${configErrors.join('; ')}`);
+}
+
+/** Throws when the config is inconsistent — the client calls it before handing out a wallet. */
+export function assertNetworkConfig(): void {
+  if (configErrors.length > 0) {
+    throw new Error(`This deployment is misconfigured, so nothing can be sent: ${configErrors.join('; ')}`);
+  }
+}
+
+/** For a route that signs or submits: a 503 listing the problems when the config is inconsistent. */
+export function misconfiguredResponse(): Response | null {
+  if (configErrors.length === 0) return null;
+  return new Response(JSON.stringify({ error: 'network config is inconsistent', configErrors }), {
+    status: 503,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+// The SDK throws "Invalid URL" on an empty one, which would take the whole app (banner
+// included) down at import. A mainnet deploy without NEXT_PUBLIC_RPC_URL is already in
+// `configErrors`, so point its client at a reserved never-resolving host instead.
+const UNSET_URL = 'https://url-not-configured.invalid';
+
+export const server = new rpc.Server(config.rpcUrl || UNSET_URL, {
   allowHttp: config.rpcUrl.startsWith('http://'),
 });
 
 /** Horizon — used for balances (RPC has no simple balance endpoint). */
-export const horizon = new Horizon.Server(config.horizonUrl, {
+export const horizon = new Horizon.Server(config.horizonUrl || UNSET_URL, {
   allowHttp: config.horizonUrl.startsWith('http://'),
 });
 
-export const networkPassphrase =
-  config.network === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
+// The resolved passphrase: it honours NEXT_PUBLIC_NETWORK_PASSPHRASE (re-deriving it from
+// the network name ignored that override), and `configErrors` flags one that disagrees.
+export const networkPassphrase = config.networkPassphrase;
 
 /** Native XLM balance as a string, or '0' if the account isn't funded yet. */
 export async function getXlmBalance(address: string): Promise<string> {
@@ -85,6 +122,20 @@ export async function waitForAccountReady(address: string, tries = 20): Promise<
       await sleep(800);
     }
   }
+}
+
+/**
+ * Does the classic account `address` exist on-chain? `false` only when the RPC answers that
+ * there is no such account; an RPC failure throws, so an outage is never read as "unfunded".
+ * (`server.getAccount` can't tell the two apart: it reports every failure as "Account not
+ * found".)
+ */
+export async function accountExists(address: string): Promise<boolean> {
+  const key = xdr.LedgerKey.account(
+    new xdr.LedgerKeyAccount({ accountId: Keypair.fromPublicKey(address).xdrPublicKey() }),
+  );
+  const { entries } = await server.getLedgerEntries(key);
+  return entries.length > 0;
 }
 
 /** Explorer link for a tx hash (Stellar Expert). */

@@ -3,47 +3,44 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const {
-  getWalletMock,
-  mintVouchMock,
-  addMyVouchMock,
-  subscribeMock,
-  trackMock,
-  trackErrorMock,
-  toastMock,
-} = vi.hoisted(() => ({
-  getWalletMock: vi.fn(),
+// VouchCompose and its children rely on Next's automatic JSX runtime; this vitest setup
+// compiles JSX to `React.createElement`, so give them a global React to resolve.
+(globalThis as { React?: typeof React }).React = React;
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const { mintVouchMock, addMyVouchMock, toastMock } = vi.hoisted(() => ({
   mintVouchMock: vi.fn(),
   addMyVouchMock: vi.fn(),
-  subscribeMock: vi.fn(),
-  trackMock: vi.fn(),
-  trackErrorMock: vi.fn(),
   toastMock: { success: vi.fn(), error: vi.fn() },
 }));
+const WALLET = { kind: 'dev', address: 'GME' };
 
-vi.mock('@/lib/i18n', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/i18n')>();
-  return { ...actual, useTranslations: () => actual.getTranslations('en') };
-});
-vi.mock('@/lib/wallet', () => ({ getWallet: getWalletMock }));
-vi.mock('@/lib/reputation', () => ({ mintVouch: mintVouchMock }));
+vi.mock('@/lib/wallet', () => ({ getWallet: async () => WALLET }));
+vi.mock('@/lib/contracts', () => ({
+  readPublic: vi.fn(),
+  readContract: vi.fn(),
+  invokeAndWait: vi.fn(),
+  repId: () => 'CREP',
+  questId: () => 'CQUEST',
+  args: {},
+}));
+vi.mock('@/lib/reputation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/reputation')>()),
+  mintVouch: mintVouchMock,
+}));
 vi.mock('@/lib/myvouches', () => ({
   addMyVouch: addMyVouchMock,
-  subscribeToVouchPush: subscribeMock,
+  subscribeToVouchPush: vi.fn(async () => {}),
 }));
-vi.mock('@/lib/track', () => ({ track: trackMock, trackError: trackErrorMock }));
+vi.mock('@/lib/track', () => ({ track: vi.fn(), trackError: vi.fn() }));
 vi.mock('@/components/ui/toaster', () => ({ toast: toastMock }));
-vi.mock('@alvinmunk/shared', () => ({
-  buildClaimUrl: (origin: string, id: string) => `${origin}/claim/${id}`,
-}));
-// Decorative chrome + the QR component are stubbed so this test is about the
-// reveal behaviour and the exact value handed to the QR encoder.
 vi.mock('@/components/fx/frame', () => ({
-  Frame: ({ children }: { children?: React.ReactNode }) => children,
+  Frame: (p: { children: React.ReactNode }) => p.children,
 }));
 vi.mock('@/components/fx/border-beam', () => ({ BorderBeam: () => null }));
 vi.mock('@/components/ui/state-art', () => ({ StateArt: () => null }));
 vi.mock('@/components/ui/sticker', () => ({ Sticker: () => null }));
+// The QR encoder is stubbed: these tests are about the reveal and the value it encodes.
 vi.mock('@/components/fx/qr-code', () => ({
   QrCode: ({ value, label }: { value: string; label: string }) => (
     <div data-testid="qr" data-value={value} aria-label={label} />
@@ -52,70 +49,98 @@ vi.mock('@/components/fx/qr-code', () => ({
 
 import { VouchCompose } from './VouchCompose';
 
-describe('VouchCompose claim QR (#215)', () => {
+describe('VouchCompose note', () => {
   let container: HTMLDivElement;
   let root: Root;
 
   beforeEach(() => {
+    mintVouchMock.mockReset().mockResolvedValue({ id: 7, seed: 'ab' });
+    addMyVouchMock.mockReset();
+    toastMock.success.mockReset();
+    toastMock.error.mockReset();
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
-    getWalletMock.mockResolvedValue({ address: 'GADDRESS', kind: 'freighter' });
-    mintVouchMock.mockResolvedValue({ id: '42', secret: 'sekret' });
-    subscribeMock.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
-    vi.clearAllMocks();
   });
 
-  async function render(ui: React.ReactElement) {
+  async function mount() {
+    await act(async () => root.render(<VouchCompose />));
+  }
+  const textarea = () => container.querySelector('textarea')!;
+  async function typeNote(text: string) {
+    const el = textarea();
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
     await act(async () => {
-      root.render(ui);
-      await Promise.resolve();
+      setter.call(el, text);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+  async function mint() {
+    const button = [...container.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Light their star',
+    )!;
+    await act(async () => button.click());
+    await act(async () => {
+      for (let i = 0; i < 5; i++) await Promise.resolve();
     });
   }
 
-  async function click(el: Element) {
-    await act(async () => {
-      el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      await Promise.resolve();
-    });
-  }
+  it('caps the note at 60 characters, two- and four-byte ones included', async () => {
+    await mount();
+    await typeNote('ş'.repeat(70));
+    expect(textarea().value).toBe('ş'.repeat(60));
+    await typeNote('💧'.repeat(61));
+    expect(textarea().value).toBe('💧'.repeat(60));
+  });
 
-  it('keeps the claim QR hidden until the user reveals it, then encodes the claim link with the secret', async () => {
-    await render(<VouchCompose />);
+  it('mints the capped note, which fits the contract’s 240 bytes', async () => {
+    await mount();
+    await typeNote('💧'.repeat(80));
+    await mint();
+    expect(mintVouchMock).toHaveBeenCalledWith(WALLET, '💧'.repeat(60));
+  });
 
-    const mint = [...container.querySelectorAll('button')].find((b) =>
-      /light their star/i.test(b.textContent ?? ''),
-    );
-    expect(mint, 'expected the mint button').toBeTruthy();
-    await click(mint!);
+  it('shares the claim key in the link fragment and keeps it only in this browser', async () => {
+    await mount();
+    await typeNote('gm');
+    await mint();
+    const link = `${window.location.origin}/claim/7#k=ab`;
+    expect(container.querySelector('code')?.textContent).toBe(link);
+    expect(addMyVouchMock).toHaveBeenCalledWith(expect.objectContaining({ id: 7, seed: 'ab' }));
+    expect(addMyVouchMock.mock.calls[0][0]).not.toHaveProperty('secret');
+  });
 
-    // Success state is shown, but the QR is not part of the DOM.
-    expect(container.textContent).toMatch(/their star is lit/i);
+  it('explains a note the contract rejects as too long (#12)', async () => {
+    mintVouchMock.mockRejectedValue(new Error('HostError: Error(Contract, #12)'));
+    await mount();
+    await typeNote('gm');
+    await mint();
+    expect(toastMock.error).toHaveBeenCalledWith('Keep the note to 60 characters or fewer.');
+    expect(container.textContent).toContain('Keep the note to 60 characters or fewer.');
+  });
+
+  it('keeps the claim QR hidden until revealed, then encodes the claim link with its key (#215)', async () => {
+    await mount();
+    await typeNote('gm');
+    await mint();
+
+    // Minted, but no QR in the DOM until the user asks for it.
     expect(container.querySelector('[data-testid="qr"]')).toBeNull();
-
-    const toggle = container.querySelector(
-      'button[aria-controls="vouch-claim-qr"]',
-    ) as HTMLButtonElement;
-    expect(toggle, 'expected the QR reveal toggle').not.toBeNull();
+    const toggle = container.querySelector<HTMLButtonElement>('button[aria-controls="vouch-claim-qr"]')!;
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
 
-    await click(toggle);
-
+    await act(async () => toggle.click());
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
-    const qr = container.querySelector('[data-testid="qr"]') as HTMLElement;
-    expect(qr).not.toBeNull();
-    // The QR encodes the full claim link, including the bearer secret (#s=).
-    expect(qr.getAttribute('data-value')).toContain('/claim/42#s=sekret');
-    // And the warning about it being a bearer secret is shown.
-    expect(container.textContent).toMatch(/bearer secret/i);
+    const qr = container.querySelector('[data-testid="qr"]')!;
+    expect(qr.getAttribute('data-value')).toBe(`${window.location.origin}/claim/7#k=ab`);
+    expect(container.textContent).toMatch(/secret/i);
 
-    // Toggling back hides it again.
-    await click(toggle);
+    await act(async () => toggle.click());
     expect(container.querySelector('[data-testid="qr"]')).toBeNull();
   });
 });

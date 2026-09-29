@@ -21,13 +21,14 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSubscriptionsForWallet, removeSubscription } from '@/lib/push-store';
+import { withRoute } from '@/lib/api-route';
 
 // web-push is a Node.js library — only runs in the Node.js runtime.
 // We import it dynamically to avoid edge-runtime issues.
 
 const MAX_BODY = 1024;
 
-export async function POST(req: NextRequest): Promise<NextResponse> {
+export const POST = withRoute('POST /api/push/notify', async (req: NextRequest) => {
   const contentLength = Number(req.headers.get('content-length') ?? 0);
   if (contentLength > MAX_BODY) {
     return NextResponse.json({ error: 'body too large' }, { status: 413 });
@@ -110,4 +111,4 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   );
 
   return NextResponse.json({ ok: true, sent });
-}
+});

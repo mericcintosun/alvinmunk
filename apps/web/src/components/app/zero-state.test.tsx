@@ -7,20 +7,20 @@ const {
   getScoresMock,
   getPeopleCountsMock,
   fetchActivityMock,
-  reverseHandleMock,
+  reverseHandlesMock,
   getPendingVouchesMock,
 } = vi.hoisted(() => ({
   getScoresMock: vi.fn(),
   getPeopleCountsMock: vi.fn(),
   fetchActivityMock: vi.fn(),
-  reverseHandleMock: vi.fn(),
+  reverseHandlesMock: vi.fn(),
   getPendingVouchesMock: vi.fn(),
 }));
 
 vi.mock('@/lib/reputation', () => ({ getScores: getScoresMock }));
 vi.mock('@/lib/constellation', () => ({ getPeopleCounts: getPeopleCountsMock }));
 vi.mock('@/lib/feed', () => ({ fetchActivity: fetchActivityMock }));
-vi.mock('@/lib/registry', () => ({ reverseHandle: reverseHandleMock }));
+vi.mock('@/lib/registry', () => ({ reverseHandles: reverseHandlesMock }));
 vi.mock('@/lib/myvouches', () => ({ getPendingVouches: getPendingVouchesMock }));
 
 import { StatStrip } from './stat-strip';
@@ -57,7 +57,7 @@ describe('first-run UI states', () => {
 
   it('shows a friendly empty state for the activity feed before any vouches appear', async () => {
     fetchActivityMock.mockResolvedValue([]);
-    reverseHandleMock.mockResolvedValue(null);
+    reverseHandlesMock.mockResolvedValue({});
 
     await act(async () => {
       root.render(<ActivityFeed />);

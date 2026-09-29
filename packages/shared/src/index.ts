@@ -47,7 +47,8 @@ export interface Attestation {
 export interface Vouch {
   id: number;
   from: string; // voucher address
-  /** sha256(secret) — BytesN<32> */
+  /** sha256(secret) — BytesN<32>; all zeros on a card minted with a claim key
+   *  (`mint_vouch_signed`), whose key is read with `get_claim_key` */
   claim_hash: Uint8Array;
   note: string;
   claimed: boolean;
@@ -90,14 +91,44 @@ export const PASSPHRASE = {
   mainnet: 'Public Global Stellar Network ; September 2015',
 } as const;
 
-/** Reads the public NEXT_PUBLIC_* env into a typed config (client + server safe). */
+/**
+ * Default URLs per network. Testnet has SDF's public endpoints; mainnet has SDF's public
+ * Horizon but no keyless public RPC, so a mainnet deploy must set NEXT_PUBLIC_RPC_URL — an
+ * unset one stays empty and `validateNetworkConfig` reports it, instead of the old silent
+ * fallback to testnet's RPC.
+ */
+export const DEFAULT_URLS: Record<StellarNetwork, { rpcUrl: string; horizonUrl: string }> = {
+  testnet: {
+    rpcUrl: 'https://soroban-testnet.stellar.org',
+    horizonUrl: 'https://horizon-testnet.stellar.org',
+  },
+  mainnet: { rpcUrl: '', horizonUrl: 'https://horizon.stellar.org' },
+};
+
+/** An env value, trimmed, with blank treated as unset (`FOO=` in a .env file is ''). */
+function envValue(v: string | undefined): string | undefined {
+  const t = v?.trim();
+  return t ? t : undefined;
+}
+
+/**
+ * Reads the public NEXT_PUBLIC_* env into a typed config (client + server safe). It never
+ * throws: the network name is normalised ("Mainnet " → mainnet), and anything that is still
+ * wrong — an unknown network, a passphrase for the other network, a missing mainnet RPC URL —
+ * is reported by `validateNetworkConfig`, which blocks signing and shows the config banner.
+ */
 export function readNetworkConfig(env: Record<string, string | undefined>): NetworkConfig {
-  const network = (env.NEXT_PUBLIC_STELLAR_NETWORK as StellarNetwork) ?? 'testnet';
+  const rawNetwork = env.NEXT_PUBLIC_STELLAR_NETWORK;
+  // Only an absent variable means testnet; an empty or unknown value stays as typed so the
+  // validator names it.
+  const network = (rawNetwork === undefined ? 'testnet' : rawNetwork.trim().toLowerCase()) as StellarNetwork;
+  const known = network === 'testnet' || network === 'mainnet';
+  const defaults = known ? DEFAULT_URLS[network] : DEFAULT_URLS.testnet;
   return {
     network,
-    rpcUrl: env.NEXT_PUBLIC_RPC_URL ?? 'https://soroban-testnet.stellar.org',
-    networkPassphrase: env.NEXT_PUBLIC_NETWORK_PASSPHRASE ?? PASSPHRASE[network],
-    horizonUrl: env.NEXT_PUBLIC_HORIZON_URL ?? 'https://horizon-testnet.stellar.org',
+    rpcUrl: envValue(env.NEXT_PUBLIC_RPC_URL) ?? defaults.rpcUrl,
+    networkPassphrase: envValue(env.NEXT_PUBLIC_NETWORK_PASSPHRASE) ?? (known ? PASSPHRASE[network] : ''),
+    horizonUrl: envValue(env.NEXT_PUBLIC_HORIZON_URL) ?? defaults.horizonUrl,
     contracts: {
       reputation: env.NEXT_PUBLIC_REPUTATION_CONTRACT_ID ?? '',
       questRegistry: env.NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID ?? '',
@@ -107,6 +138,74 @@ export function readNetworkConfig(env: Record<string, string | undefined>): Netw
       gate: env.NEXT_PUBLIC_GATE_CONTRACT_ID ?? '',
     },
   };
+}
+
+/** The env var behind each contract id — validation errors name it, so the fix is obvious. */
+const CONTRACT_ENV: Record<keyof ContractIds, string> = {
+  reputation: 'NEXT_PUBLIC_REPUTATION_CONTRACT_ID',
+  questRegistry: 'NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID',
+  rewards: 'NEXT_PUBLIC_REWARDS_CONTRACT_ID',
+  usdcSac: 'NEXT_PUBLIC_USDC_SAC_ID',
+  registry: 'NEXT_PUBLIC_REGISTRY_CONTRACT_ID',
+  gate: 'NEXT_PUBLIC_GATE_CONTRACT_ID',
+};
+
+/** Does `url` name `network`'s infrastructure? (SDF's public Horizon carries no network in its name.) */
+function pointsAt(url: string, network: StellarNetwork): boolean {
+  if (network === 'testnet') return /testnet/i.test(url);
+  return /mainnet/i.test(url) || /^https?:\/\/horizon\.stellar\.org(?:[:/]|$)/i.test(url);
+}
+
+/**
+ * Everything wrong with a resolved network config, one specific reason per problem (empty =
+ * consistent). This is THE validation: /api/health reports it, the client shows it, and the
+ * routes that sign or submit refuse to run on it — so a half-applied mainnet cutover (flipping
+ * `NEXT_PUBLIC_STELLAR_NETWORK=mainnet` but leaving a testnet RPC, passphrase or contract id
+ * behind, the likeliest mainnet launch failure) fails loudly instead of in confusing ways.
+ *
+ * Rules:
+ *  - the network is `testnet` or `mainnet`;
+ *  - the passphrase is that network's — an override that disagrees is rejected;
+ *  - the RPC and Horizon URLs are set and don't point at the other network;
+ *  - on mainnet, all six contract ids are set. Testnet allows empty ones, so a fresh
+ *    checkout runs before the deploy script has printed them.
+ */
+export function validateNetworkConfig(cfg: NetworkConfig): string[] {
+  const { network } = cfg;
+  if (network !== 'testnet' && network !== 'mainnet') {
+    return [`NEXT_PUBLIC_STELLAR_NETWORK must be "testnet" or "mainnet", not "${String(network)}"`];
+  }
+  const other: StellarNetwork = network === 'mainnet' ? 'testnet' : 'mainnet';
+  const errors: string[] = [];
+
+  if (cfg.networkPassphrase !== PASSPHRASE[network]) {
+    const got =
+      cfg.networkPassphrase === PASSPHRASE[other]
+        ? `the ${other} passphrase`
+        : `"${cfg.networkPassphrase}"`;
+    errors.push(
+      `NEXT_PUBLIC_NETWORK_PASSPHRASE is ${got}, but the network is ${network} ("${PASSPHRASE[network]}")`,
+    );
+  }
+
+  const urls = [
+    ['NEXT_PUBLIC_RPC_URL', cfg.rpcUrl],
+    ['NEXT_PUBLIC_HORIZON_URL', cfg.horizonUrl],
+  ] as const;
+  for (const [envKey, url] of urls) {
+    if (!url) errors.push(`${envKey} is empty`);
+    else if (pointsAt(url, other)) {
+      errors.push(`${envKey} points at ${other}, but the network is ${network}: ${url}`);
+    }
+  }
+
+  if (network === 'mainnet') {
+    for (const [key, envKey] of Object.entries(CONTRACT_ENV) as [keyof ContractIds, string][]) {
+      if (!cfg.contracts[key]) errors.push(`${envKey} is not set — every contract id is required on mainnet`);
+    }
+  }
+
+  return errors;
 }
 
 /** Deterministic generative-art seed from a wallet address (Genesis Stamp / vouch sigil). */
@@ -295,6 +394,8 @@ export function buildClaimUrl(origin: string, vouchId: number | string): string 
 
 /** Short display form for an address: GABC…WXYZ */
 export function shortAddr(address: string, lead = 4, tail = 4): string {
-  if (address.length <= lead + tail + 1) return address;
+  if (!address || address.length <= lead + tail + 1) return address;
   return `${address.slice(0, lead)}…${address.slice(-tail)}`;
 }
+
+export { isStellarAddress, type IsStellarAddressOptions } from './stellar-address';

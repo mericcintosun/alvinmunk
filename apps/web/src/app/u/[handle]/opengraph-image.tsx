@@ -1,9 +1,9 @@
 import { ImageResponse } from 'next/og';
 import { ogResolve, ogCard } from '@/lib/og-card';
-import { defaultAvatarId } from '@/lib/avatar';
+import { loadFont } from '@/lib/og-assets';
 
 // The artifact every shared /u/<handle> link unfurls into — resolves the handle
-// on-chain and renders the real constellation + scores (shared builder in lib/og-card).
+// on-chain and renders the published face, bio and scores (shared builder in lib/og-card).
 export const runtime = 'nodejs';
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
@@ -11,7 +11,28 @@ export const alt = 'alvinmunk';
 
 export default async function Image({ params }: { params: { handle: string } }) {
   const handle = params.handle.toLowerCase();
-  const { address, scores } = await ogResolve(handle);
-  const avatarId = address ? defaultAvatarId(address) : undefined;
-  return new ImageResponse(ogCard({ handle, address, scores, avatarId }), { ...size });
+  const { address, scores, avatar, bio } = await ogResolve(handle);
+  const regularFont = loadFont('fonts/NotoSans-Regular.ttf');
+  const boldFont = loadFont('fonts/NotoSans-Bold.ttf');
+
+  return new ImageResponse(ogCard({ handle, address, scores, avatar, bio }), {
+    ...size,
+    // Both weights are required: passing only the bold font replaces Satori's default font
+    // entirely, so every text node (not just the ones with fontWeight: 700) would render in
+    // bold with no regular counterpart to fall back to.
+    fonts: [
+      {
+        name: 'Noto Sans',
+        data: regularFont,
+        weight: 400,
+        style: 'normal',
+      },
+      {
+        name: 'Noto Sans',
+        data: boldFont,
+        weight: 700,
+        style: 'normal',
+      },
+    ],
+  });
 }
