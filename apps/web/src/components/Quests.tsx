@@ -140,6 +140,17 @@ export function Quests({ address }: { address: string }) {
       });
   }
 
+  // Runs after a verified quest, outside its error path: the XP is already granted on-chain, so a
+  // slow or failed read keeps the last figures instead of reporting the quest as failed.
+  function refreshScores() {
+    getEarnedScore(address, address)
+      .then(setEarned)
+      .catch(() => {
+        /* keep the last score */
+      });
+    reloadStreak();
+  }
+
   async function run(kind: 'referral' | 'invite' | 'vouchback', questId: number, evidence: Evidence) {
     setBusy(kind);
     setError(null);
@@ -150,9 +161,7 @@ export function Quests({ address }: { address: string }) {
       if (!r.ok) throw new Error(r.error);
       setDone(true);
       toast.success('Quest verified — Earned XP added 🎉');
-      setEarned(await getEarnedScore(address, address));
-      const s = await getStreak(address, address);
-      setStreak({ weeks: s.weeks, best: s.best });
+      refreshScores();
     } catch (e) {
       const msg = humanizeError(e);
       setError(msg);

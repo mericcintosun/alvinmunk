@@ -131,4 +131,26 @@ describe('POST /api/push/subscribe (vouchIds re-register, #169)', () => {
     expect(saveMock).not.toHaveBeenCalled();
     expect(saveIdsMock).not.toHaveBeenCalled();
   });
+
+  it('answers a store failure with a JSON 500 naming the request id (#183)', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    saveIdsMock.mockRejectedValueOnce(new Error('KV https://token@kv.example.com unreachable'));
+
+    const res = await POST(
+      makeReq({ subscription: NEW_SUB, walletAddress: 'GABC', vouchIds: [7] }),
+    );
+
+    expect(res.status).toBe(500);
+    const requestId = res.headers.get('x-request-id');
+    expect(requestId).toBeTruthy();
+    expect(await res.json()).toEqual({ error: 'internal error', requestId });
+    errorSpy.mockRestore();
+  });
+
+  it('keeps its response and adds x-request-id (#183)', async () => {
+    const res = await POST(makeReq({ subscription: NEW_SUB, walletAddress: 'GABC', vouchId: 7 }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(res.headers.get('x-request-id')).toBeTruthy();
+  });
 });

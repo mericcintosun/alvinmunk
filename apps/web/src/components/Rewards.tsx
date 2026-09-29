@@ -96,7 +96,7 @@ export function Rewards({ address }: { address: string }) {
       await refresh();
       toast.success('Reward claimed — USDC is in your wallet 🎉');
     } catch (e) {
-      const msg = humanizeError(e, REWARD_ERRORS);
+      const msg = humanizeError(e, REWARD_ERRORS, 'reward');
       setError(msg);
       toast.error(msg);
     } finally {

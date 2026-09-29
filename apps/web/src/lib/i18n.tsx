@@ -4,7 +4,7 @@
  * Usage (client components):
  *   const t = useTranslations();
  *   t('nav.howItWorks')           // → "How it works" | "Nasıl çalışır"
- *   t('onboard.landing.handleFree', { handle: 'beko' }) // → "✓ @beko is free"
+ *   t('onboard.handleFree', { handle: 'beko' }) // → "✓ @beko is free"
  *
  * Usage (server components / outside React):
  *   import { getTranslations } from '@/lib/i18n';

@@ -18,6 +18,7 @@
  */
 import { rpc } from '@stellar/stellar-sdk';
 import { config, configErrors } from '../../../lib/stellar';
+import { withRoute } from '../../../lib/api-route';
 
 export const runtime = 'nodejs';
 // Read env + RPC at REQUEST time, never at build. Without this, Next statically
@@ -58,7 +59,7 @@ const REQUIRED_CONTRACTS = ['reputation', 'registry', 'questRegistry', 'rewards'
 const unset = (vars: Record<string, string | undefined>) =>
   Object.keys(vars).filter((name) => !vars[name]);
 
-export async function GET(): Promise<Response> {
+export const GET = withRoute('GET /api/health', async (): Promise<Response> => {
   const { network } = config;
   const contracts = {
     reputation: config.contracts.reputation || null,
@@ -171,4 +172,4 @@ export async function GET(): Promise<Response> {
     status: ok ? 200 : 503,
     headers: { 'content-type': 'application/json' },
   });
-}
+});

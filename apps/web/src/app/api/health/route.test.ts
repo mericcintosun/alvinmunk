@@ -110,6 +110,7 @@ describe('/api/health', () => {
 
     const res = await GET();
     expect(res.status).toBe(200);
+    expect(res.headers.get('x-request-id')).toBeTruthy(); // added by withRoute (#183)
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.rpc).toBe('ok');

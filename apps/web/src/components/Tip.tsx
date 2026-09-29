@@ -115,7 +115,7 @@ export function Tip({ address }: { address: string }) {
       );
       refresh();
     } catch (e) {
-      const msg = humanizeError(e, TIP_ERRORS);
+      const msg = humanizeError(e, TIP_ERRORS, 'tip');
       setError(msg);
       toast.error(msg);
     } finally {
