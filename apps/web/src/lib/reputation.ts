@@ -269,7 +269,9 @@ export const VOUCH_READ_TTL_MS = 15_000;
 export const VOUCH_READ_CONCURRENCY = 6;
 
 const pendingVouches = new Map<string, Promise<VouchView | null>>();
-const settledVouches = new Map<number, { view: VouchView | null; at: number }>();
+/** Keyed `network|id`: the ?network= override (lib/read-network) reads another contract. */
+const settledVouches = new Map<string, { view: VouchView | null; at: number }>();
+const vouchKey = (vouchId: number, net?: ReadNetwork | null) => `${net?.network ?? ''}|${vouchId}`;
 const vouchReadGate = concurrencyLimit(VOUCH_READ_CONCURRENCY);
 /** Bumped by `forgetVouch`, so a read that started before it can't store a stale view. */
 let vouchEpoch = 0;
@@ -280,15 +282,16 @@ let vouchEpoch = 0;
  *  and for the whole session once claimed, as a claimed card never changes again (a slashed
  *  one still can: it stays claimable). Failed reads are not kept. At most
  *  `VOUCH_READ_CONCURRENCY` reads hit the RPC at once. */
-export function getVouch(vouchId: number): Promise<VouchView | null> {
-  const hit = settledVouches.get(vouchId);
+export function getVouch(vouchId: number, net?: ReadNetwork | null): Promise<VouchView | null> {
+  const key = vouchKey(vouchId, net);
+  const hit = settledVouches.get(key);
   if (hit && (hit.view?.claimed || Date.now() - hit.at < VOUCH_READ_TTL_MS)) {
     return Promise.resolve(hit.view);
   }
-  return shareInFlight(pendingVouches, String(vouchId), async () => {
+  return shareInFlight(pendingVouches, key, async () => {
     const epoch = vouchEpoch;
-    const view = await vouchReadGate(() => readClient().getVouch(vouchId));
-    if (epoch === vouchEpoch) settledVouches.set(vouchId, { view, at: Date.now() });
+    const view = await vouchReadGate(() => (net?.client ?? readClient()).getVouch(vouchId));
+    if (epoch === vouchEpoch) settledVouches.set(key, { view, at: Date.now() });
     return view;
   });
 }
@@ -298,7 +301,7 @@ export function getVouch(vouchId: number): Promise<VouchView | null> {
 export function forgetVouch(vouchId?: number): void {
   vouchEpoch++;
   if (vouchId === undefined) settledVouches.clear();
-  else settledVouches.delete(vouchId);
+  else settledVouches.delete(vouchKey(vouchId)); // this tab only writes the deployment's
 }
 
 /** A 2nd-order voucher bonus queued on a claimer — mirror of the contract's PendingBonus. */

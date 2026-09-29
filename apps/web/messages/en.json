@@ -426,6 +426,14 @@
   "constellation.vouchedForYou": "vouched for you",
   "constellation.dismiss": "Dismiss",
 
+  "vouchNetwork.vouchedBy": "Vouched by",
+  "vouchNetwork.backed.me": "You backed",
+  "vouchNetwork.backed.them": "{handle} backed",
+  "vouchNetwork.mutual": "You both know",
+  "vouchNetwork.empty": "Nobody yet — the first vouch lights this row.",
+  "vouchNetwork.more": "+{count} more",
+  "vouchNetwork.windowNote": "Showing recent on-chain vouches. Older connections still count in the numbers above, even when they don't appear here.",
+
   "firstStarNudge.title": "Your sky starts with one star ✦",
   "firstStarNudge.body": "alvinmunk begins by backing someone. Vouch for one person you trust below — they don’t even need an account yet. Their star ignites when they claim it.",
   "firstStarNudge.action": "light your first star",

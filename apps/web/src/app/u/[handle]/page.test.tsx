@@ -13,6 +13,7 @@ const m = vi.hoisted(() => ({
   getMeta: vi.fn(),
   profile: null as { address: string } | null,
   net: { network: 'testnet' },
+  vouchNetwork: vi.fn(),
 }));
 
 vi.mock('@/lib/registry', () => ({ resolveHandle: m.resolveHandle, getMeta: m.getMeta }));
@@ -26,6 +27,13 @@ vi.mock('@/lib/read-network', () => ({
   withReadNetwork: (path: string, net: unknown) => (net ? `${path}?network=testnet` : path),
 }));
 vi.mock('@/components/BadgeGallery', () => ({ BadgeGallery: () => <div data-testid="badges" /> }));
+// The vouch network section is tested on its own (components/VouchNetwork.test.tsx).
+vi.mock('@/components/VouchNetwork', () => ({
+  VouchNetwork: (props: Record<string, unknown>) => {
+    m.vouchNetwork(props);
+    return <div data-testid="vouch-network" />;
+  },
+}));
 vi.mock('@/components/Avatar', () => ({ Avatar: () => <div data-testid="avatar" /> }));
 vi.mock('@/components/fx/share-row', () => ({
   ShareRow: ({ path }: { path: string }) => <div data-testid="share" data-path={path} />,
@@ -49,6 +57,7 @@ describe('/u/[handle] on a ?network= override (#290)', () => {
     document.body.appendChild(container);
     root = createRoot(container);
     m.profile = null;
+    m.vouchNetwork.mockReset();
     m.resolveHandle.mockReset().mockResolvedValue(G);
     m.getScores.mockReset().mockResolvedValue({ social: 9, earned: 4 });
     m.getPeopleCounts.mockReset().mockResolvedValue({ vouchedBy: 3, backed: 1 });
@@ -75,6 +84,10 @@ describe('/u/[handle] on a ?network= override (#290)', () => {
     expect(m.getMeta).toHaveBeenCalledWith(G, m.net);
     expect(container.textContent).toContain('@umut');
     expect(container.textContent).toContain('4'); // earned XP from the override's read
+    // The vouch network reads the same network, with the override's counts.
+    expect(m.vouchNetwork).toHaveBeenLastCalledWith(
+      expect.objectContaining({ address: G, handle: 'umut', net: m.net, vouchedByCount: 3, backedCount: 1 }),
+    );
   });
 
   it('is read-only: a network badge, no vouch link, and links that keep the override', async () => {
@@ -100,6 +113,7 @@ describe('/u/[handle] on a ?network= override (#290)', () => {
     expect(q('[role="status"]')).toBeNull();
     expect(q('a[href="/app"]')?.textContent).toContain('Vouch @umut');
     expect(q('[data-testid="badges"]')).not.toBeNull();
+    expect(m.vouchNetwork).toHaveBeenLastCalledWith(expect.objectContaining({ net: null, isMe: false }));
     expect(q('[data-testid="share"]')?.getAttribute('data-path')).toBe('/u/umut');
   });
 });

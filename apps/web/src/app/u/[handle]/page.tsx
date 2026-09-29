@@ -12,6 +12,7 @@ import { Frame } from '@/components/fx/frame';
 import { Stamp } from '@/components/fx/stamp';
 import { ShareRow } from '@/components/fx/share-row';
 import { BadgeGallery } from '@/components/BadgeGallery';
+import { VouchNetwork } from '@/components/VouchNetwork';
 import { Skeleton } from '@/components/ui/skeleton';
 import { buttonVariants } from '@/components/ui/button';
 import { shortAddr } from '@alvinmunk/shared';
@@ -151,6 +152,17 @@ export default function ProfilePage({
           <BadgeGallery address={address} />
         </div>
       )}
+
+      {/* The people behind the numbers (#277): who vouched, whom they backed, who you share. */}
+      <VouchNetwork
+        address={address}
+        handle={handle}
+        net={net}
+        viewer={profile?.address}
+        isMe={isMe}
+        vouchedByCount={people?.vouchedBy}
+        backedCount={people?.backed}
+      />
 
       <div className="mt-5 flex flex-wrap items-center gap-3">
         {/* Read-only on the override: no vouch (or any other write) from here. */}

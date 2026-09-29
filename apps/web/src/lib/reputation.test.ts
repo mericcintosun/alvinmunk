@@ -221,6 +221,19 @@ describe('getVouch', () => {
     slashed: false,
   };
 
+  it("reads an override network's card with its own client, memoized apart from the deployment's (#438)", async () => {
+    const netClient = { getVouch: vi.fn().mockResolvedValue({ ...card, note: 'on testnet', claimed: true }) };
+    const net = { network: 'testnet', client: netClient } as unknown as ReadNetwork;
+    sdkMock.getVouch.mockResolvedValue({ ...card, claimed: true });
+    await expect(getVouch(7, net)).resolves.toMatchObject({ note: 'on testnet' });
+    await expect(getVouch(7)).resolves.toMatchObject({ note: 'hi' });
+    // Both claimed, so both stay memoized — each under its own network.
+    await expect(getVouch(7, net)).resolves.toMatchObject({ note: 'on testnet' });
+    await expect(getVouch(7)).resolves.toMatchObject({ note: 'hi' });
+    expect(netClient.getVouch).toHaveBeenCalledTimes(1);
+    expect(sdkMock.getVouch).toHaveBeenCalledTimes(1);
+  });
+
   it("reads the SDK's half-card, null for an unknown id", async () => {
     sdkMock.getVouch.mockResolvedValueOnce(card).mockResolvedValueOnce(null);
     await expect(getVouch(7)).resolves.toEqual(card);

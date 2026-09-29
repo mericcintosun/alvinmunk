@@ -426,6 +426,14 @@
   "constellation.vouchedForYou": "sana destek verdi",
   "constellation.dismiss": "Kapat",
 
+  "vouchNetwork.vouchedBy": "Destekleyenler",
+  "vouchNetwork.backed.me": "Desteklediklerin",
+  "vouchNetwork.backed.them": "{handle} kişisinin destekledikleri",
+  "vouchNetwork.mutual": "İkinizin de tanıdıkları",
+  "vouchNetwork.empty": "Henüz kimse yok — ilk destek bu satırı yakar.",
+  "vouchNetwork.more": "+{count} kişi daha",
+  "vouchNetwork.windowNote": "Zincirdeki son destekler gösteriliyor. Eski bağlantılar burada görünmese de yukarıdaki sayılara dahildir.",
+
   "firstStarNudge.title": "Gökyüzün tek bir yıldızla başlar ✦",
   "firstStarNudge.body": "alvinmunk birini destekleyerek başlar. Aşağıdan güvendiğin birini destekle — henüz hesabı olması bile gerekmiyor. Yıldızı, desteğini talep ettiğinde parlar.",
   "firstStarNudge.action": "ilk yıldızını yak",

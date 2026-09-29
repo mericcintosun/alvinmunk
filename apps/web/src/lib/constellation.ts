@@ -10,7 +10,8 @@ import { getCounts, getVouch, type PeopleCounts } from './reputation';
 import { foldVouchEdges, type ChainEvent } from './badges';
 import type { ReadNetwork } from './read-network';
 
-/** A person who vouched you — one star in your constellation. */
+/** A person who vouched you — one star in your constellation. (For `fetchBackedBy`, `from`
+ *  is the person backed: always the other side of the edge.) */
 export interface VoucherStar {
   from: string;
   vouchId: number;
@@ -20,34 +21,72 @@ export interface VoucherStar {
 }
 
 /**
- * People who vouched `address` — newest first, de-duplicated per voucher, capped at
- * `max`. Reads `vouch:claimed` events (id, from, claimer) where claimer === address,
- * then enriches each with note + timestamp via get_vouch.
+ * The claimed vouch edges touching `address` in one direction, newest first, one per other
+ * person, capped at `max`: `in` = who vouched for it (claimer === address), `out` = whom it
+ * backed (from === address). Read from `vouch:claimed` events (id, from, claimer), then
+ * enriched with note + timestamp via get_vouch. `net` reads another network (the ?network=
+ * override, lib/read-network).
  */
-export async function fetchVouchersOf(address: string, max = 14): Promise<VoucherStar[]> {
-  const events = await fetchReputationEvents();
+async function claimedEdges(
+  address: string,
+  direction: 'in' | 'out',
+  max: number,
+  net?: ReadNetwork | null,
+): Promise<VoucherStar[]> {
+  const events = await fetchReputationEvents({ net });
 
   const seen = new Set<string>();
-  const edges: { from: string; vouchId: number }[] = [];
+  const edges: { other: string; vouchId: number }[] = [];
   for (let i = events.length - 1; i >= 0; i--) {
     const { topics, data } = events[i];
     if (topics[0] !== EVENTS.VOUCH || topics[1] !== 'claimed') continue;
-    if (!Array.isArray(data)) continue;
+    if (!Array.isArray(data) || data.length < 3) continue;
     const vouchId = Number(data[0]);
     const from = String(data[1]);
     const claimer = String(data[2]);
-    if (claimer !== address || seen.has(from)) continue;
-    seen.add(from);
-    edges.push({ from, vouchId });
+    if (from === claimer) continue; // rejected on-chain; never a person to show
+    const other = direction === 'in' ? (claimer === address ? from : null) : from === address ? claimer : null;
+    if (!other || seen.has(other)) continue;
+    seen.add(other);
+    edges.push({ other, vouchId });
     if (edges.length >= max) break;
   }
 
   return Promise.all(
     edges.map(async (e): Promise<VoucherStar> => {
-      const v = await getVouch(e.vouchId).catch(() => null);
-      return { from: e.from, vouchId: e.vouchId, note: v?.note ?? '', created: v?.created ?? 0 };
+      const v = await getVouch(e.vouchId, net).catch(() => null);
+      return { from: e.other, vouchId: e.vouchId, note: v?.note ?? '', created: v?.created ?? 0 };
     }),
   );
+}
+
+/** People who vouched `address` — newest first, de-duplicated per voucher, capped at `max`. */
+export function fetchVouchersOf(address: string, max = 14, net?: ReadNetwork | null): Promise<VoucherStar[]> {
+  return claimedEdges(address, 'in', max, net);
+}
+
+/**
+ * People `address` BACKED — its claimed half-cards, newest first, one per recipient, capped
+ * at `max`. `from` on each star is the person backed (the other side of the edge).
+ */
+export function fetchBackedBy(address: string, max = 14, net?: ReadNetwork | null): Promise<VoucherStar[]> {
+  return claimedEdges(address, 'out', max, net);
+}
+
+/**
+ * The people `viewer` and `address` are BOTH connected to by a claimed vouch, either way
+ * round (undirected, as `suggestPeople` treats edges). Pure: pass the window's events.
+ * Sorted, so a re-render never reshuffles it; the two themselves are never in it.
+ */
+export function mutualNeighbours(viewer: string, address: string, events: ChainEvent[]): string[] {
+  if (!viewer || !address || viewer === address) return [];
+  const a = foldVouchEdges(events, viewer);
+  const b = foldVouchEdges(events, address);
+  const ofViewer = new Set([...a.vouchedBy, ...a.vouchedFor]);
+  const ofSubject = new Set([...b.vouchedBy, ...b.vouchedFor]);
+  ofViewer.delete(address);
+  ofSubject.delete(viewer);
+  return [...ofViewer].filter((n) => ofSubject.has(n)).sort();
 }
 
 /**
