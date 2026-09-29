@@ -4,10 +4,10 @@ import { getScores, getAttestation } from '@/lib/reputation';
 import { getPeopleCounts } from '@/lib/constellation';
 import { Crest } from '@/components/brand/crest';
 import { Frame } from '@/components/fx/frame';
-import { Stamp } from '@/components/fx/stamp';
 import { StateArt } from '@/components/ui/state-art';
 import { Sticker } from '@/components/ui/sticker';
 import { cn, shortAddress } from '@/lib/utils';
+import { ReputationSnippet } from '@/components/ReputationSnippet';
 
 // Stellar address validation: classic (G…) OR passkey smart-account (C…)
 const STELLAR_ADDRESS = /^[GC][A-Z2-7]{55}$/;
@@ -159,57 +159,10 @@ export default async function ScorePage({ params }: ScorePageProps) {
           <h2 className="font-display text-xl font-semibold tracking-tight">For developers</h2>
         </div>
         <p className="mt-3 text-sm text-muted-foreground">
-          Read this reputation data from your own app using the public API. No wallet required.
+          Read this wallet&apos;s Social and Earned XP straight from the reputation contract with{' '}
+          <code className="font-mono text-xs">@stellar/stellar-sdk</code>. No wallet or API key needed.
         </p>
-        <div className="mt-4 border border-border/70 bg-background/70">
-          <div className="flex items-center gap-1.5 border-b border-border/60 px-3 py-2">
-            <span className="size-2.5 rounded-full bg-destructive/70" />
-            <span className="size-2.5 rounded-full bg-warning/70" />
-            <span className="size-2.5 rounded-full bg-secondary/70" />
-            <span className="ml-2 font-mono text-[10px] text-muted-foreground">read-reputation.ts</span>
-          </div>
-          <pre className="overflow-x-auto p-5 font-mono text-xs leading-relaxed text-foreground/80">
-{`import { getScores, getCounts, getAttestation } from '@/lib/reputation';
-
-// Read Social and Earned XP for any address
-const { social, earned } = await getScores(address);
-// → { social: 42, earned: 30 }
-
-// Distinct people who vouched for it / it vouched for (on-chain counters)
-const people = await getCounts(address);
-// → { vouchedBy: 4, backed: 3 }
-
-// Read completed quest attestations
-const attestations = await getAttestation(address);
-// → 5`}
-          </pre>
-        </div>
-        <div className="mt-6 grid gap-4 sm:grid-cols-2">
-          <div className="border-border/50 border-t p-4">
-            <Stamp accent="primary">GET_SCORE</Stamp>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Returns the Social XP (clout, non-cashable) for an address.
-            </p>
-          </div>
-          <div className="border-border/50 border-t p-4">
-            <Stamp accent="secondary">GET_EARNED</Stamp>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Returns the Earned XP (USDC-eligible track) for an address.
-            </p>
-          </div>
-          <div className="border-border/50 border-t p-4">
-            <Stamp accent="primary">GET_COUNTS</Stamp>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Returns how many distinct people vouched for an address, and how many it vouched for.
-            </p>
-          </div>
-          <div className="border-border/50 border-t p-4">
-            <Stamp accent="tertiary">GET_ATTESTATION</Stamp>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Returns the number of completed quest attestations for an address.
-            </p>
-          </div>
-        </div>
+        <ReputationSnippet address={address} className="mt-4" />
       </section>
     </div>
   );

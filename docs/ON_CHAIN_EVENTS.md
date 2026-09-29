@@ -641,6 +641,16 @@ over 240 bytes (not characters: `ş` is 2 bytes, most emoji 4). That is the web 
 60-character limit at UTF-8's worst case, so a note typed there always fits. Vouches
 minted before the cap keep their note as stored.
 
+**Enumerating every vouch** (no events needed). Ids are sequential from `1` and never
+reused; the highest minted id is `DataKey::VouchSeq` (a `u64` in instance storage, absent
+until the first mint), and each half-card is the persistent entry `DataKey::Vouch(id)`.
+Read one with `get_vouch(id)`, or read many straight from storage with RPC
+`getLedgerEntries` (keys `Vec[Symbol("VouchSeq")]` in the contract instance and
+`Vec[Symbol("Vouch"), U64(id)]`) — the `/stats` claim funnel does this
+(`apps/web/src/lib/vouch-funnel.ts`), so these two keys are part of the read surface. A
+`Vouch` entry's TTL is extended only at mint (to ~150 days), so an old one can be archived
+and missing from `getLedgerEntries`; count it as unread, not as absent.
+
 ### `Profile` (`get_profile`)
 
 `get_profile(addr)` returns Social + Earned + verified in one call. It is computed on

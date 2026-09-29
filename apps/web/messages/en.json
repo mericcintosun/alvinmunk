@@ -204,7 +204,7 @@
   "howItWorks.lim06.t": "Proof-of-funding",
   "howItWorks.lim06.d": "On mainnet, a wallet must have received external value before it can cash out.",
   "howItWorks.devs.title": "For developers",
-  "howItWorks.devs.body": "alvinmunk emits a canonical attestation primitive. Any app can read a wallet's reputation with one call.",
+  "howItWorks.devs.body": "alvinmunk emits a canonical attestation primitive. Any app can read a wallet's reputation straight from the contract, with no API key and no backend.",
   "howItWorks.devs.openApp": "Open the app",
 
   "badges.frame": "badges // milestones",
