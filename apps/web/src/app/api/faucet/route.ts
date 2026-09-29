@@ -13,6 +13,7 @@ import {
   Contract,
   Horizon,
   Keypair,
+  NotFoundError,
   Operation,
   TransactionBuilder,
   nativeToScVal,
@@ -20,7 +21,7 @@ import {
 } from '@stellar/stellar-sdk';
 // The app's one resolved (and validated) network config — no per-route testnet defaults.
 import { config, misconfiguredResponse } from '../../../lib/stellar';
-import { submitSigned } from '../../../lib/submit';
+import { submitSigned, TxNotQueuedError } from '../../../lib/submit';
 import { json, withRoute } from '../../../lib/api-route';
 
 export const runtime = 'nodejs';
@@ -96,15 +97,23 @@ export const POST = withRoute('POST /api/faucet', async (req: Request): Promise<
       const prepared = await srpc.prepareTransaction(built);
       prepared.sign(issuer); // source = issuer = SAC admin → satisfies mint's admin auth
       const hash = await submitSigned(prepared, 'faucet mint', srpc);
+      let confirmed = false;
       for (let i = 0; i < 30; i++) {
         const r = await srpc.getTransaction(hash);
-        if (r.status === 'SUCCESS') break;
+        if (r.status === 'SUCCESS') {
+          confirmed = true;
+          break;
+        }
         if (r.status === 'FAILED') throw new Error('mint failed on-chain');
         await new Promise((res) => setTimeout(res, 1000));
       }
+      // Never confirmed: don't mark the recipient funded, so a retry can still mint.
+      if (!confirmed) return json({ error: 'mint not confirmed in time', hash }, 504);
       funded.add(recipient);
       return json({ ok: true, hash, amount: DRIP });
     } catch (e) {
+      // Core kept answering TRY_AGAIN_LATER: the mint never entered the queue — a 503, not funded.
+      if (e instanceof TxNotQueuedError) return json({ error: 'network busy, try again later' }, 503);
       return json({ error: e instanceof Error ? e.message : 'faucet mint failed' }, 502);
     }
   }
@@ -116,8 +125,14 @@ export const POST = withRoute('POST /api/faucet', async (req: Request): Promise<
   let recipientAccount;
   try {
     recipientAccount = await server.loadAccount(recipient);
-  } catch {
-    return json({ error: 'recipient account not found on testnet' }, 404);
+  } catch (e) {
+    // Only 404 when Horizon confirmed the account truly doesn't exist.
+    // Any other failure (5xx, network error) is a transient Horizon problem, not a
+    // missing account — reporting it as 404 would confuse the user and block retries.
+    if (e instanceof NotFoundError) {
+      return json({ error: 'recipient account not found on testnet' }, 404);
+    }
+    return json({ error: 'could not reach Horizon, try again later' }, 502);
   }
   const trusts = recipientAccount.balances.some(
     (b) => 'asset_code' in b && b.asset_code === 'USDC' && b.asset_issuer === issuer.publicKey(),
@@ -135,6 +150,17 @@ export const POST = withRoute('POST /api/faucet', async (req: Request): Promise<
     funded.add(recipient);
     return json({ ok: true, hash: res.hash, amount: DRIP });
   } catch (e) {
-    return json({ error: e instanceof Error ? e.message : 'faucet payment failed' }, 502);
+    // Include Horizon result_codes when present so the caller can distinguish
+    // op_no_trust, op_line_full, tx_bad_seq, etc. from generic failures.
+    const resultCodes = (
+      e as { response?: { data?: { extras?: { result_codes?: unknown } } } }
+    )?.response?.data?.extras?.result_codes;
+    return json(
+      {
+        error: e instanceof Error ? e.message : 'faucet payment failed',
+        ...(resultCodes !== undefined ? { result_codes: resultCodes } : {}),
+      },
+      502,
+    );
   }
 });

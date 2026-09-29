@@ -194,8 +194,19 @@ secret (`claim_vouch`). Both emit this same event. See
 
 #### `vouch` / `slashed`
 
-An unclaimed half-card expires after its 7-day window; the staked Social XP
-is forfeit (not refunded).
+A half-card's staked Social XP is forfeit (not refunded). There are **two paths** that
+emit this event:
+
+1. **`expire_vouch` path** — an unclaimed half-card is explicitly slashed by a keeper
+   after its 7-day window. The card remains unclaimed (`claimed: false`).
+2. **Late-claim path** — the card is claimed after its 7-day window but before anyone
+   called `expire_vouch`. In this case `vouch`/`slashed` is emitted **before**
+   `vouch`/`claimed` in the same transaction (the claimer's `social` claim-XP event
+   falls between the two), so indexers see the slash before the claim.
+   The stored vouch records `slashed: true, claimed: true`. A card `expire_vouch` already
+   slashed can still be claimed; that claim emits no second `vouch`/`slashed`.
+
+Both paths store `slashed: true` on the vouch and emit the same event shape:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -217,15 +228,23 @@ is forfeit (not refunded).
 env.events().publish(
     (symbol_short!("vouch"), symbol_short!("minted")), (id, from));
 
-// Claim:
+// Claim (timely — refund, no slash event):
 env.events().publish(
     (symbol_short!("vouch"), symbol_short!("claimed")),
     (vouch_id, vouch.from, claimer));
 
-// Slash:
+// Slash via expire_vouch (unclaimed, past deadline):
 env.events().publish(
     (symbol_short!("vouch"), symbol_short!("slashed")),
     (vouch_id, vouch.from, vouch.stake));
+
+// Late claim (past deadline): slash event emitted BEFORE claimed event.
+env.events().publish(
+    (symbol_short!("vouch"), symbol_short!("slashed")),
+    (vouch_id, vouch.from, vouch.stake));
+env.events().publish(
+    (symbol_short!("vouch"), symbol_short!("claimed")),
+    (vouch_id, vouch.from, claimer));
 ```
 
 ---

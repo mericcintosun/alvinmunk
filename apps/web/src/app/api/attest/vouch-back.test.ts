@@ -45,6 +45,7 @@ vi.mock('@stellar/stellar-sdk', async (importOriginal) => {
 });
 
 import { decodeVouchClaimedEvent } from './route';
+import { DEFAULT_QUEST_IDS } from '@/lib/attest';
 
 // ── shared fixtures ───────────────────────────────────────────────────────────
 
@@ -374,6 +375,7 @@ describe('POST /api/attest — vouch_back evidence (issue #165)', () => {
     const POST = await loadRoute();
     const res = await POST(makeRequest({
       questId: 1,
+      questId: DEFAULT_QUEST_IDS.invite_converts,
       recipient: ALICE,
       evidence: { type: 'invite_converts', ref: BOB },
     }));
@@ -393,6 +395,7 @@ describe('POST /api/attest — vouch_back evidence (issue #165)', () => {
     const POST = await loadRoute();
     const res = await POST(makeRequest({
       questId: 1,
+      questId: DEFAULT_QUEST_IDS.invite_converts,
       recipient: ALICE,
       evidence: { type: 'invite_converts', ref: BOB },
     }));
@@ -403,12 +406,17 @@ describe('POST /api/attest — vouch_back evidence (issue #165)', () => {
   });
 
   it('422 with an explicit retention-limit reason when the invite claim is older than the RPC window', async () => {
+    expect(body.error).toMatch(/hasn't claimed a vouch from you/);
+  });
+
+  it('422 names the event-window limit when no claim link is visible', async () => {
     getHealthMock.mockResolvedValue({ oldestLedger: 250_000 });
     getEventsMock.mockResolvedValue({ events: [], cursor: undefined });
 
     const POST = await loadRoute();
     const res = await POST(makeRequest({
       questId: 1,
+      questId: DEFAULT_QUEST_IDS.invite_converts,
       recipient: ALICE,
       evidence: { type: 'invite_converts', ref: BOB },
     }));
@@ -416,6 +424,29 @@ describe('POST /api/attest — vouch_back evidence (issue #165)', () => {
     expect(res.status).toBe(422);
     const body = await res.json() as { error: string };
     expect(body.error).toBe('invite too old to verify');
+    expect(body.error).toMatch(/hasn't claimed a vouch from you/);
+    expect(body.error).toMatch(/event window/);
+  });
+
+  it('stops scanning once the cursor reaches the latest ledger', async () => {
+    getHealthMock.mockResolvedValue({ oldestLedger: 100 });
+    // stellar-rpc always returns a cursor ("<toid>-<n>", ledger in the toid's top 32 bits).
+    const cursorAt = (ledger: number) => `${(BigInt(ledger) << 32n).toString()}-0`;
+    getEventsMock
+      .mockResolvedValueOnce({ events: [], cursor: cursorAt(10_100), latestLedger: 25_000 })
+      .mockResolvedValueOnce({ events: [], cursor: cursorAt(20_100), latestLedger: 25_000 })
+      .mockResolvedValueOnce({ events: [], cursor: cursorAt(25_000), latestLedger: 25_000 })
+      .mockResolvedValue({ events: [], cursor: cursorAt(25_000), latestLedger: 25_000 });
+
+    const POST = await loadRoute();
+    const res = await POST(makeRequest({
+      questId: DEFAULT_QUEST_IDS.invite_converts,
+      recipient: ALICE,
+      evidence: { type: 'invite_converts', ref: BOB },
+    }));
+
+    expect(res.status).toBe(422);
+    expect(getEventsMock).toHaveBeenCalledTimes(3); // not the 50-page cap
   });
 
   it('follows the cursor across paginated vouch/claimed results for invite_converts', async () => {
@@ -423,11 +454,15 @@ describe('POST /api/attest — vouch_back evidence (issue #165)', () => {
     getEventsMock
       .mockResolvedValueOnce({ events: [fakeEvent(2, ALICE, CAROL)], cursor: 'next-page' })
       .mockResolvedValueOnce({ events: [fakeEvent(4, DAVE, BOB)], cursor: undefined });
+      // The claim link (ALICE → CAROL) is only on page 2; page 1 has unrelated claims.
+      .mockResolvedValueOnce({ events: [fakeEvent(2, ALICE, DAVE), fakeEvent(3, DAVE, CAROL)], cursor: 'next-page' })
+      .mockResolvedValueOnce({ events: [fakeEvent(4, ALICE, CAROL)], cursor: undefined });
     setupPayloadSim();
 
     const POST = await loadRoute();
     const res = await POST(makeRequest({
       questId: 1,
+      questId: DEFAULT_QUEST_IDS.invite_converts,
       recipient: ALICE,
       evidence: { type: 'invite_converts', ref: CAROL },
     }));
