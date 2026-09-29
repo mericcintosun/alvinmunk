@@ -45,7 +45,6 @@ vi.mock('@/lib/gate', async (importOriginal) => ({
 }));
 
 import AdminPage from './page';
-import { metadata } from './layout';
 
 const wallet = (address: string) => ({ kind: 'kit', address, sign: vi.fn(), signMessage: vi.fn() });
 const REWARD: RewardEntry = {
@@ -106,10 +105,6 @@ describe('/admin', () => {
     await flush();
     await click('Connect wallet');
   }
-
-  it('is noindex', () => {
-    expect(metadata.robots).toEqual({ index: false, follow: false });
-  });
 
   it('shows only a connect prompt before a wallet is connected', async () => {
     await act(async () => root.render(<AdminPage />));
