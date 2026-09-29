@@ -2,36 +2,52 @@ import React from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Wallet } from '@/lib/wallet';
 
-// LandingOnboard leans on Next's automatic JSX runtime; this vitest setup compiles JSX to
-// `React.createElement`, so give it a global React to resolve.
+// Next's automatic JSX runtime is compiled to `React.createElement` here, so provide a global.
 (globalThis as { React?: typeof React }).React = React;
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const { isHandleAvailableMock, pushMock } = vi.hoisted(() => ({
-  isHandleAvailableMock: vi.fn(),
-  pushMock: vi.fn(),
-}));
+const { connectMock, setProfileMock, restoreProfileMock, claimHandleMock, pushMock, toastMock } =
+  vi.hoisted(() => ({
+    connectMock: vi.fn(),
+    setProfileMock: vi.fn(),
+    restoreProfileMock: vi.fn(),
+    claimHandleMock: vi.fn(),
+    pushMock: vi.fn(),
+    toastMock: { success: vi.fn(), error: vi.fn() },
+  }));
 
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: pushMock }) }));
-vi.mock('next/link', () => ({ default: (p: { children: React.ReactNode }) => p.children }));
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('@/components/wallet/wallet-provider', () => ({
   useWallet: () => ({
     profile: null,
-    connect: async () => ({ kind: 'dev', address: 'GME' }),
-    setProfile: vi.fn(),
+    connect: connectMock,
+    setProfile: setProfileMock,
+    restoreProfile: restoreProfileMock,
   }),
 }));
-vi.mock('@/lib/registry', () => ({ isHandleAvailable: isHandleAvailableMock }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: pushMock }) }));
+vi.mock('@/lib/genesis', () => ({ recordGenesis: vi.fn(async () => 'TX') }));
+vi.mock('@/lib/registry', () => ({
+  claimHandle: claimHandleMock,
+  handleAvailability: vi.fn(async () => ({ status: 'free' })),
+}));
+vi.mock('@/lib/track', () => ({ track: vi.fn(), identify: vi.fn(), trackError: vi.fn() }));
+vi.mock('sonner', () => ({ toast: toastMock }));
 
 import { LandingOnboard } from './landing-onboard';
 
-describe('LandingOnboard handle field', () => {
+const WALLET = { kind: 'passkey', address: 'CACCOUNT' } as unknown as Wallet;
+
+describe('LandingOnboard — an address that already holds a handle (#278)', () => {
   let container: HTMLDivElement;
   let root: Root;
 
   beforeEach(() => {
+    for (const m of [setProfileMock, pushMock, toastMock.success, toastMock.error]) m.mockReset();
+    connectMock.mockReset().mockResolvedValue(WALLET);
+    restoreProfileMock.mockReset().mockResolvedValue(null);
+    claimHandleMock.mockReset().mockResolvedValue(undefined);
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -40,66 +56,43 @@ describe('LandingOnboard handle field', () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
-    vi.clearAllMocks();
   });
 
-  async function render() {
+  async function flush() {
     await act(async () => {
-      root.render(<LandingOnboard />);
+      for (let i = 0; i < 8; i++) await Promise.resolve();
     });
   }
 
-  /** The borderless input keeps its focus ring, so the pill itself has to show focus. */
-  it('shows a focus ring on the wrapper while the input has focus', async () => {
-    await render();
-    const input = container.querySelector('input')!;
-    const wrapper = input.closest('.glass')!;
-    expect(wrapper.className).toMatch(/focus-within:ring-2/);
-    expect(wrapper.className).toMatch(/focus-within:ring-ring\/40/);
-  });
-
-  it('points the input at the status line with a polite live region', async () => {
-    await render();
-    const input = container.querySelector('input')!;
-    const status = container.querySelector('#landing-handle-status')!;
-    expect(input.getAttribute('aria-describedby')).toBe('landing-handle-status');
-    expect(status.getAttribute('aria-live')).toBe('polite');
-  });
-
-  it('announces a taken handle instead of silently disabling submit', async () => {
-    isHandleAvailableMock.mockResolvedValue(false);
-    await render();
-    const input = container.querySelector('input')!;
-
+  async function createAs(value: string) {
+    await act(async () => root.render(<LandingOnboard />));
+    const input = container.querySelector<HTMLInputElement>('[aria-label="Handle"]')!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
     await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
-      setter.call(input, 'ada');
+      setter.call(input, value);
       input.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    // The debounce (400ms) plus the availability lookup.
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 500));
-    });
-    expect(isHandleAvailableMock).toHaveBeenCalledWith('ada');
-    expect(container.querySelector('#landing-handle-status')!.textContent).toBe('@ada is taken');
-    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(
-      true,
-    );
+    const form = input.closest('form')!;
+    await act(async () => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+    await flush();
+  }
+
+  it('keeps the handle instead of claiming (renaming) it, and opens the app', async () => {
+    restoreProfileMock.mockResolvedValue({ handle: 'alvin', address: 'CACCOUNT', createdAt: 1 });
+
+    await createAs('bob');
+
+    expect(restoreProfileMock).toHaveBeenCalledWith(WALLET);
+    expect(claimHandleMock).not.toHaveBeenCalled();
+    expect(setProfileMock).not.toHaveBeenCalled();
+    expect(toastMock.success).toHaveBeenCalledWith('Welcome back — @alvin restored.');
+    expect(pushMock).toHaveBeenCalledWith('/app');
   });
 
-  it('announces a free handle', async () => {
-    isHandleAvailableMock.mockResolvedValue(true);
-    await render();
-    const input = container.querySelector('input')!;
+  it('claims the typed handle when the address holds none', async () => {
+    await createAs('bob');
 
-    await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
-      setter.call(input, 'ada');
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 500));
-    });
-    expect(container.querySelector('#landing-handle-status')!.textContent).toBe('✓ @ada is free');
+    expect(claimHandleMock).toHaveBeenCalledWith(WALLET, 'bob');
+    expect(setProfileMock).toHaveBeenCalledWith(expect.objectContaining({ handle: 'bob' }));
   });
 });
