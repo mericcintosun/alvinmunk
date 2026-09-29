@@ -10,12 +10,15 @@ import type { OnChainMeta } from '@/lib/registry';
 (globalThis as { React?: typeof React }).React = React;
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const { store, getMetaMock, setMetaMock, toastMock } = vi.hoisted(() => ({
-  store: { initial: null as Profile | null, saved: [] as Profile[] },
-  getMetaMock: vi.fn(),
-  setMetaMock: vi.fn(),
-  toastMock: { success: vi.fn(), error: vi.fn() },
-}));
+const { store, getMetaMock, setMetaMock, availabilityMock, claimHandleMock, toastMock } =
+  vi.hoisted(() => ({
+    store: { initial: null as Profile | null, saved: [] as Profile[] },
+    getMetaMock: vi.fn(),
+    setMetaMock: vi.fn(),
+    availabilityMock: vi.fn(),
+    claimHandleMock: vi.fn(),
+    toastMock: { success: vi.fn(), error: vi.fn() },
+  }));
 const WALLET = { kind: 'dev', address: 'GME' };
 
 vi.mock('@/components/wallet/wallet-provider', () => ({
@@ -38,6 +41,8 @@ vi.mock('@/lib/registry', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/registry')>()),
   getMeta: getMetaMock,
   setMeta: setMetaMock,
+  handleAvailability: availabilityMock,
+  claimHandle: claimHandleMock,
 }));
 vi.mock('sonner', () => ({ toast: toastMock }));
 vi.mock('next/link', () => ({ default: (p: { children: React.ReactNode }) => p.children }));
@@ -168,5 +173,78 @@ describe('IdentityBar profile meta', () => {
       "Saved on this device. Public faces and bios aren't live on this network yet.",
     );
     expect(store.saved.at(-1)?.avatar).toEqual({ kind: 'face', id: 'face-03' });
+  });
+});
+
+describe('IdentityBar rename', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    store.initial = { ...ME };
+    store.saved = [];
+    getMetaMock.mockReset().mockResolvedValue(null);
+    availabilityMock.mockReset();
+    claimHandleMock.mockReset().mockResolvedValue(undefined);
+    toastMock.success.mockReset();
+    toastMock.error.mockReset();
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  async function flush() {
+    await act(async () => {
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    });
+  }
+  async function rename(to: string) {
+    await act(async () => root.render(<IdentityBar />));
+    await flush();
+    await act(async () =>
+      container.querySelector<HTMLElement>('[aria-label="Edit handle"]')!.click(),
+    );
+    const input = container.querySelector<HTMLInputElement>('[aria-label="New handle"]')!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    await act(async () => {
+      setter.call(input, to);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () =>
+      input.closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
+    );
+    await flush();
+  }
+
+  it('explains a handle cooling down for its previous owner and signs nothing', async () => {
+    availabilityMock.mockResolvedValue({ status: 'reserved', until: new Date('2026-10-29T12:00:00Z') });
+    await rename('alice');
+    expect(availabilityMock).toHaveBeenCalledWith('alice', 'GME');
+    expect(toastMock.error).toHaveBeenCalledWith(
+      `@alice was just freed and is held for its previous owner until ${new Date(
+        '2026-10-29T12:00:00Z',
+      ).toLocaleDateString('en', { dateStyle: 'medium' })} — pick another.`,
+    );
+    expect(claimHandleMock).not.toHaveBeenCalled();
+  });
+
+  it('renames onto a handle this wallet freed, which is free for it', async () => {
+    availabilityMock.mockResolvedValue({ status: 'free' });
+    await rename('old_me');
+    expect(availabilityMock).toHaveBeenCalledWith('old_me', 'GME');
+    expect(claimHandleMock).toHaveBeenCalledWith(WALLET, 'old_me');
+    expect(store.saved.at(-1)).toMatchObject({ handle: 'old_me' });
+  });
+
+  it('still refuses a handle someone holds', async () => {
+    availabilityMock.mockResolvedValue({ status: 'taken' });
+    await rename('taken');
+    expect(toastMock.error).toHaveBeenCalledWith('@taken is taken — pick another.');
+    expect(claimHandleMock).not.toHaveBeenCalled();
   });
 });

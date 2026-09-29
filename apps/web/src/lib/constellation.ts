@@ -4,7 +4,7 @@
  * render real faces/stars, not numbers. Wallet-free — reads RPC events + the on-chain
  * get_vouch view (durable indexer deferred to Blue/Black, belts/00-strategy).
  */
-import { EVENTS } from '@alvinmunk/shared';
+import { artSeed, EVENTS } from '@alvinmunk/shared';
 import { fetchReputationEvents } from './events';
 import { getCounts, getVouch, type PeopleCounts } from './reputation';
 import { foldVouchEdges, type ChainEvent } from './badges';
@@ -131,10 +131,5 @@ export function suggestPeople(me: string, events: ChainEvent[], max = 6): Sugges
 
 /** Deterministic hue (0-359) from an address — matches the crest art seed family. */
 export function addrHue(address: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < address.length; i++) {
-    h ^= address.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return (h >>> 0) % 360;
+  return artSeed(address) % 360;
 }

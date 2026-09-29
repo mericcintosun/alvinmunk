@@ -17,7 +17,17 @@ vi.mock('./contracts', () => ({
   },
 }));
 
-import { getMeta, setMeta, clearMetaCache, isMetaUnsupported, reverseHandles } from './registry';
+import {
+  getMeta,
+  setMeta,
+  clearMetaCache,
+  isMetaUnsupported,
+  reverseHandle,
+  reverseHandles,
+  getHandleCooldown,
+  handleAvailability,
+  isHandleAvailable,
+} from './registry';
 import type { Wallet } from './wallet';
 
 const G = 'G'.padEnd(56, 'A');
@@ -157,6 +167,33 @@ describe('isMetaUnsupported', () => {
   });
 });
 
+describe('reverseHandle', () => {
+  beforeEach(() => {
+    readPublicMock.mockReset();
+    registry = 'CREGISTRY';
+  });
+
+  it("reads the address's handle, null when it holds none", async () => {
+    readPublicMock.mockResolvedValueOnce('alvin').mockResolvedValueOnce(null);
+    await expect(reverseHandle(G)).resolves.toBe('alvin');
+    await expect(reverseHandle(G, { strict: true })).resolves.toBeNull();
+    expect(readPublicMock).toHaveBeenCalledWith('CREGISTRY', 'reverse', [{ __addr: G }]);
+  });
+
+  it('answers null for a failed read — unless strict, which throws it', async () => {
+    const down = new Error('fetch failed');
+    readPublicMock.mockRejectedValue(down);
+    await expect(reverseHandle(G)).resolves.toBeNull();
+    await expect(reverseHandle(G, { strict: true })).rejects.toBe(down);
+  });
+
+  it('is null without a configured registry, strict or not, and never calls the RPC', async () => {
+    registry = '';
+    await expect(reverseHandle(G, { strict: true })).resolves.toBeNull();
+    expect(readPublicMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('reverseHandles', () => {
   // `h:<addr>` for addresses ending in an even digit, none for the rest.
   const handleOf = (a: string) => (Number(a.slice(-1)) % 2 === 0 ? `h:${a}` : null);
@@ -227,5 +264,74 @@ describe('reverseHandles', () => {
     await expect(reverseHandles(['G001', 'G002'])).resolves.toEqual({ G001: null, G002: null });
     await expect(reverseHandles([])).resolves.toEqual({});
     expect(readPublicMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('handle cooldown', () => {
+  const PREV = 'G'.padEnd(56, 'P');
+  const UNTIL = 1_790_000_000n; // ledger timestamp, seconds
+  const COOLING = { prev_owner: PREV, until: UNTIL };
+
+  beforeEach(() => {
+    readPublicMock.mockReset();
+    registry = 'CREGISTRY';
+  });
+
+  /** Answer `resolve` and `cooldown` reads for one handle. */
+  function chain(owner: string | null, cooldown: unknown) {
+    readPublicMock.mockImplementation(async (_id: string, method: string) => {
+      if (method === 'resolve') return owner;
+      if (method === 'cooldown') return cooldown;
+      throw new Error(`unexpected ${method}`);
+    });
+  }
+
+  it('reads the cooldown view and turns `until` into a date', async () => {
+    chain(null, COOLING);
+    await expect(getHandleCooldown('alice')).resolves.toEqual({
+      prevOwner: PREV,
+      until: new Date(1_790_000_000_000),
+    });
+    expect(readPublicMock).toHaveBeenCalledWith('CREGISTRY', 'cooldown', [{ __sym: 'alice' }]);
+  });
+
+  it('is null with no cooldown, on a registry that predates cooldowns, or unconfigured', async () => {
+    chain(null, null);
+    await expect(getHandleCooldown('alice')).resolves.toBeNull();
+    readPublicMock.mockRejectedValueOnce(new Error(MISSING_FN.replace(/get_meta/g, 'cooldown')));
+    await expect(getHandleCooldown('alice')).resolves.toBeNull();
+    readPublicMock.mockResolvedValueOnce({ prev_owner: PREV }); // malformed: no until
+    await expect(getHandleCooldown('alice')).resolves.toBeNull();
+    readPublicMock.mockReset();
+    registry = '';
+    await expect(getHandleCooldown('alice')).resolves.toBeNull();
+    expect(readPublicMock).not.toHaveBeenCalled();
+  });
+
+  it('reports a cooling handle as reserved until its cooldown ends', async () => {
+    chain(null, COOLING);
+    await expect(handleAvailability('alice')).resolves.toEqual({
+      status: 'reserved',
+      until: new Date(1_790_000_000_000),
+    });
+    await expect(handleAvailability('alice', G)).resolves.toEqual({
+      status: 'reserved',
+      until: new Date(1_790_000_000_000),
+    });
+    await expect(isHandleAvailable('alice', G)).resolves.toBe(false);
+  });
+
+  it('lets the previous owner take its handle back during the cooldown', async () => {
+    chain(null, COOLING);
+    await expect(handleAvailability('alice', PREV)).resolves.toEqual({ status: 'free' });
+    await expect(isHandleAvailable('alice', PREV)).resolves.toBe(true);
+  });
+
+  it('is taken while held, and free when neither held nor cooling', async () => {
+    chain(PREV, null);
+    await expect(handleAvailability('alice', PREV)).resolves.toEqual({ status: 'taken' });
+    chain(null, null);
+    await expect(handleAvailability('alice')).resolves.toEqual({ status: 'free' });
+    await expect(isHandleAvailable('alice')).resolves.toBe(true);
   });
 });

@@ -8,6 +8,9 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^16.0.1"
+  },
   "scripts": {
     "lint": "echo \"(no lint)\"",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",

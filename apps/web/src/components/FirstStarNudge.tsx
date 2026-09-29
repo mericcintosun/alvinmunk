@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { ArrowDown } from 'lucide-react';
 import { getMyVouches } from '@/lib/myvouches';
+import { getItem, setItem } from '@/lib/storage';
 
 /**
  * First-run "vouch-first" nudge (roundtable / Kaan): at 0 users the activation moment is
@@ -16,7 +17,7 @@ export function FirstStarNudge() {
   const [show, setShow] = useState(false);
 
   useEffect(() => {
-    const dismissed = typeof localStorage !== 'undefined' && localStorage.getItem(DISMISS_KEY) === '1';
+    const dismissed = getItem(DISMISS_KEY) === '1';
     setShow(!dismissed && getMyVouches().length === 0);
   }, []);
 
@@ -34,7 +35,7 @@ export function FirstStarNudge() {
         light your first star
         <button
           onClick={() => {
-            if (typeof localStorage !== 'undefined') localStorage.setItem(DISMISS_KEY, '1');
+            setItem(DISMISS_KEY, '1');
             setShow(false);
           }}
           className="ml-3 text-muted-foreground/60 underline hover:text-foreground"
