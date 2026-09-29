@@ -1,17 +1,19 @@
 /**
- * My minted vouches — kept locally (the claim-secret only ever exists client-side) so
+ * My minted vouches — kept locally (the claim code only ever exists client-side) so
  * the dashboard can resurface UNCLAIMED half-cards: the re-engagement hook (your stake
  * gets slashed if nobody claims within the window — re-share the link). The claimed ones
  * also surface the voucher bonus still waiting on each claimer (`getOwedBonuses`).
  */
-import { buildClaimUrl } from '@alvinmunk/shared';
-import { getPending, getVouch, VOUCH_TTL_SECS } from './reputation';
+import { claimLink, getPending, getVouch, VOUCH_TTL_SECS, type ClaimCode } from './reputation';
 import { reverseHandle } from './registry';
 import { subscribeToPush } from './push';
 
 export interface MyVouch {
   id: number;
-  secret: string;
+  /** The card's claim-key seed (hex) — set for cards minted with `mint_vouch_signed`. */
+  seed?: string;
+  /** The legacy claim secret (hex) — set on cards stored before the claim key existed. */
+  secret?: string;
   note: string;
   created: number; // unix seconds
   /** Stellar address of the voucher — stored so we can look up push subscriptions
@@ -41,6 +43,11 @@ export interface PendingVouch extends MyVouch {
   daysLeft: number;
 }
 
+/** The code a stored card's link carries: its claim-key seed, or an older card's secret. */
+function claimCodeOf(m: MyVouch): ClaimCode {
+  return m.seed ? { kind: 'key', code: m.seed } : { kind: 'secret', code: m.secret ?? '' };
+}
+
 /** Minted vouches still awaiting a claim (not claimed, not slashed, in-window). */
 export async function getPendingVouches(origin: string): Promise<PendingVouch[]> {
   const mine = getMyVouches();
@@ -54,7 +61,7 @@ export async function getPendingVouches(origin: string): Promise<PendingVouch[]>
       if (now >= deadline) return; // window closed — stake already slashable
       out.push({
         ...m,
-        claimUrl: `${buildClaimUrl(origin, m.id)}?s=${m.secret}`,
+        claimUrl: claimLink(origin, m.id, claimCodeOf(m)),
         daysLeft: Math.max(0, Math.ceil((deadline - now) / 86_400)),
       });
     }),

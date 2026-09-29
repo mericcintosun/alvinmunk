@@ -95,6 +95,23 @@
   "onboard.app.errTaken": "@{handle} alınmış — başka birini dene.",
   "onboard.app.success": "Profilin yayında — @{handle} zincire damgalandı.",
 
+  "onboard.claim.errShort": "Bir kullanıcı adı seç — 3 veya daha fazla harf ya da rakam.",
+  "onboard.claim.errTaken": "@{handle} alınmış — başka birini dene.",
+  "onboard.claim.success": "İçerisindesin — @{handle} zincire damgalandı.",
+
+  "claim.handle.title": "Kullanıcı adını seç",
+  "claim.handle.subtitle": "İnsanlar seni bulabilsin — ve seni adınla geri onaylayabilsin.",
+  "claim.handle.placeholder": "kullaniciadin",
+  "claim.handle.ariaLabel": "Kullanıcı adı seç",
+  "claim.handle.checking": "Kontrol ediliyor…",
+  "claim.handle.free": "@{handle} müsait",
+  "claim.handle.taken": "@{handle} alınmış",
+  "claim.handle.submit": "@{handle} talep et",
+  "claim.handle.submitting": "Oluşturuluyor…",
+  "claim.skip": "Şimdilik atla → profilini oluştur",
+  "claim.openApp": "uygulamayı_aç →",
+  "claim.viewProfile": "profilini_görüntüle →",
+
   "appHome.whatNow": "Ne yapılacak",
   "appHome.recentActivity": "Son aktivite",
   "appHome.viewAll": "Tümünü gör",
@@ -160,6 +177,9 @@
   "leaderboard.title": "En çok bağlantılı olanlar",
   "leaderboard.syncDelayed": "senkronizasyon gecikti",
   "leaderboard.live": "canlı",
+  "leaderboard.syncFailed": "Senkronizasyon Başarısız",
+  "leaderboard.syncFailedBody": "Ağ şu anda kullanılamıyor.",
+  "leaderboard.retry": "Yeniden dene",
   "leaderboard.syncTitle.stale": "Zincirden yenileme yapılamadı — puanlar geride olabilir.",
   "leaderboard.syncTitle.live": "Zincirden canlı.",
   "leaderboard.meta": "sosyal_puan · itibar_değil_nakit · poll=5s",
@@ -250,5 +270,12 @@
   "identity.meta.unsupported": "Bu cihaza kaydedildi. Herkese açık yüz ve biyografi bu ağda henüz aktif değil.",
   "identity.meta.error.noHandle": "Önce @kullanıcı adını zincirde al — sonra yüzün ve biyografin herkese açık olabilir.",
   "identity.meta.error.bio": "Bu biyografi kaydedilemez — tek satır düz metin olsun, en fazla 80 bayt.",
-  "identity.meta.error.avatar": "Kayıt defteri bu yüzü henüz tanımıyor — başka birini seç."
+  "identity.meta.error.avatar": "Kayıt defteri bu yüzü henüz tanımıyor — başka birini seç.",
+
+  "people.suggest.heading": "Tanıyor olabileceğin kişiler",
+  "people.suggest.mutual.one": "Tanıdığın 1 kişi onlara kefil oldu",
+  "people.suggest.mutual.other": "Tanıdığın {count} kişi onlara kefil oldu",
+  "people.suggest.footnote": "Öneriler son zincir üstü kefalet etkinliğine dayanır — yeni kefaletler onaylandıkça güncellenir.",
+  "people.suggest.view": "Görüntüle",
+  "people.suggest.viewAria": "{label} profilini görüntüle"
 }

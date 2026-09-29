@@ -1,11 +1,29 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 
-const { readPublicMock, readContractMock, invokeAndWaitMock, argsMock } = vi.hoisted(() => ({
-  readPublicMock: vi.fn(),
-  readContractMock: vi.fn(),
-  invokeAndWaitMock: vi.fn(),
-  argsMock: vi.fn((...a: unknown[]) => a),
-}));
+const { readPublicMock, readContractMock, invokeAndWaitMock, argsMock } = vi.hoisted(() => {
+  // Identity stand-ins for every `args.*` ScVal builder (real ./contracts) so
+  // completeQuest's tests can assert the raw bytes/number/string it hands
+  // invokeAndWait, instead of an opaque ScVal. Every other caller in this file
+  // (getStreak, getWeekBounds) only asserts it was called with `expect.any(Array)`,
+  // so passing the raw value through unwrapped doesn't affect them.
+  const identity = (v: unknown) => v;
+  return {
+    readPublicMock: vi.fn(),
+    readContractMock: vi.fn(),
+    invokeAndWaitMock: vi.fn(),
+    argsMock: {
+      addr: identity,
+      addrs: identity,
+      u32: identity,
+      u64: identity,
+      i128: identity,
+      bool: identity,
+      str: identity,
+      sym: identity,
+      bytes: identity,
+    },
+  };
+});
 
 vi.mock('./contracts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./contracts')>()),
@@ -59,7 +77,6 @@ describe('completeQuest', () => {
 
   beforeEach(() => {
     invokeAndWaitMock.mockReset();
-    argsMock.mockClear();
     readPublicMock.mockReset();
     readContractMock.mockReset();
   });
@@ -77,7 +94,7 @@ describe('completeQuest', () => {
 
     expect(r.ok).toBe(true);
     expect(invokeAndWaitMock).toHaveBeenCalledOnce();
-    const [method, callArgs] = invokeAndWaitMock.mock.calls[0];
+    const [, method, callArgs] = invokeAndWaitMock.mock.calls[0];
     expect(method).toBe('award_quest');
     expect(callArgs).toHaveLength(4);
     const [attester, sig, questId, recipient] = callArgs as [Uint8Array, Uint8Array, number, string];
@@ -104,7 +121,7 @@ describe('completeQuest', () => {
 
     await completeQuest(wallet, 2, { type: 'github_pr', ref: 'owner/repo#1' });
 
-    const [, callArgs] = invokeAndWaitMock.mock.calls[0];
+    const [, , callArgs] = invokeAndWaitMock.mock.calls[0];
     const [attester] = callArgs as [Uint8Array, Uint8Array, number, string];
     expect(attester).toHaveLength(32);
     expect(Array.from(attester)).toEqual(Array.from(Buffer.from('ab'.repeat(32), 'hex')));
@@ -144,10 +161,41 @@ describe('completeQuest', () => {
 
     vi.unstubAllGlobals();
   });
+
+  it('explains an award refused by the attester key’s daily budget (#7)', async () => {
+    vi.stubGlobal('fetch', (async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ attester: '00'.repeat(32), sig: btoa('s'.repeat(64)) }),
+    })) as unknown as typeof fetch);
+    invokeAndWaitMock.mockRejectedValueOnce(
+      new Error('HostError: Error(Contract, #7)\nEvent log (newest first): ...'),
+    );
+    const wallet: Wallet = {
+      kind: 'freighter',
+      address: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
+      sign: async (x) => x,
+      signMessage: vi.fn(),
+    };
+
+    const r = await completeQuest(wallet, 2, { type: 'referral_tx', ref: 'G'.padEnd(56, 'B') });
+
+    expect(r).toEqual({
+      ok: false,
+      error: 'Quest rewards hit today’s limit — try again after 00:00 UTC.',
+    });
+    expect(invokeAndWaitMock).toHaveBeenCalledOnce();
+    vi.unstubAllGlobals();
+  });
 });
 
 describe('getStreak', () => {
   const OWNER = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
+
+  beforeEach(() => {
+    readPublicMock.mockReset();
+    readContractMock.mockReset();
+  });
 
   it('reads wallet-free when no source is given (public profile)', async () => {
     readPublicMock.mockResolvedValueOnce({ weeks: 2, best: 5, last_week: 2900n });

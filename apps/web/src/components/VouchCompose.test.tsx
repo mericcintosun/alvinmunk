@@ -8,8 +8,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 (globalThis as { React?: typeof React }).React = React;
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const { mintVouchMock, toastMock } = vi.hoisted(() => ({
+const { mintVouchMock, addMyVouchMock, toastMock } = vi.hoisted(() => ({
   mintVouchMock: vi.fn(),
+  addMyVouchMock: vi.fn(),
   toastMock: { success: vi.fn(), error: vi.fn() },
 }));
 const WALLET = { kind: 'dev', address: 'GME' };
@@ -28,7 +29,7 @@ vi.mock('@/lib/reputation', async (importOriginal) => ({
   mintVouch: mintVouchMock,
 }));
 vi.mock('@/lib/myvouches', () => ({
-  addMyVouch: vi.fn(),
+  addMyVouch: addMyVouchMock,
   subscribeToVouchPush: vi.fn(async () => {}),
 }));
 vi.mock('@/lib/track', () => ({ track: vi.fn(), trackError: vi.fn() }));
@@ -47,7 +48,8 @@ describe('VouchCompose note', () => {
   let root: Root;
 
   beforeEach(() => {
-    mintVouchMock.mockReset().mockResolvedValue({ id: 7, secret: 'ab' });
+    mintVouchMock.mockReset().mockResolvedValue({ id: 7, seed: 'ab' });
+    addMyVouchMock.mockReset();
     toastMock.success.mockReset();
     toastMock.error.mockReset();
     container = document.createElement('div');
@@ -95,6 +97,16 @@ describe('VouchCompose note', () => {
     await typeNote('💧'.repeat(80));
     await mint();
     expect(mintVouchMock).toHaveBeenCalledWith(WALLET, '💧'.repeat(60));
+  });
+
+  it('shares the claim key in the link fragment and keeps it only in this browser', async () => {
+    await mount();
+    await typeNote('gm');
+    await mint();
+    const link = `${window.location.origin}/claim/7#k=ab`;
+    expect(container.querySelector('code')?.textContent).toBe(link);
+    expect(addMyVouchMock).toHaveBeenCalledWith(expect.objectContaining({ id: 7, seed: 'ab' }));
+    expect(addMyVouchMock.mock.calls[0][0]).not.toHaveProperty('secret');
   });
 
   it('explains a note the contract rejects as too long (#12)', async () => {

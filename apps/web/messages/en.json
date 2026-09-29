@@ -95,6 +95,23 @@
   "onboard.app.errTaken": "@{handle} is taken — pick another.",
   "onboard.app.success": "Your profile is live — @{handle} stamped on-chain.",
 
+  "onboard.claim.errShort": "Pick a handle — 3+ letters or numbers.",
+  "onboard.claim.errTaken": "@{handle} is taken — pick another.",
+  "onboard.claim.success": "You're in — @{handle} stamped on-chain.",
+
+  "claim.handle.title": "Pick your handle",
+  "claim.handle.subtitle": "So people can find you — and vouch you back by name.",
+  "claim.handle.placeholder": "yourhandle",
+  "claim.handle.ariaLabel": "Pick a handle",
+  "claim.handle.checking": "Checking…",
+  "claim.handle.free": "@{handle} is free",
+  "claim.handle.taken": "@{handle} is taken",
+  "claim.handle.submit": "Claim @{handle}",
+  "claim.handle.submitting": "Creating…",
+  "claim.skip": "Skip for now → create your profile",
+  "claim.openApp": "open_the_app →",
+  "claim.viewProfile": "view_your_profile →",
+
   "appHome.whatNow": "What now",
   "appHome.recentActivity": "Recent activity",
   "appHome.viewAll": "View all",
@@ -160,6 +177,9 @@
   "leaderboard.title": "The most-connected",
   "leaderboard.syncDelayed": "sync delayed",
   "leaderboard.live": "live",
+  "leaderboard.syncFailed": "Sync Failed",
+  "leaderboard.syncFailedBody": "The network is currently unavailable.",
+  "leaderboard.retry": "Retry",
   "leaderboard.syncTitle.stale": "Couldn't refresh from the chain — scores may be behind.",
   "leaderboard.syncTitle.live": "Live from the chain.",
   "leaderboard.meta": "social_score · clout_not_cash · poll=5s",
@@ -250,5 +270,12 @@
   "identity.meta.unsupported": "Saved on this device. Public faces and bios aren't live on this network yet.",
   "identity.meta.error.noHandle": "Claim your @handle on-chain first — then your face and bio can go public.",
   "identity.meta.error.bio": "That bio can't be saved — keep it to one line of plain text, 80 bytes max.",
-  "identity.meta.error.avatar": "The registry doesn't know that face yet — pick another."
+  "identity.meta.error.avatar": "The registry doesn't know that face yet — pick another.",
+
+  "people.suggest.heading": "People you might know",
+  "people.suggest.mutual.one": "1 person you know vouched for them",
+  "people.suggest.mutual.other": "{count} people you know vouched for them",
+  "people.suggest.footnote": "Suggestions are based on recent on-chain vouch activity — updated as new vouches are claimed.",
+  "people.suggest.view": "View",
+  "people.suggest.viewAria": "View {label}'s profile"
 }
