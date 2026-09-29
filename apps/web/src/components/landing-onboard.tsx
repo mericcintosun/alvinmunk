@@ -9,7 +9,7 @@ import { useWallet } from '@/components/wallet/wallet-provider';
 import { normalizeHandle, type Profile } from '@/lib/profile';
 import { humanizeError } from '@/lib/utils';
 import { track, identify, trackError } from '@/lib/track';
-import { useTranslations } from '@/lib/i18n';
+import { useLocale, useTranslations } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -24,11 +24,15 @@ import { Input } from '@/components/ui/input';
  */
 export function LandingOnboard() {
   const t = useTranslations();
+  const { locale } = useLocale();
   const { profile, connect, setProfile } = useWallet();
   const router = useRouter();
   const [handle, setHandle] = useState('');
   const [busy, setBusy] = useState(false);
-  const [avail, setAvail] = useState<'idle' | 'checking' | 'free' | 'taken'>('idle');
+  const [avail, setAvail] = useState<'idle' | 'checking' | 'free' | 'taken' | 'reserved'>('idle');
+  // when a `reserved` handle (freed recently, held for its previous owner) opens up
+  const [until, setUntil] = useState<Date | null>(null);
+  const day = (d: Date) => d.toLocaleDateString(locale, { dateStyle: 'medium' });
 
   useEffect(() => {
     const h = normalizeHandle(handle);
@@ -37,9 +41,11 @@ export function LandingOnboard() {
     let alive = true;
     const timer = setTimeout(async () => {
       try {
-        const { isHandleAvailable } = await import('@/lib/registry');
-        const free = await isHandleAvailable(h);
-        if (alive) setAvail(free ? 'free' : 'taken');
+        const { handleAvailability } = await import('@/lib/registry');
+        const a = await handleAvailability(h);
+        if (!alive) return;
+        setAvail(a.status);
+        setUntil(a.status === 'reserved' ? a.until : null);
       } catch {
         if (alive) setAvail('idle');
       }
@@ -66,13 +72,18 @@ export function LandingOnboard() {
     if (h.length < 3) return toast.error(t('onboard.landing.errShort'));
     setBusy(true);
     try {
-      const [{ recordGenesis }, { claimHandle, isHandleAvailable }] = await Promise.all([
+      const [{ recordGenesis }, { claimHandle, handleAvailability }] = await Promise.all([
         import('@/lib/genesis'),
         import('@/lib/registry'),
       ]);
       const w = await connect();
-      if (!(await isHandleAvailable(h))) {
-        toast.error(t('onboard.landing.errTaken', { handle: h }));
+      const a = await handleAvailability(h, w.address);
+      if (a.status !== 'free') {
+        toast.error(
+          a.status === 'reserved'
+            ? t('onboard.landing.errReserved', { handle: h, date: day(a.until) })
+            : t('onboard.landing.errTaken', { handle: h }),
+        );
         return;
       }
       const tx = w.kind === 'passkey' ? undefined : await recordGenesis(w, h);
@@ -109,7 +120,7 @@ export function LandingOnboard() {
           aria-label={t('onboard.landing.ariaLabel')}
           className="h-11 flex-1 border-0 bg-transparent focus-visible:ring-0"
         />
-        <Button type="submit" variant="flow" size="md" disabled={busy || avail === 'taken'} className="shrink-0">
+        <Button type="submit" variant="flow" size="md" disabled={busy || avail === 'taken' || avail === 'reserved'} className="shrink-0">
           {busy ? t('onboard.landing.creating') : t('onboard.landing.startFree')}
           {!busy && <ArrowRight className="size-4" />}
         </Button>
@@ -118,6 +129,7 @@ export function LandingOnboard() {
         {avail === 'checking' && <span className="text-muted-foreground">{t('onboard.landing.checking')}</span>}
         {avail === 'free' && <span className="text-secondary">{t('onboard.landing.handleFree', { handle: normalizeHandle(handle) })}</span>}
         {avail === 'taken' && <span className="text-destructive">{t('onboard.landing.handleTaken', { handle: normalizeHandle(handle) })}</span>}
+        {avail === 'reserved' && until && <span className="text-destructive">{t('onboard.landing.handleReserved', { handle: normalizeHandle(handle), date: day(until) })}</span>}
         {avail === 'idle' && <span className="text-muted-foreground">{t('onboard.landing.pill')}</span>}
       </p>
     </form>

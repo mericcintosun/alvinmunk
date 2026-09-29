@@ -4,11 +4,11 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { useWallet } from '@/components/wallet/wallet-provider';
 import { recordGenesis } from '@/lib/genesis';
-import { claimHandle, isHandleAvailable } from '@/lib/registry';
+import { claimHandle, handleAvailability } from '@/lib/registry';
 import { normalizeHandle, type Profile } from '@/lib/profile';
 import { humanizeError } from '@/lib/utils';
 import { track, identify, trackError } from '@/lib/track';
-import { useTranslations } from '@/lib/i18n';
+import { useLocale, useTranslations } from '@/lib/i18n';
 import { Crest } from '@/components/brand/crest';
 import { AvatarPicker } from '@/components/AvatarPicker';
 import { type FaceId } from '@/lib/avatar';
@@ -22,7 +22,11 @@ export function Onboarding() {
   const [handle, setHandle] = useState('');
   const [creating, setCreating] = useState(false);
   const [face, setFace] = useState<FaceId | undefined>();
-  const [avail, setAvail] = useState<'idle' | 'checking' | 'free' | 'taken'>('idle');
+  const [avail, setAvail] = useState<'idle' | 'checking' | 'free' | 'taken' | 'reserved'>('idle');
+  // when a `reserved` handle (freed recently, held for its previous owner) opens up
+  const [until, setUntil] = useState<Date | null>(null);
+  const { locale } = useLocale();
+  const day = (d: Date) => d.toLocaleDateString(locale, { dateStyle: 'medium' });
 
   useEffect(() => {
     const h = normalizeHandle(handle);
@@ -33,8 +37,12 @@ export function Onboarding() {
     setAvail('checking');
     let alive = true;
     const timer = setTimeout(() => {
-      isHandleAvailable(h)
-        .then((free) => alive && setAvail(free ? 'free' : 'taken'))
+      handleAvailability(h)
+        .then((a) => {
+          if (!alive) return;
+          setAvail(a.status);
+          setUntil(a.status === 'reserved' ? a.until : null);
+        })
         .catch(() => alive && setAvail('idle'));
     }, 400);
     return () => {
@@ -52,8 +60,13 @@ export function Onboarding() {
     setCreating(true);
     try {
       const w = await connect();
-      if (!(await isHandleAvailable(h))) {
-        toast.error(t('onboard.app.errTaken', { handle: h }));
+      const a = await handleAvailability(h, w.address);
+      if (a.status !== 'free') {
+        toast.error(
+          a.status === 'reserved'
+            ? t('onboard.app.errReserved', { handle: h, date: day(a.until) })
+            : t('onboard.app.errTaken', { handle: h }),
+        );
         return;
       }
       const tx = w.kind === 'passkey' ? undefined : await recordGenesis(w, h);
@@ -120,8 +133,9 @@ export function Onboarding() {
           {avail === 'checking' && <span className="text-muted-foreground">{t('onboard.app.checking')}</span>}
           {avail === 'free' && <span className="text-secondary">{t('onboard.app.handleFree', { handle: normalizeHandle(handle) })}</span>}
           {avail === 'taken' && <span className="text-destructive">{t('onboard.app.handleTaken', { handle: normalizeHandle(handle) })}</span>}
+          {avail === 'reserved' && until && <span className="text-destructive">{t('onboard.app.handleReserved', { handle: normalizeHandle(handle), date: day(until) })}</span>}
         </p>
-        <Button type="submit" size="lg" disabled={creating || avail === 'taken'} className="w-full">
+        <Button type="submit" size="lg" disabled={creating || avail === 'taken' || avail === 'reserved'} className="w-full">
           {creating ? t('onboard.app.submitting') : t('onboard.app.submit')}
         </Button>
       </form>

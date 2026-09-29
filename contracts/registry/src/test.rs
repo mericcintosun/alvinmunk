@@ -4,8 +4,8 @@ extern crate std;
 use soroban_sdk::{
     symbol_short,
     testutils::{
-        storage::Persistent as _, Address as _, AuthorizedFunction, AuthorizedInvocation,
-        Events as _, Ledger as _,
+        storage::{Persistent as _, Temporary as _},
+        Address as _, AuthorizedFunction, AuthorizedInvocation, Events as _, Ledger as _,
     },
     vec, Address, Env, IntoVal, String, Symbol, Val, Vec,
 };
@@ -33,6 +33,29 @@ fn handle_event(
         (symbol_short!("handle"), Symbol::new(env, kind)).into_val(env),
         (who.clone(), Symbol::new(env, handle)).into_val(env),
     )
+}
+
+/// A `handle/released (who, handle, until)` event: `until` is when its cooldown ends.
+fn released_event(
+    client: &RegistryContractClient,
+    who: &Address,
+    handle: &str,
+    until: u64,
+) -> (Address, Vec<Val>, Val) {
+    let env = &client.env;
+    (
+        client.address.clone(),
+        (symbol_short!("handle"), symbol_short!("released")).into_val(env),
+        (who.clone(), Symbol::new(env, handle), until).into_val(env),
+    )
+}
+
+/// Ledger time the cooldown tests start at, so `until` is a real timestamp, not an offset.
+const T0: u64 = 1_790_000_000;
+
+/// Move ledger time forward by `secs` (ledger sequence is left alone).
+fn pass(env: &Env, secs: u64) {
+    env.ledger().with_mut(|l| l.timestamp += secs);
 }
 
 #[test]
@@ -88,15 +111,16 @@ fn reclaim_same_handle_is_idempotent() {
 #[test]
 fn rename_frees_the_old_handle() {
     let (env, client, _admin) = setup();
+    env.ledger().with_mut(|l| l.timestamp = T0);
     let alice = Address::generate(&env);
     client.claim(&alice, &symbol_short!("old"));
     client.claim(&alice, &symbol_short!("new"));
-    // the freed handle is announced first, then the new claim
+    // the freed handle is announced first (with its cooldown's end), then the new claim
     assert_eq!(
         env.events().all(),
         vec![
             &env,
-            handle_event(&client, "released", &alice, "old"),
+            released_event(&client, &alice, "old", T0 + HANDLE_COOLDOWN_SECS),
             handle_event(&client, "claimed", &alice, "new"),
         ]
     );
@@ -106,48 +130,39 @@ fn rename_frees_the_old_handle() {
     assert_eq!(client.reverse(&alice), Some(symbol_short!("new")));
 }
 
+/// Renaming away starts the old handle's cooldown: nobody else can take it until it ends.
 #[test]
-#[test]
-#[should_panic]
-fn renamed_away_handle_is_reclaimable_by_another() {
+fn renamed_away_handle_is_reclaimable_by_another_after_the_cooldown() {
     let (env, client, _admin) = setup();
     let alice = Address::generate(&env);
     let bob = Address::generate(&env);
     client.claim(&alice, &symbol_short!("old"));
     client.claim(&alice, &symbol_short!("new"));
-    // Bob attempts to claim the old handle during cooldown, should panic with HandleCoolingDown
+    assert_eq!(
+        client.try_claim(&bob, &symbol_short!("old")),
+        Err(Ok(Error::HandleCoolingDown.into()))
+    );
+    assert_eq!(client.reverse(&bob), None);
+
+    pass(&env, HANDLE_COOLDOWN_SECS);
     client.claim(&bob, &symbol_short!("old"));
+    assert_eq!(
+        env.events().all(),
+        vec![&env, handle_event(&client, "claimed", &bob, "old")]
+    );
+    assert_eq!(client.resolve(&symbol_short!("old")), Some(bob));
+    assert_eq!(client.resolve(&symbol_short!("new")), Some(alice));
 }
 
-
 #[test]
-#[test]
-#[should_panic]
-fn release_cooldown_prevents_immediate_claim() {
+fn release_frees_both_directions() {
     let (env, client, _admin) = setup();
     let alice = Address::generate(&env);
     client.claim(&alice, &symbol_short!("alice"));
     client.release(&alice);
-    // Bob attempts to claim immediately; should panic with HandleCoolingDown
-    let bob = Address::generate(&env);
-    client.claim(&bob, &symbol_short!("alice"));
+    assert_eq!(client.resolve(&symbol_short!("alice")), None);
+    assert_eq!(client.reverse(&alice), None);
 }
-
-#[test]
-fn release_handle_claimable_after_cooldown() {
-    let (env, client, _admin) = setup();
-    let alice = Address::generate(&env);
-    client.claim(&alice, &symbol_short!("alice"));
-    client.release(&alice);
-    // advance ledger timestamp far beyond cooldown
-    env.ledger().with_mut(|li| {
-        li.timestamp += 1_000_000_000;
-    });
-    let bob = Address::generate(&env);
-    client.claim(&bob, &symbol_short!("alice"));
-    assert_eq!(client.resolve(&symbol_short!("alice")), Some(bob));
-}
-
 
 #[test]
 #[should_panic]
@@ -164,6 +179,7 @@ fn freed_handle_is_reclaimable_by_another() {
     let bob = Address::generate(&env);
     client.claim(&alice, &symbol_short!("star"));
     client.release(&alice);
+    pass(&env, HANDLE_COOLDOWN_SECS);
     client.claim(&bob, &symbol_short!("star"));
     assert_eq!(client.resolve(&symbol_short!("star")), Some(bob));
 }
@@ -182,6 +198,221 @@ fn admin_release_clears_a_squatted_handle() {
     assert_eq!(client.resolve(&symbol_short!("brand")), Some(real));
 }
 
+// --- Handle cooldown ---
+
+fn cooling(prev_owner: &Address, until: u64) -> Option<CooldownInfo> {
+    Some(CooldownInfo {
+        prev_owner: prev_owner.clone(),
+        until,
+    })
+}
+
+fn has_cooldown_entry(env: &Env, client: &RegistryContractClient, handle: &str) -> bool {
+    env.as_contract(&client.address, || {
+        env.storage()
+            .temporary()
+            .has(&DataKey::Cooldown(Symbol::new(env, handle)))
+    })
+}
+
+#[test]
+fn handle_cooling_down_is_appended_as_error_9() {
+    // codes are append-only (docs/ON_CHAIN_EVENTS.md documents #9); a renumber breaks clients
+    assert_eq!(Error::TooMany as u32, 8);
+    assert_eq!(Error::HandleCoolingDown as u32, 9);
+}
+
+#[test]
+fn release_cooldown_prevents_immediate_claim() {
+    let (env, client, _admin) = setup();
+    env.ledger().with_mut(|l| l.timestamp = T0);
+    let alice = claimed(&env, &client, "alice");
+    client.release(&alice);
+    assert_eq!(
+        client.cooldown(&symbol_short!("alice")),
+        cooling(&alice, T0 + HANDLE_COOLDOWN_SECS)
+    );
+
+    let bob = Address::generate(&env);
+    assert_eq!(
+        client.try_claim(&bob, &symbol_short!("alice")),
+        Err(Ok(Error::HandleCoolingDown.into()))
+    );
+    // the refused claim changed nothing: still free, still reserved for alice
+    assert_eq!(client.resolve(&symbol_short!("alice")), None);
+    assert_eq!(client.reverse(&bob), None);
+    assert_eq!(
+        client.cooldown(&symbol_short!("alice")),
+        cooling(&alice, T0 + HANDLE_COOLDOWN_SECS)
+    );
+}
+
+/// The window is `[freed, freed + HANDLE_COOLDOWN_SECS)`: one second short still reverts,
+/// and from `until` on the handle is first-come again (the stale entry goes with the claim).
+#[test]
+fn release_handle_claimable_after_cooldown() {
+    let (env, client, _admin) = setup();
+    env.ledger().with_mut(|l| l.timestamp = T0);
+    let alice = claimed(&env, &client, "alice");
+    client.release(&alice);
+    let bob = Address::generate(&env);
+
+    pass(&env, HANDLE_COOLDOWN_SECS - 1);
+    assert_eq!(
+        client.try_claim(&bob, &symbol_short!("alice")),
+        Err(Ok(Error::HandleCoolingDown.into()))
+    );
+    assert!(client.cooldown(&symbol_short!("alice")).is_some());
+
+    pass(&env, 1);
+    assert_eq!(client.cooldown(&symbol_short!("alice")), None);
+    client.claim(&bob, &symbol_short!("alice"));
+    assert_eq!(
+        env.events().all(),
+        vec![&env, handle_event(&client, "claimed", &bob, "alice")]
+    );
+    assert_eq!(client.resolve(&symbol_short!("alice")), Some(bob.clone()));
+    assert_eq!(client.reverse(&bob), Some(symbol_short!("alice")));
+    assert!(!has_cooldown_entry(&env, &client, "alice"));
+}
+
+/// The previous owner can take a cooling handle back at any time, after a release or a
+/// rename; taking it back ends that cooldown, and a rename starts one on the handle left.
+#[test]
+fn previous_owner_can_reclaim_during_the_cooldown() {
+    let (env, client, _admin) = setup();
+    env.ledger().with_mut(|l| l.timestamp = T0);
+    let alice = claimed(&env, &client, "alice");
+
+    client.release(&alice);
+    pass(&env, 3_600);
+    client.claim(&alice, &symbol_short!("alice"));
+    assert_eq!(
+        env.events().all(),
+        vec![&env, handle_event(&client, "claimed", &alice, "alice")]
+    );
+    assert_eq!(client.cooldown(&symbol_short!("alice")), None);
+    assert!(!has_cooldown_entry(&env, &client, "alice"));
+
+    // rename away and straight back: `alice` is hers again, `alice_x` now cools for her
+    client.claim(&alice, &symbol_short!("alice_x"));
+    pass(&env, HANDLE_COOLDOWN_SECS - 1);
+    client.claim(&alice, &symbol_short!("alice"));
+    let until = T0 + 3_600 + HANDLE_COOLDOWN_SECS - 1 + HANDLE_COOLDOWN_SECS;
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            released_event(&client, &alice, "alice_x", until),
+            handle_event(&client, "claimed", &alice, "alice"),
+        ]
+    );
+    assert_eq!(client.cooldown(&symbol_short!("alice")), None);
+    assert_eq!(
+        client.cooldown(&symbol_short!("alice_x")),
+        cooling(&alice, until)
+    );
+    assert_eq!(client.resolve(&symbol_short!("alice")), Some(alice.clone()));
+    assert_eq!(client.reverse(&alice), Some(symbol_short!("alice")));
+    let bob = Address::generate(&env);
+    assert_eq!(
+        client.try_claim(&bob, &symbol_short!("alice_x")),
+        Err(Ok(Error::HandleCoolingDown.into()))
+    );
+}
+
+/// Abuse removal frees a handle outright: `admin_release` starts no cooldown, and lifts
+/// one a squatter left behind by renaming away.
+#[test]
+fn admin_release_skips_the_cooldown() {
+    let (env, client, _admin) = setup();
+    env.ledger().with_mut(|l| l.timestamp = T0);
+    let real = Address::generate(&env);
+
+    let squatter = claimed(&env, &client, "brand");
+    client.admin_release(&symbol_short!("brand"));
+    assert_eq!(client.cooldown(&symbol_short!("brand")), None);
+    assert!(!has_cooldown_entry(&env, &client, "brand"));
+    client.claim(&real, &symbol_short!("brand"));
+    assert_eq!(client.resolve(&symbol_short!("brand")), Some(real.clone()));
+
+    // a squatter parks `acme` in a cooldown by renaming away from it
+    client.claim(&squatter, &symbol_short!("acme"));
+    client.claim(&squatter, &symbol_short!("parked"));
+    assert!(client.cooldown(&symbol_short!("acme")).is_some());
+    client.admin_release(&symbol_short!("acme"));
+    assert_eq!(env.events().all(), vec![&env]);
+    assert_eq!(client.cooldown(&symbol_short!("acme")), None);
+    let owner = claimed(&env, &client, "acme");
+    assert_eq!(client.resolve(&symbol_short!("acme")), Some(owner));
+    // the squatter keeps the handle it renamed to
+    assert_eq!(client.reverse(&squatter), Some(symbol_short!("parked")));
+}
+
+/// The cooldown is measured in ledger time only: ledgers closing (sequence moving on) while
+/// the clock stands still do not shorten it.
+#[test]
+fn cooldown_runs_on_ledger_time_not_ledger_sequence() {
+    // mainnet TTLs, so the instance itself lives through the ledgers skipped below
+    let (env, client) = setup_with_ttls(MAINNET_TTLS);
+    env.ledger().with_mut(|l| l.timestamp = T0);
+    let alice = claimed(&env, &client, "alice");
+    client.release(&alice);
+
+    // a full window's worth of 5s ledgers, but only half the time has passed
+    env.ledger().with_mut(|l| {
+        l.sequence_number += (HANDLE_COOLDOWN_SECS / 5) as u32;
+        l.timestamp += HANDLE_COOLDOWN_SECS / 2;
+    });
+    let bob = Address::generate(&env);
+    assert_eq!(
+        client.try_claim(&bob, &symbol_short!("alice")),
+        Err(Ok(Error::HandleCoolingDown.into()))
+    );
+    assert_eq!(
+        client.cooldown(&symbol_short!("alice")),
+        cooling(&alice, T0 + HANDLE_COOLDOWN_SECS)
+    );
+}
+
+/// The cooldown entry is temporary storage that outlives its window with room to spare
+/// (it must not vanish before `until`), and stays inside max_entry_ttl, past which a
+/// temporary extension traps.
+#[test]
+fn cooldown_entry_outlives_the_window() {
+    for ttls in [TESTNET_TTLS, MAINNET_TTLS] {
+        let (env, client) = setup_with_ttls(ttls);
+        let alice = Address::generate(&env);
+        client.claim(&alice, &symbol_short!("alice"));
+        client.release(&alice);
+        let live = env.as_contract(&client.address, || {
+            env.storage()
+                .temporary()
+                .get_ttl(&DataKey::Cooldown(symbol_short!("alice")))
+        });
+        assert_eq!(live, COOLDOWN_TTL_LEDGERS);
+        assert!(u64::from(live) * 5 >= 2 * HANDLE_COOLDOWN_SECS);
+        assert!(live < ttls.2);
+    }
+}
+
+/// `cooldown` is a pure read (the web app only simulates it).
+#[test]
+fn cooldown_view_does_not_write_or_extend() {
+    let (env, client) = setup_with_ttls(TESTNET_TTLS);
+    let alice = Address::generate(&env);
+    client.claim(&alice, &symbol_short!("alice"));
+    client.release(&alice);
+    env.ledger()
+        .with_mut(|l| l.sequence_number += DAY_LEDGERS * 3);
+
+    assert!(client.cooldown(&symbol_short!("alice")).is_some());
+    let used = env.cost_estimate().resources();
+    assert_eq!(used.write_entries, 0);
+    assert_eq!(used.persistent_entry_rent_bumps, 0);
+    assert_eq!(client.cooldown(&symbol_short!("never")), None);
+}
+
 /// Release build of this contract, committed so the upgrade path can be tested without a
 /// wasm build step in CI. Refresh with `make upgrade-fixtures` after changing the contract.
 const REGISTRY_WASM: &[u8] = include_bytes!("../testdata/alvinmunk_registry.wasm");
@@ -194,9 +425,21 @@ fn upgrade_to_identical_wasm_preserves_handles() {
     let hi = String::from_str(&env, "hi");
     client.set_meta(&alice, &FACE_03, &hi);
 
+    // a cooldown started before the upgrade still holds after it
+    let bob = claimed(&env, &client, "bob");
+    client.release(&bob);
+
     let hash = env.deployer().upload_contract_wasm(REGISTRY_WASM);
     client.upgrade(&hash);
 
+    assert_eq!(
+        client.try_claim(&Address::generate(&env), &symbol_short!("bob")),
+        Err(Ok(Error::HandleCoolingDown.into()))
+    );
+    assert_eq!(
+        client.cooldown(&symbol_short!("bob")).map(|c| c.prev_owner),
+        Some(bob)
+    );
     assert_eq!(client.resolve(&symbol_short!("alice")), Some(alice.clone()));
     assert_eq!(client.reverse(&alice), Some(symbol_short!("alice")));
     assert_eq!(
@@ -640,6 +883,7 @@ fn rename_keeps_the_profile() {
 #[test]
 fn release_drops_the_profile_so_the_next_owner_starts_blank() {
     let (env, client, _admin) = setup();
+    env.ledger().with_mut(|l| l.timestamp = T0);
     let alice = claimed(&env, &client, "star");
     client.set_meta(&alice, &FACE_03, &bio(&env, "alice was here"));
     client.release(&alice);
@@ -647,7 +891,7 @@ fn release_drops_the_profile_so_the_next_owner_starts_blank() {
         env.events().all(),
         vec![
             &env,
-            handle_event(&client, "released", &alice, "star"),
+            released_event(&client, &alice, "star", T0 + HANDLE_COOLDOWN_SECS),
             (
                 client.address.clone(),
                 (symbol_short!("meta"), symbol_short!("cleared")).into_val(&env),
@@ -657,6 +901,7 @@ fn release_drops_the_profile_so_the_next_owner_starts_blank() {
     );
     assert_eq!(client.get_meta(&alice), None);
 
+    pass(&env, HANDLE_COOLDOWN_SECS);
     let bob = claimed(&env, &client, "star");
     assert_eq!(client.resolve(&symbol_short!("star")), Some(bob.clone()));
     assert_eq!(client.get_meta(&bob), None);
@@ -665,7 +910,10 @@ fn release_drops_the_profile_so_the_next_owner_starts_blank() {
     client.release(&bob);
     assert_eq!(
         env.events().all(),
-        vec![&env, handle_event(&client, "released", &bob, "star")]
+        vec![
+            &env,
+            released_event(&client, &bob, "star", T0 + 2 * HANDLE_COOLDOWN_SECS)
+        ]
     );
 }
 
