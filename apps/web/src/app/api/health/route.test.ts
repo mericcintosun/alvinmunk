@@ -51,7 +51,9 @@ function freshLatestLedger(ageSeconds = 0) {
 }
 
 function mockServer(getHealth: ReturnType<typeof vi.fn>, getLatestLedger: ReturnType<typeof vi.fn>) {
-  vi.mocked(rpc.Server).mockImplementation(() => {
+  // The route calls `new rpc.Server(...)`, and Vitest 4 constructs the implementation with `new`,
+  // so it has to be a `function` (an arrow function is not constructible).
+  vi.mocked(rpc.Server).mockImplementation(function () {
     return { getHealth, getLatestLedger } as unknown as InstanceType<typeof rpc.Server>;
   });
 }

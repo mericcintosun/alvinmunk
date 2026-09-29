@@ -99,10 +99,15 @@ vi.mock('@stellar/stellar-sdk', () => {
       build()        { return new FakeTx(); }
     },
     rpc: {
-      Server: vi.fn().mockImplementation(() => rpcMocks),
+      // `new rpc.Server(...)`: Vitest 4 constructs the implementation, so it must be a `function`.
+      Server: vi.fn().mockImplementation(function () {
+        return rpcMocks;
+      }),
     },
     Horizon: {
-      Server:        vi.fn().mockImplementation(() => horizonMocks),
+      Server: vi.fn().mockImplementation(function () {
+        return horizonMocks;
+      }),
     },
     // The SDK exports Horizon's NotFoundError at the top level (there is no Horizon.NotFoundError).
     NotFoundError: NotFoundError,

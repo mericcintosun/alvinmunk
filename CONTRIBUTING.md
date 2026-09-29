@@ -44,8 +44,22 @@ alvinmunk/
 
 - Run `cd contracts && cargo test` for contract tests
 - Run `cd contracts && cargo clippy -D warnings` before committing
-- Contract addresses on testnet are in `apps/web/.env.local`
+- The live testnet contract ids are in the [README](README.md#deployed-contracts-stellar-testnet)
 - Use `scripts/deploy-testnet.sh` for fresh deploys
+
+## Gotchas
+
+- **zsh doesn't word-split** an unquoted `$VAR`, so `--network testnet` kept in a variable reaches
+  the CLI as one argument. Write flags literally, or expand with `${=VAR}`.
+- **`stellar contract build` writes to `target/wasm32v1-none/release/`**, not
+  `wasm32-unknown-unknown`.
+- **`node -e` / scripts run from the repo root can't resolve app deps** (pnpm doesn't hoist):
+  set `NODE_PATH="$PWD/apps/web/node_modules"`.
+- **`symbol_short!` takes at most 9 characters**; use `Symbol::new(&env, "...")` for longer ones.
+- **Cross-contract call args:** build the `Vec<Val>` with `.into_val(&env)` (a `u64` has no
+  `From<u64>` for `Val`).
+- **`@stellar/stellar-sdk` must be ≥ 16** for protocol 23; older versions fail to decode tx results
+  (`Bad union switch: 4`).
 
 ## Questions?
 
