@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Flame } from 'lucide-react';
 import { getWallet } from '@/lib/wallet';
 import { completeQuest, getStreak } from '@/lib/quests';
+import { DEFAULT_QUEST_IDS } from '@/lib/attest';
 import { getEarnedScore } from '@/lib/reputation';
 import { resolveHandle } from '@/lib/registry';
 import { normalizeHandle } from '@/lib/profile';
@@ -15,14 +16,22 @@ import { Badge } from '@/components/ui/badge';
 import { StateArt } from '@/components/ui/state-art';
 import { Sticker } from '@/components/ui/sticker';
 import { Avatar } from '@/components/Avatar';
+import { WeekReset } from '@/components/WeekReset';
 import { cn, humanizeError, shortAddress } from '@/lib/utils';
 import { toast } from '@/components/ui/toaster';
 
 // Quest ids are admin-created on the QuestRegistry; env-configurable so they can change per
-// deployment without a code edit. Defaults: 2 = refer, 3 = invite-converts, 4 = vouch-back.
-const REFERRAL_QUEST_ID = Number(process.env.NEXT_PUBLIC_DEFAULT_QUEST_ID ?? '2');
-const INVITE_QUEST_ID = Number(process.env.NEXT_PUBLIC_INVITE_QUEST_ID ?? '3');
-const VOUCHBACK_QUEST_ID = Number(process.env.NEXT_PUBLIC_VOUCHBACK_QUEST_ID ?? '4');
+// deployment without a code edit. The defaults (2 = refer, 3 = invite-converts, 4 = vouch-back)
+// are shared with /api/attest, which only signs a quest id for its bound evidence type.
+const REFERRAL_QUEST_ID = Number(
+  process.env.NEXT_PUBLIC_DEFAULT_QUEST_ID || DEFAULT_QUEST_IDS.referral_tx,
+);
+const INVITE_QUEST_ID = Number(
+  process.env.NEXT_PUBLIC_INVITE_QUEST_ID || DEFAULT_QUEST_IDS.invite_converts,
+);
+const VOUCHBACK_QUEST_ID = Number(
+  process.env.NEXT_PUBLIC_VOUCHBACK_QUEST_ID || DEFAULT_QUEST_IDS.vouch_back,
+);
 const VOUCH_BACK_MIN = 3; // mirrors attest.ts VOUCH_BACK_MIN (UI copy only)
 
 type Evidence =
@@ -124,6 +133,15 @@ export function Quests({ address }: { address: string }) {
       .catch(() => setStreak({ weeks: 0, best: 0 }));
   }, [address]);
 
+  // A run can lapse when the week rolls over, so the countdown re-reads the streak then.
+  function reloadStreak() {
+    getStreak(address, address)
+      .then((s) => setStreak({ weeks: s.weeks, best: s.best }))
+      .catch(() => {
+        /* keep the last streak */
+      });
+  }
+
   async function run(kind: 'referral' | 'invite' | 'vouchback', questId: number, evidence: Evidence) {
     setBusy(kind);
     setError(null);
@@ -187,6 +205,7 @@ export function Quests({ address }: { address: string }) {
                 <span className="text-muted-foreground/60"> · best {streak.best}</span>
               )}
             </span>
+            <WeekReset address={address} onRollover={reloadStreak} className="ml-auto" />
           </div>
         )}
         {/* Quest 1 — refer an active wallet */}

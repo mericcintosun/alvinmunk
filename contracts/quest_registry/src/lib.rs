@@ -5,6 +5,10 @@
 //! verifies a real action (merged GitHub PR, referral wallet did a real tx),
 //! then calls here. We check the allowlist + replay set, then cross-call
 //! Reputation.award_xp. NO decentralized oracle.
+//!
+//! Attester scope: a quest bound to a key (`set_quest_attester`) accepts only that key,
+//! so a partner's quest key can't mint Earned XP on any other quest. Unbound quests accept
+//! any key in the global allowlist (`add_attester_key`), which is for in-house keys only.
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short,
@@ -44,6 +48,7 @@ pub enum DataKey {
     Quest(u32),              // QuestConfig
     Claimed(u32, Address),   // replay guard: (quest_id, recipient) -> bool
     Streak(Address),         // weekly retention streak per player
+    QuestAttester(u32),      // quest_id -> BytesN<32>: the only key that may award it
 }
 
 #[contracttype]
@@ -57,7 +62,8 @@ pub struct QuestConfig {
 
 /// Weekly retention streak (Green belt). `weeks` = current consecutive-week run;
 /// `last_week` = the epoch (timestamp / WEEK_SECS) of the most recent completion;
-/// `best` = the all-time high (a rank input that survives a miss).
+/// `best` = the all-time high (a rank input that survives a miss). Storage keeps `weeks`
+/// until the next award; `get_streak` reports a lapsed run as 0.
 #[contracttype]
 #[derive(Clone)]
 pub struct Streak {
@@ -112,11 +118,54 @@ impl QuestRegistryContract {
             .set(&DataKey::AttesterKey(key), &true);
     }
 
+    /// Revoke a key from the global allowlist. Quest bindings are separate: a key bound to
+    /// a quest keeps awarding it until `clear_quest_attester`.
     pub fn remove_attester_key(env: Env, key: BytesN<32>) {
         Self::admin(&env).require_auth();
         env.storage()
             .persistent()
             .remove(&DataKey::AttesterKey(key));
+    }
+
+    /// Bind `quest_id` to one attester key (admin). From then on only `key` can award that
+    /// quest; the global allowlist no longer applies to it. The key need not (and, for a
+    /// partner, must not) be in the global allowlist. Rebinding replaces the previous key.
+    pub fn set_quest_attester(env: Env, quest_id: u32, key: BytesN<32>) {
+        Self::admin(&env).require_auth();
+        if !env.storage().persistent().has(&DataKey::Quest(quest_id)) {
+            panic_with_error!(&env, Error::QuestNotFound);
+        }
+        let k = DataKey::QuestAttester(quest_id);
+        env.storage().persistent().set(&k, &key);
+        env.storage()
+            .persistent()
+            .extend_ttl(&k, BUMP_THRESHOLD, BUMP_EXTEND);
+        env.events().publish(
+            (symbol_short!("quest"), symbol_short!("att_bind")),
+            (quest_id, key),
+        );
+    }
+
+    /// Remove a quest's bound key (admin), so the quest falls back to the global allowlist.
+    /// A no-op without an event when nothing is bound.
+    pub fn clear_quest_attester(env: Env, quest_id: u32) {
+        Self::admin(&env).require_auth();
+        let k = DataKey::QuestAttester(quest_id);
+        let old: Option<BytesN<32>> = env.storage().persistent().get(&k);
+        if let Some(old) = old {
+            env.storage().persistent().remove(&k);
+            env.events().publish(
+                (symbol_short!("quest"), symbol_short!("att_clear")),
+                (quest_id, old),
+            );
+        }
+    }
+
+    /// The key bound to `quest_id`, or `None` when the quest uses the global allowlist.
+    pub fn get_quest_attester(env: Env, quest_id: u32) -> Option<BytesN<32>> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::QuestAttester(quest_id))
     }
 
     pub fn create_quest(env: Env, id: u32, schema_id: u32, xp: u64) {
@@ -157,9 +206,10 @@ impl QuestRegistryContract {
     }
 
     /// Award a verified quest to `recipient`. Replay-guarded. Dual authorization:
-    ///   1. `attester` (an allowlisted ed25519 PUBKEY) signs the canonical payload — it
-    ///      alone can mint Earned XP (the anti-sybil keystone). A signature, not an on-chain
-    ///      tx, so the serverless attester stays stateless.
+    ///   1. `attester` (an ed25519 PUBKEY) signs the canonical payload — it alone can mint
+    ///      Earned XP (the anti-sybil keystone). A signature, not an on-chain tx, so the
+    ///      serverless attester stays stateless. It must be the quest's bound key when the
+    ///      quest has one, otherwise a key in the global allowlist.
     ///   2. `recipient.require_auth()` proves on-chain ownership of the credited wallet —
     ///      works uniformly for classic (G…) and passkey smart-account (C…) wallets.
     pub fn award_quest(
@@ -169,12 +219,7 @@ impl QuestRegistryContract {
         quest_id: u32,
         recipient: Address,
     ) {
-        if !env
-            .storage()
-            .persistent()
-            .get(&DataKey::AttesterKey(attester.clone()))
-            .unwrap_or(false)
-        {
+        if !Self::attester_may_award(&env, &attester, quest_id) {
             panic_with_error!(&env, Error::NotAuthorized);
         }
         let message = Self::payload(&env, quest_id, &recipient);
@@ -223,21 +268,38 @@ impl QuestRegistryContract {
         );
     }
 
-    /// The current weekly epoch (timestamp / WEEK_SECS) — the UI's "this week".
+    /// The current weekly epoch (timestamp / WEEK_SECS) — the UI's "this week". Weeks run
+    /// Thursday 00:00:00 to Wednesday 23:59:59 UTC; `get_week_bounds` gives the timestamps.
     pub fn get_week(env: Env) -> u64 {
         Self::current_week(&env)
     }
 
-    /// A player's weekly streak (consecutive weeks with ≥1 completed quest).
+    /// The current streak week as UTC unix timestamps `(start, end)`: `start` is its first
+    /// second and `end` its last (inclusive), so the week resets at `end + 1`. The client
+    /// counts down to that without re-deriving the week formula.
+    pub fn get_week_bounds(env: Env) -> (u64, u64) {
+        let start = Self::current_week(&env) * WEEK_SECS;
+        (start, start.saturating_add(WEEK_SECS - 1))
+    }
+
+    /// A player's weekly streak (consecutive weeks with ≥1 completed quest), as of now.
+    /// The stored run only changes on the next award, so a run whose last completion is
+    /// older than last week reads as `weeks = 0` here — it can no longer be extended.
+    /// `last_week` and `best` are returned as stored. Read-only: storage is not rewritten.
     pub fn get_streak(env: Env, player: Address) -> Streak {
-        env.storage()
+        let mut s: Streak = env
+            .storage()
             .persistent()
             .get(&DataKey::Streak(player))
             .unwrap_or(Streak {
                 weeks: 0,
                 last_week: 0,
                 best: 0,
-            })
+            });
+        if s.weeks > 0 && s.last_week.saturating_add(1) < Self::current_week(&env) {
+            s.weeks = 0;
+        }
+        s
     }
 
     // --- internal ---
@@ -252,6 +314,28 @@ impl QuestRegistryContract {
         parts.to_xdr(env)
     }
 
+    /// A quest's bound key is its only attester; an unbound quest takes any globally
+    /// allowlisted key.
+    fn attester_may_award(env: &Env, attester: &BytesN<32>, quest_id: u32) -> bool {
+        let bound: Option<BytesN<32>> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::QuestAttester(quest_id));
+        match bound {
+            Some(key) => key == *attester,
+            None => env
+                .storage()
+                .persistent()
+                .get(&DataKey::AttesterKey(attester.clone()))
+                .unwrap_or(false),
+        }
+    }
+
+    /// Weeks are aligned on the Unix epoch, and 1970-01-01 was a Thursday, so every week
+    /// runs Thursday 00:00:00 to Wednesday 23:59:59 UTC. Do not re-align this (e.g. to
+    /// Monday): every stored `Streak.last_week` is an index in this epoch, so a new formula
+    /// would break live streaks. A different alignment needs a versioned epoch and a
+    /// migration.
     fn current_week(env: &Env) -> u64 {
         env.ledger().timestamp() / WEEK_SECS
     }

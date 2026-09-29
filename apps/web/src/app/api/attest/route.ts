@@ -11,9 +11,10 @@
  *   - referral_tx : evidence.ref = "G..." address   -> must have ≥1 on-chain tx
  *
  * Defense-in-depth (belts/08 §security): on-chain recipient.require_auth() ownership +
- * on-chain replay guard (the hard cap), per-IP rate limit, bounded body, optional GitHub
- * repo allowlist, self-referral guard. The signature is only redeemable by the recipient
- * (they must satisfy require_auth), so issuing it carries no transfer of funds.
+ * on-chain replay guard (the hard cap), each quest id bound to one evidence type, per-IP
+ * rate limit, bounded body, optional GitHub repo allowlist, self-referral guard. The
+ * signature is only redeemable by the recipient (they must satisfy require_auth), so
+ * issuing it carries no transfer of funds.
  */
 import {
   Account,
@@ -30,7 +31,9 @@ import {
   MAX_BODY_BYTES,
   REFERRAL_MARKER_KEY,
   VOUCH_BACK_MIN,
+  buildQuestEvidenceMap,
   decodeDataEntry,
+  evidenceMatchesQuest,
   isValidQuestId,
   parseRepoAllowlist,
   repoAllowed,
@@ -72,6 +75,9 @@ const REP_ID = process.env.NEXT_PUBLIC_REPUTATION_CONTRACT_ID ?? '';
 const REPO_ALLOWLIST = parseRepoAllowlist(process.env.QUEST_GITHUB_REPOS);
 const EVENT_WINDOW = 9000; // ledgers back to scan for vouch events (testnet RPC retention)
 
+// questId → the one evidence type that may claim it (lib/attest.ts buildQuestEvidenceMap).
+const QUEST_EVIDENCE = buildQuestEvidenceMap(process.env);
+
 // Recipient may be a classic (G…) OR a passkey smart-account (C…) address.
 const STELLAR_ADDRESS = /^[GC][A-Z2-7]{55}$/;
 
@@ -112,11 +118,20 @@ export async function POST(req: Request): Promise<Response> {
   const shape = validateEvidence(body.evidence, body.recipient);
   if (!shape.ok) return json({ error: shape.reason }, 422);
 
-  // 2) Verify the real-world action (network).
+  // 2) The evidence must be the type bound to this quest id — checked before any network
+  // call, else one qualifying action could be signed for every quest.
+  if (!evidenceMatchesQuest(body.questId, (body.evidence as AttestEvidence).type, QUEST_EVIDENCE)) {
+    const reason = QUEST_EVIDENCE.has(body.questId)
+      ? 'evidence type does not match this quest'
+      : 'this quest cannot be attested';
+    return json({ error: reason }, 422);
+  }
+
+  // 3) Verify the real-world action (network).
   const verified = await verifyEvidence(body.evidence as AttestEvidence, body.recipient);
   if (!verified.ok) return json({ error: verified.reason }, 422);
 
-  // 3) Sign the contract's canonical payload — the recipient redeems it on-chain.
+  // 4) Sign the contract's canonical payload — the recipient redeems it on-chain.
   try {
     const signed = await signQuestPayload(secret, body.questId, body.recipient);
     logEvent({ route: 'attest', outcome: 'ok', questId: body.questId, ms: Date.now() - now });

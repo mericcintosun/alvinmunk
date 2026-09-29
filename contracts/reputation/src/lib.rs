@@ -36,6 +36,10 @@ const BUMP_EXTEND: u32 = 2_592_000; // ~150 days
 const BUMP_THRESHOLD: u32 = BUMP_EXTEND - DAY_LEDGERS;
 const DAY_SECS: u64 = 86_400;
 const MAX_VOUCH_PER_DAY: u32 = 20;
+// Longest vouch note, in UTF-8 BYTES (`String::len` counts bytes, not characters). 240 is
+// the web app's 60-character limit at UTF-8's worst case of 4 bytes per character, so any
+// note it lets through fits. Mirrored by `VOUCH_NOTE_MAX_BYTES` in apps/web/src/lib/reputation.ts.
+const MAX_NOTE_BYTES: u32 = 240;
 
 const STARTER_SOCIAL: u64 = 20; // every new wallet's starter Social XP (funds first stakes)
 const VOUCH_STAKE: u64 = 5; // Social XP escrowed per mint; refunded on a timely claim, else slashed
@@ -59,6 +63,7 @@ pub enum Error {
     DailyCapReached = 9,
     NotExpired = 10,
     InsufficientStake = 11,
+    NoteTooLong = 12,
 }
 
 #[contracttype]
@@ -96,6 +101,14 @@ pub struct Vouch {
     pub created: u64,
     pub stake: u64,
     pub slashed: bool,
+}
+
+/// The last timestamp at which `v` still counts as claimed on time: a claim at or before it
+/// refunds the stake, and `expire_vouch` can slash only after it. The one place both read the
+/// deadline from, so they cannot drift apart. Saturating: a `created` within
+/// `VOUCH_TTL_SECS` of `u64::MAX` pins the deadline at `u64::MAX` instead of overflowing.
+fn claim_deadline(v: &Vouch) -> u64 {
+    v.created.saturating_add(VOUCH_TTL_SECS)
 }
 
 /// A voucher's 2nd-order bonus, owed once the claimer performs a verified action.
@@ -183,9 +196,17 @@ impl ReputationContract {
     /// `from` mints a half-card bound to `claim_hash` (= sha256 of a secret held in
     /// the share link). Escrows `VOUCH_STAKE` Social XP from `from` (refunded on a
     /// timely claim, else slashed). New wallets get `STARTER_SOCIAL` first so the
-    /// first vouch is free. Per-day cap applies. Returns the vouch id.
+    /// first vouch is free. Each voucher may mint `MAX_VOUCH_PER_DAY` per UTC calendar day
+    /// (`timestamp / DAY_SECS`), else `DailyCapReached`. The count resets at 00:00:00 UTC, not
+    /// 24 hours after the first mint, so a full day's mints at 23:59:59 and another full day's
+    /// a second later are both allowed. `note` is at most `MAX_NOTE_BYTES` bytes
+    /// of UTF-8, else `NoteTooLong`: it is stored in the vouch, which every claim rewrites.
+    /// Returns the vouch id.
     pub fn mint_vouch(env: Env, from: Address, claim_hash: BytesN<32>, note: String) -> u64 {
         from.require_auth();
+        if note.len() > MAX_NOTE_BYTES {
+            panic_with_error!(&env, Error::NoteTooLong);
+        }
 
         // Per-day cap (temporary storage auto-GCs old days).
         let day = env.ledger().timestamp() / DAY_SECS;
@@ -194,7 +215,9 @@ impl ReputationContract {
         if used >= MAX_VOUCH_PER_DAY {
             panic_with_error!(&env, Error::DailyCapReached);
         }
-        env.storage().temporary().set(&dkey, &(used.saturating_add(1)));
+        env.storage()
+            .temporary()
+            .set(&dkey, &(used.saturating_add(1)));
         // ~2 days outlives the UTC day it counts. Not BUMP_*: a temporary entry extended
         // past max_entry_ttl traps instead of clamping.
         env.storage()
@@ -280,7 +303,7 @@ impl ReputationContract {
 
         // Refund the voucher's stake on a timely claim (else it stays slashed).
         let now = env.ledger().timestamp();
-        if !vouch.slashed && now <= vouch.created + VOUCH_TTL_SECS {
+        if !vouch.slashed && now <= claim_deadline(&vouch) {
             Self::add_social(&env, &vouch.from, vouch.stake);
         }
 
@@ -333,7 +356,7 @@ impl ReputationContract {
         if vouch.slashed {
             return; // already slashed — idempotent
         }
-        if env.ledger().timestamp() <= vouch.created.saturating_add(VOUCH_TTL_SECS) {
+        if env.ledger().timestamp() <= claim_deadline(&vouch) {
             panic_with_error!(&env, Error::NotExpired);
         }
         vouch.slashed = true;

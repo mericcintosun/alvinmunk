@@ -45,7 +45,7 @@ arithmetic can never wrap and the intent is self-documenting:
 | --- | --- | --- |
 | `reputation` | daily-cap counter `used + 1` | `used.saturating_add(1)` |
 | `reputation` | vouch sequence id `+ 1` | `.saturating_add(1)` |
-| `reputation` | vouch TTL `created + VOUCH_TTL_SECS` | `created.saturating_add(VOUCH_TTL_SECS)` |
+| `reputation` | vouch TTL `created + VOUCH_TTL_SECS` | `claim_deadline()` = `created.saturating_add(VOUCH_TTL_SECS)`, shared by `claim_vouch` and `expire_vouch` |
 | `quest_registry` | weekly-streak `weeks += 1` / `last_week + 1` | `.saturating_add(1)` |
 
 Re-scan after the fix: **0 critical.**
@@ -58,7 +58,7 @@ Re-scan after the fix: **0 critical.**
 | `missing_new_admin_auth` | 5 | **Accepted** — flagged on one-time `init()` (guarded by an `AlreadyInitialized` check). There is no unprotected `set_admin`; admin-mutating paths (`upgrade`) require `admin.require_auth()`. A 2-step ownership transfer is a possible future enhancement, not a vulnerability. |
 | `unsafe_unwrap` | 5 | **Accepted low-risk** — every flagged `unwrap()` reads a config address (`Usdc`, `Reputation`) that is set at `init()`; it can only be `None` on a mis-initialised contract, in which case it aborts (no silent failure, no exploit). |
 | `dos_unexpected_revert_with_storage` | 4 | **Accepted low-risk** — the flagged reverts are intentional guard clauses (`require_auth`, cap checks) that abort a single caller's tx; no shared-state DoS. |
-| `dynamic_storage` | 3 | **Accepted** — dynamic keys are per-user/per-day namespaced (`DailyCount(addr, day)`, handle/address maps); this is the intended data model, not unbounded growth in a single entry. |
+| `dynamic_storage` | 3 | **Accepted** — dynamic keys are per-user/per-day namespaced (`DailyCount(addr, day)`, handle/address maps); this is the intended data model. Caller-sized values inside an entry are capped: `mint_vouch` reverts with `NoteTooLong` (#12) on a `Vouch.note` over 240 UTF-8 bytes (unbounded until issue #124; 240 is the web app's 60-character limit at 4 bytes per character), so no voucher can inflate what a claim rewrites, and a registry bio is capped at 80 bytes. |
 
 ## Anti-sybil / economic security (design-level)
 

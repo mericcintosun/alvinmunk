@@ -261,10 +261,60 @@ Note: this event is emitted **after** the cross-contract call to
 | 0 | `u32` | `quest_id` |
 | 1 | `Address` | `recipient` |
 
+### `quest` / `att_bind` (Quest Attester Bound)
+
+The admin bound a quest to one attester key with `set_quest_attester(quest_id, key)`.
+From then on `award_quest` accepts only that key's signature for the quest, and the
+global `AttesterKey` allowlist no longer applies to it. Rebinding emits this again with
+the new key. Monitoring should alert on it: it changes who can mint Earned XP.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol("quest")` | Event discriminator |
+| **topics[1]** | `Symbol("att_bind")` | Sub-type |
+
+**Data tuple**:
+
+| Index | Type | Description |
+|-------|------|-------------|
+| 0 | `u32` | `quest_id` |
+| 1 | `BytesN<32>` | `key` — the ed25519 attester public key now bound to the quest |
+
+### `quest` / `att_clear` (Quest Attester Cleared)
+
+The admin removed a quest's bound key with `clear_quest_attester(quest_id)`; the quest
+falls back to the global allowlist. Clearing a quest with no binding is a no-op and emits
+nothing.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol("quest")` | Event discriminator |
+| **topics[1]** | `Symbol("att_clear")` | Sub-type |
+
+**Data tuple**:
+
+| Index | Type | Description |
+|-------|------|-------------|
+| 0 | `u32` | `quest_id` |
+| 1 | `BytesN<32>` | `key` — the key that was bound until now |
+
+**Contract source**: `quest_registry/src/lib.rs` → `fn set_quest_attester()` / `fn clear_quest_attester()`
+
+```rust
+// Bind:
+env.events().publish(
+    (symbol_short!("quest"), symbol_short!("att_bind")), (quest_id, key));
+
+// Clear:
+env.events().publish(
+    (symbol_short!("quest"), symbol_short!("att_clear")), (quest_id, old));
+```
+
 ### `streak` (Weekly Retention)
 
 Emitted whenever a player's consecutive-week streak is updated (after a quest
-award bumps it).
+award bumps it). A run that lapses without a new award emits nothing; see
+[`Streak`](#streak) for how `get_streak` reports it.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -349,8 +399,62 @@ env.events().publish(
     (caller, handle));
 ```
 
-> **Note**: `admin_release()` does **not** emit an event (admin-only
-> operation that cleans up state silently).
+> **Note**: `admin_release()` does **not** emit a `handle` event (admin-only
+> operation that cleans up state silently). It does emit `meta` / `cleared` when
+> the holder had a profile.
+
+### `meta` / `set`
+
+A handle holder publishes its profile face and bio (`set_meta()`), replacing any
+earlier ones. Only an address that holds a handle can set one; a rename keeps it.
+The stored shape is [`ProfileMeta`](#profilemeta-get_meta).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol("meta")` | Event discriminator |
+| **topics[1]** | `Symbol("set")` | Sub-type |
+
+**Data tuple**:
+
+| Index | Type | Description |
+|-------|------|-------------|
+| 0 | `Address` | `caller` — the handle holder |
+| 1 | `u64` | `avatar` — the packed face (layout under `ProfileMeta`) |
+| 2 | `String` | `bio` — plain text, may be empty |
+
+### `meta` / `cleared`
+
+An address's profile is deleted because it gave up its handle: `release()`
+(right after `handle` / `released`) or `admin_release()`. Emitted only when there
+was a profile to delete. Meta is keyed by address, so whoever claims the freed
+handle next starts with none.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol("meta")` | Event discriminator |
+| **topics[1]** | `Symbol("cleared")` | Sub-type |
+
+**Data**:
+
+| Type | Description |
+|------|-------------|
+| `Address` | The address whose profile was deleted |
+
+An indexer keyed by address folds both in order: `set` replaces the profile,
+`cleared` deletes it.
+
+**Contract source**: `registry/src/lib.rs` → `fn set_meta()` / `fn clear_meta()`
+
+```rust
+// Set:
+env.events().publish(
+    (symbol_short!("meta"), symbol_short!("set")),
+    (caller, avatar, bio));
+
+// Cleared (from release / admin_release):
+env.events().publish(
+    (symbol_short!("meta"), symbol_short!("cleared")), addr);
+```
 
 ---
 
@@ -484,7 +588,30 @@ removes the cap with `0`. Once `claims` reaches the cap, `claim_reward` reverts 
 |------|-------------|
 | `u32` | `max_claims` — the new cap (`0` = unlimited) |
 
-**Contract source**: `rewards/src/lib.rs` → `fn tip()` / `fn add_reward()` / `fn set_reward_supply()` / `fn claim_reward()`
+### `rwd_strk` (Reward Streak Requirement Set)
+
+An admin requires a live weekly quest streak of at least `weeks` to claim a reward, on
+top of its Earned-XP threshold, or removes the requirement with `0`. `claim_reward` then
+reads the claimer's `quest_registry.get_streak` (the QuestRegistry set by
+`set_quest_registry`) and reverts with `StreakTooShort` (#18) when `weeks` is below the
+minimum. `get_streak` reads a lapsed run as `0` weeks (see [`Streak`](#streak)), so a stale
+stored count never passes. Rewards without a minimum are unchanged and make no
+QuestRegistry call. A non-zero minimum reverts with `QuestRegistryNotSet` (#19) until
+`set_quest_registry` has run; the minimum lives under its own key, so stored `RewardEntry`
+rows keep their shape.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol("rwd_strk")` | Event discriminator |
+| **topics[1]** | `u32` | `reward_id` — the reward row ID |
+
+**Data**:
+
+| Type | Description |
+|------|-------------|
+| `u32` | `weeks` — the live streak now required (`0` = none) |
+
+**Contract source**: `rewards/src/lib.rs` → `fn tip()` / `fn add_reward()` / `fn set_reward_supply()` / `fn set_reward_min_streak()` / `fn claim_reward()`
 
 ```rust
 // Tip:
@@ -498,6 +625,10 @@ env.events().publish(
 // Reward supply set:
 env.events().publish(
     (symbol_short!("rwd_cap"), reward_id), max_claims);
+
+// Reward streak requirement set:
+env.events().publish(
+    (symbol_short!("rwd_strk"), reward_id), weeks);
 
 // Reward claimed:
 env.events().publish(
@@ -517,14 +648,16 @@ Quick-reference table of all event discriminators and their sub-types.
 | `social` | *(none)* | Reputation | [↑](#social-social-track-total) |
 | `attester` | `add`, `rm` | Reputation | [↑](#attester-allowlist-change) |
 | `vouch` | `minted`, `claimed`, `slashed` | Reputation | [↑](#vouch-async-half-card-lifecycle) |
-| `quest` | `created`, `awarded` | QuestRegistry | [↑](#2-questregistry-contract) |
+| `quest` | `created`, `awarded`, `att_bind`, `att_clear` | QuestRegistry | [↑](#2-questregistry-contract) |
 | `streak` | *(none)* | QuestRegistry | [↑](#streak-weekly-retention) |
 | `handle` | `claimed`, `released` | Registry | [↑](#3-registry-contract-handles) |
+| `meta` | `set`, `cleared` | Registry | [↑](#meta--set) |
 | `gate` | `created` | Gate | [↑](#4-gate-contract) |
 | `unlocked` | *(none)* | Gate | [↑](#unlocked) |
 | `tipped` | *(none)* | Rewards | [↑](#tipped) |
 | `rwd_set` | *(none)* | Rewards | [↑](#rwd_set-reward-registeredupdated) |
 | `rwd_cap` | *(none)* | Rewards | [↑](#rwd_cap-reward-supply-set) |
+| `rwd_strk` | *(none)* | Rewards | [↑](#rwd_strk-reward-streak-requirement-set) |
 | `reward` | *(none)* | Rewards | [↑](#reward-reward-claimed) |
 
 ---
@@ -571,7 +704,7 @@ pub struct Vouch {
     pub id: u64,
     pub from: Address,
     pub claim_hash: BytesN<32>,  // sha256 of the claim secret
-    pub note: String,            // free-text note from the voucher
+    pub note: String,            // free-text note from the voucher, <= 240 BYTES of UTF-8
     pub claimed: bool,
     pub claimer: Option<Address>,
     pub created: u64,            // ledger timestamp
@@ -579,6 +712,21 @@ pub struct Vouch {
     pub slashed: bool,
 }
 ```
+
+`mint_vouch(from, claim_hash, note)` reverts with `NoteTooLong` (#12) when `note` is
+over 240 bytes (not characters: `ş` is 2 bytes, most emoji 4). That is the web app's
+60-character limit at UTF-8's worst case, so a note typed there always fits. Vouches
+minted before the cap keep their note as stored.
+
+**Enumerating every vouch** (no events needed). Ids are sequential from `1` and never
+reused; the highest minted id is `DataKey::VouchSeq` (a `u64` in instance storage, absent
+until the first mint), and each half-card is the persistent entry `DataKey::Vouch(id)`.
+Read one with `get_vouch(id)`, or read many straight from storage with RPC
+`getLedgerEntries` (keys `Vec[Symbol("VouchSeq")]` in the contract instance and
+`Vec[Symbol("Vouch"), U64(id)]`) — the `/stats` claim funnel does this
+(`apps/web/src/lib/vouch-funnel.ts`), so these two keys are part of the read surface. A
+`Vouch` entry's TTL is extended only at mint (to ~150 days), so an old one can be archived
+and missing from `getLedgerEntries`; count it as unread, not as absent.
 
 ### `Profile` (`get_profile`)
 
@@ -643,6 +791,60 @@ time and never queued. At most `MAX_PENDING` (64) entries; bonuses past the cap 
 dropped. Keyed by claimer only: "what am I owed" means reading `get_pending` for each
 person you vouched and keeping the entries whose `voucher` is you.
 
+### Handle lookups (`resolve` / `reverse` / `reverse_many`)
+
+`resolve(handle) -> Option<Address>` and `reverse(addr) -> Option<Symbol>` read the two
+directions of the handle map (`DataKey::Fwd(handle)` / `DataKey::Rev(addr)`), `None`
+when the handle is free or the address holds none.
+
+`reverse_many(addrs: Vec<Address>) -> Vec<Option<Symbol>>` is `reverse` for a whole list
+in one call, so a leaderboard or feed labels N rows in one read: one entry per input
+address, in input order (a repeated address repeats its answer), `None` where an address
+holds no handle. It takes at most 50 addresses (`REVERSE_MANY_CAP`) and reverts with
+`TooMany` (#8) past that. A full batch reads 52 ledger entries (50 `Rev` keys, the
+instance and the code), far inside the per-transaction limits (400 footprint entries and
+200 disk reads on testnet and mainnet, checked 2026-09-29) even when every entry is
+archived. Callers chunk longer lists (`reverseHandles` in `apps/web/src/lib/registry.ts`).
+
+All three are pure reads: any caller, no auth, no writes, no TTL extension. A registry
+deployed before `reverse_many` has no such function (`Error(WasmVm, MissingValue)`,
+"non-existent contract function"), so fall back to one `reverse` per address.
+
+### `ProfileMeta` (`get_meta`)
+
+`get_meta(addr) -> Option<ProfileMeta>` returns the profile `addr` published with
+`set_meta` (`DataKey::Meta(addr)`), or `None` if it never set one or has since given
+up its handle. A registry deployed before `set_meta` has no `get_meta`, so treat a
+failed call as "no profile" and show the default face.
+
+```rust
+pub struct ProfileMeta {
+    pub avatar: u64,  // packed face, below
+    pub bio: String,  // <= 80 BYTES of UTF-8, no control characters
+}
+```
+
+`set_meta` reverts with `BioTooLong` (#5) past 80 bytes (not characters: `ş` is 2
+bytes, most emoji 4), `BadBio` (#6) for text that isn't UTF-8 or contains a control
+character (C0, DEL, C1), U+2028/U+2029, or a bidi embedding/override/isolate mark
+(U+202A–U+202E, U+2066–U+2069), and `BadAvatar` (#7) for any `avatar` outside this
+layout — one byte per field, every unlisted byte zero:
+
+| Byte | Face (`byte 7 = 0`) | Kit (`byte 7 = 1`) |
+|------|---------------------|--------------------|
+| 7 | kind `0` | kind `1` |
+| 5 | — | `skin` 1–6 |
+| 4 | — | `hair` 1–10 |
+| 3 | — | `eyes` 1–10 |
+| 2 | — | `mouth` 1–9 |
+| 1 | — | `acc` 0–13 (0 = none) |
+| 0 | face number 1–5 (`face-01`…`face-05`) | `bg` 0–5 (0 = none) |
+
+So `face-03` is `0x0000000000000003` and the kit skin 3 / hair 7 / eyes 5 / mouth 4 /
+acc 9 / bg 2 is `0x0100030705040902`. The ranges are the portrait assets the web app
+ships (`FACE_IDS` / `KIT_COUNTS` in `apps/web/src/lib/avatar.ts`, which packs with
+`encodeAvatar`); adding assets means upgrading the contract to accept them.
+
 ### `QuestConfig`
 
 ```rust
@@ -654,15 +856,66 @@ pub struct QuestConfig {
 }
 ```
 
+### Quest attester scope (`get_quest_attester`)
+
+`get_quest_attester(quest_id) -> Option<BytesN<32>>` returns the ed25519 key bound to a
+quest, or `None` when the quest uses the global allowlist. Admin functions:
+
+| Function | Effect |
+|----------|--------|
+| `set_quest_attester(quest_id, key)` | Bind the quest to `key`, replacing any previous key. Reverts with `QuestNotFound` (#4) for an unknown quest. Emits `quest` / `att_bind`. |
+| `clear_quest_attester(quest_id)` | Remove the binding. Emits `quest` / `att_clear` when one existed. |
+
+`award_quest` then authorizes the signing key like this:
+
+- **Bound quest:** only the bound key. Any other key, including a globally allowlisted
+  one, reverts with `NotAuthorized` (#3).
+- **Unbound quest:** any key in the global allowlist (`add_attester_key`), as before.
+  Quests that were never bound behave exactly as they did before this view existed.
+
+A bound key does not need to be in the global allowlist, and a partner's key must not be
+added there: the allowlist grants every unbound quest. `remove_attester_key` only edits
+the allowlist, so to revoke a bound key call `clear_quest_attester` (or rebind the quest)
+too. A contract deployed before this view has no `get_quest_attester`.
+
 ### `Streak`
 
 ```rust
 pub struct Streak {
     pub weeks: u32,   // current consecutive-week run
-    pub last_week: u64, // epoch (timestamp / WEEK_SECS) of most recent completion
+    pub last_week: u64, // week index (timestamp / WEEK_SECS) of most recent completion
     pub best: u32,    // all-time high
 }
 ```
+
+The stored run only changes when a quest is awarded, so `get_streak(player)` normalizes
+it on read: when `last_week + 1 < current week` (a full week was skipped), it returns
+`weeks = 0`. `last_week` and `best` are returned as stored, and storage is not rewritten.
+A completion in the current or the previous week still reads as the live count. No event
+marks the lapse — the last `streak` event keeps the old `weeks` — so an indexer folding
+`streak` events applies the same rule against the current week.
+
+### Streak weeks (`get_week` / `get_week_bounds`)
+
+A streak week is `timestamp / WEEK_SECS` (`WEEK_SECS = 604_800`), counted from the Unix
+epoch. 1970-01-01 was a Thursday, so every week runs **Thursday 00:00:00 to Wednesday
+23:59:59 UTC** — not Monday to Sunday. `get_week()` returns the current index.
+
+`get_week_bounds() -> (u64, u64)` returns the current week as UTC unix timestamps:
+
+| Index | Type | Description |
+|-------|------|-------------|
+| 0 | `u64` | `start` — the week's first second (`get_week() * WEEK_SECS`, a Thursday 00:00:00) |
+| 1 | `u64` | `end` — the week's last second, **inclusive** (`start + WEEK_SECS - 1`, a Wednesday 23:59:59) |
+
+The next week starts at `end + 1`, and a live run with no completion yet this week lapses
+then. The bounds follow the ledger time the read is simulated at, which trails wall-clock
+time by up to one ledger close. A contract deployed before this view has no
+`get_week_bounds`; treat a failed call as "unknown" (the web app hides its countdown).
+
+The alignment is frozen: every stored `Streak.last_week` is an index in this epoch, so
+moving weeks to another start day would break every live streak. A different alignment
+would need a versioned epoch and a migration.
 
 ### `RewardEntry`
 
@@ -678,7 +931,10 @@ pub struct RewardEntry {
 ### `RewardStats` / `RewardInfo`
 
 `get_reward_stats(id)` returns the supply counters; `get_rewards()` returns each row
-joined with them. `max_claims == 0` means unlimited.
+joined with them and with its streak requirement (`get_reward_min_streak(id)`, also a
+view). `max_claims == 0` means unlimited; `min_streak == 0` means no streak is required.
+`min_streak` was appended when streak-gated rewards landed, so a contract deployed before
+them returns rows without it; read a missing field as `0`.
 
 ```rust
 pub struct RewardStats {
@@ -693,8 +949,20 @@ pub struct RewardInfo {
     pub active: bool,
     pub max_claims: u32,
     pub claims: u32,
+    pub min_streak: u32,
 }
 ```
+
+### Daily cap (`get_daily_cap` / `get_daily_paid`)
+
+Both return `i128` USDC stroops. `get_daily_cap()` is the treasury's max payout per UTC
+day, `0` = unlimited; `get_daily_paid()` is what claims have paid so far in the current
+UTC day (`timestamp / 86_400`). `set_daily_cap` emits no event. It reverts with
+`InvalidAmount` (#8) for a negative cap, which would otherwise lift the limit instead of
+tightening it (`set_paused(true)` is the way to stop every payout), and with
+`CapBelowActiveReward` (#17) for a positive cap below an active row's `amount`. A negative
+cap stored by a contract deployed before that rule reads as `0`, which is how the payout
+checks always treated it.
 
 ### `Gate`
 
@@ -727,7 +995,7 @@ export const EVENTS = {
   QUEST: 'quest',
   TIPPED: 'tipped',
   REWARD: 'reward',
-  // handle, gate, unlocked, streak, rwd_set, rwd_cap, attester are not yet mirrored
+  // handle, meta, gate, unlocked, streak, rwd_set, rwd_cap, rwd_strk, attester are not yet mirrored
 } as const;
 ```
 

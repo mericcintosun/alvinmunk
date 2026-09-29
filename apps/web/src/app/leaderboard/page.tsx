@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { fetchLeaderboard } from '@/lib/leaderboard';
 import { type LeaderboardEntry } from '@alvinmunk/shared';
 import { loadProfile } from '@/lib/profile';
-import { reverseHandle } from '@/lib/registry';
+import { reverseHandles } from '@/lib/registry';
 import { Crest } from '@/components/brand/crest';
 import { Frame } from '@/components/fx/frame';
 import { ShareRow } from '@/components/fx/share-row';
@@ -26,9 +26,7 @@ export default function LeaderboardPage() {
     const missing = rows.map((r) => r.address).filter((a) => !(a in handles));
     if (missing.length === 0) return;
     let alive = true;
-    Promise.all(missing.map(async (a) => [a, await reverseHandle(a).catch(() => null)] as const)).then(
-      (pairs) => alive && setHandles((h) => ({ ...h, ...Object.fromEntries(pairs) })),
-    );
+    reverseHandles(missing).then((map) => alive && setHandles((h) => ({ ...h, ...map })));
     return () => { alive = false; };
   }, [rows, handles]);
 
@@ -36,7 +34,7 @@ export default function LeaderboardPage() {
     let alive = true;
     const tick = async () => {
       try {
-        const r = await fetchLeaderboard();
+        const r = await fetchLeaderboard({ throwOnError: true });
         if (alive) { setRows(r); setStale(false); }
       } catch {
         if (alive) setStale(true);
@@ -57,17 +55,19 @@ export default function LeaderboardPage() {
         <span
           className={cn(
             'inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.15em]',
-            stale ? 'text-amber-400/90' : 'text-secondary/80',
+            stale && rows.length > 0 ? 'text-amber-400/90' : (stale ? 'text-destructive/80' : 'text-secondary/80'),
           )}
           title={stale ? t('leaderboard.syncTitle.stale') : t('leaderboard.syncTitle.live')}
         >
-          <span
-            className={cn(
-              'size-1.5 rounded-full',
-              stale ? 'bg-amber-400' : 'bg-secondary motion-safe:animate-glow-pulse',
-            )}
-          />
-          {stale ? t('leaderboard.syncDelayed') : t('leaderboard.live')}
+          {stale && rows.length === 0 ? null : (
+            <span
+              className={cn(
+                'size-1.5 rounded-full',
+                stale ? 'bg-amber-400' : 'bg-secondary motion-safe:animate-glow-pulse',
+              )}
+            />
+          )}
+          {stale && rows.length === 0 ? t('leaderboard.syncFailed') : (stale ? t('leaderboard.syncDelayed') : t('leaderboard.live'))}
         </span>
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
@@ -85,12 +85,34 @@ export default function LeaderboardPage() {
             ))}
           </div>
         ) : rows.length === 0 ? (
-          <div className="flex flex-col items-center gap-4 p-10 text-center">
-            <StateArt kind="empty-leaderboard" size={300} className="motion-safe:animate-float" />
-            <p className="font-mono text-sm text-muted-foreground">
-              {t('leaderboard.empty')}
-            </p>
-          </div>
+          stale ? (
+            <div className="flex flex-col items-center gap-4 p-10 text-center">
+              <div className="space-y-1">
+                <p className="font-mono text-sm text-foreground">{t('leaderboard.syncFailed')}</p>
+                <p className="font-mono text-xs text-muted-foreground">{t('leaderboard.syncFailedBody')}</p>
+              </div>
+              <button
+                onClick={() => {
+                  setLoading(true);
+                  setStale(false);
+                  fetchLeaderboard({ throwOnError: true })
+                    .then(r => { setRows(r); setStale(false); })
+                    .catch(() => setStale(true))
+                    .finally(() => setLoading(false));
+                }}
+                className="mt-2 rounded bg-primary/10 px-4 py-2 font-mono text-xs text-primary hover:bg-primary/20"
+              >
+                {t('leaderboard.retry')}
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-4 p-10 text-center">
+              <StateArt kind="empty-leaderboard" size={300} className="motion-safe:animate-float" />
+              <p className="font-mono text-sm text-muted-foreground">
+                {t('leaderboard.empty')}
+              </p>
+            </div>
+          )
         ) : (
           <ol className="divide-y divide-border/50">
             {rows.map((e) => {

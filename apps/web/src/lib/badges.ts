@@ -119,7 +119,9 @@ export function visibleBadges(badges: Badge[], focusMode: boolean): Badge[] {
 
 // ── Event folds (pure) ────────────────────────────────────────────────────────
 
-type ChainEvent = Pick<RepEvent, 'topics' | 'data'>;
+/** Exported so other pure event-folding helpers (e.g. `constellation.ts`'s
+ *  `suggestPeople`) can build on `foldVouchEdges` instead of re-parsing topics/data. */
+export type ChainEvent = Pick<RepEvent, 'topics' | 'data'>;
 
 /** The people on each side of one address, as seen in some event window. */
 export interface VouchEdges {
