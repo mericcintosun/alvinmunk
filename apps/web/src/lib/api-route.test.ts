@@ -26,7 +26,7 @@ function logLines(): Record<string, unknown>[] {
 
 describe('withRoute — request ids', () => {
   it('uses a well-formed x-vercel-id as the request id', async () => {
-    const GET = withRoute('GET /api/x', async () => json({ ok: true }));
+    const GET = withRoute<[Request?]>('GET /api/x', async () => json({ ok: true }));
 
     const res = await GET(
       new Request('http://localhost/api/x', { headers: { 'x-vercel-id': VERCEL_ID } }),
@@ -37,7 +37,7 @@ describe('withRoute — request ids', () => {
   });
 
   it('falls back to a fresh UUID without an x-vercel-id, or without a request at all', async () => {
-    const GET = withRoute('GET /api/x', () => new Response('ok'));
+    const GET = withRoute<[Request?]>('GET /api/x', () => new Response('ok'));
 
     const a = (await GET()).headers.get(REQUEST_ID_HEADER);
     const b = (await GET(new Request('http://localhost/api/x'))).headers.get(REQUEST_ID_HEADER);
@@ -97,7 +97,7 @@ describe('withRoute — responses', () => {
   });
 
   it('turns an uncaught throw into a JSON 500 that names the request id, not the cause', async () => {
-    const POST = withRoute('POST /api/x', async (): Promise<Response> => {
+    const POST = withRoute<[Request?]>('POST /api/x', async (): Promise<Response> => {
       throw new TypeError('rpc https://key:SECRET@rpc.example.com failed for GABC');
     });
 
@@ -130,7 +130,7 @@ describe('withRoute — responses', () => {
 
 describe('withRoute — the log line', () => {
   it('writes exactly one line per request with only the wrapper-measured fields', async () => {
-    const GET = withRoute('GET /api/x', () => json({ ok: true }));
+    const GET = withRoute<[Request?]>('GET /api/x', () => json({ ok: true }));
 
     await GET(new Request('http://localhost/api/x', { headers: { 'x-vercel-id': VERCEL_ID } }));
 
@@ -179,7 +179,7 @@ describe('withRoute — the log line', () => {
   });
 
   it('never logs the thrown error message, only its name', async () => {
-    const POST = withRoute('POST /api/x', async (): Promise<Response> => {
+    const POST = withRoute<[Request?]>('POST /api/x', async (): Promise<Response> => {
       throw new RangeError('secret-bearing message SXYZ');
     });
 
