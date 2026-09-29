@@ -31,6 +31,9 @@ export interface AttestEvidence {
  * Onboarding flow: when a new user is invited, they include a `manageData` operation in
  * their account-creation (or first) transaction that sets this key to the inviter's address.
  * This is verifiable on-chain via GET /accounts/{referred} → .data["referral"].
+ *
+ * Passkey smart accounts (C…) can't set manageData; they bind their inviter via the
+ * registry's `invited_by(addr)` view instead (see verifyEvidence in the attester).
  */
 export const REFERRAL_MARKER_KEY = 'referral';
 
@@ -119,7 +122,11 @@ export function validateEvidence(
     return { ok: false, reason: 'ref must be owner/repo#number' };
   }
   if (ev.type === 'referral_tx') {
-    if (!isGAddress(ev.ref)) return { ok: false, reason: 'ref must be a G address' };
+    // Classic accounts bind via manageData (G…); passkey smart accounts bind via
+    // the registry's invited-by record (C…). Both are valid shapes here.
+    if (!isStellarAddress(ev.ref)) {
+      return { ok: false, reason: 'ref must be a G or C address' };
+    }
     if (ev.ref === recipient) return { ok: false, reason: 'cannot refer yourself' };
   }
   if (ev.type === 'invite_converts') {

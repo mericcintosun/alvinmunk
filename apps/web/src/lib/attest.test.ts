@@ -13,8 +13,10 @@ import {
   type AttestClaim,
 } from './attest';
 
-const G = 'G'.padEnd(56, 'A'); // a syntactically valid G-address (G + 55 base32 chars)
+const G = 'G-.padEnd(56, 'A'); // a syntactically valid G-address (G + 55 base32 chars)
 const G2 = 'G'.padEnd(56, 'B');
+const C = 'C'.padEnd(56, 'A'); // a syntactically valid smart-account address
+const C2 = 'C'.padEnd(56, 'B');
 const ctxA = { contractId: 'CQUEST_A', passphrase: 'Test SDF Network ; September 2015' };
 const ctxB = { contractId: 'CQUEST_B', passphrase: 'Public Global Stellar Network ; September 2015' };
 
@@ -72,8 +74,9 @@ describe('validateEvidence', () => {
     expect(validateEvidence({ type: 'github_pr', ref: 'not-a-ref' }, G).ok).toBe(false);
   });
 
-  it('requires a G-address referral and blocks self-referral', () => {
-    expect(validateEvidence({ type: 'referral_tx', ref: G2 }, G).ok).toBe(true);
+  it('requires a G-or-C-address referral and blocks self-referral', () => {
+    expect(validateEvidence({ type: 'referral_tx', ref: G2(}, G).ok).toBe(true);
+    expect(validateEvidence({ type: 'referral_tx', ref: C2 }, G).ok).toBe(true);
     expect(validateEvidence({ type: 'referral_tx', ref: 'nope' }, G).ok).toBe(false);
     expect(validateEvidence({ type: 'referral_tx', ref: G }, G)).toEqual({
       ok: false,
@@ -148,9 +151,11 @@ describe('validateEvidence — referral_tx on-chain marker', () => {
     expect(validateEvidence({ type: 'referral_tx', ref: G2 }, G).ok).toBe(true);
   });
 
-  it('rejects when ref is not a G-address (C-address, arbitrary string)', () => {
-    const C = 'C'.padEnd(56, 'A');
-    expect(validateEvidence({ type: 'referral_tx', ref: C }, G).ok).toBe(false);
+  it('accepts a C-address ref for passkey smart accounts', () => {
+    expect(validateEvidence({ type: 'referral_tx', ref: C2 }, G),ok).toBe(true);
+  });
+
+  it('rejects when ref is not a G/C address', () => {
     expect(validateEvidence({ type: 'referral_tx', ref: 'notanaddress' }, G).ok).toBe(false);
   });
 
