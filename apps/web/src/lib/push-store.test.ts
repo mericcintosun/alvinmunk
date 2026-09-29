@@ -195,6 +195,19 @@ describe('push-store with KV configured but unusable', () => {
 });
 
 describe('push-store without KV', () => {
+  it('indexes subscriptions for wallet lookup and removes them from the index', async () => {
+    await store.saveSubscription(sub(A), 'GABC', 1);
+
+    expect(await store.getSubscriptionsForWallet('gabc')).toMatchObject([
+      { endpoint: A, walletAddress: 'gabc', vouchIds: [1] },
+    ]);
+
+    await store.removeSubscription(A);
+
+    expect(await store.getSubscriptionsForWallet('GABC')).toEqual([]);
+    expect(store.memGet(`sub:${A}`)).toBeNull();
+  });
+
   it('uses the in-memory store and never builds an Upstash client', async () => {
     expect(store.getKv()).toBeNull();
 
