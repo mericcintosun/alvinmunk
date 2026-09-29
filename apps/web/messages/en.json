@@ -30,6 +30,7 @@
   "landing.hero.seeHowItWorks": "or see how it works",
   "landing.hero.pills": "no_seed_phrase / fees_sponsored / live_on_stellar",
   "landing.ticker.label": "on-chain // facts",
+  "landing.ticker.example": "example",
   "landing.stats.onchain": "Soroban, on-chain",
   "landing.stats.xpTracks": "clout vs cashable",
   "landing.stats.stakeWin": "vouch window",
@@ -113,6 +114,9 @@
   "claim.skip": "Skip for now → create your profile",
   "claim.openApp": "open_the_app →",
   "claim.viewProfile": "view_your_profile →",
+  "claim.voucher.headlineHandle": "@{handle} vouched for you.",
+  "claim.voucher.headlineFallback": "Someone vouched for you.",
+  "claim.voucher.viewProfile": "view @{handle}'s profile →",
 
   "appHome.whatNow": "What now",
   "appHome.recentActivity": "Recent activity",
