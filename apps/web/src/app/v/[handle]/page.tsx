@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowRight } from 'lucide-react';
-import { resolveHandle } from '@/lib/registry';
+import { ArrowRight, QrCode as QrCodeIcon } from 'lucide-react';
+import { resolveHandle, getMeta } from '@/lib/registry';
 import { getPeopleCounts } from '@/lib/constellation';
 import { Crest } from '@/components/brand/crest';
 import { Avatar } from '@/components/Avatar';
@@ -11,8 +11,13 @@ import { Frame } from '@/components/fx/frame';
 import { Stamp } from '@/components/fx/stamp';
 import { BorderBeam } from '@/components/fx/border-beam';
 import { AuroraText } from '@/components/fx/shiny-text';
-import { buttonVariants } from '@/components/ui/button';
-import { cn, shortAddress } from '@/lib/utils';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { QrCode } from '@/components/fx/qr-code';
+import { useWallet } from '@/components/wallet/wallet-provider';
+import { useTranslations } from '@/lib/i18n';
+import { shortAddr } from '@alvinmunk/shared';
+import { cn } from '@/lib/utils';
+import type { AvatarConfig } from '@/lib/avatar';
 
 /**
  * Vouch-invite deep link — `/v/<handle>` is shared by @handle to recruit. The visitor
@@ -21,9 +26,18 @@ import { cn, shortAddress } from '@/lib/utils';
  * becomes a recruiting funnel.
  */
 export default function InvitePage({ params }: { params: { handle: string } }) {
+  const t = useTranslations();
+  const { profile } = useWallet();
   const handle = params.handle.toLowerCase();
   const [address, setAddress] = useState<string | null | undefined>(undefined);
   const [vouchedBy, setVouchedBy] = useState<number | null>(null);
+  const [avatar, setAvatar] = useState<AvatarConfig | undefined>(undefined);
+  const [showInviteQr, setShowInviteQr] = useState(false);
+  const [origin, setOrigin] = useState('');
+
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
 
   useEffect(() => {
     try {
@@ -32,19 +46,29 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
       /* storage unavailable */
     }
     let alive = true;
+    setAvatar(undefined);
     resolveHandle(handle)
       .then(async (addr) => {
         if (!alive) return;
         setAddress(addr);
         if (!addr) return;
-        const people = await getPeopleCounts(addr).catch(() => ({ vouchedBy: 0, backed: 0 }));
-        if (alive) setVouchedBy(people.vouchedBy);
+        const [people, meta] = await Promise.all([
+          getPeopleCounts(addr).catch(() => ({ vouchedBy: 0, backed: 0 })),
+          getMeta(addr), // the inviter's published face; null → deterministic default
+        ]);
+        if (!alive) return;
+        setVouchedBy(people.vouchedBy);
+        setAvatar(meta?.avatar);
       })
       .catch(() => alive && setAddress(null));
     return () => {
       alive = false;
     };
   }, [handle]);
+
+  // The owner is the connected wallet whose address this handle resolves to.
+  // Only they see the (secret-free) invite QR for their own page.
+  const isOwner = Boolean(address) && profile?.address === address;
 
   return (
     <div className="container max-w-lg py-16">
@@ -60,14 +84,14 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
       <Frame label={`invite // @${handle}`} index="REF" className="mt-7" tilt tape="tr">
         <div className="flex items-center gap-5 p-7">
           {address ? (
-            <Avatar address={address} handle={handle} size={96} />
+            <Avatar address={address} avatar={avatar} handle={handle} size={96} />
           ) : (
             <Crest address={`unclaimed-${handle}`} size={96} points={7} animate />
           )}
           <div className="min-w-0">
             <div className="font-display text-2xl font-semibold">@{handle}</div>
             <p className="mt-1 font-mono text-xs text-muted-foreground">
-              {address ? shortAddress(address) : 'new to the sky'}
+              {address ? shortAddr(address) : 'new to the sky'}
             </p>
             <div className="mt-2">
               <Stamp accent="secondary">
@@ -91,6 +115,26 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
           <BorderBeam size={60} duration={6} colorTo="hsl(var(--tertiary))" />
         </span>
       </div>
+
+      {isOwner && (
+        <div className="mt-6">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setShowInviteQr((v) => !v)}
+            aria-expanded={showInviteQr}
+            aria-controls="invite-qr"
+          >
+            <QrCodeIcon className="size-4" />
+            {showInviteQr ? t('invite.qr.hide') : t('invite.qr.show')}
+          </Button>
+          {showInviteQr && (
+            <div id="invite-qr" className="mt-3 flex flex-col items-center gap-2">
+              <QrCode value={`${origin}/v/${handle}`} label={t('invite.qr.alt')} />
+            </div>
+          )}
+        </div>
+      )}
       <p className="mt-4 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
         no_seed_phrase / fees_sponsored / 2_taps
       </p>

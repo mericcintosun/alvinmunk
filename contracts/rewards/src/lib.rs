@@ -3,13 +3,16 @@
 //!
 //! - `tip`: direct USDC (SAC) transfer wallet->wallet + a `tipped` event for the feed.
 //!   Ship this FIRST (Green retention de-risk) — measure D7 return of spend RECEIVERS.
+//!   Every tip moves value: `amount > 0` and sender != receiver, so a `tipped` event is
+//!   always evidence that somebody received a real spend.
 //! - `add_reward` / `claim_reward`: the on-chain rank->reward unlock TABLE. The admin
 //!   registers each reward (Earned-XP threshold + USDC amount); a user claims by id and
 //!   the contract pays the STORED amount. The caller can NEVER dictate the payout, so the
 //!   treasury is not drainable (belts/08: bound the payout path).
 //!
 //! Safety: Earned-XP gate (keystone) + admin-set per-reward amount + replay guard +
-//! pausable emergency stop.
+//! pausable emergency stop. A `tip` never touches the treasury (the sender funds it), but
+//! it is bounded the same way: it must move real value between two different wallets.
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short, token,
@@ -45,6 +48,22 @@ pub enum Error {
     NotFunded = 12, // proof-of-funding gate (belts/08): no external value received
     RewardExhausted = 13, // the reward's fixed supply (`max_claims`) is used up
     InvalidSupply = 14, // a supply cap below the claims already paid
+    InvalidThreshold = 15, // zero threshold bypasses the Earned-XP gate
+    AmountExceedsCap = 16, // payout above the daily cap can never be claimed
+    CapBelowActiveReward = 17, // new cap would strand an active reward
+    StreakTooShort = 18, // live weekly quest streak below the reward's minimum
+    QuestRegistryNotSet = 19, // a streak gate needs `set_quest_registry` first
+    SelfTip = 20,   // `tip` sender == receiver: a `tipped` event that moves no value
+}
+
+/// `quest_registry::Streak`, decoded from the cross-contract `get_streak` read (the field
+/// names and types must match). Only `weeks` gates a claim.
+#[contracttype]
+#[derive(Clone)]
+pub struct Streak {
+    pub weeks: u32,
+    pub last_week: u64,
+    pub best: u32,
 }
 
 /// One row of the rank->reward unlock table.
@@ -76,6 +95,7 @@ pub struct RewardInfo {
     pub active: bool,
     pub max_claims: u32, // 0 = unlimited
     pub claims: u32,
+    pub min_streak: u32, // live weekly quest streak required; 0 = none
 }
 
 #[contracttype]
@@ -94,6 +114,8 @@ pub enum DataKey {
     RequireFunding,              // bool — enforce proof-of-funding on claim (off on testnet)
     Funded(Address),             // bool — verified to have received external value (belts/08)
     RewardStats(u32),            // RewardStats — supply cap + running claim count
+    QuestRegistry,               // QuestRegistry address, read for streak-gated rewards
+    RewardStreak(u32),           // u32 — min live weekly streak for a reward (absent = none)
 }
 
 #[contract]
@@ -121,10 +143,20 @@ impl RewardsContract {
     }
 
     /// Direct USDC tip. `from` pays `to`; mints a social "thank-you" event.
+    ///
+    /// Every tip moves value: the amount must be positive and the receiver must be a
+    /// DIFFERENT wallet (`validate_tip`, #144). The SAC's own check only rejects a
+    /// NEGATIVE amount, so `0` and `from == to` used to go through — a wallet holding no
+    /// USDC could tip 0 anyone, and a self-transfer left the balance unchanged, both still
+    /// minting a `tipped` event. `tipped` is a frozen canonical event (shared
+    /// EVENTS.TIPPED) read by the feed and the indexer, and it is the proof that somebody
+    /// *received* a spend — the Green belt's D7 de-risk metric — so a no-value tip is
+    /// refused here rather than left for every consumer to filter.
     pub fn tip(env: Env, from: Address, to: Address, amount: i128) {
         Self::not_paused(&env);
         from.require_auth();
         Self::require_unfrozen(&env, &from);
+        Self::validate_tip(&env, &from, &to, amount);
         let usdc: Address = env.storage().instance().get(&DataKey::Usdc).unwrap();
         token::Client::new(&env, &usdc).transfer(&from, &to, &amount);
         env.events()
@@ -135,11 +167,13 @@ impl RewardsContract {
 
     /// Register or update a reward. Admin-only. `amount` is the STORED payout — claimers
     /// can never set it, so the treasury can't be drained via an attacker-chosen amount.
+    /// Rejects `threshold == 0` (it would bypass the Earned-XP gate) and, when a daily cap
+    /// is set, an `amount` above it (such a reward could never be claimed). The treasury
+    /// balance is not checked: it moves with funding and claims, so a reward can be
+    /// registered before the treasury is funded.
     pub fn add_reward(env: Env, reward_id: u32, threshold: u64, amount: i128) {
         Self::admin(&env).require_auth();
-        if amount <= 0 {
-            panic_with_error!(&env, Error::InvalidAmount);
-        }
+        Self::validate_reward(&env, threshold, amount);
         let is_new = !env.storage().persistent().has(&DataKey::Reward(reward_id));
         let entry = RewardEntry {
             id: reward_id,
@@ -172,7 +206,8 @@ impl RewardsContract {
             .publish((symbol_short!("rwd_set"), reward_id), (threshold, amount));
     }
 
-    /// Enable/disable a reward without removing it from the table. Admin-only.
+    /// Enable/disable a reward without removing it from the table. Admin-only. Enabling
+    /// re-checks the amount against the current daily cap (`AmountExceedsCap`).
     pub fn set_reward_active(env: Env, reward_id: u32, active: bool) {
         Self::admin(&env).require_auth();
         let mut entry: RewardEntry = env
@@ -180,6 +215,9 @@ impl RewardsContract {
             .persistent()
             .get(&DataKey::Reward(reward_id))
             .unwrap_or_else(|| panic_with_error!(&env, Error::RewardNotFound));
+        if active {
+            Self::assert_amount_within_cap(&env, entry.amount);
+        }
         entry.active = active;
         env.storage()
             .persistent()
@@ -214,6 +252,49 @@ impl RewardsContract {
         Self::stats(&env, reward_id)
     }
 
+    /// Point the rewards contract at the QuestRegistry whose `get_streak` gates
+    /// streak-gated rewards. Admin-only. `init` doesn't take it (deployed contracts keep
+    /// their init signature), so a deploy or upgrade calls this once; it can be re-pointed
+    /// after a QuestRegistry redeploy.
+    pub fn set_quest_registry(env: Env, quest_registry: Address) {
+        Self::admin(&env).require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::QuestRegistry, &quest_registry);
+    }
+
+    pub fn get_quest_registry(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::QuestRegistry)
+    }
+
+    /// Require a live weekly quest streak of at least `weeks` to claim a reward, on top of
+    /// its Earned-XP threshold; `0` removes the requirement. Admin-only. Kept under its own
+    /// key so stored `Reward(id)` entries keep their shape. A non-zero minimum needs the
+    /// QuestRegistry set first (`QuestRegistryNotSet`).
+    pub fn set_reward_min_streak(env: Env, reward_id: u32, weeks: u32) {
+        Self::admin(&env).require_auth();
+        if !env.storage().persistent().has(&DataKey::Reward(reward_id)) {
+            panic_with_error!(&env, Error::RewardNotFound);
+        }
+        let key = DataKey::RewardStreak(reward_id);
+        if weeks == 0 {
+            env.storage().persistent().remove(&key);
+        } else {
+            Self::quest_registry(&env);
+            env.storage().persistent().set(&key, &weeks);
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, BUMP_THRESHOLD, BUMP_EXTEND);
+        }
+        env.events()
+            .publish((symbol_short!("rwd_strk"), reward_id), weeks);
+    }
+
+    /// The live weekly streak a reward requires (0 = none).
+    pub fn get_reward_min_streak(env: Env, reward_id: u32) -> u32 {
+        Self::min_streak(&env, reward_id)
+    }
+
     pub fn get_reward(env: Env, reward_id: u32) -> Option<RewardEntry> {
         env.storage().persistent().get(&DataKey::Reward(reward_id))
     }
@@ -233,6 +314,7 @@ impl RewardsContract {
                 .get::<DataKey, RewardEntry>(&DataKey::Reward(id))
             {
                 let stats = Self::stats(&env, id);
+                let min_streak = Self::min_streak(&env, id);
                 out.push_back(RewardInfo {
                     id: e.id,
                     threshold: e.threshold,
@@ -240,6 +322,7 @@ impl RewardsContract {
                     active: e.active,
                     max_claims: stats.max_claims,
                     claims: stats.claims,
+                    min_streak,
                 });
             }
         }
@@ -292,6 +375,22 @@ impl RewardsContract {
             panic_with_error!(&env, Error::BelowThreshold);
         }
 
+        // Streak-gated rewards (#294): cross-read the claimer's weekly quest streak. The
+        // streak only grows through attester-verified quests, so this stays on the Earned
+        // side of the two-track split. `get_streak` already reads a lapsed run as 0 weeks
+        // (the stored `weeks` is only reset by the next award), so a stale streak fails here.
+        // Rewards without a minimum make no QuestRegistry call.
+        let min_streak = Self::min_streak(&env, reward_id);
+        if min_streak > 0 {
+            let quest_registry = Self::quest_registry(&env);
+            let func = Symbol::new(&env, "get_streak"); // >9 chars => not symbol_short
+            let streak: Streak =
+                env.invoke_contract(&quest_registry, &func, soroban_sdk::vec![&env, to.to_val()]);
+            if streak.weeks < min_streak {
+                panic_with_error!(&env, Error::StreakTooShort);
+            }
+        }
+
         // Global treasury circuit breaker (belts/08): bound total daily payout so even
         // sybil-farmed Earned XP or a compromised attester can't drain more than the cap.
         Self::charge_daily(&env, entry.amount);
@@ -324,17 +423,28 @@ impl RewardsContract {
         env.storage().instance().set(&DataKey::Paused, &paused);
     }
 
-    /// Set the max treasury payout per UTC day (0 = unlimited). Admin-only.
+    /// Set the max treasury payout per UTC day, in USDC stroops. Admin-only.
+    ///
+    /// - `0` means **unlimited** (no per-day ceiling). To block every payout, use
+    ///   `set_paused(true)`.
+    /// - A negative cap is rejected (`InvalidAmount`): `charge_daily` only enforces a
+    ///   positive cap, so a negative one would silently lift the limit instead of
+    ///   tightening it.
+    /// - A positive cap below an active reward's amount is rejected
+    ///   (`CapBelowActiveReward`): lower or deactivate that reward first. `0` is always
+    ///   accepted.
     pub fn set_daily_cap(env: Env, cap: i128) {
         Self::admin(&env).require_auth();
+        if cap < 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        Self::assert_cap_covers_active_rewards(&env, cap);
         env.storage().instance().set(&DataKey::DailyCap, &cap);
     }
 
+    /// The daily payout cap in USDC stroops; `0` = unlimited. Never negative.
     pub fn get_daily_cap(env: Env) -> i128 {
-        env.storage()
-            .instance()
-            .get(&DataKey::DailyCap)
-            .unwrap_or(0)
+        Self::daily_cap(&env)
     }
 
     pub fn get_daily_paid(env: Env) -> i128 {
@@ -412,6 +522,29 @@ impl RewardsContract {
 
     // --- internal ---
 
+    /// Reject a tip that would move no value, BEFORE the SAC call and before the event
+    /// (nothing is written either way — a revert rolls the whole invocation back).
+    ///
+    /// - `amount <= 0` → `InvalidAmount`. The SAC's own `check_nonnegative_amount` rejects
+    ///   only a NEGATIVE amount, so `0` used to go through: a wallet with no USDC at all
+    ///   could "tip" anyone for the price of a fee and the receiver would count as having
+    ///   received a spend.
+    /// - `from == to` → `SelfTip`. The SAC moves the balance to itself, so the transfer
+    ///   succeeds and the balance is unchanged, while one wallet can "receive" any number
+    ///   of tips from itself.
+    ///
+    /// Both inflate exactly what `tipped` is evidence of, so they are refused on-chain:
+    /// an emitted `tipped` always means USDC moved from `from` to a DIFFERENT `to`. The
+    /// amount is checked first — the web app's `validateTip` orders it the same way.
+    fn validate_tip(env: &Env, from: &Address, to: &Address, amount: i128) {
+        if amount <= 0 {
+            panic_with_error!(env, Error::InvalidAmount);
+        }
+        if from == to {
+            panic_with_error!(env, Error::SelfTip);
+        }
+    }
+
     /// Enforce proof-of-funding only when the gate is on (mainnet). The cheapest real
     /// uniqueness signal that isn't heavy KYC: a wallet must have received external value.
     fn require_funded(env: &Env, who: &Address) {
@@ -439,6 +572,20 @@ impl RewardsContract {
                 max_claims: 0,
                 claims: 0,
             })
+    }
+
+    fn min_streak(env: &Env, reward_id: u32) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::RewardStreak(reward_id))
+            .unwrap_or(0)
+    }
+
+    fn quest_registry(env: &Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&DataKey::QuestRegistry)
+            .unwrap_or_else(|| panic_with_error!(env, Error::QuestRegistryNotSet))
     }
 
     fn save_stats(env: &Env, reward_id: u32, stats: &RewardStats) {
@@ -471,13 +618,64 @@ impl RewardsContract {
         }
     }
 
-    /// Accumulate today's treasury outflow and enforce the daily cap (0 = unlimited).
-    fn charge_daily(env: &Env, amount: i128) {
+    /// Reject reward rows that could never pay out or that bypass the Earned-XP gate.
+    fn validate_reward(env: &Env, threshold: u64, amount: i128) {
+        if amount <= 0 {
+            panic_with_error!(env, Error::InvalidAmount);
+        }
+        if threshold == 0 {
+            panic_with_error!(env, Error::InvalidThreshold);
+        }
+        Self::assert_amount_within_cap(env, amount);
+    }
+
+    /// The stored daily cap; `0` (unset) = unlimited. `set_daily_cap` rejects a negative
+    /// cap, but one stored before that rule reads as `0` here: it never limited anything,
+    /// and the views should not show it as a restriction.
+    fn daily_cap(env: &Env) -> i128 {
         let cap: i128 = env
             .storage()
             .instance()
             .get(&DataKey::DailyCap)
             .unwrap_or(0);
+        cap.max(0)
+    }
+
+    /// A payout larger than the daily cap can never be claimed: `charge_daily` refuses any
+    /// single claim above it. So while a cap is set (> 0) every ACTIVE reward must pay at
+    /// most the cap. `add_reward` and re-enabling check the row against the current cap,
+    /// and `set_daily_cap` checks a new cap against the active rows. Inactive rows may
+    /// exceed it until they are re-enabled. A cap of 0 is unlimited.
+    fn assert_amount_within_cap(env: &Env, amount: i128) {
+        let cap = Self::daily_cap(env);
+        if cap > 0 && amount > cap {
+            panic_with_error!(env, Error::AmountExceedsCap);
+        }
+    }
+
+    /// A positive cap must cover every active reward's amount (0 = unlimited).
+    fn assert_cap_covers_active_rewards(env: &Env, cap: i128) {
+        if cap <= 0 {
+            return;
+        }
+        let ids: Vec<u32> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::RewardIds)
+            .unwrap_or_else(|| Vec::new(env));
+        for id in ids.iter() {
+            let entry: Option<RewardEntry> = env.storage().persistent().get(&DataKey::Reward(id));
+            if let Some(e) = entry {
+                if e.active && e.amount > cap {
+                    panic_with_error!(env, Error::CapBelowActiveReward);
+                }
+            }
+        }
+    }
+
+    /// Accumulate today's treasury outflow and enforce the daily cap (0 = unlimited).
+    fn charge_daily(env: &Env, amount: i128) {
+        let cap = Self::daily_cap(env);
         let day = env.ledger().timestamp() / DAY_SECS;
         let key = DataKey::DailyPaid(day);
         let paid: i128 = env.storage().temporary().get(&key).unwrap_or(0);

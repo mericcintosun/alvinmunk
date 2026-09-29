@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { getWallet } from '@/lib/wallet';
 import { txExplorerUrl } from '@/lib/stellar';
 import { getEarnedScore } from '@/lib/reputation';
+import { getStreak } from '@/lib/quests';
 import { claimReward, getRewards, getUsdcBalance, isClaimed, stroopsToUsdc, usdcToStroops, type RewardEntry } from '@/lib/rewards';
 import {
   getAnchorConfig,
@@ -24,7 +25,8 @@ import { toast } from '@/components/ui/toaster';
 import { useTranslations } from '@/lib/i18n';
 
 // Rewards contract error codes → friendly copy (mirrors contracts/rewards Error enum).
-// Built from `t` so the copy follows the active locale.
+// Built from `t` so the copy follows the active locale. 15–17 and 19 are admin-only
+// (add_reward / set_reward_active / set_daily_cap / set_reward_min_streak).
 export function buildRewardErrors(t: (key: string) => string): Record<number, string> {
   return {
     3: t('rewards.error.xp'),
@@ -35,6 +37,11 @@ export function buildRewardErrors(t: (key: string) => string): Record<number, st
     10: t('rewards.error.review'),
     12: t('rewards.error.funding'),
     13: t('rewards.error.pool'),
+    15: t('rewards.error.threshold'),
+    16: t('rewards.error.overDailyCap'),
+    17: t('rewards.error.capBelowReward'),
+    18: t('rewards.error.streakTooShort'),
+    19: t('rewards.error.streakUnset'),
   };
 }
 
@@ -42,12 +49,15 @@ export function buildRewardErrors(t: (key: string) => string): Record<number, st
  * Rank -> reward unlock table (Green belt). Each reward is admin-registered on-chain
  * (Earned-XP threshold -> USDC); the contract pays the STORED amount, so rank buys
  * something real and the treasury can't be drained. Earned-gated (vouches never unlock it).
+ * A reward can also require a live weekly quest streak (`min_streak`); `get_streak`
+ * already reads a lapsed run as 0, so the count shown is the one the contract checks.
  */
 type Row = RewardEntry & { claimed: boolean };
 
 export function Rewards({ address }: { address: string }) {
   const t = useTranslations();
   const [earned, setEarned] = useState<number | null>(null);
+  const [streak, setStreak] = useState<number>(0);
   const [rows, setRows] = useState<Row[] | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
   const [hash, setHash] = useState<string | null>(null);
@@ -56,11 +66,15 @@ export function Rewards({ address }: { address: string }) {
   const refresh = useCallback(async () => {
     // Timeout the gating reads so a slow RPC degrades to "no rewards" instead of an
     // endless skeleton in front of a tester/judge.
-    const [e, table] = await Promise.all([
+    const [e, table, weeks] = await Promise.all([
       withTimeout(getEarnedScore(address, address), 12_000, 'score').catch(() => 0),
       withTimeout(getRewards(address), 12_000, 'rewards').catch(() => [] as RewardEntry[]),
+      withTimeout(getStreak(address, address), 12_000, 'streak')
+        .then((st) => st.weeks)
+        .catch(() => 0),
     ]);
     setEarned(e);
+    setStreak(weeks);
     const withClaimed = await Promise.all(
       table.map(async (r) => ({
         ...r,
@@ -86,7 +100,7 @@ export function Rewards({ address }: { address: string }) {
       await refresh();
       toast.success(t('rewards.toast.success'));
     } catch (e) {
-      const msg = humanizeError(e, buildRewardErrors(t));
+      const msg = humanizeError(e, buildRewardErrors(t), 'reward');
       setError(msg);
       toast.error(msg);
     } finally {
@@ -115,7 +129,8 @@ export function Rewards({ address }: { address: string }) {
         ) : (
           <ul className="flex flex-col gap-2">
             {rows.map((r) => {
-              const unlocked = (earned ?? 0) >= Number(r.threshold);
+              const minStreak = r.min_streak ?? 0;
+              const unlocked = (earned ?? 0) >= Number(r.threshold) && streak >= minStreak;
               const cap = r.max_claims ?? 0;
               const left = cap > 0 ? Math.max(0, cap - (r.claims ?? 0)) : null;
               const soldOut = left === 0;
@@ -133,6 +148,11 @@ export function Rewards({ address }: { address: string }) {
                         {soldOut
                           ? t('rewards.noneLeft')
                           : t('rewards.leftOfCap', { left: String(left), cap: String(cap) })}
+                      </span>
+                    )}
+                    {minStreak > 0 && (
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        · needs a {minStreak}-week streak (you: {streak})
                       </span>
                     )}
                   </span>

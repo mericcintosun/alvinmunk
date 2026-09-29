@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { Flame } from 'lucide-react';
 import { getWallet } from '@/lib/wallet';
 import { completeQuest, getStreak } from '@/lib/quests';
+import { DEFAULT_QUEST_IDS } from '@/lib/attest';
 import { getEarnedScore } from '@/lib/reputation';
 import { resolveHandle } from '@/lib/registry';
 import { normalizeHandle } from '@/lib/profile';
@@ -15,24 +16,30 @@ import { Badge } from '@/components/ui/badge';
 import { StateArt } from '@/components/ui/state-art';
 import { Sticker } from '@/components/ui/sticker';
 import { Avatar } from '@/components/Avatar';
-import { cn, humanizeError, shortAddress } from '@/lib/utils';
+import { WeekReset } from '@/components/WeekReset';
+import { isStellarAddress, shortAddr } from '@alvinmunk/shared';
+import { cn, humanizeError } from '@/lib/utils';
 import { toast } from '@/components/ui/toaster';
 import { useTranslations } from '@/lib/i18n';
 
 // Quest ids are admin-created on the QuestRegistry; env-configurable so they can change per
-// deployment without a code edit. Defaults: 2 = refer, 3 = invite-converts, 4 = vouch-back.
-const REFERRAL_QUEST_ID = Number(process.env.NEXT_PUBLIC_DEFAULT_QUEST_ID ?? '2');
-const INVITE_QUEST_ID = Number(process.env.NEXT_PUBLIC_INVITE_QUEST_ID ?? '3');
-const VOUCHBACK_QUEST_ID = Number(process.env.NEXT_PUBLIC_VOUCHBACK_QUEST_ID ?? '4');
+// deployment without a code edit. The defaults (2 = refer, 3 = invite-converts, 4 = vouch-back)
+// are shared with /api/attest, which only signs a quest id for its bound evidence type.
+const REFERRAL_QUEST_ID = Number(
+  process.env.NEXT_PUBLIC_DEFAULT_QUEST_ID || DEFAULT_QUEST_IDS.referral_tx,
+);
+const INVITE_QUEST_ID = Number(
+  process.env.NEXT_PUBLIC_INVITE_QUEST_ID || DEFAULT_QUEST_IDS.invite_converts,
+);
+const VOUCHBACK_QUEST_ID = Number(
+  process.env.NEXT_PUBLIC_VOUCHBACK_QUEST_ID || DEFAULT_QUEST_IDS.vouch_back,
+);
 const VOUCH_BACK_MIN = 3; // mirrors attest.ts VOUCH_BACK_MIN (UI copy only)
 
 type Evidence =
   | { type: 'referral_tx'; ref: string }
   | { type: 'invite_converts'; ref: string }
   | { type: 'vouch_back'; ref: string };
-
-const RAW_ADDR = /^[GC][A-Z2-7]{55}$/;
-const RAW_G_ADDR = /^G[A-Z2-7]{55}$/;
 
 /**
  * Verified quests (Earned XP — the cashable track). The wallet owner proves ownership,
@@ -56,11 +63,11 @@ export function Quests({ address }: { address: string }) {
 
   const refTrim = ref.trim();
   const inviteTrim = invite.trim();
-  const validRef = resolvedRef && RAW_G_ADDR.test(resolvedRef) && resolvedRef !== address;
-  const validInvite = resolvedInvite && RAW_ADDR.test(resolvedInvite) && resolvedInvite !== address;
+  const validRef = resolvedRef && isStellarAddress(resolvedRef) && resolvedRef !== address;
+  const validInvite = resolvedInvite && isStellarAddress(resolvedInvite) && resolvedInvite !== address;
 
   useEffect(() => {
-    if (RAW_ADDR.test(refTrim)) {
+    if (isStellarAddress(refTrim)) {
       setResolvedRef(refTrim);
       setResolvingRef(false);
       return;
@@ -90,7 +97,7 @@ export function Quests({ address }: { address: string }) {
   }, [refTrim]);
 
   useEffect(() => {
-    if (RAW_ADDR.test(inviteTrim)) {
+    if (isStellarAddress(inviteTrim)) {
       setResolvedInvite(inviteTrim);
       setResolvingInvite(false);
       return;
@@ -126,6 +133,26 @@ export function Quests({ address }: { address: string }) {
       .catch(() => setStreak({ weeks: 0, best: 0 }));
   }, [address]);
 
+  // A run can lapse when the week rolls over, so the countdown re-reads the streak then.
+  function reloadStreak() {
+    getStreak(address, address)
+      .then((s) => setStreak({ weeks: s.weeks, best: s.best }))
+      .catch(() => {
+        /* keep the last streak */
+      });
+  }
+
+  // Runs after a verified quest, outside its error path: the XP is already granted on-chain, so a
+  // slow or failed read keeps the last figures instead of reporting the quest as failed.
+  function refreshScores() {
+    getEarnedScore(address, address)
+      .then(setEarned)
+      .catch(() => {
+        /* keep the last score */
+      });
+    reloadStreak();
+  }
+
   async function run(kind: 'referral' | 'invite' | 'vouchback', questId: number, evidence: Evidence) {
     setBusy(kind);
     setError(null);
@@ -136,9 +163,7 @@ export function Quests({ address }: { address: string }) {
       if (!r.ok) throw new Error(r.error);
       setDone(true);
       toast.success(t('quests.toast.success'));
-      setEarned(await getEarnedScore(address, address));
-      const s = await getStreak(address, address);
-      setStreak({ weeks: s.weeks, best: s.best });
+      refreshScores();
     } catch (e) {
       const msg = humanizeError(e);
       setError(msg);
@@ -190,6 +215,7 @@ export function Quests({ address }: { address: string }) {
                 </span>
               )}
             </span>
+            <WeekReset address={address} onRollover={reloadStreak} className="ml-auto" />
           </div>
         )}
         {/* Quest 1 — refer an active wallet */}
@@ -205,14 +231,14 @@ export function Quests({ address }: { address: string }) {
             className="mt-1.5 font-mono text-xs"
             aria-describedby="quest-ref-hint"
           />
-          {!RAW_ADDR.test(refTrim) && refTrim.length > 0 && (
+          {!isStellarAddress(refTrim) && refTrim.length > 0 && (
             <div className="mt-1 flex items-center text-xs text-muted-foreground">
               {resolvingRef ? (
                 t('quests.lookingUp')
               ) : resolvedRef ? (
                 <span className="flex items-center text-secondary">
                   → <Avatar address={resolvedRef} size={16} ring={false} className="mx-1.5" />
-                  {shortAddress(resolvedRef, 6, 6)}
+                  {shortAddr(resolvedRef, 6, 6)}
                 </span>
               ) : (
                 <span className="text-destructive">{t('quests.noWallet')}</span>
@@ -249,14 +275,14 @@ export function Quests({ address }: { address: string }) {
             className="mt-1.5 font-mono text-xs"
             aria-describedby="quest-invite-hint"
           />
-          {!RAW_ADDR.test(inviteTrim) && inviteTrim.length > 0 && (
+          {!isStellarAddress(inviteTrim) && inviteTrim.length > 0 && (
             <div className="mt-1 flex items-center text-xs text-muted-foreground">
               {resolvingInvite ? (
                 t('quests.lookingUp')
               ) : resolvedInvite ? (
                 <span className="flex items-center text-secondary">
                   → <Avatar address={resolvedInvite} size={16} ring={false} className="mx-1.5" />
-                  {shortAddress(resolvedInvite, 6, 6)}
+                  {shortAddr(resolvedInvite, 6, 6)}
                 </span>
               ) : (
                 <span className="text-destructive">{t('quests.noWallet')}</span>

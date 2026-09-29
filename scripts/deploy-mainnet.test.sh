@@ -75,6 +75,8 @@ case "$1 ${2:-}" in
         case "$fn" in
           get_require_funding) echo "${STUB_VIEW_FUNDING:-true}" ;;
           get_daily_cap) echo "\"$DAILY_CAP\"" ;;
+          # the id `contract deploy` below hands out for quest_registry's wasm
+          get_quest_registry) echo "\"${STUB_VIEW_QUEST:-C$(sha "$STUB_WASM/alvinmunk_quest_registry.wasm" | tr '0-9a-f' 'A-P' | cut -c1-55)}\"" ;;
           is_attester) echo true ;;
           *) exit 98 ;;
         esac ;;
@@ -200,6 +202,9 @@ rejects "missing DAILY_CAP" "DAILY_CAP is required" ADMIN=admin ATTESTER=atteste
 for cap in 0 -5 50USDC 1000000000000000000; do
   rejects "DAILY_CAP=$cap" "positive whole number" "${BASE[@]}" DAILY_CAP=$cap
 done
+rejects "DAILY_CAP below a reward" "DAILY_CAP must be at least 20000000 stroops: reward 3" "${BASE[@]}" DAILY_CAP=19999999
+fresh_repo && exec_script "${BASE[@]}" DRY_RUN=1 DAILY_CAP=20000000
+check "DAILY_CAP equal to the largest reward is accepted" [ "$RC" = 0 ]
 for dr in true yes 2; do rejects "DRY_RUN=$dr" "DRY_RUN must be 0 or 1" "${BASE[@]}" DRY_RUN=$dr; done
 rejects "ADMIN secret key" "never a secret key" "${BASE[@]}" ADMIN=$SECRET
 check "ADMIN secret key is not echoed" out_lacks "$SECRET"
@@ -247,6 +252,7 @@ for re in \
   "--id <rewards-id> .* -- set_require_funding --on true$" \
   "--id <reputation-id> .* -- add_attester --attester <quest_registry-id>$" \
   "--id <quest_registry-id> .* -- add_attester_key --key $ATTESTER_HEX$" \
+  "--id <rewards-id> .* -- set_quest_registry --quest_registry <quest_registry-id>$" \
   "-- create_quest --id 4 --schema_id 2 --xp 25$" \
   "-- add_reward --reward_id 3 --threshold 100 --amount 20000000$" \
   "-- create_gate --id 2 --track 1 --min 30 --label '\"Bounty board\"'$" \
@@ -297,7 +303,9 @@ check "full run: upload, deploy, init per contract" \
 check "full run: 5 inits" [ "$(calls ' -- init ')" = 5 ]
 check "full run: safety settings before the reward table" \
   [ "$(grep -n set_require_funding "$LOG" | cut -d: -f1)" -lt "$(grep -n add_reward "$LOG" | head -1 | cut -d: -f1)" ]
-check "full run: 3 read-backs" [ "$(calls '--send=no')" = 3 ]
+check "full run: 4 read-backs" [ "$(calls '--send=no')" = 4 ]
+check "full run: rewards wired to quest_registry before seeding" \
+  [ "$(grep -n set_quest_registry "$LOG" | cut -d: -f1)" -lt "$(grep -n create_quest "$LOG" | head -1 | cut -d: -f1)" ]
 check "full run: prints the web env" out_has "NEXT_PUBLIC_GATE_CONTRACT_ID=C[A-Z2-7]{55}"
 
 # --- failures once contracts exist are logged as INCOMPLETE ---
@@ -315,6 +323,9 @@ check "idempotent setter: INCOMPLETE (seed data)" log_has "INCOMPLETE \(failed d
 typed mainnet "${BASE[@]}" STUB_VIEW_FUNDING=false
 check "read-back mismatch: aborts" out_has "get_require_funding is not true"
 check "read-back mismatch: INCOMPLETE (verify)" log_has "INCOMPLETE \(failed during: verify\)"
+typed mainnet "${BASE[@]}" STUB_VIEW_QUEST=CWRONG
+check "quest_registry read-back mismatch: aborts" out_has "get_quest_registry is not C[A-Z2-7]{55}"
+check "quest_registry read-back mismatch: INCOMPLETE (verify)" log_has "INCOMPLETE \(failed during: verify\)"
 typed mainnet "${BASE[@]}" STUB_INT="add_attester_key"
 check "Ctrl-C mid-deploy: INCOMPLETE (attesters)" log_has "INCOMPLETE \(failed during: attesters\)"
 check "Ctrl-C mid-deploy: stops submitting" [ "$(calls create_quest)" = 0 ]

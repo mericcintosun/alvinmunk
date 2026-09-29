@@ -60,14 +60,15 @@ Add this block to `README.md` (update the numbers, the sheet link, and the commi
 
 For each onboarded user you need on-chain proof:
 - The wallet address column in the sheet is the anchor.
-- For a quick proof list, pull recent `vouch:claimed` / `profile` / `tipped` events and link the tx or the account on Stellar Expert. `scripts/status.mjs` and the leaderboard already read these events.
+- For a quick proof list, pull recent `vouch:claimed` / `tipped` events and link the tx or the account on Stellar Expert. The leaderboard/activity feed and `/api/stats` already read these events over RPC `getEvents` (`lib/events.ts`, `app/api/stats/route.ts`); `scripts/status.mjs` only reads contract state via simulation — it does not read events. Since #144 a `tipped` event always carries a positive `amount` between two *different* wallets, so a row backed by one is real traction rather than a zero or self-tip.
 - Keep a short `docs/feedback/onboarded_users.md` table: handle, address, first on-chain action, Stellar Expert link.
 
 ---
 
 ## 4. Analytics cross-check
 
-PostHog (already wired) gives you the quantitative side to pair with the form:
-- `profile_created`, `vouch_minted` events + autocaptured pageviews.
-- Funnels (landing → profile_created → vouch_minted) and 7-day retention among users who received a spend.
-- Export a screenshot of the funnel/retention board for the "analytics or monitoring setup" submission screenshot.
+Vercel Analytics (already wired via `apps/web/src/lib/track.ts`) gives you the quantitative side to pair with the form:
+- Autocaptured pageviews + visitors (any plan), plus Web Vitals from Speed Insights.
+- `profile_created` and `vouch_minted` custom events fired by `lib/track.ts` — **Vercel Pro plan only**; on Hobby these calls are harmless no-ops.
+- Vercel Analytics is anonymous/privacy-first (no `identify`), so per-user funnels and 7-day retention are **not** measurable with this setup — read those from the form and the on-chain event readers (`/api/stats`, the leaderboard) instead.
+- Export a screenshot of the Vercel Analytics dashboard (pageviews/visitors; custom events on Pro) for the "analytics or monitoring setup" submission screenshot.

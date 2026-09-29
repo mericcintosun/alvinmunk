@@ -1,26 +1,29 @@
 /**
  * Serverless ATTESTER (no standing backend — 00-strategy). Holds the allowlisted attester
  * secret (server-only ATTESTER_SECRET_KEY), VERIFIES a real action, then returns its
- * ed25519 SIGNATURE over the quest_registry's canonical payload. It does NOT submit a tx:
- * the wallet submits `award_quest` itself, proving ownership on-chain via
- * `recipient.require_auth()`. The attester pubkey must be allowlisted via
- * `quest_registry.add_attester_key`.
+ * ed25519 SIGNATURE over the quest_registry's canonical award payload, which names the
+ * network, the contract and an expiry QUEST_SIG_TTL_SECS ahead (lib/attest.ts
+ * questPayload). It does NOT submit a tx: the wallet submits `award_quest` itself before
+ * the expiry, proving ownership on-chain via `recipient.require_auth()`. The attester
+ * pubkey must be allowlisted via `quest_registry.add_attester_key`.
  *
  * Only cryptographically / API-verifiable quests are accepted (00-strategy §1):
  *   - github_pr   : evidence.ref = "owner/repo#123" -> PR must be merged
- *   - referral_tx : evidence.ref = "G..." address   -> must have ≥1 on-chain tx
+ *   - referral_tx : evidence.ref = a G… or C… address -> must be active (Social score > 0)
+ *                   and name the recipient as its inviter: registry `invited_by` (any wallet
+ *                   kind), else a classic account's "referral" manageData entry
  *
  * Defense-in-depth (belts/08 §security): on-chain recipient.require_auth() ownership +
- * on-chain replay guard (the hard cap), per-IP rate limit, bounded body, optional GitHub
- * repo allowlist, self-referral guard. The signature is only redeemable by the recipient
- * (they must satisfy require_auth), so issuing it carries no transfer of funds.
+ * on-chain replay guard (the hard cap), each quest id bound to one evidence type, per-IP
+ * rate limit, bounded body, optional GitHub repo allowlist, self-referral guard. The
+ * signature is only redeemable by the recipient (they must satisfy require_auth), so
+ * issuing it carries no transfer of funds.
  */
 import {
   Account,
   Address,
   Contract,
   Keypair,
-  Networks,
   TransactionBuilder,
   nativeToScVal,
   scValToNative,
@@ -28,15 +31,25 @@ import {
 } from '@stellar/stellar-sdk';
 import {
   MAX_BODY_BYTES,
+  QUEST_SIG_TTL_SECS,
   REFERRAL_MARKER_KEY,
   VOUCH_BACK_MIN,
+  buildQuestEvidenceMap,
   decodeDataEntry,
+  evidenceMatchesQuest,
+  isGAddress,
   isValidQuestId,
+  judgeReferral,
   parseRepoAllowlist,
   repoAllowed,
+  signQuestPayload,
   validateEvidence,
   type AttestEvidence,
 } from '../../../lib/attest';
+import { json, withRoute } from '../../../lib/api-route';
+// The app's one resolved (and validated) network config — no per-route testnet defaults — so
+// the attester signs for the same network, passphrase and contracts as the client.
+import { config, misconfiguredResponse } from '../../../lib/stellar';
 
 export const runtime = 'nodejs';
 
@@ -63,19 +76,27 @@ function rateLimited(ip: string, now: number): boolean {
   return h.n > RATE_MAX;
 }
 
-const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL ?? 'https://soroban-testnet.stellar.org';
-const HORIZON = process.env.NEXT_PUBLIC_HORIZON_URL ?? 'https://horizon-testnet.stellar.org';
-const PASSPHRASE =
-  process.env.NEXT_PUBLIC_STELLAR_NETWORK === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
-const QUEST_ID = process.env.NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID ?? '';
-const REP_ID = process.env.NEXT_PUBLIC_REPUTATION_CONTRACT_ID ?? '';
+const RPC_URL = config.rpcUrl;
+const HORIZON = config.horizonUrl;
+const PASSPHRASE = config.networkPassphrase;
+const QUEST_ID = config.contracts.questRegistry;
+const REP_ID = config.contracts.reputation;
+const REGISTRY_ID = config.contracts.registry;
 const REPO_ALLOWLIST = parseRepoAllowlist(process.env.QUEST_GITHUB_REPOS);
-const EVENT_WINDOW = 9000; // ledgers back to scan for vouch events (testnet RPC retention)
+/** Safety cap on cursor-pagination pages for the vouch/claimed scan (1 000 events/page). */
+const VOUCH_CLAIMED_MAX_PAGES = 50;
+
+// questId → the one evidence type that may claim it (lib/attest.ts buildQuestEvidenceMap).
+const QUEST_EVIDENCE = buildQuestEvidenceMap(process.env);
 
 // Recipient may be a classic (G…) OR a passkey smart-account (C…) address.
 const STELLAR_ADDRESS = /^[GC][A-Z2-7]{55}$/;
 
-export async function POST(req: Request): Promise<Response> {
+export const POST = withRoute('POST /api/attest', async (req: Request): Promise<Response> => {
+  // Never sign on an inconsistent config (say, a mainnet passphrase with a testnet contract).
+  const misconfigured = misconfiguredResponse();
+  if (misconfigured) return misconfigured;
+
   const secret = process.env.ATTESTER_SECRET_KEY;
   if (!secret || !QUEST_ID) {
     return json({ error: 'attester not configured (ATTESTER_SECRET_KEY / quest id)' }, 500);
@@ -112,54 +133,70 @@ export async function POST(req: Request): Promise<Response> {
   const shape = validateEvidence(body.evidence, body.recipient);
   if (!shape.ok) return json({ error: shape.reason }, 422);
 
-  // 2) Verify the real-world action (network).
+  // 2) The evidence must be the type bound to this quest id — checked before any network
+  // call, else one qualifying action could be signed for every quest.
+  if (!evidenceMatchesQuest(body.questId, (body.evidence as AttestEvidence).type, QUEST_EVIDENCE)) {
+    const reason = QUEST_EVIDENCE.has(body.questId)
+      ? 'evidence type does not match this quest'
+      : 'this quest cannot be attested';
+    return json({ error: reason }, 422);
+  }
+
+  // 3) Verify the real-world action (network).
   const verified = await verifyEvidence(body.evidence as AttestEvidence, body.recipient);
   if (!verified.ok) return json({ error: verified.reason }, 422);
 
-  // 3) Sign the contract's canonical payload — the recipient redeems it on-chain.
+  // 4) Sign the award payload, built here (never read from an RPC node). The recipient
+  // redeems it on-chain; the contract refuses it after `expiresAt` (unix seconds, compared
+  // with the ledger time, which tracks wall-clock time).
   try {
-    const signed = await signQuestPayload(secret, body.questId, body.recipient);
-    logEvent({ route: 'attest', outcome: 'ok', questId: body.questId, ms: Date.now() - now });
+    const expiresAt = Math.floor(Date.now() / 1000) + QUEST_SIG_TTL_SECS;
+    const ctx = { contractId: QUEST_ID, passphrase: PASSPHRASE };
+    const signed = signQuestPayload(secret, ctx, body.questId, body.recipient, expiresAt);
     return json({ ok: true, ...signed, recipient: body.recipient, questId: body.questId });
   } catch (e) {
-    logEvent({ route: 'attest', outcome: 'error', questId: body.questId, ms: Date.now() - now });
-    return json({ error: e instanceof Error ? e.message : 'sign failed' }, 502);
+    return json({ error: e instanceof Error ? e.message : 'sign failed' }, 500);
   }
-}
-
-function logEvent(fields: Record<string, unknown>): void {
-  console.log(JSON.stringify({ t: new Date().toISOString(), ...fields }));
-}
+});
 
 async function verifyEvidence(
   ev: AttestEvidence,
   recipient: string,
 ): Promise<{ ok: boolean; reason?: string }> {
-  // Invite-converts (growth quest): the person you invited has opened a profile AND been
-  // vouched for — i.e. their Social score is > 0. Verified by reading the Reputation contract.
+  // Invite-converts (growth quest): the person you invited must have claimed a vouch
+  // minted by the recipient. A Social score alone is not enough — any vouched wallet
+  // could be unrelated to the inviter. The RPC only retains a limited event window, so a
+  // no-match result can also mean the claim happened too far back to see.
   if (ev.type === 'invite_converts') {
     if (!REP_ID) return { ok: false, reason: 'reputation contract not configured' };
     try {
-      const score = await readU64(REP_ID, 'get_score', ev.ref);
-      return score > 0n
-        ? { ok: true }
-        : { ok: false, reason: 'that wallet hasn’t been vouched for yet — invite them to claim a vouch first' };
+      if (await claimedVouchFrom(REP_ID, recipient, ev.ref)) return { ok: true };
+      return {
+        ok: false,
+        reason:
+          "that wallet hasn't claimed a vouch from you recently — only claims still inside the network's recent event window can be verified for now",
+      };
     } catch {
-      return { ok: false, reason: 'couldn’t read the invited wallet’s reputation' };
+      return { ok: false, reason: "couldn't read the invite claim history right now — try again" };
     }
   }
 
-  // Vouch-back (retention quest): you've vouched for ≥ VOUCH_BACK_MIN distinct people. Counted
-  // from on-chain `vouch/minted` events (best-effort within the RPC retention window).
+  // Vouch-back (retention quest): you have vouched for >= VOUCH_BACK_MIN distinct people.
+  //
+  // Fix (#165): count distinct CLAIMERS from `vouch/claimed` events where `from` is the
+  // recipient — not minted IDs from `vouch/minted`. A minted vouch is only a bearer link
+  // that may never be redeemed; the quest promises "vouch for 3 people", which requires a
+  // claim. Scan from the RPC's actual oldestLedger so vouches made earlier in the week are
+  // not invisible, and follow the cursor until exhausted.
   if (ev.type === 'vouch_back') {
     if (!REP_ID) return { ok: false, reason: 'reputation contract not configured' };
     try {
-      const n = await countVouchesMintedBy(REP_ID, recipient);
+      const n = await countVouchesClaimedBy(REP_ID, recipient);
       return n >= VOUCH_BACK_MIN
         ? { ok: true }
-        : { ok: false, reason: `vouch for ${VOUCH_BACK_MIN} people first (you've vouched for ${n})` };
+        : { ok: false, reason: `vouch for ${VOUCH_BACK_MIN} people first (${n} claimed so far)` };
     } catch {
-      return { ok: false, reason: 'couldn’t read your vouch history right now — try again' };
+      return { ok: false, reason: "couldn't read your vouch history right now — try again" };
     }
   }
 
@@ -181,40 +218,17 @@ async function verifyEvidence(
   }
 
   if (ev.type === 'referral_tx') {
-    // Fetch the referred account object (includes manageData under .data).
-    const r = await fetch(`${HORIZON}/accounts/${ev.ref}`);
-    if (r.status === 404) return { ok: false, reason: 'referred account not found on-chain' };
-    if (!r.ok) return { ok: false, reason: `horizon error ${r.status}` };
-
-    const acct = (await r.json()) as { data?: Record<string, string> };
-
-    // The referred account MUST have set a manageData entry ("referral") whose value
-    // (base64-decoded UTF-8) is exactly the referrer's address. This proves the referrer
-    // caused the relationship — not merely that the referred account is active.
-    const raw = acct.data?.[REFERRAL_MARKER_KEY];
-    if (!raw) {
-      return {
-        ok: false,
-        reason:
-          `referred account has no "${REFERRAL_MARKER_KEY}" data entry — ` +
-          'ask them to set it to your address during onboarding',
-      };
+    if (!REP_ID) return { ok: false, reason: 'reputation contract not configured' };
+    let score: bigint;
+    try {
+      score = await readU64(REP_ID, 'get_score', ev.ref);
+    } catch {
+      return { ok: false, reason: 'couldn’t read the referred wallet’s activity right now — try again' };
     }
-
-    const stored = decodeDataEntry(raw);
-    if (stored !== recipient) {
-      // Either corrupted, or someone tried to reuse a marker already claimed by
-      // another referrer. Both cases are rejected.
-      return {
-        ok: false,
-        reason:
-          stored === ev.ref
-            ? 'referral marker is a self-referral on the referred account'
-            : 'referral marker points to a different referrer — cannot reuse this marker',
-      };
-    }
-
-    return { ok: true };
+    const invitedBy = await readInvitedBy(ev.ref);
+    // A registry binding decides on its own; the classic marker is only read without one.
+    const marker = invitedBy === null && isGAddress(ev.ref) ? await readReferralMarker(ev.ref) : null;
+    return judgeReferral({ score, invitedBy, marker }, ev.ref, recipient);
   }
 
   return { ok: false, reason: 'unknown evidence type' };
@@ -235,67 +249,131 @@ async function readU64(contractId: string, method: string, addr: string): Promis
 }
 
 /**
- * Count DISTINCT vouches minted by `from`, from `vouch/minted` events in the RPC retention
- * window. Best-effort (the window can't see very old vouches) — fine for a retention quest.
+ * `registry.invited_by(addr)` via simulation: the inviter's address, null when unbound (or
+ * no registry is configured, or the deployed one predates invite bindings), undefined when
+ * the read failed.
  */
-async function countVouchesMintedBy(repId: string, from: string): Promise<number> {
-  const server = new rpc.Server(RPC_URL, { allowHttp: RPC_URL.startsWith('http://') });
-  const latest = await server.getLatestLedger();
-  const startLedger = Math.max(1, latest.sequence - EVENT_WINDOW);
-  // Topic filter → only the mint events (topics: [symbol 'vouch', symbol 'minted']).
-  const t0 = nativeToScVal('vouch', { type: 'symbol' }).toXDR('base64');
-  const t1 = nativeToScVal('minted', { type: 'symbol' }).toXDR('base64');
-  const res = await server.getEvents({
-    startLedger,
-    filters: [{ type: 'contract', contractIds: [repId], topics: [[t0, t1]] }],
-    limit: 1000,
-  });
-  const ids = new Set<string>();
-  for (const e of res.events) {
-    // data is the event value: (id: u64, from: Address)
-    const data = scValToNative(e.value) as [number | bigint, string];
-    if (Array.isArray(data) && data[1] === from) ids.add(String(data[0]));
+async function readInvitedBy(addr: string): Promise<string | null | undefined> {
+  if (!REGISTRY_ID) return null;
+  try {
+    const server = new rpc.Server(RPC_URL, { allowHttp: RPC_URL.startsWith('http://') });
+    const source = new Account(Keypair.random().publicKey(), '0');
+    const tx = new TransactionBuilder(source, { fee: '100', networkPassphrase: PASSPHRASE })
+      .addOperation(new Contract(REGISTRY_ID).call('invited_by', new Address(addr).toScVal()))
+      .setTimeout(30)
+      .build();
+    const sim = await server.simulateTransaction(tx);
+    if (rpc.Api.isSimulationError(sim)) {
+      return /Error\(WasmVm, MissingValue\)|non-existent contract function/.test(sim.error)
+        ? null
+        : undefined;
+    }
+    const v = sim.result?.retval ? scValToNative(sim.result.retval) : null;
+    return typeof v === 'string' ? v : null;
+  } catch {
+    return undefined;
   }
-  return ids.size;
 }
 
 /**
- * Read the contract's canonical payload (so we sign EXACTLY what it verifies — no
- * byte-mismatch risk) and ed25519-sign it with the attester key.
+ * A classic account's `referral` manageData entry, decoded (Horizon): null when the account
+ * or the entry doesn't exist, undefined when Horizon couldn't be read.
  */
-async function signQuestPayload(
-  secret: string,
-  questId: number,
-  recipient: string,
-): Promise<{ attester: string; sig: string }> {
-  const kp = Keypair.fromSecret(secret);
-  const server = new rpc.Server(RPC_URL, { allowHttp: RPC_URL.startsWith('http://') });
-  const source = new Account(Keypair.random().publicKey(), '0');
-  const tx = new TransactionBuilder(source, { fee: '100', networkPassphrase: PASSPHRASE })
-    .addOperation(
-      new Contract(QUEST_ID).call(
-        'quest_payload',
-        nativeToScVal(questId, { type: 'u32' }),
-        new Address(recipient).toScVal(),
-      ),
-    )
-    .setTimeout(30)
-    .build();
-
-  const sim = await server.simulateTransaction(tx);
-  if (rpc.Api.isSimulationError(sim)) {
-    throw new Error(`payload read failed: ${sim.error}`);
+async function readReferralMarker(ref: string): Promise<string | null | undefined> {
+  try {
+    const r = await fetch(`${HORIZON}/accounts/${ref}`);
+    if (r.status === 404) return null;
+    if (!r.ok) return undefined;
+    const acct = (await r.json()) as { data?: Record<string, string> };
+    const raw = acct.data?.[REFERRAL_MARKER_KEY];
+    return raw ? decodeDataEntry(raw) : null;
+  } catch {
+    return undefined;
   }
-  const retval = sim.result?.retval;
-  if (!retval) throw new Error('payload read returned nothing');
-  const payload = scValToNative(retval) as Uint8Array;
-  const sig = kp.sign(Buffer.from(payload));
-  return { attester: kp.rawPublicKey().toString('hex'), sig: sig.toString('base64') };
 }
 
-function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'content-type': 'application/json' },
+/**
+ * A decoded `vouch/claimed` event value: (vouch_id, from, claimer).
+ * Mirrors contracts/reputation/src/lib.rs claim_vouch emit at line ~293.
+ */
+export interface VouchClaimedEvent {
+  vouchId: string; // stringified u64
+  from: string;    // G/C address — the voucher
+  claimer: string; // G/C address — the person who claimed
+}
+
+/**
+ * Decode one raw `vouch/claimed` event value (a 3-tuple ScVal) into a typed record.
+ * Returns null for any event that cannot be decoded — callers skip those silently.
+ * Exported so it can be unit-tested independently of the RPC layer.
+ */
+export function decodeVouchClaimedEvent(
+  raw: unknown, // scValToNative output for one event's value
+): VouchClaimedEvent | null {
+  if (!Array.isArray(raw) || raw.length !== 3) return null;
+  const [id, from, claimer] = raw;
+  if (
+    (typeof id !== 'number' && typeof id !== 'bigint') ||
+    typeof from !== 'string' ||
+    typeof claimer !== 'string'
+  ) {
+    return null;
+  }
+  return { vouchId: String(id), from, claimer };
+}
+
+/** The ledger a stellar-rpc events cursor points at ("<toid>-<n>"; the ledger is the toid's top 32 bits). */
+function cursorLedger(cursor: string): number | null {
+  const toid = cursor.split('-')[0];
+  return /^\d+$/.test(toid) ? Number(BigInt(toid) >> 32n) : null;
+}
+
+/**
+ * Walk every retained `vouch/claimed` event, oldest first, until `visit` returns true. Starts at
+ * the oldest ledger the RPC keeps and follows the cursor: stellar-rpc scans at most 10,000
+ * ledgers per request and always returns a cursor, so the walk ends once the cursor reaches
+ * the latest ledger (or the RPC returns none), capped at VOUCH_CLAIMED_MAX_PAGES requests.
+ */
+async function scanVouchClaimed(
+  repId: string,
+  visit: (claim: { from: string; claimer: string }) => boolean | void,
+): Promise<void> {
+  const server = new rpc.Server(RPC_URL, { allowHttp: RPC_URL.startsWith('http://') });
+  const health = await server.getHealth();
+  const startLedger = health.oldestLedger ?? 1;
+  // Topic filter: (`vouch`, `claimed`) — only claimed vouches, not mints or slashes.
+  const t0 = nativeToScVal('vouch', { type: 'symbol' }).toXDR('base64');
+  const t1 = nativeToScVal('claimed', { type: 'symbol' }).toXDR('base64');
+  const filters = [{ type: 'contract' as const, contractIds: [repId], topics: [[t0, t1]] }];
+
+  let cursor: string | undefined;
+  for (let page = 0; page < VOUCH_CLAIMED_MAX_PAGES; page++) {
+    const res = await server.getEvents(
+      cursor ? { filters, cursor, limit: 1000 } : { filters, startLedger, limit: 1000 },
+    );
+    for (const e of res.events) {
+      const decoded = decodeVouchClaimedEvent(scValToNative(e.value));
+      if (decoded && visit(decoded) === true) return;
+    }
+    cursor = res.cursor;
+    if (!cursor) return;
+    const at = cursorLedger(cursor);
+    if (at !== null && res.latestLedger && at >= res.latestLedger) return;
+  }
+}
+
+/** Distinct wallets that claimed a vouch minted by `from`, within the RPC's retention window. */
+async function countVouchesClaimedBy(repId: string, from: string): Promise<number> {
+  const claimers = new Set<string>();
+  await scanVouchClaimed(repId, (c) => {
+    if (c.from === from) claimers.add(c.claimer);
   });
+  return claimers.size;
+}
+
+/** Whether `claimer` claimed a vouch minted by `from` within the RPC's retention window. */
+async function claimedVouchFrom(repId: string, from: string, claimer: string): Promise<boolean> {
+  let found = false;
+  await scanVouchClaimed(repId, (c) => (found = c.from === from && c.claimer === claimer));
+  return found;
 }
