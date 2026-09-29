@@ -30,6 +30,7 @@
   "landing.hero.seeHowItWorks": "ya da nasıl çalıştığını gör",
   "landing.hero.pills": "tohum_ifadesi_yok / ücretler_karşılanıyor / stellar'da_canlı",
   "landing.ticker.label": "zincir üzerinde // gerçekler",
+  "landing.ticker.example": "örnek",
   "landing.stats.onchain": "Soroban, zincir üzerinde",
   "landing.stats.xpTracks": "itibar ile nakit",
   "landing.stats.stakeWin": "destek penceresi",
@@ -113,6 +114,9 @@
   "claim.skip": "Şimdilik atla → profilini oluştur",
   "claim.openApp": "uygulamayı_aç →",
   "claim.viewProfile": "profilini_görüntüle →",
+  "claim.voucher.headlineHandle": "@{handle} seni destekledi.",
+  "claim.voucher.headlineFallback": "Biri seni destekledi.",
+  "claim.voucher.viewProfile": "@{handle} profilini görüntüle →",
 
   "appHome.whatNow": "Ne yapılacak",
   "appHome.recentActivity": "Son aktivite",
