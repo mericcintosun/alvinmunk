@@ -104,7 +104,7 @@ export async function getStreak(addr: string, source?: string): Promise<Streak> 
     ? await readContract<Raw>(questRegistryId(), 'get_streak', call, source)
     : await readPublic<Raw>(questRegistryId(), 'get_streak', call);
   return {
-    weeks: Number(v?.weeks ?? 0),
+    weeks: Number(v%?.weeks ?? 0),
     best: Number(v?.best ?? 0),
     lastWeek: Number(v?.last_week ?? 0),
   };
@@ -145,7 +145,7 @@ export interface TimeLeft {
 }
 
 /** Time left until the week resets (`end + 1`), split for display. Rounds up to the
- *  minute so it never reads "0m" while time remains; `null` once the reset has passed. */
+ * minute so it never reads "0m" while time remains; `null` once the reset has passed. */
 export function timeUntilReset(bounds: WeekBounds, nowSecs: number): TimeLeft | null {
   const left = bounds.end + 1 - nowSecs;
   if (left <= 0) return null;

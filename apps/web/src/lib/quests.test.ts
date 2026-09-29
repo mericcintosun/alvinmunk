@@ -1,8 +1,10 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 
-const { readPublicMock, readContractMock } = vi.hoisted(() => ({
+const { readPublicMock, readContractMock, invokeAndWaitMock, argsMock } = vi.hoisted(() => ({
   readPublicMock: vi.fn(),
   readContractMock: vi.fn(),
+  invokeAndWaitMock: vi.fn(),
+  argsMock: vi.fn((...a: unknown[]) => a),
 }));
 
 vi.mock('./contracts', async (importOriginal) => ({
@@ -10,6 +12,8 @@ vi.mock('./contracts', async (importOriginal) => ({
   questId: () => 'CQUEST',
   readPublic: readPublicMock,
   readContract: readContractMock,
+  invokeAndWait: invokeAndWaitMock,
+  args: argsMock,
 }));
 
 import { completeQuest, getStreak, getWeekBounds, timeUntilReset } from './quests';
@@ -41,6 +45,105 @@ describe('completeQuest', () => {
 
     vi.unstubAllGlobals();
   });
+
+  const OWNER = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
+  const ATTESTER_HEX = '0x' + 'ab'.repeat(32);
+  const SIG_B64 = Buffer.alloc(64, 7).toString('base64');
+
+  const wallet: Wallet = {
+    kind: 'freighter',
+    address: OWNER,
+    sign: async (x) => x,
+    signMessage: vi.fn(),
+  };
+
+  beforeEach(() => {
+    invokeAndWaitMock.mockReset();
+    argsMock.mockClear();
+    readPublicMock.mockReset();
+    readContractMock.mockReset();
+  });
+
+  it('builds award_quest with the attester key, signature, quest id and recipient', async () => {
+    const fetchSpy = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ attester: ATTESTER_HEX, sig: SIG_B64 }),
+    }));
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch);
+    invokeAndWaitMock.mockResolvedValueOnce('HASH');
+
+    const r = await completeQuest(wallet, 2, { type: 'github_pr', ref: 'owner/repo#1' });
+
+    expect(r.ok).toBe(true);
+    expect(invokeAndWaitMock).toHaveBeenCalledOnce();
+    const [method, callArgs] = invokeAndWaitMock.mock.calls[0];
+    expect(method).toBe('award_quest');
+    expect(callArgs).toHaveLength(4);
+    const [attester, sig, questId, recipient] = callArgs as [Uint8Array, Uint8Array, number, string];
+    expect(attester).toBeInstanceOf(Uint8Array);
+    expect(attester).toHaveLength(32);
+    expect(Array.from(attester)).toEqual(Array.from(Buffer.from('ab'.repeat(32), 'hex')));
+    expect(sig).toBeInstanceOf(Uint8Array);
+    expect(sig).toHaveLength(64);
+    expect(Array.from(sig)).toEqual(Array.from(Buffer.alloc(64, 7)));
+    expect(questId).toBe(2);
+    expect(recipient).toBe(OWNER);
+
+    vi.unstubAllGlobals();
+  });
+
+  it('accepts a 0x-prefixed attester hex', async () => {
+    const fetchSpy = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ attester: ATTESTER_HEX, sig: SIG_B64 }),
+    }));
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch);
+    invokeAndWaitMock.mockResolvedValueOnce('HASH');
+
+    await completeQuest(wallet, 2, { type: 'github_pr', ref: 'owner/repo#1' });
+
+    const [, callArgs] = invokeAndWaitMock.mock.calls[0];
+    const [attester] = callArgs as [Uint8Array, Uint8Array, number, string];
+    expect(attester).toHaveLength(32);
+    expect(Array.from(attester)).toEqual(Array.from(Buffer.from('ab'.repeat(32), 'hex')));
+
+    vi.unstubAllGlobals();
+  });
+
+  it('fails when the attester omits sig', async () => {
+    const fetchSpy = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ attester: ATTESTER_HEX }),
+    }));
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch);
+
+    const r = await completeQuest(wallet, 2, { type: 'github_pr', ref: 'owner/repo#1' });
+
+    expect(r.ok).toBe(false);
+    expect(invokeAndWaitMock).not.toHaveBeenCalled();
+
+    vi.unstubAllGlobals();
+  });
+
+  it('humanizes a contract error from invokeAndWait', async () => {
+    const fetchSpy = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ attester: ATTESTER_HEX, sig: SIG_B64 }),
+    }));
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch);
+    invokeAndWaitMock.mockRejectedValueOnce(new Error('HostError: Error(Contract, #3)'));
+
+    const r = await completeQuest(wallet, 2, { type: 'github_pr', ref: 'owner/repo#1' });
+
+    expect(r.ok).toBe(false);
+    expect(r.error).toBeTruthy();
+
+    vi.unstubAllGlobals();
+  });
 });
 
 describe('getStreak', () => {
@@ -57,6 +160,13 @@ describe('getStreak', () => {
     readContractMock.mockResolvedValueOnce(undefined);
     await expect(getStreak(OWNER, OWNER)).resolves.toEqual({ weeks: 0, best: 0, lastWeek: 0 });
     expect(readContractMock).toHaveBeenCalledWith('CQUEST', 'get_streak', expect.any(Array), OWNER);
+  });
+
+  it('defaults a missing struct to zeros', async () => {
+    readPublicMock.mockResolvedValueOnce(undefined);
+    await expect(getStreak(OWNER)).resolves.toEqual({ weeks: 0, best: 0, lastWeek: 0 });
+    expect(readPublicMock).toHaveBeenCalledWith('CQUEST', 'get_streak', expect.any(Array));
+    expect(readContractMock).not.toHaveBeenCalled();
   });
 });
 
