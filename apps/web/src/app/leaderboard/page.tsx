@@ -61,19 +61,22 @@ export default function LeaderboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addressKey]); // stable key: only re-runs when the actual set of addresses changes
 
-  usePoll(async () => {
+  // Every 5s while the tab is visible, never overlapping, backing off on failures (lib/use-poll.ts).
+  usePoll(async (signal) => {
     try {
       // A new `rows` array reference on every tick is fine now — the handle-lookup
       // effect above depends on `addressKey` (the stable, sorted set of addresses),
       // not on `rows` itself, so a quiet poll no longer re-triggers or cancels it.
       const r = await fetchLeaderboard({ throwOnError: true });
+      if (signal.aborted) return;
       setRows(r);
       setStale(false);
-    } catch {
+    } catch (err) {
+      if (signal.aborted) return;
       setStale(true);
-      throw new Error('leaderboard poll failed');
+      throw err; // so the poll backs off
     } finally {
-      setLoading(false);
+      if (!signal.aborted) setLoading(false);
     }
   }, 5000);
 

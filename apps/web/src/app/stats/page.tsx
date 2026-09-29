@@ -44,54 +44,34 @@ export default function StatsPage() {
   const [stale, setStale] = useState<Record<NetKey, boolean>>({ testnet: false, mainnet: false });
   const [loading, setLoading] = useState(true);
 
-  // Poll only while the tab is visible; runs never overlap and back off on failure.
   useEffect(() => {
-    let alive = true;
-    const load = () => {
-      fetch(`/api/stats?network=${tab}`, { cache: 'no-store' })
-        .then((r) => {
-          if (!r.ok) throw new Error(`stats ${r.status}`);
-          return r.json() as Promise<Stats>;
-        })
-        .then((d) => {
-          if (alive) {
-            setData((prev) => ({ ...prev, [tab]: d }));
-            setStale((prev) => ({ ...prev, [tab]: false }));
-            setLoading(false);
-          }
-        })
-        .catch(() => {
-          if (!alive) return;
-          // Keep the last good numbers on a failed poll; only the marker below reacts.
-          setStale((prev) => ({ ...prev, [tab]: true }));
-          setLoading(false);
-        });
-    };
     setLoading(!data[tab]);
-    return () => {
-      alive = false;
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
+  // Refresh every 10s while the tab is visible, never overlapping (lib/use-poll.ts). The tab is
+  // the poll's key: switching network restarts it with an immediate fetch, and the signal
+  // drops the previous network's late response.
   usePoll(
-    () =>
-      fetch(`/api/stats?network=${tab}`, { cache: 'no-store' }).then((r) => {
+    async (signal) => {
+      try {
+        const r = await fetch(`/api/stats?network=${tab}`, { cache: 'no-store', signal });
         if (!r.ok) throw new Error(`stats ${r.status}`);
-        return r.json() as Promise<Stats>;
-      }),
-    10000,
-    {
-      onSuccess: (d) => {
+        const d = (await r.json()) as Stats;
+        if (signal.aborted) return;
         setData((prev) => ({ ...prev, [tab]: d }));
         setStale((prev) => ({ ...prev, [tab]: false }));
         setLoading(false);
-      },
-      onError: () => {
+      } catch (err) {
+        if (signal.aborted) return;
+        // Keep the last good numbers on a failed poll; only the marker below reacts.
         setStale((prev) => ({ ...prev, [tab]: true }));
         setLoading(false);
-      },
+        throw err; // so the poll backs off
+      }
     },
+    10_000,
+    tab,
   );
 
   const s = data[tab];

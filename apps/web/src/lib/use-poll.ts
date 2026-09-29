@@ -1,125 +1,74 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 
-/**
- * Poll `fn` on an interval, with three guarantees:
- *
- *  1. No overlap: the next run is scheduled with `setTimeout` only after the
- *     previous one settles, so a slow RFP call can never stack up.
- *  2. Pause while the tab is hidden; run once immediately when it becomes
- *     visible again.
- *  3. Back off (×2, capped at 60s) after consecutive failures, resetting on
- *     the first success.
- *
- * `fn` is read through a ref, so an inline closure does not restart the
- * schedule on every render.
- */
+/** The longest a failing poll backs off to (unless `intervalMs` is already longer). */
 export const MAX_BACKOFF_MS = 60_000;
 
-export interface UsePollOptions {
-  /** Run once immediately on mount (default: true). */
-  immediate?: boolean;
-  /** Start in a paused state (default: false). */
-  enabled?: boolean;
-}
-
-export function usePoll(fn: () => unknown | Promise<unknown>, intervalMs: number, options: UsePollOptions = {}): void {
-  const { immediate = true, enabled = true } = options;
-
+/**
+ * Run `fn` now and then every `intervalMs` while the tab is visible (#210):
+ *
+ *  1. No overlap: the next run is scheduled with `setTimeout` only after the current one
+ *     settles, so a slow RPC call never stacks a second request on top of it.
+ *  2. Paused while `document.hidden`; one run as soon as the tab is visible again.
+ *  3. A run that throws or rejects backs the next one off ×2 per consecutive failure, up to
+ *     MAX_BACKOFF_MS; the first success resets it. So `fn` must rethrow a failure it handles.
+ *
+ * `fn` gets an AbortSignal that aborts when the poll stops (unmount, or a new `intervalMs` or
+ * `key`), so a run that finishes late can skip its state updates. `fn` is read through a ref,
+ * so an inline closure does not restart the schedule; changing `key` does, with an immediate
+ * run (the stats page passes its network tab).
+ */
+export function usePoll(
+  fn: (signal: AbortSignal) => unknown,
+  intervalMs: number,
+  key?: unknown,
+): void {
   const fnRef = useRef(fn);
-  const intervalRef = useRef(intervalMs);
-  const immediateRef = useRef(immediate);
-  const enabledRef = useRef(enabled);
-
-  // Keep the latest callback/config without restarting the schedule.
-  fnE.current = fn;
-  intervalRef.current = intervalMs;
-  immediateRef.current = immediate;
-  enabledRef.current = enabled;
-
-  const runNow = useCallback(() => {
-    // Schedule the next run only after this one settles.
-    void (async () => {
-      try {
-        await fnRef.current();
-      } catch {
-        // The callee owns its error state; we just keep polling.
-      }
-    })();
-  }, []);
+  // Declared before the polling effect, so it has run by the time that effect first calls `fn`.
+  useEffect(() => {
+    fnRef.current = fn;
+  });
 
   useEffect(() => {
-    if (!enabled) return;
-
+    const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let failures = 0;
-    let cancelled = false;
     let running = false;
-
-    const hidden = () => typeof document !== 'undefined' && document.hidden;
+    let failures = 0;
 
     const clear = () => {
-      if (timer !== undefined) {
-        clearTimeout(timer);
-        timer = undefined;
-      }
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
     };
+    const delay = () =>
+      failures === 0
+        ? intervalMs
+        : Math.min(intervalMs * 2 ** failures, Math.max(intervalMs, MAX_BACKOFF_MS));
 
-    const delay = () => {
-      const base = Math.max(1, intervalRef.current);
-      if (failures === 0) return base;
-      return Math.min(base * 2 ** failures, MAX_BACKOFF_MS);
-    };
-
-    const schedule = () => {
-      if (cancelled || hidden()) return;
+    const run = async () => {
       clear();
-      timer = setTimeout(tick, delay());
-    };
-
-    const tick = async () => {
-      if (cancelled || running || hidden()) return;
+      if (running || controller.signal.aborted || document.hidden) return;
       running = true;
       try {
-        await fnRef.current();
+        await fnRef.current(controller.signal);
         failures = 0;
       } catch {
         failures += 1;
-      } finally {
-        running = false;
-        schedule();
       }
+      running = false;
+      // Hidden by now: stay paused until the tab is visible again (`onVisibility` runs it).
+      if (!controller.signal.aborted && !document.hidden) timer = setTimeout(run, delay());
     };
 
     const onVisibility = () => {
-      if (cancelled) return;
-      if (hidden()) {
-        // Pause: drop any pending run. An in-flight run finishes and then
-        // `tick` will see `hidden()` and skip rescheduling.
-        clear();
-        return;
-      }
-      // Visible again: run once now (unless one is already in flight).
-      if (!running) {
-        clear();
-        void tick();
-      }
+      if (document.hidden) clear();
+      else void run();
     };
 
     document.addEventListener('visibilitychange', onVisibility);
-
-    // Only start if visible; otherwise wait for the visibility event.
-    if (!hidden()) {
-      if (immediateRef.current) {
-        void tick();
-      } else {
-        schedule();
-      }
-    }
-
+    void run();
     return () => {
-      cancelled = true;
+      controller.abort();
       clear();
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [enabled, runNow]);
+  }, [intervalMs, key]);
 }

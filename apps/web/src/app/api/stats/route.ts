@@ -32,7 +32,7 @@ const LIVE_WINDOW = 17_280; // ~1 day of ledgers
 const MAX_PAGES = 25;
 type NetKey = 'testnet' | 'mainnet';
 
-const NETWORKS: Record;
+const NETWORKS: Record<
   NetKey,
   { rpc: string; rep?: string; registry?: string; exclude?: (string | undefined)[] }
 > = {
@@ -43,7 +43,7 @@ const NETWORKS: Record;
     // The app's own contracts appear in event topics (e.g. the quest_registry as att_set
     // issuer); they are NOT users, so exclude them from the count.
     exclude: [
-      process.env.NEXT_PUBLIC_REPTATION_CONTRACT_ID,
+      process.env.NEXT_PUBLIC_REPUTATION_CONTRACT_ID,
       process.env.NEXT_PUBLIC_REGISTRY_CONTRACT_ID,
       process.env.NEXT_PUBLIC_REWARDS_CONTRACT_ID,
       process.env.NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID,
@@ -206,12 +206,5 @@ export const GET = withRoute('GET /api/stats', async (req: Request) => {
     return NextResponse.json({ error: 'bad network' }, { status: 400 });
   }
   const data = await statsFor(net);
-  // Share one scan among concurrent viewers for a short window. Stale-while-revalidate
-  // lets a request serve the cached snapshot instantly while a fresh scan runs in the
-  // background, so a surge of viewers collapses onto a single RPC scan.
-  return NextResponse.json(data, {
-    headers: {
-      'cache-control': 'public, s-maxage=30, stale-while-revalidate=300',
-    },
-  });
+  return NextResponse.json(data, { headers: { 'cache-control': 'no-store' } });
 });
