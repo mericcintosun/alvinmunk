@@ -204,7 +204,9 @@ impl ReputationContract {
         if used >= MAX_VOUCH_PER_DAY {
             panic_with_error!(&env, Error::DailyCapReached);
         }
-        env.storage().temporary().set(&dkey, &(used.saturating_add(1)));
+        env.storage()
+            .temporary()
+            .set(&dkey, &(used.saturating_add(1)));
         // ~2 days outlives the UTC day it counts. Not BUMP_*: a temporary entry extended
         // past max_entry_ttl traps instead of clamping.
         env.storage()

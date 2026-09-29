@@ -288,6 +288,26 @@ describe('contract event reads', () => {
     await expect(fetchReputationEvents()).resolves.toEqual([]);
   });
 
+  it('still degrades to [] for a plain caller when getLatestLedger fails, not just getEvents', async () => {
+    getLatestLedgerMock.mockRejectedValue(new Error('rpc down'));
+    await expect(fetchReputationEvents()).resolves.toEqual([]);
+  });
+
+  it('throws instead of degrading when a caller opts into throwOnError', async () => {
+    getEventsMock.mockRejectedValue(new Error('rpc down'));
+    await expect(fetchReputationEvents({ throwOnError: true })).rejects.toThrow('rpc down');
+  });
+
+  it('throws on throwOnError even when getLatestLedger (not just getEvents) fails', async () => {
+    getLatestLedgerMock.mockRejectedValue(new Error('rpc down'));
+    await expect(fetchReputationEvents({ throwOnError: true })).rejects.toThrow('rpc down');
+  });
+
+  it('does not throw with throwOnError when the RPC succeeds with a genuinely quiet window', async () => {
+    getEventsMock.mockResolvedValue({ events: [] });
+    await expect(fetchReputationEvents({ throwOnError: true })).resolves.toEqual([]);
+  });
+
   describe('cursor pagination', () => {
     const SOCIAL = xdr.ScVal.scvSymbol('social');
     const WHO = xdr.ScVal.scvSymbol('who');

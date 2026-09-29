@@ -569,6 +569,201 @@ fn a_record_from_before_accumulation_decodes_and_counts_on() {
     );
 }
 
+// --- Frozen on-chain event shapes (docs/ON_CHAIN_EVENTS.md §1, issue #135) ---
+//
+// The leaderboard and feed fold these events directly and the docs freeze their shapes,
+// so each test below pins the full (contract, topics, data) triple of every event a call
+// emits: reordering any tuple fails here instead of silently corrupting the indexers.
+// In soroban-sdk 22 `env.events().all()` holds the events of the LAST invocation only,
+// so every assert runs right after the call it pins — which also proves nothing extra
+// was emitted. `att_set` and `xp` are pinned by
+// `att_set_still_carries_the_award_delta_in_the_v1_layout` above.
+
+/// `social` (docs/ON_CHAIN_EVENTS.md §1) — the leaderboard source. Pinned on both
+/// directions: the stake debit and the running-total credits (refund + claim XP).
+#[test]
+fn social_events_carry_the_documented_topics_and_data_on_credit_and_debit() {
+    use soroban_sdk::{testutils::Events as _, vec, IntoVal, Val};
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+
+    // Minting escrows the stake: one DEBIT for alice, 20 - 5 = 15, followed in the same
+    // invocation by the `vouch`/`minted` event. (The starter grant itself is silent —
+    // pinned by the test below.)
+    let (s, h) = secret_and_hash(&env, 1);
+    let id = client.mint_vouch(&alice, &h, &String::from_str(&env, "stake"));
+    let debit: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("social"), alice.clone()).into_val(&env),
+        (VOUCH_STAKE, 15u64).into_val(&env),
+    );
+    let minted: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("vouch"), symbol_short!("minted")).into_val(&env),
+        (id, alice.clone()).into_val(&env),
+    );
+    assert_eq!(env.events().all(), vec![&env, debit, minted]);
+
+    // A timely claim emits two CREDITS in this order — the stake refund (alice
+    // 15 -> 20) and the fresh-pair claim XP (bob: silent starter 20 + 10 = 30) —
+    // and only then the `vouch`/`claimed` event.
+    client.claim_vouch(&bob, &id, &s);
+    let refund: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("social"), alice.clone()).into_val(&env),
+        (VOUCH_STAKE, 20u64).into_val(&env),
+    );
+    let claim_xp: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("social"), bob.clone()).into_val(&env),
+        (XP_CLAIMER, 30u64).into_val(&env),
+    );
+    let claimed: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("vouch"), symbol_short!("claimed")).into_val(&env),
+        (id, alice.clone(), bob.clone()).into_val(&env),
+    );
+    assert_eq!(env.events().all(), vec![&env, refund, claim_xp, claimed]);
+}
+
+/// `attester`/`add` and `attester`/`rm` (docs/ON_CHAIN_EVENTS.md §1): the data is the
+/// bare attester address, not a tuple.
+#[test]
+fn attester_add_and_rm_events_carry_the_documented_topics_and_data() {
+    use soroban_sdk::{testutils::Events as _, vec, IntoVal, Val};
+    let (env, client, _admin) = setup();
+    let attester = Address::generate(&env);
+
+    client.add_attester(&attester);
+    let add: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("attester"), symbol_short!("add")).into_val(&env),
+        attester.clone().into_val(&env),
+    );
+    assert_eq!(env.events().all(), vec![&env, add]);
+
+    client.remove_attester(&attester);
+    let rm: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("attester"), symbol_short!("rm")).into_val(&env),
+        attester.into_val(&env),
+    );
+    assert_eq!(env.events().all(), vec![&env, rm]);
+}
+
+/// The three `vouch` lifecycle events (docs/ON_CHAIN_EVENTS.md §1): `minted`,
+/// `claimed`, `slashed`.
+#[test]
+fn vouch_lifecycle_events_carry_the_documented_topics_and_data() {
+    use soroban_sdk::{testutils::Events as _, vec, IntoVal, Val};
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+
+    // MINTED: (id, from). The stake debit precedes it in the same invocation.
+    let (s, h) = secret_and_hash(&env, 1);
+    let id = client.mint_vouch(&alice, &h, &String::from_str(&env, "gift"));
+    let debit: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("social"), alice.clone()).into_val(&env),
+        (VOUCH_STAKE, 15u64).into_val(&env),
+    );
+    let minted: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("vouch"), symbol_short!("minted")).into_val(&env),
+        (id, alice.clone()).into_val(&env),
+    );
+    assert_eq!(env.events().all(), vec![&env, debit, minted]);
+
+    // CLAIMED: (vouch_id, from, claimer), after the two social credits.
+    client.claim_vouch(&bob, &id, &s);
+    let refund: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("social"), alice.clone()).into_val(&env),
+        (VOUCH_STAKE, 20u64).into_val(&env),
+    );
+    let claim_xp: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("social"), bob.clone()).into_val(&env),
+        (XP_CLAIMER, 30u64).into_val(&env),
+    );
+    let claimed: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("vouch"), symbol_short!("claimed")).into_val(&env),
+        (id, alice.clone(), bob.clone()).into_val(&env),
+    );
+    assert_eq!(env.events().all(), vec![&env, refund, claim_xp, claimed]);
+
+    // SLASHED: (vouch_id, from, stake). Mint a second card, never claim it, and let
+    // the expiry keeper slash it after the 7-day window.
+    let (_s2, h2) = secret_and_hash(&env, 3);
+    let id2 = client.mint_vouch(&alice, &h2, &String::from_str(&env, "expires"));
+    env.ledger().with_mut(|l| l.timestamp = VOUCH_TTL_SECS + 1);
+    client.expire_vouch(&id2);
+    let slashed: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("vouch"), symbol_short!("slashed")).into_val(&env),
+        (id2, alice.clone(), VOUCH_STAKE).into_val(&env),
+    );
+    assert_eq!(env.events().all(), vec![&env, slashed]);
+}
+
+/// The documented silence of the starter grant (docs/ON_CHAIN_EVENTS.md §social, and the
+/// comment on `grant_starter`): a fresh wallet's first mint emits exactly ONE social
+/// event — carrying the cumulative 15, not a separate (20, 20) starter event — and the
+/// claim path stays silent about the claimer's starter 20 too, so her first social
+/// event already carries the cumulative 30.
+#[test]
+fn starter_grant_is_silent_and_first_social_events_carry_the_cumulative_total() {
+    use soroban_sdk::{testutils::Events as _, vec, IntoVal, Val};
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+
+    // Mint on a fresh wallet: the whole invocation emits only the stake debit (plus the
+    // `vouch`/`minted` event) — nothing for the starter grant, and the one social event
+    // carries the cumulative 15, not a separate (20, 20) starter event. No contract call
+    // may run between the mint and this assert: every invocation resets `all()`.
+    let (_s, h) = secret_and_hash(&env, 1);
+    client.mint_vouch(&alice, &h, &String::from_str(&env, "first"));
+    let debit: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("social"), alice.clone()).into_val(&env),
+        (VOUCH_STAKE, 15u64).into_val(&env),
+    );
+    let minted: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("vouch"), symbol_short!("minted")).into_val(&env),
+        (1u64, alice.clone()).into_val(&env),
+    );
+    assert_eq!(env.events().all(), vec![&env, debit, minted]);
+    assert_eq!(client.get_score(&alice), 15);
+
+    // A fresh claimer's starter 20 is silent as well: her first social event is the
+    // claim XP alone, carrying the cumulative total 30.
+    let bob = Address::generate(&env);
+    let carol = Address::generate(&env);
+    let (s, h2) = secret_and_hash(&env, 2);
+    let id = client.mint_vouch(&bob, &h2, &String::from_str(&env, "x"));
+    client.claim_vouch(&carol, &id, &s);
+    let refund: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("social"), bob.clone()).into_val(&env),
+        (VOUCH_STAKE, 20u64).into_val(&env),
+    );
+    let carol_xp: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("social"), carol.clone()).into_val(&env),
+        (XP_CLAIMER, 30u64).into_val(&env),
+    );
+    let claimed: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("vouch"), symbol_short!("claimed")).into_val(&env),
+        (id, bob.clone(), carol.clone()).into_val(&env),
+    );
+    assert_eq!(env.events().all(), vec![&env, refund, carol_xp, claimed]);
+}
+
 // --- Property/fuzz tests on the XP math (Green-belt AC) ---
 use proptest::prelude::*;
 
