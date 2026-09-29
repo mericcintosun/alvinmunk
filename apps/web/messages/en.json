@@ -369,6 +369,8 @@
   "appTabs.rewards": "Rewards",
   "appTabs.activity": "Activity",
   "appTabs.people": "People",
+  "appTabs.inbox": "Inbox",
+  "appTabs.inboxUnread": "New items in your inbox",
   "statStrip.vouchedBy.label": "Vouched by",
   "statStrip.vouchedBy.hint": "People in your sky",
   "statStrip.social.label": "Social XP",
@@ -528,5 +530,15 @@
   "moneyFlowConfirm.undo": "Undo",
   "moneyFlowConfirm.cancel": "Cancel",
   "moneyFlowConfirm.confirmTip": "Confirm tip",
-  "moneyFlowConfirm.confirmClaim": "Confirm claim"
+  "moneyFlowConfirm.confirmClaim": "Confirm claim",
+
+  "inbox.title": "Inbox",
+  "inbox.subtitle": "Claims of your half-cards, tips you received and your quest results — what happened while you were away.",
+  "inbox.empty.title": "All quiet",
+  "inbox.empty.body": "Claims, tips you receive and verified quests will show up here.",
+  "inbox.new": "New",
+  "inbox.item.claim": "{who} claimed your half-card",
+  "inbox.item.tip": "{who} tipped you {amount} USDC",
+  "inbox.item.quest": "Quest #{id} verified — Earned XP added",
+  "inbox.item.streak": "Your quest streak reached {weeks} weeks"
 }

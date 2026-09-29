@@ -9,6 +9,7 @@ import * as questsLayout from './app/quests/layout';
 import * as rewardsLayout from './app/rewards/layout';
 import * as activityLayout from './app/activity/layout';
 import * as peopleLayout from './app/people/layout';
+import * as inboxLayout from './app/inbox/layout';
 import * as claimLayout from './claim/[id]/layout';
 import * as profileLayout from './u/[handle]/layout';
 import * as inviteLayout from './v/[handle]/layout';
@@ -120,6 +121,7 @@ describe('route metadata', () => {
     ['/app/rewards', rewardsLayout.metadata, 'Rewards'],
     ['/app/activity', activityLayout.metadata, 'Activity'],
     ['/app/people', peopleLayout.metadata, 'People'],
+    ['/app/inbox', inboxLayout.metadata, 'Inbox'],
   ])('%s keeps the site suffix under the /app layout', async (path, metadata, title) => {
     const m = await resolve(path, appLayout.metadata, metadata);
     expect(m.title?.absolute).toBe(`${title} · alvinmunk`);
@@ -227,6 +229,7 @@ describe('indexing (#212)', () => {
     ['/app', [appLayout.metadata]],
     ['/app/vouch', [appLayout.metadata, vouchLayout.metadata]],
     ['/app/people', [appLayout.metadata, peopleLayout.metadata]],
+    ['/app/inbox', [appLayout.metadata, inboxLayout.metadata]],
     ['/claim/7', [null, claimLayout.metadata]],
     ['/admin', [adminLayout.metadata]],
   ] as [string, Segment[]][])('%s renders noindex', async (path, segments) => {

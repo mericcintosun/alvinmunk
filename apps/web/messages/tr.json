@@ -369,6 +369,8 @@
   "appTabs.rewards": "Ödüller",
   "appTabs.activity": "Aktivite",
   "appTabs.people": "Kişiler",
+  "appTabs.inbox": "Gelen kutusu",
+  "appTabs.inboxUnread": "Gelen kutunda yeni öğeler var",
   "statStrip.vouchedBy.label": "Seni destekleyen",
   "statStrip.vouchedBy.hint": "Gökyüzündeki kişiler",
   "statStrip.social.label": "Sosyal XP",
@@ -528,5 +530,15 @@
   "moneyFlowConfirm.undo": "Geri al",
   "moneyFlowConfirm.cancel": "İptal",
   "moneyFlowConfirm.confirmTip": "Bahşişi onayla",
-  "moneyFlowConfirm.confirmClaim": "Ödülü al"
+  "moneyFlowConfirm.confirmClaim": "Ödülü al",
+
+  "inbox.title": "Gelen kutusu",
+  "inbox.subtitle": "Yarım kartlarının alınması, aldığın bahşişler ve görev sonuçların — sen yokken olanlar.",
+  "inbox.empty.title": "Her şey sakin",
+  "inbox.empty.body": "Alınan yarım kartlar, gelen bahşişler ve doğrulanan görevler burada görünecek.",
+  "inbox.new": "Yeni",
+  "inbox.item.claim": "{who} yarım kartını aldı",
+  "inbox.item.tip": "{who} sana {amount} USDC bahşiş gönderdi",
+  "inbox.item.quest": "#{id} numaralı görev doğrulandı — Kazanılan XP eklendi",
+  "inbox.item.streak": "Görev serin {weeks} haftaya ulaştı"
 }

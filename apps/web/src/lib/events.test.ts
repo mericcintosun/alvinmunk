@@ -9,7 +9,7 @@ const { getLatestLedgerMock, getEventsMock } = vi.hoisted(() => ({
 
 vi.mock('./stellar', () => ({
   server: { getLatestLedger: getLatestLedgerMock, getEvents: getEventsMock },
-  config: { contracts: { reputation: 'CREP', rewards: 'CRWD' } },
+  config: { contracts: { reputation: 'CREP', rewards: 'CRWD', questRegistry: 'CQST' } },
 }));
 
 import {
@@ -19,6 +19,7 @@ import {
   fetchTipEvents,
   fetchTipsSent,
   fetchContractEvents,
+  fetchQuestEvents,
   EVENT_LEDGER_WINDOW,
   EVENT_WINDOW_TTL_MS,
   MAX_PAGES,
@@ -343,6 +344,40 @@ describe('contract event reads', () => {
     await fetchTipsSent(from);
     await fetchTipsSent(from);
     expect(getEventsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("scans the quest registry's 2-topic events — quest awards and streaks — in one shared window (#279)", async () => {
+    const player = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 3));
+    getEventsMock.mockResolvedValue({
+      events: [
+        {
+          id: '0000085899350016-0000000001',
+          topic: [sym('streak'), new Address(player).toScVal().toXDR('base64')],
+          value: xdr.ScVal.scvVec([xdr.ScVal.scvU32(3), xdr.ScVal.scvU32(4)]).toXDR('base64'),
+          ledger: 19_990,
+          ledgerClosedAt: '2026-09-29T10:00:00Z',
+        },
+      ],
+    });
+    const [events] = await Promise.all([fetchQuestEvents(), fetchQuestEvents()]);
+    expect(getEventsMock).toHaveBeenCalledTimes(1);
+    expect(getEventsMock).toHaveBeenCalledWith({
+      startLedger: 11_000,
+      filters: [{ type: 'contract', contractIds: ['CQST'], topics: [['*', '*']] }],
+      limit: PAGE_SIZE, // one page: the window's first request
+    });
+    // The RPC's event id and close time ride along, for stable ids and real timestamps.
+    expect(events).toEqual([
+      {
+        topics: ['streak', player],
+        data: [3, 4],
+        ledger: 19_990,
+        id: '0000085899350016-0000000001',
+        closedAt: Date.parse('2026-09-29T10:00:00Z') / 1000,
+      },
+    ]);
+    await fetchQuestEvents(); // within the TTL
+    expect(getEventsMock).toHaveBeenCalledTimes(1);
   });
 
   it('reads tips with a 3-segment filter pinned to the sender', async () => {

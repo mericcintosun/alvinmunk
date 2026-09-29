@@ -1,314 +1,172 @@
 /**
- * Inbox — surfaces what happened to the signed-in user while they were away.
- *
- * Three durable item kinds, oldest-first from the chain then newest-first for the UI:
- *   1. vouch-claimed  — half-card this device minted was claimed (from myvouches + RPC)
- *   2. tip-received   — tipped event on the rewards contract where `to === me`
- *   3. quest-awarded  — quest event ("quest","awarded") where the recipient is `me`
- *
- * Seen items are persisted in localStorage so they survive beyond the RPC 24h window and
- * outlive a page refresh. A last-read timestamp clears the unread dot when the inbox is
- * opened. When the durable read API (#109) ships, swap the `fetchContractEvents` calls
- * for it here — one-file change, as per belts/00-strategy §5.
- *
- * `getInboxItems()` is intentionally wallet-agnostic: the caller passes the user's
- * address so the same function works for any account without touching a global wallet
- * singleton.
+ * Inbox (#279) — what happened to the signed-in wallet while it was away:
+ *   - `claim`  — a half-card it minted was claimed: `('vouch','claimed')` events whose `from`
+ *                is the wallet, plus this device's own vouches (getMyVouches + get_vouch) for
+ *                claims older than the event window;
+ *   - `tip`    — `('tipped', from, me)`, from the shared tip window (fetchTipEvents);
+ *   - `quest`  — `('quest','awarded')` for the wallet, and
+ *   - `streak` — `('streak', me)` once a streak runs past its first week, both from one
+ *                quest-registry window (fetchQuestEvents).
+ * All of it rides the shared event windows (their TTL cache included), so the tab's dot and
+ * the page cost no scan the dashboard hasn't already made. Items are kept in localStorage
+ * per network and wallet, so they outlive the RPC window; the ids already seen drive the
+ * unread dot. The durable read API (#109) can replace the reads here.
  */
-
-import { Address, xdr } from '@stellar/stellar-sdk';
 import { EVENTS } from '@alvinmunk/shared';
-import { fetchContractEvents, PAGE_SIZE, MAX_PAGES, EVENT_WINDOW_TTL_MS } from './events';
-import { config } from './stellar';
-import { getVouch } from './reputation';
+import { fetchQuestEvents, fetchReputationEvents, fetchTipEvents, type RepEvent } from './events';
 import { getMyVouches } from './myvouches';
-import { reverseHandles } from './registry';
+import { getVouch } from './reputation';
+import { config } from './stellar';
 import { readJSON, writeJSON } from './storage';
+import { shareInFlight } from './utils';
 
-// ── Inbox item types ────────────────────────────────────────────────────────
+export type InboxKind = 'claim' | 'tip' | 'quest' | 'streak';
 
-export type InboxKind = 'vouch-claimed' | 'tip-received' | 'quest-awarded';
-
+/** One inbox entry. Plain JSON (no bigint), so it persists as-is. */
 export interface InboxItem {
-  /** Stable, deterministic id so the seen-set deduplicates across loads. */
+  /** Stable per event, so a re-read never duplicates an item or its seen state. */
   id: string;
   kind: InboxKind;
-  /** Ledger this event landed in (0 for items sourced from localStorage only). */
+  /** The ledger it landed in; 0 for a claim known only from get_vouch (older than the window). */
   ledger: number;
-  /** Unix milliseconds — synthesized from ledger via a close-time estimate, or from localStorage. */
-  ts: number;
-  /** The other party's Stellar address (voucher → claimer, tipper, quest issuer). */
-  peerAddress: string;
-  /** @handle of the peer, when it could be resolved. */
-  peerHandle: string | null;
-  /** Human-readable message text. */
-  message: string;
-  /** Extra payload; depends on kind. */
-  meta: VouchClaimedMeta | TipReceivedMeta | QuestAwardedMeta;
+  /** Ledger close time in unix seconds, when the RPC reported it. */
+  at?: number;
+  /** The other party: the claimer (claim) or the tipper (tip). */
+  peer?: string;
+  /** tip: USDC stroops, as a decimal string. */
+  amount?: string;
+  vouchId?: number;
+  questId?: number;
+  /** streak: the consecutive-week count it reached. */
+  weeks?: number;
 }
 
-export interface VouchClaimedMeta {
-  kind: 'vouch-claimed';
-  vouchId: number;
-  note: string;
-  claimer: string;
+/** `('streak', player)` on the quest registry (docs/ON_CHAIN_EVENTS.md). */
+const STREAK = 'streak';
+/** Newest items kept per wallet. */
+const MAX_ITEMS = 200;
+/** Device vouches checked with get_vouch per load (the newest). */
+const MAX_DEVICE_VOUCHES = 50;
+
+/** Fired on `window` when the inbox is marked read, so the unread dot clears at once. */
+export const INBOX_READ_EVENT = 'alvinmunk:inbox-read';
+
+interface Stored {
+  items: InboxItem[];
+  seen: string[];
 }
 
-export interface TipReceivedMeta {
-  kind: 'tip-received';
-  /** Amount in stroops (bigint from the contract). */
-  amount: bigint;
-  from: string;
+/** Per network AND wallet: a G… address is the same key on testnet and mainnet. */
+const storageKey = (me: string) => `alvinmunk.inbox.${config.network}.${me}`;
+function load(me: string): Stored {
+  const s = readJSON<Partial<Stored> | null>(storageKey(me), null);
+  return { items: Array.isArray(s?.items) ? s.items : [], seen: Array.isArray(s?.seen) ? s.seen : [] };
 }
 
-export interface QuestAwardedMeta {
-  kind: 'quest-awarded';
-  questId: number | string;
-  recipient: string;
-}
+const at = (ev: RepEvent) => (ev.closedAt ? { at: ev.closedAt } : {});
+/** An event's own id when the RPC gave one, else what identifies it within its ledger. */
+const eventKey = (ev: RepEvent, fallback: string) => ev.id ?? `${ev.ledger}:${fallback}`;
 
-// ── localStorage persistence ────────────────────────────────────────────────
-
-const INBOX_SEEN_KEY = 'alvinmunk.inbox.seen';
-const INBOX_LAST_READ_KEY = 'alvinmunk.inbox.lastRead';
-/** Items persisted so they survive beyond the ~24h RPC event window. Max per wallet. */
-const MAX_PERSISTED_ITEMS = 200;
-
-/**
- * The set of item IDs the user has "seen" (the inbox was opened after they arrived).
- * An ID only enters this set when `markInboxRead()` is called.
- */
-export function getSeenIds(): Set<string> {
-  return new Set(readJSON<string[]>(INBOX_SEEN_KEY, []));
-}
-
-/** Epoch ms of the last time the user opened their inbox. */
-export function getLastReadMs(): number {
-  return readJSON<number>(INBOX_LAST_READ_KEY, 0);
-}
-
-/**
- * Mark every currently-known item id as seen and record the last-read timestamp.
- * Call this when the user opens the inbox view.
- */
-export function markInboxRead(itemIds: string[]): void {
-  const existing = readJSON<string[]>(INBOX_SEEN_KEY, []);
-  const next = Array.from(new Set([...existing, ...itemIds])).slice(-MAX_PERSISTED_ITEMS);
-  writeJSON(INBOX_SEEN_KEY, next);
-  writeJSON(INBOX_LAST_READ_KEY, Date.now());
-}
-
-// Persisted items cache (across sessions, beyond RPC window).
-const INBOX_ITEMS_KEY = 'alvinmunk.inbox.items';
-
-function loadPersistedItems(address: string): InboxItem[] {
-  const all = readJSON<Record<string, InboxItem[]>>(INBOX_ITEMS_KEY, {});
-  return all[address] ?? [];
-}
-
-function persistItems(address: string, items: InboxItem[]): void {
-  const all = readJSON<Record<string, InboxItem[]>>(INBOX_ITEMS_KEY, {});
-  // Keep the newest MAX_PERSISTED_ITEMS, deduped by id.
-  const merged = mergeItems(loadPersistedItems(address), items);
-  all[address] = merged.slice(0, MAX_PERSISTED_ITEMS);
-  writeJSON(INBOX_ITEMS_KEY, all);
-}
-
-/** Merge two item lists: union by id, newest-ledger wins on conflict, sorted newest-first. */
-function mergeItems(existing: InboxItem[], fresh: InboxItem[]): InboxItem[] {
-  const byId = new Map<string, InboxItem>();
-  for (const item of [...existing, ...fresh]) {
-    const prev = byId.get(item.id);
-    if (!prev || item.ledger >= prev.ledger) byId.set(item.id, item);
+/** The wallet's items in the current windows, oldest-first. */
+export function itemsFromEvents(
+  me: string,
+  { reputation, tips, quests }: { reputation: RepEvent[]; tips: RepEvent[]; quests: RepEvent[] },
+): InboxItem[] {
+  const out: InboxItem[] = [];
+  for (const ev of reputation) {
+    // ('vouch','claimed') → (id, from, claimer)
+    if (ev.topics[0] !== EVENTS.VOUCH || ev.topics[1] !== 'claimed' || !Array.isArray(ev.data)) continue;
+    if (String(ev.data[1]) !== me) continue;
+    const vouchId = Number(ev.data[0]);
+    out.push({ id: `claim:${vouchId}`, kind: 'claim', ledger: ev.ledger, ...at(ev), peer: String(ev.data[2]), vouchId });
   }
-  return Array.from(byId.values()).sort((a, b) => b.ledger - a.ledger || b.ts - a.ts);
+  for (const ev of tips) {
+    // ('tipped', from, to) → amount
+    if (ev.topics[0] !== EVENTS.TIPPED || String(ev.topics[2]) !== me) continue;
+    const from = String(ev.topics[1]);
+    const amount = String(ev.data ?? '0');
+    out.push({ id: `tip:${eventKey(ev, `${from}:${amount}`)}`, kind: 'tip', ledger: ev.ledger, ...at(ev), peer: from, amount });
+  }
+  for (const ev of quests) {
+    if (ev.topics[0] === EVENTS.QUEST && ev.topics[1] === 'awarded' && Array.isArray(ev.data)) {
+      // ('quest','awarded') → (quest_id, recipient)
+      if (String(ev.data[1]) !== me) continue;
+      const questId = Number(ev.data[0]);
+      out.push({ id: `quest:${eventKey(ev, String(questId))}`, kind: 'quest', ledger: ev.ledger, ...at(ev), questId });
+    } else if (ev.topics[0] === STREAK && String(ev.topics[1]) === me && Array.isArray(ev.data)) {
+      // ('streak', player) → (weeks, best). Week 1 is just the award above; only a streak
+      // that carried on is news.
+      const weeks = Number(ev.data[0]);
+      if (weeks < 2) continue;
+      out.push({ id: `streak:${eventKey(ev, String(weeks))}`, kind: 'streak', ledger: ev.ledger, ...at(ev), weeks });
+    }
+  }
+  return out;
 }
 
-// ── Approximate timestamp from ledger ──────────────────────────────────────
-
-/** Stellar ledger closes every ~5s. Approximates the unix ms for a given ledger. */
-function ledgerToMs(ledger: number, latestLedger: number, nowMs = Date.now()): number {
-  return nowMs - (latestLedger - ledger) * 5_000;
+/** Newest first; a claim with no known ledger sorts after every dated item. */
+function newestFirst(a: InboxItem, b: InboxItem): number {
+  return b.ledger - a.ledger || (b.at ?? 0) - (a.at ?? 0);
 }
 
-// ── Vouch-claimed items ─────────────────────────────────────────────────────
-
-async function fetchVouchClaimedItems(me: string, latestLedger: number): Promise<InboxItem[]> {
-  const mine = getMyVouches();
-  if (mine.length === 0) return [];
-
-  const items: InboxItem[] = [];
-  await Promise.all(
-    mine.slice(0, 50).map(async (m) => {
-      const vouch = await getVouch(m.id).catch(() => null);
-      if (!vouch?.claimed || !vouch.claimer || vouch.from !== me) return;
-      const id = `vouch-claimed:${m.id}`;
-      const ts = ledgerToMs(Number(vouch.created), latestLedger);
-      items.push({
-        id,
-        kind: 'vouch-claimed',
-        ledger: Number(vouch.created),
-        ts,
-        peerAddress: vouch.claimer,
-        peerHandle: null, // resolved in a batch below
-        message: `Your vouch "${m.note}" was claimed`,
-        meta: {
-          kind: 'vouch-claimed',
-          vouchId: m.id,
-          note: m.note,
-          claimer: vouch.claimer,
-        } satisfies VouchClaimedMeta,
-      });
+/**
+ * Claims of this device's vouches that neither the window nor the stored inbox knows yet —
+ * the durable path for claims older than the RPC window. Only vouches not already in the
+ * inbox are read, and get_vouch reads are memoized (lib/reputation).
+ */
+async function deviceClaims(me: string, known: Set<string>): Promise<InboxItem[]> {
+  const unknown = getMyVouches() // newest first
+    .slice(0, MAX_DEVICE_VOUCHES)
+    .filter((v) => !known.has(`claim:${v.id}`));
+  const found = await Promise.all(
+    unknown.map(async (v): Promise<InboxItem | null> => {
+      const vouch = await getVouch(v.id).catch(() => null);
+      if (!vouch?.claimed || !vouch.claimer || vouch.from !== me) return null;
+      return { id: `claim:${v.id}`, kind: 'claim', ledger: 0, peer: vouch.claimer, vouchId: v.id };
     }),
   );
-  return items;
+  return found.filter((i): i is InboxItem => i !== null);
 }
 
-// ── Tip-received items ──────────────────────────────────────────────────────
+export interface Inbox {
+  /** Newest first. */
+  items: InboxItem[];
+  /** Ids not seen yet (the inbox hasn't been opened since they arrived). */
+  unread: Set<string>;
+}
 
-async function fetchTipReceivedItems(me: string, latestLedger: number): Promise<InboxItem[]> {
-  if (!config.contracts.rewards) return [];
+const pending = new Map<string, Promise<Inbox>>();
 
-  let recipient: string;
-  try {
-    recipient = new Address(me).toScVal().toXDR('base64');
-  } catch {
-    return [];
-  }
-  const tipped = xdr.ScVal.scvSymbol(EVENTS.TIPPED).toXDR('base64');
+/**
+ * The wallet's inbox: the windows' items merged into the stored ones (and stored back), plus
+ * what is unread. Never rejects — a window that can't be read adds nothing, and the stored
+ * items still show. The tab and the page mounting together share one load.
+ */
+export function loadInbox(me: string): Promise<Inbox> {
+  return shareInFlight(pending, `${config.network}|${me}`, async () => {
+    const [reputation, tips, quests] = await Promise.all([
+      fetchReputationEvents().catch(() => []),
+      fetchTipEvents().catch(() => []),
+      fetchQuestEvents().catch(() => []),
+    ]);
+    const stored = load(me);
+    const byId = new Map(stored.items.map((i) => [i.id, i]));
+    // A window item replaces a stored one: it may add the ledger a get_vouch claim lacked.
+    for (const item of itemsFromEvents(me, { reputation, tips, quests })) byId.set(item.id, item);
+    for (const item of await deviceClaims(me, new Set(byId.keys()))) byId.set(item.id, item);
 
-  const events = await fetchContractEvents(
-    config.contracts.rewards,
-    [tipped, '*', recipient],
-    PAGE_SIZE * MAX_PAGES,
-    { maxAgeMs: EVENT_WINDOW_TTL_MS },
-  );
-
-  return events.map((ev) => {
-    const [, from] = ev.topics as [unknown, string, unknown];
-    const amount = (ev.data ?? 0n) as bigint;
-    const id = `tip-received:${ev.ledger}:${String(from)}:${String(amount)}`;
-    return {
-      id,
-      kind: 'tip-received' as const,
-      ledger: ev.ledger,
-      ts: ledgerToMs(ev.ledger, latestLedger),
-      peerAddress: String(from),
-      peerHandle: null,
-      message: `You received a tip of ${formatUsdc(amount)} USDC`,
-      meta: {
-        kind: 'tip-received',
-        amount,
-        from: String(from),
-      } satisfies TipReceivedMeta,
-    };
+    const items = [...byId.values()].sort(newestFirst).slice(0, MAX_ITEMS);
+    const kept = new Set(items.map((i) => i.id));
+    const seen = stored.seen.filter((id) => kept.has(id));
+    writeJSON<Stored>(storageKey(me), { items, seen });
+    const seenSet = new Set(seen);
+    return { items, unread: new Set(items.filter((i) => !seenSet.has(i.id)).map((i) => i.id)) };
   });
 }
 
-/** Format a USDC amount in stroops (7 decimals) to a readable string. */
-function formatUsdc(stroops: bigint): string {
-  const whole = stroops / 10_000_000n;
-  const frac = stroops % 10_000_000n;
-  if (frac === 0n) return String(whole);
-  return `${whole}.${String(frac).padStart(7, '0').replace(/0+$/, '')}`;
-}
-
-// ── Quest-awarded items ─────────────────────────────────────────────────────
-
-async function fetchQuestAwardedItems(me: string, latestLedger: number): Promise<InboxItem[]> {
-  if (!config.contracts.questRegistry) return [];
-
-  const quest = xdr.ScVal.scvSymbol(EVENTS.QUEST).toXDR('base64');
-  const awarded = xdr.ScVal.scvSymbol('awarded').toXDR('base64');
-
-  const events = await fetchContractEvents(
-    config.contracts.questRegistry,
-    [quest, awarded],
-    PAGE_SIZE * MAX_PAGES,
-    { maxAgeMs: EVENT_WINDOW_TTL_MS },
-  );
-
-  const items: InboxItem[] = [];
-  for (const ev of events) {
-    // data = (quest_id, recipient) — recipient is the address that got the XP
-    const data = ev.data as { 0?: unknown; 1?: unknown } | unknown[] | null;
-    let questId: number | string = 0;
-    let recipient: string = '';
-    if (Array.isArray(data)) {
-      questId = data[0] as number | string;
-      recipient = String(data[1]);
-    } else if (data && typeof data === 'object') {
-      questId = (data as Record<string, unknown>)[0] as number | string;
-      recipient = String((data as Record<string, unknown>)[1]);
-    }
-    if (recipient !== me) continue;
-    const id = `quest-awarded:${ev.ledger}:${String(questId)}`;
-    items.push({
-      id,
-      kind: 'quest-awarded' as const,
-      ledger: ev.ledger,
-      ts: ledgerToMs(ev.ledger, latestLedger),
-      peerAddress: me,
-      peerHandle: null,
-      message: `Your quest was verified — Earned XP added`,
-      meta: {
-        kind: 'quest-awarded',
-        questId,
-        recipient,
-      } satisfies QuestAwardedMeta,
-    });
-  }
-  return items;
-}
-
-// ── Public API ──────────────────────────────────────────────────────────────
-
-/**
- * Fetch all inbox items for `me`, merge with persisted items, resolve handles, and
- * return newest-first. Degrades gracefully: a failure fetching one kind does not
- * blank the others. Persists the result to localStorage so items outlive the RPC window.
- *
- * Pass the latest ledger sequence from a recent RPC call for accurate timestamps;
- * pass 0 to have the function use current time as-of-latest.
- */
-export async function getInboxItems(me: string, latestLedger = 0): Promise<InboxItem[]> {
-  if (!me) return [];
-
-  // Fetch from chain in parallel; each degrades to [] on failure.
-  const [vouches, tips, quests] = await Promise.all([
-    fetchVouchClaimedItems(me, latestLedger).catch(() => []),
-    fetchTipReceivedItems(me, latestLedger).catch(() => []),
-    fetchQuestAwardedItems(me, latestLedger).catch(() => []),
-  ]);
-
-  const fresh = [...vouches, ...tips, ...quests];
-
-  // Merge with locally persisted items (covers the > 24h window).
-  const merged = mergeItems(loadPersistedItems(me), fresh);
-
-  // Batch-resolve all peer handles in one call.
-  const peerAddresses = [...new Set(merged.map((i) => i.peerAddress))].filter((a) => a && a !== me);
-  let handles: Record<string, string | null> = {};
-  if (peerAddresses.length > 0) {
-    handles = await reverseHandles(peerAddresses).catch(() => ({}));
-  }
-
-  const withHandles = merged.map((item) => ({
-    ...item,
-    peerHandle: handles[item.peerAddress] ?? null,
-  }));
-
-  // Persist the enriched list.
-  persistItems(me, withHandles);
-
-  return withHandles;
-}
-
-/**
- * Count of inbox items that arrived AFTER the last-read timestamp.
- * Pass the same array returned by `getInboxItems` to avoid a second fetch.
- */
-export function countUnread(items: InboxItem[]): number {
-  const lastRead = getLastReadMs();
-  return items.filter((i) => i.ts > lastRead).length;
+/** Mark these ids seen (the inbox is open) and tell the unread dot. */
+export function markInboxRead(me: string, ids: string[]): void {
+  const stored = load(me);
+  writeJSON<Stored>(storageKey(me), { ...stored, seen: [...new Set([...stored.seen, ...ids])] });
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(INBOX_READ_EVENT));
 }
