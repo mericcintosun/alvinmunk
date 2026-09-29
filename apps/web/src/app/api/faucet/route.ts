@@ -13,6 +13,7 @@ import {
   Contract,
   Horizon,
   Keypair,
+  NotFoundError,
   Operation,
   TransactionBuilder,
   nativeToScVal,
@@ -20,6 +21,8 @@ import {
 } from '@stellar/stellar-sdk';
 // The app's one resolved (and validated) network config — no per-route testnet defaults.
 import { config, misconfiguredResponse } from '../../../lib/stellar';
+import { submitSigned, TxNotQueuedError } from '../../../lib/submit';
+import { json, withRoute } from '../../../lib/api-route';
 
 export const runtime = 'nodejs';
 
@@ -44,7 +47,7 @@ function rateLimited(ip: string, now: number): boolean {
   return h.n > RATE_MAX;
 }
 
-export async function POST(req: Request): Promise<Response> {
+export const POST = withRoute('POST /api/faucet', async (req: Request): Promise<Response> => {
   const misconfigured = misconfiguredResponse();
   if (misconfigured) return misconfigured;
   if (IS_MAINNET) return json({ error: 'faucet is disabled on mainnet' }, 403);
@@ -93,19 +96,24 @@ export async function POST(req: Request): Promise<Response> {
         .build();
       const prepared = await srpc.prepareTransaction(built);
       prepared.sign(issuer); // source = issuer = SAC admin → satisfies mint's admin auth
-      const sent = await srpc.sendTransaction(prepared);
-      if (sent.status === 'ERROR') throw new Error(JSON.stringify(sent.errorResult));
+      const hash = await submitSigned(prepared, 'faucet mint', srpc);
+      let confirmed = false;
       for (let i = 0; i < 30; i++) {
-        const r = await srpc.getTransaction(sent.hash);
-        if (r.status === 'SUCCESS') break;
+        const r = await srpc.getTransaction(hash);
+        if (r.status === 'SUCCESS') {
+          confirmed = true;
+          break;
+        }
         if (r.status === 'FAILED') throw new Error('mint failed on-chain');
         await new Promise((res) => setTimeout(res, 1000));
       }
+      // Never confirmed: don't mark the recipient funded, so a retry can still mint.
+      if (!confirmed) return json({ error: 'mint not confirmed in time', hash }, 504);
       funded.add(recipient);
-      logEvent({ route: 'faucet', outcome: 'ok', amount: DRIP, kind: 'sac-mint', ms: Date.now() - now });
-      return json({ ok: true, hash: sent.hash, amount: DRIP });
+      return json({ ok: true, hash, amount: DRIP });
     } catch (e) {
-      logEvent({ route: 'faucet', outcome: 'error', kind: 'sac-mint', ms: Date.now() - now });
+      // Core kept answering TRY_AGAIN_LATER: the mint never entered the queue — a 503, not funded.
+      if (e instanceof TxNotQueuedError) return json({ error: 'network busy, try again later' }, 503);
       return json({ error: e instanceof Error ? e.message : 'faucet mint failed' }, 502);
     }
   }
@@ -117,8 +125,14 @@ export async function POST(req: Request): Promise<Response> {
   let recipientAccount;
   try {
     recipientAccount = await server.loadAccount(recipient);
-  } catch {
-    return json({ error: 'recipient account not found on testnet' }, 404);
+  } catch (e) {
+    // Only 404 when Horizon confirmed the account truly doesn't exist.
+    // Any other failure (5xx, network error) is a transient Horizon problem, not a
+    // missing account — reporting it as 404 would confuse the user and block retries.
+    if (e instanceof NotFoundError) {
+      return json({ error: 'recipient account not found on testnet' }, 404);
+    }
+    return json({ error: 'could not reach Horizon, try again later' }, 502);
   }
   const trusts = recipientAccount.balances.some(
     (b) => 'asset_code' in b && b.asset_code === 'USDC' && b.asset_issuer === issuer.publicKey(),
@@ -134,22 +148,19 @@ export async function POST(req: Request): Promise<Response> {
     tx.sign(issuer);
     const res = await server.submitTransaction(tx);
     funded.add(recipient);
-    logEvent({ route: 'faucet', outcome: 'ok', amount: DRIP, ms: Date.now() - now });
     return json({ ok: true, hash: res.hash, amount: DRIP });
   } catch (e) {
-    logEvent({ route: 'faucet', outcome: 'error', ms: Date.now() - now });
-    return json({ error: e instanceof Error ? e.message : 'faucet payment failed' }, 502);
+    // Include Horizon result_codes when present so the caller can distinguish
+    // op_no_trust, op_line_full, tx_bad_seq, etc. from generic failures.
+    const resultCodes = (
+      e as { response?: { data?: { extras?: { result_codes?: unknown } } } }
+    )?.response?.data?.extras?.result_codes;
+    return json(
+      {
+        error: e instanceof Error ? e.message : 'faucet payment failed',
+        ...(resultCodes !== undefined ? { result_codes: resultCodes } : {}),
+      },
+      502,
+    );
   }
-}
-
-/** Structured one-line log for observability (captured by the platform log drain). */
-function logEvent(fields: Record<string, unknown>): void {
-  console.log(JSON.stringify({ t: new Date().toISOString(), ...fields }));
-}
-
-function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  });
-}
+});

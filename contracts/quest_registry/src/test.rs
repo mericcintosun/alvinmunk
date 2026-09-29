@@ -59,13 +59,13 @@ fn setup_in(env: Env) -> Fixture<'static> {
     }
 }
 
-/// Sign the contract's canonical payload with `sk` and award the quest.
+/// How long the attester's signatures stay valid (apps/web/src/lib/attest.ts QUEST_SIG_TTL_SECS).
+const SIG_TTL: u64 = 600;
+
+/// Sign the contract's canonical payload with `sk` and award the quest, with the attester's
+/// usual expiry (`SIG_TTL` from now).
 fn award(f: &Fixture, sk: &SigningKey, quest_id: u32, recipient: &Address) {
-    let pubkey = BytesN::from_array(&f.env, &sk.verifying_key().to_bytes());
-    let payload = f.quest.quest_payload(&quest_id, recipient);
-    let msg: std::vec::Vec<u8> = payload.iter().collect();
-    let sig = BytesN::from_array(&f.env, &sk.sign(&msg).to_bytes());
-    f.quest.award_quest(&pubkey, &sig, &quest_id, recipient);
+    try_award(f, sk, quest_id, recipient).unwrap();
 }
 
 /// `award`, but returning the contract error instead of panicking.
@@ -75,15 +75,45 @@ fn try_award(
     quest_id: u32,
     recipient: &Address,
 ) -> Result<(), Error> {
-    let pubkey = pub_key(f, sk);
-    let payload = f.quest.quest_payload(&quest_id, recipient);
-    let msg: std::vec::Vec<u8> = payload.iter().collect();
-    let sig = BytesN::from_array(&f.env, &sk.sign(&msg).to_bytes());
-    match f.quest.try_award_quest(&pubkey, &sig, &quest_id, recipient) {
+    let expires_at = f.env.ledger().timestamp() + SIG_TTL;
+    try_award_until(f, sk, quest_id, recipient, expires_at)
+}
+
+/// `try_award` with a signature over the view's payload for `expires_at`.
+fn try_award_until(
+    f: &Fixture,
+    sk: &SigningKey,
+    quest_id: u32,
+    recipient: &Address,
+    expires_at: u64,
+) -> Result<(), Error> {
+    let payload = f.quest.quest_payload(&quest_id, recipient, &expires_at);
+    let sig = sign(&f.env, sk, &payload);
+    submit(f, sk, &sig, quest_id, recipient, expires_at)
+}
+
+/// Submit `award_quest` with a given signature, returning the contract error if any.
+fn submit(
+    f: &Fixture,
+    sk: &SigningKey,
+    sig: &BytesN<64>,
+    quest_id: u32,
+    recipient: &Address,
+    expires_at: u64,
+) -> Result<(), Error> {
+    match f
+        .quest
+        .try_award_quest(&pub_key(f, sk), sig, &quest_id, recipient, &expires_at)
+    {
         Ok(_) => Ok(()),
         Err(Ok(e)) => Err(Error::try_from(e).expect("a QuestRegistry error")),
         Err(Err(e)) => panic!("award_quest invoke error: {e:?}"),
     }
+}
+
+fn sign(env: &Env, sk: &SigningKey, message: &Bytes) -> BytesN<64> {
+    let msg: std::vec::Vec<u8> = message.iter().collect();
+    BytesN::from_array(env, &sk.sign(&msg).to_bytes())
 }
 
 fn pub_key(f: &Fixture, sk: &SigningKey) -> BytesN<32> {
@@ -147,10 +177,11 @@ fn award_quest_forged_signature_reverts() {
     f.quest.create_quest(&1u32, &2u32, &50u64);
     // Allowlisted pubkey, but the signature is from a DIFFERENT key — ed25519_verify panics.
     let wrong = signing_key(8);
-    let payload = f.quest.quest_payload(&1u32, &user);
-    let msg: std::vec::Vec<u8> = payload.iter().collect();
-    let sig = BytesN::from_array(&f.env, &wrong.sign(&msg).to_bytes());
-    f.quest.award_quest(&f.attester_pub, &sig, &1u32, &user);
+    let expires_at = f.env.ledger().timestamp() + SIG_TTL;
+    let payload = f.quest.quest_payload(&1u32, &user, &expires_at);
+    let sig = sign(&f.env, &wrong, &payload);
+    f.quest
+        .award_quest(&f.attester_pub, &sig, &1u32, &user, &expires_at);
 }
 
 #[test]
@@ -169,6 +200,333 @@ fn award_inactive_quest_reverts() {
     f.quest.create_quest(&1u32, &2u32, &50u64);
     f.quest.set_quest_active(&1u32, &false);
     award(&f, &f.attester_sk, 1, &user); // panics: QuestInactive
+}
+
+// --- Signature expiry and payload binding (issue #142) ---
+
+/// Run an award that must fail signature verification. `ed25519_verify` traps with
+/// Error(Crypto, InvalidInput); a `try_` call would narrow that (like any host error) to
+/// Error(Context, InvalidAction), which cannot tell a bad signature from other traps.
+fn assert_bad_signature(award: impl FnOnce()) {
+    let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(award))
+        .expect_err("the award must be rejected");
+    let msg = payload
+        .downcast_ref::<std::string::String>()
+        .map(|s| s.as_str())
+        .or_else(|| payload.downcast_ref::<&str>().copied())
+        .unwrap_or_default();
+    assert!(
+        msg.contains("Error(Crypto, InvalidInput)"),
+        "not a signature failure: {msg}"
+    );
+}
+
+/// The award payload exactly as docs/ON_CHAIN_EVENTS.md specifies it, built here rather
+/// than through the contract so these tests pin the format instead of echoing it.
+fn award_payload(
+    env: &Env,
+    tag: &str,
+    network: &BytesN<32>,
+    contract: &Address,
+    quest_id: u32,
+    recipient: &Address,
+    expires_at: u64,
+) -> Bytes {
+    let parts: Vec<Val> = vec![
+        env,
+        Symbol::new(env, tag).into_val(env),
+        network.into_val(env),
+        contract.into_val(env),
+        quest_id.into_val(env),
+        recipient.into_val(env),
+        expires_at.into_val(env),
+    ];
+    parts.to_xdr(env)
+}
+
+const TESTNET_ID: &str = "cee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472";
+const MAINNET_ID: &str = "7ac33997544e3175d266bd022439b22cdb16508c01163f26e5cb2a3e1045a979";
+
+fn network_id(env: &Env, hex: &str) -> BytesN<32> {
+    let mut id = [0u8; 32];
+    for (i, b) in id.iter_mut().enumerate() {
+        *b = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).unwrap();
+    }
+    BytesN::from_array(env, &id)
+}
+
+/// `setup()` on testnet: the ledger reports testnet's network id.
+fn setup_testnet() -> Fixture<'static> {
+    let f = setup();
+    f.env
+        .ledger()
+        .set_network_id(network_id(&f.env, TESTNET_ID).to_array());
+    f
+}
+
+fn to_hex(bytes: &Bytes) -> std::string::String {
+    bytes.iter().map(|b| std::format!("{b:02x}")).collect()
+}
+
+#[test]
+fn a_signature_is_valid_through_its_expiry_and_not_a_second_later() {
+    let f = setup();
+    f.quest.create_quest(&1u32, &2u32, &50u64);
+    let (early, late) = (Address::generate(&f.env), Address::generate(&f.env));
+    let expires_at = THU_2026_10_01 + SIG_TTL;
+
+    // Signed at issue time, redeemed in the last second of its window: accepted.
+    set_time(&f, THU_2026_10_01);
+    let sig = sign(
+        &f.env,
+        &f.attester_sk,
+        &f.quest.quest_payload(&1u32, &early, &expires_at),
+    );
+    set_time(&f, expires_at);
+    submit(&f, &f.attester_sk, &sig, 1, &early, expires_at).unwrap();
+    assert_eq!(f.rep.get_earned(&early), 50);
+
+    // The same kind of grant one second after its expiry: SignatureExpired (#8), nothing
+    // credited and no claim recorded, so a fresh signature still goes through.
+    set_time(&f, THU_2026_10_01);
+    let sig = sign(
+        &f.env,
+        &f.attester_sk,
+        &f.quest.quest_payload(&1u32, &late, &expires_at),
+    );
+    set_time(&f, expires_at + 1);
+    assert_eq!(
+        submit(&f, &f.attester_sk, &sig, 1, &late, expires_at),
+        Err(Error::SignatureExpired)
+    );
+    assert_eq!(f.rep.get_earned(&late), 0);
+    try_award(&f, &f.attester_sk, 1, &late).unwrap();
+    assert_eq!(f.rep.get_earned(&late), 50);
+}
+
+#[test]
+fn an_unredeemed_signature_does_not_outlive_its_expiry() {
+    // The issue's repro: signed at ledger time 0, submitted a year later.
+    let f = setup();
+    f.quest.create_quest(&1u32, &2u32, &50u64);
+    let user = Address::generate(&f.env);
+    set_time(&f, 0);
+    let sig = sign(
+        &f.env,
+        &f.attester_sk,
+        &f.quest.quest_payload(&1u32, &user, &SIG_TTL),
+    );
+    set_time(&f, 365 * DAY);
+    assert_eq!(
+        submit(&f, &f.attester_sk, &sig, 1, &user, SIG_TTL),
+        Err(Error::SignatureExpired)
+    );
+    // Expiry is checked first: even a key that has since lost the quest gets #8.
+    f.quest.remove_attester_key(&f.attester_pub);
+    assert_eq!(
+        submit(&f, &f.attester_sk, &sig, 1, &user, SIG_TTL),
+        Err(Error::SignatureExpired)
+    );
+}
+
+#[test]
+fn a_tampered_expiry_fails_signature_verification() {
+    let f = setup();
+    f.quest.create_quest(&1u32, &2u32, &50u64);
+    let user = Address::generate(&f.env);
+    set_time(&f, THU_2026_10_01);
+    let signed_until = THU_2026_10_01 + SIG_TTL;
+    let sig = sign(
+        &f.env,
+        &f.attester_sk,
+        &f.quest.quest_payload(&1u32, &user, &signed_until),
+    );
+
+    // Stretching the window (or shrinking it) changes the payload the contract rebuilds.
+    for tampered in [signed_until + 365 * DAY, signed_until - 1, u64::MAX] {
+        assert_bad_signature(|| {
+            f.quest
+                .award_quest(&f.attester_pub, &sig, &1u32, &user, &tampered)
+        });
+    }
+    // Past the real expiry, a stretched one still does not verify.
+    set_time(&f, signed_until + 1);
+    assert_bad_signature(|| {
+        f.quest
+            .award_quest(&f.attester_pub, &sig, &1u32, &user, &(signed_until + DAY))
+    });
+    assert_eq!(f.rep.get_earned(&user), 0);
+}
+
+/// Quest 3's award payload on testnet from contract `C` = 32 × 0x11, valid through
+/// 2026-10-01 00:10:00 UTC, for a classic recipient (G… = 32 × 0x22) and a passkey smart
+/// wallet (C… = 32 × 0x33). apps/web/src/lib/attest.test.ts pins the attester's
+/// `questPayload` to the same bytes, and docs/ON_CHAIN_EVENTS.md documents them.
+const AWARD_PAYLOAD_HEAD: &str = concat!(
+    "000000100000000100000006", // vec of 6
+    "0000000f00000018616c76696e6d756e6b5f61776172645f71756573745f7631", // Symbol("alvinmunk_award_quest_v1")
+    "0000000d00000020cee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472", // BytesN<32> network id
+    "00000012000000011111111111111111111111111111111111111111111111111111111111111111", // Address, contract
+    "0000000300000003", // u32 quest id
+);
+const AWARD_RECIPIENT_G: &str =
+    "0000001200000000000000002222222222222222222222222222222222222222222222222222222222222222"; // Address, account (ed25519)
+const AWARD_RECIPIENT_C: &str =
+    "00000012000000013333333333333333333333333333333333333333333333333333333333333333"; // Address, contract
+const AWARD_EXPIRES_AT: &str = "00000005000000006abda4d8"; // u64 expires_at = 1_790_813_400
+
+#[test]
+fn quest_payload_matches_the_documented_bytes() {
+    let env = Env::default();
+    let testnet = network_id(&env, TESTNET_ID);
+    env.ledger().set_network_id(testnet.to_array());
+    let contract = Address::from_str(
+        &env,
+        "CAIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRDB3V",
+    );
+    env.register_at(&contract, QuestRegistryContract, ());
+    let client = QuestRegistryContractClient::new(&env, &contract);
+    let classic = Address::from_str(
+        &env,
+        "GARCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCFRVX",
+    );
+    let passkey = Address::from_str(
+        &env,
+        "CAZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGGJH",
+    );
+    let expires_at = THU_2026_10_01 + SIG_TTL;
+    assert_eq!(expires_at, 1_790_813_400);
+
+    for (recipient, tail) in [(classic, AWARD_RECIPIENT_G), (passkey, AWARD_RECIPIENT_C)] {
+        let expected = std::format!("{AWARD_PAYLOAD_HEAD}{tail}{AWARD_EXPIRES_AT}");
+        // The view returns exactly the bytes `award_quest` verifies...
+        let internal = env.as_contract(&contract, || {
+            QuestRegistryContract::payload(&env, 3, &recipient, expires_at)
+        });
+        let view = client.quest_payload(&3u32, &recipient, &expires_at);
+        assert_eq!(view, internal);
+        // ...which are the documented ones.
+        assert_eq!(to_hex(&view), expected);
+        assert_eq!(
+            view,
+            award_payload(
+                &env,
+                AWARD_DOMAIN,
+                &testnet,
+                &contract,
+                3,
+                &recipient,
+                expires_at
+            )
+        );
+    }
+}
+
+#[test]
+fn a_signature_is_bound_to_its_network_contract_and_domain_tag() {
+    let f = setup_testnet();
+    f.quest.create_quest(&1u32, &2u32, &50u64);
+    let user = Address::generate(&f.env);
+    let expires_at = f.env.ledger().timestamp() + SIG_TTL;
+    let testnet = network_id(&f.env, TESTNET_ID);
+    let mainnet = network_id(&f.env, MAINNET_ID);
+    let here = f.quest.address.clone();
+    let elsewhere = Address::generate(&f.env);
+    let bad = |payload: Bytes| {
+        let sig = sign(&f.env, &f.attester_sk, &payload);
+        assert_bad_signature(|| {
+            f.quest
+                .award_quest(&f.attester_pub, &sig, &1u32, &user, &expires_at)
+        });
+    };
+
+    // Signed for mainnet, submitted on testnet.
+    bad(award_payload(
+        &f.env,
+        AWARD_DOMAIN,
+        &mainnet,
+        &here,
+        1,
+        &user,
+        expires_at,
+    ));
+    // Signed for another deployment.
+    bad(award_payload(
+        &f.env,
+        AWARD_DOMAIN,
+        &testnet,
+        &elsewhere,
+        1,
+        &user,
+        expires_at,
+    ));
+    // Another quest, or another recipient.
+    bad(award_payload(
+        &f.env,
+        AWARD_DOMAIN,
+        &testnet,
+        &here,
+        2,
+        &user,
+        expires_at,
+    ));
+    let other = Address::generate(&f.env);
+    bad(award_payload(
+        &f.env,
+        AWARD_DOMAIN,
+        &testnet,
+        &here,
+        1,
+        &other,
+        expires_at,
+    ));
+    // Right fields under another tag, e.g. a future payload version.
+    bad(award_payload(
+        &f.env,
+        "alvinmunk_award_quest_v2",
+        &testnet,
+        &here,
+        1,
+        &user,
+        expires_at,
+    ));
+
+    // The testnet payload for this contract awards.
+    let right = award_payload(&f.env, AWARD_DOMAIN, &testnet, &here, 1, &user, expires_at);
+    assert_eq!(right, f.quest.quest_payload(&1u32, &user, &expires_at));
+    submit(
+        &f,
+        &f.attester_sk,
+        &sign(&f.env, &f.attester_sk, &right),
+        1,
+        &user,
+        expires_at,
+    )
+    .unwrap();
+    assert_eq!(f.rep.get_earned(&user), 50);
+}
+
+#[test]
+fn signatures_over_the_old_payload_no_longer_verify() {
+    // Before #142 the attester signed `[quest_id, recipient, contract]` with no expiry, so
+    // any such signature issued but never redeemed is void once this code is deployed.
+    let f = setup();
+    f.quest.create_quest(&1u32, &2u32, &50u64);
+    let user = Address::generate(&f.env);
+    let legacy: Vec<Val> = vec![
+        &f.env,
+        1u32.into_val(&f.env),
+        user.clone().into_val(&f.env),
+        f.quest.address.clone().into_val(&f.env),
+    ];
+    let sig = sign(&f.env, &f.attester_sk, &legacy.to_xdr(&f.env));
+    for expires_at in [0, f.env.ledger().timestamp() + SIG_TTL, u64::MAX] {
+        assert_bad_signature(|| {
+            f.quest
+                .award_quest(&f.attester_pub, &sig, &1u32, &user, &expires_at)
+        });
+    }
+    assert_eq!(f.rep.get_earned(&user), 0);
 }
 
 #[test]
@@ -789,6 +1147,7 @@ fn error_codes_are_append_only() {
     assert_eq!(Error::AlreadyClaimed as u32, 5);
     assert_eq!(Error::QuestInactive as u32, 6);
     assert_eq!(Error::AttesterBudgetExceeded as u32, 7);
+    assert_eq!(Error::SignatureExpired as u32, 8);
 }
 
 #[test]

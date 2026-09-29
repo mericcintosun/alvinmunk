@@ -48,6 +48,11 @@ describe('timeAgo', () => {
     expect(timeAgo(NOW - 7 * 86_400)).toBe('1 week ago');
     expect(timeAgo(NOW - 60 * 86_400)).toBe('2 months ago');
   });
+
+  it('formats relative times in the requested locale', () => {
+    expect(timeAgo(NOW - 86_400, 'tr')).toBe('dün');
+    expect(timeAgo(NOW - 3 * 86_400, 'tr')).toBe('3 gün önce');
+  });
 });
 
 const ME = 'G'.padEnd(56, 'M');

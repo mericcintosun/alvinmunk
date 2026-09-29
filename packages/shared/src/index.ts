@@ -91,14 +91,44 @@ export const PASSPHRASE = {
   mainnet: 'Public Global Stellar Network ; September 2015',
 } as const;
 
-/** Reads the public NEXT_PUBLIC_* env into a typed config (client + server safe). */
+/**
+ * Default URLs per network. Testnet has SDF's public endpoints; mainnet has SDF's public
+ * Horizon but no keyless public RPC, so a mainnet deploy must set NEXT_PUBLIC_RPC_URL — an
+ * unset one stays empty and `validateNetworkConfig` reports it, instead of the old silent
+ * fallback to testnet's RPC.
+ */
+export const DEFAULT_URLS: Record<StellarNetwork, { rpcUrl: string; horizonUrl: string }> = {
+  testnet: {
+    rpcUrl: 'https://soroban-testnet.stellar.org',
+    horizonUrl: 'https://horizon-testnet.stellar.org',
+  },
+  mainnet: { rpcUrl: '', horizonUrl: 'https://horizon.stellar.org' },
+};
+
+/** An env value, trimmed, with blank treated as unset (`FOO=` in a .env file is ''). */
+function envValue(v: string | undefined): string | undefined {
+  const t = v?.trim();
+  return t ? t : undefined;
+}
+
+/**
+ * Reads the public NEXT_PUBLIC_* env into a typed config (client + server safe). It never
+ * throws: the network name is normalised ("Mainnet " → mainnet), and anything that is still
+ * wrong — an unknown network, a passphrase for the other network, a missing mainnet RPC URL —
+ * is reported by `validateNetworkConfig`, which blocks signing and shows the config banner.
+ */
 export function readNetworkConfig(env: Record<string, string | undefined>): NetworkConfig {
-  const network = (env.NEXT_PUBLIC_STELLAR_NETWORK as StellarNetwork) ?? 'testnet';
+  const rawNetwork = env.NEXT_PUBLIC_STELLAR_NETWORK;
+  // Only an absent variable means testnet; an empty or unknown value stays as typed so the
+  // validator names it.
+  const network = (rawNetwork === undefined ? 'testnet' : rawNetwork.trim().toLowerCase()) as StellarNetwork;
+  const known = network === 'testnet' || network === 'mainnet';
+  const defaults = known ? DEFAULT_URLS[network] : DEFAULT_URLS.testnet;
   return {
     network,
-    rpcUrl: env.NEXT_PUBLIC_RPC_URL ?? 'https://soroban-testnet.stellar.org',
-    networkPassphrase: env.NEXT_PUBLIC_NETWORK_PASSPHRASE ?? PASSPHRASE[network],
-    horizonUrl: env.NEXT_PUBLIC_HORIZON_URL ?? 'https://horizon-testnet.stellar.org',
+    rpcUrl: envValue(env.NEXT_PUBLIC_RPC_URL) ?? defaults.rpcUrl,
+    networkPassphrase: envValue(env.NEXT_PUBLIC_NETWORK_PASSPHRASE) ?? (known ? PASSPHRASE[network] : ''),
+    horizonUrl: envValue(env.NEXT_PUBLIC_HORIZON_URL) ?? defaults.horizonUrl,
     contracts: {
       reputation: env.NEXT_PUBLIC_REPUTATION_CONTRACT_ID ?? '',
       questRegistry: env.NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID ?? '',
@@ -364,6 +394,8 @@ export function buildClaimUrl(origin: string, vouchId: number | string): string 
 
 /** Short display form for an address: GABC…WXYZ */
 export function shortAddr(address: string, lead = 4, tail = 4): string {
-  if (address.length <= lead + tail + 1) return address;
+  if (!address || address.length <= lead + tail + 1) return address;
   return `${address.slice(0, lead)}…${address.slice(-tail)}`;
 }
+
+export { isStellarAddress, type IsStellarAddressOptions } from './stellar-address';

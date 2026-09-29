@@ -20,6 +20,7 @@ import {
   rewardsId,
 } from './contracts';
 import { server, horizon, networkPassphrase, config } from './stellar';
+import { submitSigned } from './submit';
 import type { Wallet } from './wallet';
 
 const usdcSacId = () => config.contracts.usdcSac;
@@ -27,11 +28,46 @@ const usdcSacId = () => config.contracts.usdcSac;
 // USDC, like every Stellar asset, has 7 decimals (1 USDC = 10_000_000 stroops).
 const ONE_USDC = 10_000_000n;
 
-/** Parse a human display amount ("2.5") into i128 stroops. */
+/** Thrown when an amount string is not a valid USDC amount. */
+export class InvalidAmountError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidAmountError';
+  }
+}
+
+/** Parse a human display amount ("2.5" or "2,5") into i128 stroops. */
 export function usdcToStroops(display: string): bigint {
-  const [whole, frac = ''] = display.trim().split('.');
+  const trimmed = display.trim();
+
+  // Digits, with an optional single , or . separator followed by digits — rejects
+  // negatives, multiple separators, exponents and any other non-numeric input.
+  if (!/^\d*([.,]\d+)?$/.test(trimmed)) {
+    throw new InvalidAmountError(`Invalid amount: "${display}"`);
+  }
+
+  const normalized = trimmed.replace(',', '.');
+  const [whole, frac = ''] = normalized.split('.');
+  // Truncate (never round up) beyond 7 decimals, so a tip never over-pays.
   const fracPadded = (frac + '0000000').slice(0, 7);
-  return BigInt(whole || '0') * ONE_USDC + BigInt(fracPadded || '0');
+  const result = BigInt(whole || '0') * ONE_USDC + BigInt(fracPadded || '0');
+
+  // Zero, empty and sub-stroop input (truncates to 0) are not valid amounts.
+  if (result <= 0n) {
+    throw new InvalidAmountError(`Amount must be greater than zero: "${display}"`);
+  }
+
+  return result;
+}
+
+/** Check if a string is a valid USDC amount for UI validation (non-throwing). */
+export function isValidAmount(display: string): boolean {
+  try {
+    usdcToStroops(display);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Format i128 stroops back to a trimmed display string. */
@@ -89,12 +125,9 @@ export async function enableUsdc(wallet: Wallet): Promise<string> {
     .setTimeout(60)
     .build();
   const signed = TransactionBuilder.fromXDR(await wallet.sign(tx.toXDR()), networkPassphrase);
-  const sent = await server.sendTransaction(signed);
-  if (sent.status === 'ERROR') {
-    throw new Error(`trustline rejected: ${JSON.stringify(sent.errorResult)}`);
-  }
-  await waitConfirmed(sent.hash);
-  return sent.hash;
+  const hash = await submitSigned(signed, 'trustline');
+  await waitConfirmed(hash);
+  return hash;
 }
 
 /** Request test USDC from the serverless faucet (testnet only; trustline required first). */

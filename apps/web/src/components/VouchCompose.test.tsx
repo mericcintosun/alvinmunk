@@ -40,6 +40,12 @@ vi.mock('@/components/fx/frame', () => ({
 vi.mock('@/components/fx/border-beam', () => ({ BorderBeam: () => null }));
 vi.mock('@/components/ui/state-art', () => ({ StateArt: () => null }));
 vi.mock('@/components/ui/sticker', () => ({ Sticker: () => null }));
+// The QR encoder is stubbed: these tests are about the reveal and the value it encodes.
+vi.mock('@/components/fx/qr-code', () => ({
+  QrCode: ({ value, label }: { value: string; label: string }) => (
+    <div data-testid="qr" data-value={value} aria-label={label} />
+  ),
+}));
 
 import { VouchCompose } from './VouchCompose';
 
@@ -116,5 +122,25 @@ describe('VouchCompose note', () => {
     await mint();
     expect(toastMock.error).toHaveBeenCalledWith('Keep the note to 60 characters or fewer.');
     expect(container.textContent).toContain('Keep the note to 60 characters or fewer.');
+  });
+
+  it('keeps the claim QR hidden until revealed, then encodes the claim link with its key (#215)', async () => {
+    await mount();
+    await typeNote('gm');
+    await mint();
+
+    // Minted, but no QR in the DOM until the user asks for it.
+    expect(container.querySelector('[data-testid="qr"]')).toBeNull();
+    const toggle = container.querySelector<HTMLButtonElement>('button[aria-controls="vouch-claim-qr"]')!;
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+
+    await act(async () => toggle.click());
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    const qr = container.querySelector('[data-testid="qr"]')!;
+    expect(qr.getAttribute('data-value')).toBe(`${window.location.origin}/claim/7#k=ab`);
+    expect(container.textContent).toMatch(/secret/i);
+
+    await act(async () => toggle.click());
+    expect(container.querySelector('[data-testid="qr"]')).toBeNull();
   });
 });
