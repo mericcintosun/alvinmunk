@@ -7,8 +7,11 @@
  */
 
 // ── Schema ids (namespacing for attestations). Issuers agree off-chain. ──
+// `schema_id` is whatever the attester passes to `award_xp`; every deployed quest uses
+// QUEST (scripts/redeploy-all.sh). Vouches never touch Earned, so no `att_set` carries 1.
 export const SCHEMA = {
-  VOUCH: 1,
+  /** Reserved, never emitted (formerly VOUCH). Do not reuse for a new namespace. */
+  RESERVED: 1,
   QUEST: 2,
 } as const;
 export type SchemaId = (typeof SCHEMA)[keyof typeof SCHEMA];
@@ -20,15 +23,15 @@ export const EVENTS = {
   ATTESTATION_SET: 'att_set',
   /** topics ('xp', addr) · data (amount, newTotal) — Earned track total */
   XP: 'xp',
-  /** topics ('social', addr) · data (amount, newTotal) — Social track total (leaderboard source) */
+  /** topics ('social', addr) · data (amount, newTotal) — Social track total (leaderboard source). `amount` is unsigned: compare newTotal with the previous total for the direction */
   SOCIAL: 'social',
-  /** topics ('vouch', 'minted'|'claimed') · data (id, from, to) */
+  /** topics ('vouch', 'minted'|'claimed'|'slashed') · data minted (id, from) · claimed (id, from, claimer) · slashed (id, from, stake) */
   VOUCH: 'vouch',
-  /** topics ('quest', 'created'|'awarded') · data varies */
+  /** topics ('quest', 'created'|'awarded') · data created id · awarded (quest_id, recipient) */
   QUEST: 'quest',
   /** topics ('tipped', from, to) · data amount */
   TIPPED: 'tipped',
-  /** topics ('reward', to) · data (reward_id, amount) */
+  /** topics ('reward', to) · data (reward_id, amount, claims) */
   REWARD: 'reward',
 } as const;
 
@@ -40,13 +43,20 @@ export interface Attestation {
   revoked: boolean;
 }
 
+// ── Mirror of the on-chain Vouch struct (read-view shape of `get_vouch`) ──
 export interface Vouch {
   id: number;
-  from: string;
-  to: string;
+  from: string; // voucher address
+  /** sha256(secret) — BytesN<32> */
+  claim_hash: Uint8Array;
   note: string;
   claimed: boolean;
-  created: number;
+  /** Option<Address> — null until claimed */
+  claimer: string | null;
+  created: number; // ledger timestamp at mint
+  /** Social XP escrowed at mint */
+  stake: number;
+  slashed: boolean;
 }
 
 export interface Profile {

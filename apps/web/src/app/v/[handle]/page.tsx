@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
-import { resolveHandle } from '@/lib/registry';
-import { getScores } from '@/lib/reputation';
+import { resolveHandle, getMeta } from '@/lib/registry';
+import { getPeopleCounts } from '@/lib/constellation';
 import { Crest } from '@/components/brand/crest';
 import { Avatar } from '@/components/Avatar';
 import { Frame } from '@/components/fx/frame';
@@ -13,6 +13,7 @@ import { BorderBeam } from '@/components/fx/border-beam';
 import { AuroraText } from '@/components/fx/shiny-text';
 import { buttonVariants } from '@/components/ui/button';
 import { cn, shortAddress } from '@/lib/utils';
+import type { AvatarConfig } from '@/lib/avatar';
 
 /**
  * Vouch-invite deep link — `/v/<handle>` is shared by @handle to recruit. The visitor
@@ -23,7 +24,8 @@ import { cn, shortAddress } from '@/lib/utils';
 export default function InvitePage({ params }: { params: { handle: string } }) {
   const handle = params.handle.toLowerCase();
   const [address, setAddress] = useState<string | null | undefined>(undefined);
-  const [scores, setScores] = useState<{ social: number; earned: number } | null>(null);
+  const [vouchedBy, setVouchedBy] = useState<number | null>(null);
+  const [avatar, setAvatar] = useState<AvatarConfig | undefined>(undefined);
 
   useEffect(() => {
     try {
@@ -32,19 +34,25 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
       /* storage unavailable */
     }
     let alive = true;
+    setAvatar(undefined);
     resolveHandle(handle)
       .then(async (addr) => {
         if (!alive) return;
         setAddress(addr);
-        if (addr) setScores(await getScores(addr).catch(() => ({ social: 0, earned: 0 })));
+        if (!addr) return;
+        const [people, meta] = await Promise.all([
+          getPeopleCounts(addr).catch(() => ({ vouchedBy: 0, backed: 0 })),
+          getMeta(addr), // the inviter's published face; null → deterministic default
+        ]);
+        if (!alive) return;
+        setVouchedBy(people.vouchedBy);
+        setAvatar(meta?.avatar);
       })
       .catch(() => alive && setAddress(null));
     return () => {
       alive = false;
     };
   }, [handle]);
-
-  const stars = scores ? Math.max(1, Math.round(scores.social / 10)) : 0;
 
   return (
     <div className="container max-w-lg py-16">
@@ -60,7 +68,7 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
       <Frame label={`invite // @${handle}`} index="REF" className="mt-7" tilt tape="tr">
         <div className="flex items-center gap-5 p-7">
           {address ? (
-            <Avatar address={address} handle={handle} size={96} />
+            <Avatar address={address} avatar={avatar} handle={handle} size={96} />
           ) : (
             <Crest address={`unclaimed-${handle}`} size={96} points={7} animate />
           )}
@@ -70,7 +78,14 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
               {address ? shortAddress(address) : 'new to the sky'}
             </p>
             <div className="mt-2">
-              <Stamp accent="secondary">✦ {address ? `${stars} stars` : 'be their first'}</Stamp>
+              <Stamp accent="secondary">
+                ✦{' '}
+                {!address || vouchedBy === 0
+                  ? 'be their first'
+                  : vouchedBy === null
+                    ? '…'
+                    : `vouched by ${vouchedBy}`}
+              </Stamp>
             </div>
           </div>
         </div>
