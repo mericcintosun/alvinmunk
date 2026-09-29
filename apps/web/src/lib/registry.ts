@@ -4,7 +4,6 @@
  * Validate/normalize the handle with normalizeHandle() BEFORE calling claim.
  */
 import { invokeAndWait, readPublic, args, registryId } from './contracts';
-import { getClient } from './sdk';
 import type { Wallet } from './wallet';
 import { encodeAvatar, decodeAvatar, type AvatarConfig } from './avatar';
 import { sanitizeBio } from './profile';
@@ -13,14 +12,24 @@ import { shareInFlight } from './utils';
 /** Resolve `@handle` → address (public, wallet-free). null if unclaimed/unconfigured. */
 export async function resolveHandle(handle: string): Promise<string | null> {
   if (!registryId() || !handle) return null;
-  const v = await getClient().resolveHandle(handle).catch(() => null);
+  const v = await readPublic<string | null>(registryId(), 'resolve', [args.sym(handle)]).catch(
+    () => null,
+  );
   return v ?? null;
 }
 
-/** Reverse address → `@handle`. null if the address hasn't claimed one. */
-export async function reverseHandle(address: string): Promise<string | null> {
+/**
+ * Reverse address → `@handle`. null if the address hasn't claimed one — or, unless `strict`,
+ * if the registry couldn't be read. A caller about to CLAIM passes `strict` so a failed read
+ * throws instead: claiming renames the address's existing handle.
+ */
+export async function reverseHandle(
+  address: string,
+  { strict = false }: { strict?: boolean } = {},
+): Promise<string | null> {
   if (!registryId() || !address) return null;
-  const v = await getClient().reverseHandle(address).catch(() => null);
+  const read = readPublic<string | null>(registryId(), 'reverse', [args.addr(address)]);
+  const v = await (strict ? read : read.catch(() => null));
   return v ?? null;
 }
 
@@ -62,7 +71,7 @@ export async function reverseHandles(addresses: string[]): Promise<Record<string
 function reverseChunk(chunk: string[]): Promise<(string | null)[]> {
   return shareInFlight(pendingReverse, chunk.join(','), async () => {
     try {
-      const v = await getClient().reverseHandles(chunk);
+      const v = await readPublic<unknown>(registryId(), 'reverse_many', [args.addrs(chunk)]);
       if (!Array.isArray(v) || v.length !== chunk.length) return chunk.map(() => null);
       return v.map((h) => (typeof h === 'string' ? h : null));
     } catch (e) {
@@ -72,9 +81,55 @@ function reverseChunk(chunk: string[]): Promise<(string | null)[]> {
   });
 }
 
-/** Is this handle free to claim? */
-export async function isHandleAvailable(handle: string): Promise<boolean> {
-  return (await resolveHandle(handle)) === null;
+/** A freed handle held back for the wallet that freed it (the registry's `cooldown` view). */
+export interface HandleCooldown {
+  /** The wallet that released it or renamed away; it may take it back any time. */
+  prevOwner: string;
+  /** When anyone may claim it (ledger time). */
+  until: Date;
+}
+
+/**
+ * The cooldown `handle` is in, or null: none running, the registry isn't configured, or it
+ * predates cooldowns (nothing is reserved there, so null is the true answer too).
+ */
+export async function getHandleCooldown(handle: string): Promise<HandleCooldown | null> {
+  if (!registryId() || !handle) return null;
+  const raw = await readPublic<{ prev_owner?: unknown; until?: unknown } | null>(
+    registryId(),
+    'cooldown',
+    [args.sym(handle)],
+  ).catch(() => null);
+  if (!raw || typeof raw.prev_owner !== 'string' || typeof raw.until !== 'bigint') return null;
+  return { prevOwner: raw.prev_owner, until: new Date(Number(raw.until) * 1000) };
+}
+
+/** Whether a handle can be claimed; `reserved` = cooling down for the wallet that freed it. */
+export type HandleAvailability =
+  | { status: 'free' }
+  | { status: 'taken' }
+  | { status: 'reserved'; until: Date };
+
+/**
+ * Can `address` (anyone, when omitted) claim `handle`? Taken while someone holds it;
+ * reserved while it cools down after its holder released it or renamed away, except for
+ * that previous holder, who may take it back any time.
+ */
+export async function handleAvailability(
+  handle: string,
+  address?: string,
+): Promise<HandleAvailability> {
+  const [owner, cooldown] = await Promise.all([resolveHandle(handle), getHandleCooldown(handle)]);
+  if (owner !== null) return { status: 'taken' };
+  if (cooldown && cooldown.prevOwner !== address) {
+    return { status: 'reserved', until: cooldown.until };
+  }
+  return { status: 'free' };
+}
+
+/** Is this handle free for `address` (anyone, when omitted) to claim? */
+export async function isHandleAvailable(handle: string, address?: string): Promise<boolean> {
+  return (await handleAvailability(handle, address)).status === 'free';
 }
 
 /** Claim `@handle` on-chain (first-come; renames if the wallet already holds one). */
@@ -158,7 +213,11 @@ export function getMeta(address: string): Promise<OnChainMeta | null> {
   const hit = metaCache.get(address);
   if (hit && Date.now() - hit.at < META_TTL_MS) return hit.value;
   const value = Promise.resolve()
-    .then(() => getClient().getMeta(address))
+    .then(() =>
+      readPublic<{ avatar?: unknown; bio?: unknown } | null>(registryId(), 'get_meta', [
+        args.addr(address),
+      ]),
+    )
     .then((raw) =>
       raw && typeof raw === 'object'
         ? {

@@ -11,7 +11,7 @@
  */
 import { Address, Keypair, hash, nativeToScVal, xdr } from '@stellar/stellar-sdk';
 import { buildClaimUrl } from '@alvinmunk/shared';
-import { invokeAndWait, readPublic, args, repId } from './contracts';
+import { invokeAndWait, readContract, readPublic, args, repId, questId } from './contracts';
 import { networkPassphrase } from './stellar';
 import { shareInFlight } from './utils';
 import type { Wallet } from './wallet';
@@ -21,7 +21,7 @@ import type { Wallet } from './wallet';
 export const VOUCH_TTL_SECS = 604_800; // 7 days
 
 /** The contract's note cap (`MAX_NOTE_BYTES`): `mint_vouch_signed` reverts with `NoteTooLong`
- *  (#12) past it. It counts UTF-8 BYTES, so `s` costs 2 and most emoji 4. */
+ *  (#12) past it. It counts UTF-8 BYTES, so `ş` costs 2 and most emoji 4. */
 export const VOUCH_NOTE_MAX_BYTES = 240;
 /** The compose limit in characters (code points). UTF-8 spends at most 4 bytes on one,
  *  so a note within it always fits `VOUCH_NOTE_MAX_BYTES` — 60 Turkish letters or 60
@@ -35,7 +35,7 @@ export function vouchNoteBytes(s: string): number {
   return utf8.encode(s).length;
 }
 
-/** Cut `input` to a note `mint_vouch_signed` accepts: at most `VOUCH_NOTE_MAX_CHAR` characters
+/** Cut `input` to a note `mint_vouch_signed` accepts: at most `VOUCH_NOTE_MAX_CHARS` characters
  *  and `VOUCH_NOTE_MAX_BYTES` bytes, never half a character. The character cap binds
  *  first; the byte check is the contract's own rule, kept so the two can never drift. */
 export function clampVouchNote(input: string): string {
@@ -165,7 +165,7 @@ export const VOUCH_CLAIM_DOMAIN = 'alvinmunk_vouch_claim';
 
 /**
  * The bytes a card's claim key signs to claim `vouchId` for `claimer`: the XDR of the ScVal
- * vector `[Symbol(VOUCH_CLAIM_DOMAIN), sha256(passphrase), contract, u64 vouchId, claimer)]`,
+ * vector `[Symbol(VOUCH_CLAIM_DOMAIN), sha256(passphrase), contract, u64 vouchId, claimer]`,
  * byte for byte the contract's `claim_message` (both sides pin the same test vector). Built
  * here, never read from an RPC node: a dishonest node could return the message for ITS
  * address, and the link's key would sign the card over to it.
@@ -286,7 +286,7 @@ export interface PendingBonusView {
 }
 
 /** `get_pending(claimer)` — the voucher bonuses waiting on `claimer`'s first verified
- *  (Earned) action, oldest first; empty once they verify. Rejects when the read fails—
+ *  (Earned) action, oldest first; empty once they verify. Rejects when the read fails —
  *  including a deployed contract that predates the view — so "unknown" never reads as
  *  "nothing owed". */
 export async function getPending(claimer: string): Promise<PendingBonusView[]> {
@@ -301,7 +301,37 @@ export async function getPending(claimer: string): Promise<PendingBonusView[]> {
 /** Wallet-free profile aggregator — social + earned for ANY address. Prefers the
  *  single-call get_profile view; falls back to the two parallel legacy calls if
  *  the deployed contract predates get_profile. */
-export async function getScore(address: string): Promise<number> {
-  const p = await getProfile(address);
-  return p.social + p.earned;
+export async function getScores(address: string): Promise<{ social: number; earned: number }> {
+  try {
+    const p = await getProfile(address);
+    return { social: p.social, earned: p.earned };
+  } catch {
+    const [s, e] = await Promise.all([
+      readPublic<bigint>(repId(), 'get_score', [args.addr(address)]).catch(() => 0n),
+      readPublic<bigint>(repId(), 'get_earned', [args.addr(address)]).catch(() => 0n),
+    ]);
+    return { social: Number(s ?? 0), earned: Number(e ?? 0) };
+  }
+}
+
+/** `get_score(addr)` — Social XP (leaderboard, non-cashable). */
+export async function getSocialScore(addr: string, source: string): Promise<number> {
+  const v = await readContract<bigint>(repId(), 'get_score', [args.addr(addr)], source);
+  return Number(v ?? 0);
+}
+
+/** `get_earned(addr)` — Earned XP (the only USDC-eligible track). */
+export async function getEarnedScore(addr: string, source: string): Promise<number> {
+  const v = await readContract<bigint>(repId(), 'get_earned', [args.addr(addr)], source);
+  return Number(v ?? 0);
+}
+
+/** `get_attestation(addr)` — Read completed quest attestations for an address. */
+export async function getAttestation(addr: string): Promise<number> {
+  try {
+    const v = await readPublic<bigint>(questId(), 'get_completed', [args.addr(addr)]);
+    return Number(v ?? 0);
+  } catch {
+    return 0;
+  }
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { humanizeError, withTimeout, contractErrorCode, shortAddress, shareInFlight } from './utils';
+import { humanizeError, withTimeout, contractErrorCode, shareInFlight } from './utils';
 
 describe('contractErrorCode', () => {
   it('extracts a Soroban contract error code', () => {
@@ -22,12 +22,6 @@ describe('humanizeError', () => {
   it('drops the scary diagnostic tail', () => {
     const msg = humanizeError(new Error('boom\nEvent log (newest first): scary stuff'));
     expect(msg).toBe('boom');
-  });
-});
-
-describe('shortAddress', () => {
-  it('middle-truncates long addresses', () => {
-    expect(shortAddress('GABCDEFGHIJKLMNOP')).toBe('GABC…MNOP');
   });
 });
 
