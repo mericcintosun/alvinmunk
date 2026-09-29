@@ -9,7 +9,8 @@ import { Sticker } from '@/components/ui/sticker';
 import { buttonVariants } from '@/components/ui/button';
 import { useTranslations } from '@/lib/i18n';
 import { FOCUS_MODE } from '@/lib/focus';
-import { cn, shortAddress } from '@/lib/utils';
+import { cn } from '@/lib/utils';
+import { shortAddr } from '@alvinmunk/shared';
 
 const QUESTS_PATH = '/app/quests';
 
@@ -61,7 +62,7 @@ export function OwedBonuses() {
   if (items.length === 0) return null;
 
   const total = items.reduce((sum, r) => sum + r.amount, 0);
-  const nameOf = (row: OwedBonus) => (row.handle ? `@${row.handle}` : shortAddress(row.claimer));
+  const nameOf = (row: OwedBonus) => (row.handle ? `@${row.handle}` : shortAddr(row.claimer));
 
   async function nudge(row: OwedBonus) {
     const url = `${window.location.origin}${QUESTS_PATH}`;

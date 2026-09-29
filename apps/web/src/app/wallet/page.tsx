@@ -9,7 +9,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { shortAddress } from '@/lib/utils';
+import { isStellarAddress, shortAddr } from '@alvinmunk/shared';
 
 /**
  * Level 1 + 2 multi-wallet demo: connect via the Stellar Wallets Kit picker (Freighter,
@@ -26,7 +26,7 @@ export default function WalletPage() {
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const validAddr = /^G[A-Z2-7]{55}$/.test(to.trim());
+  const validAddr = isStellarAddress(to.trim(), { allowContract: false });
   const validAmount = Number(amount) > 0;
 
   async function connect() {
@@ -83,7 +83,7 @@ export default function WalletPage() {
             <CardContent className="flex items-center justify-between p-5">
               <div>
                 <p className="text-xs text-muted-foreground">connected</p>
-                <p className="font-mono text-sm">{shortAddress(wallet.address)}</p>
+                <p className="font-mono text-sm">{shortAddr(wallet.address)}</p>
                 <p className="mt-2 text-sm">
                   Balance:{' '}
                   <span className="font-semibold text-primary">

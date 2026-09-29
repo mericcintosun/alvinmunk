@@ -6,6 +6,7 @@
  * dashboard AND in the (node-runtime) OG card. The geometric Crest remains the fallback identity for
  * addresses we render without a face (leaderboard rows, dev surfaces).
  */
+import { artSeed } from '@alvinmunk/shared';
 import { asset } from './assets';
 
 export const FACE_IDS = ['face-01', 'face-02', 'face-03', 'face-04', 'face-05'] as const;
@@ -88,7 +89,7 @@ export function kitSrc(cat: KitCategory, n: number): string {
 
 /** A deterministic starter kit from an address — every field seeded so it varies. */
 export function defaultKit(address: string): KitAvatar {
-  let h = seedFromAddress(address || 'profile');
+  let h = artSeed(address || 'profile');
   const next = (mod: number) => {
     h = (Math.imul(h, 1103515245) + 12345) >>> 0;
     return (h % mod) + 1;
@@ -118,19 +119,9 @@ export function faceFile(id: FaceId): string {
   return `stickers/${id}.png`;
 }
 
-/** Stable FNV-1a hash of an address (mirrors addrHue / crest determinism). */
-function seedFromAddress(address: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < address.length; i++) {
-    h ^= address.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-
 /** The deterministic face for an address with no explicit choice. */
 export function defaultAvatarId(address: string): FaceId {
-  return FACE_IDS[seedFromAddress(address || 'profile') % FACE_IDS.length];
+  return FACE_IDS[artSeed(address || 'profile') % FACE_IDS.length];
 }
 
 /** Resolve the face to render: explicit valid choice wins, else the deterministic default. */

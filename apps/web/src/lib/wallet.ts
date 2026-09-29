@@ -30,6 +30,7 @@ import {
 
 } from '@stellar/freighter-api';
 import { assertNetworkConfig, config, networkPassphrase, waitForAccountReady, server } from './stellar';
+import { getItem, setItem, remove } from './storage';
 
 export type WalletKind = 'passkey' | 'dev' | 'freighter' | 'albedo' | 'kit';
 
@@ -665,11 +666,11 @@ export async function connectPasskey(mode: ConnectMode = 'create'): Promise<Wall
 // ── helpers ──
 
 function safeLocalGet(k: string): string | null {
-  return typeof localStorage !== 'undefined' ? localStorage.getItem(k) : null;
+  return getItem(k);
 }
 function safeLocalSet(k: string, v: string): void {
-  if (typeof localStorage !== 'undefined') localStorage.setItem(k, v);
+  setItem(k, v);
 }
 function safeLocalRemove(k: string): void {
-  if (typeof localStorage !== 'undefined') localStorage.removeItem(k);
+  remove(k);
 }
