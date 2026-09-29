@@ -6,9 +6,11 @@
  * sprite texture, a sphere-distribution helper, a glowing Star, and a live OrbitRing.
  * Additive-blended glow, no postprocessing dependency.
  */
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+
+const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
 /**
  * A solid five-point star sprite texture (filled classic star + a soft glow halo),
@@ -174,9 +176,66 @@ export function useGlow(): THREE.Texture {
   return useMemo(makeGlowTexture, []);
 }
 
-export function reducedMotion(): boolean {
-  return (
-    typeof window !== 'undefined' &&
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+/**
+ * Live `prefers-reduced-motion`. Unlike a one-shot read at mount, this subscribes to the
+ * media query, so flipping the OS setting takes effect without a reload. Shared by every
+ * constellation scene (app hero + marketing backdrop) so they all honor it the same way.
+ */
+export function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(REDUCED_MOTION_QUERY).matches,
   );
+
+  useEffect(() => {
+    const media = window.matchMedia(REDUCED_MOTION_QUERY);
+    setReduced(media.matches);
+    const onChange = (e: MediaQueryListEvent) => setReduced(e.matches);
+    media.addEventListener('change', onChange);
+    return () => media.removeEventListener('change', onChange);
+  }, []);
+
+  return reduced;
+}
+
+/**
+ * Shared offscreen-pausing logic for both constellation canvases: observes `containerRef`
+ * with an `IntersectionObserver` and also tracks tab visibility (`document.hidden`), so a
+ * canvas stops issuing WebGL frames both when scrolled out of view AND when the tab is
+ * backgrounded. Reduced-motion users get `'demand'` (render once, then only on explicit
+ * `invalidate()` calls) instead of the visibility-driven `'always'`/`'never'` toggle, since
+ * their scenes are meant to stay static regardless of scroll position.
+ *
+ * SSR-safe: `IntersectionObserver`/`document` are only touched inside effects, which never
+ * run during server rendering, and the effect itself no-ops when `IntersectionObserver` is
+ * unavailable (leaving the canvas rendering normally rather than freezing it forever).
+ */
+export function useFrameloop(
+  containerRef: RefObject<HTMLElement | null>,
+  reduced: boolean,
+): 'always' | 'demand' | 'never' {
+  const [intersecting, setIntersecting] = useState(true);
+  const [tabVisible, setTabVisible] = useState(
+    () => typeof document === 'undefined' || !document.hidden,
+  );
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(
+      ([entry]) => setIntersecting(entry.isIntersecting),
+      { rootMargin: '100px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [containerRef]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const onVisibilityChange = () => setTabVisible(!document.hidden);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, []);
+
+  if (reduced) return 'demand';
+  return intersecting && tabVisible ? 'always' : 'never';
 }

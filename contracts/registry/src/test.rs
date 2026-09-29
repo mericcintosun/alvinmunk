@@ -35,6 +35,43 @@ fn handle_event(
     )
 }
 
+/// `init` is one-shot: a second call must not take over, whoever makes it. The first admin
+/// keeps its rights, so an initialized contract cannot be re-pointed at a new admin.
+#[test]
+fn init_twice_reverts_and_keeps_the_first_admin() {
+    let (env, client, admin) = setup();
+    let impostor = Address::generate(&env);
+
+    assert_eq!(
+        client.try_init(&impostor),
+        Err(Ok(Error::AlreadyInitialized.into()))
+    );
+    assert_eq!(
+        client.try_init(&admin),
+        Err(Ok(Error::AlreadyInitialized.into()))
+    );
+
+    // still the first admin, not the impostor: a forced release asks the first admin to sign
+    let squatter = claimed(&env, &client, "brand");
+    client.admin_release(&symbol_short!("brand"));
+    assert_eq!(
+        env.auths(),
+        std::vec![(
+            admin.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    client.address.clone(),
+                    Symbol::new(&env, "admin_release"),
+                    (symbol_short!("brand"),).into_val(&env),
+                )),
+                sub_invocations: std::vec![],
+            }
+        )]
+    );
+    assert_eq!(client.resolve(&symbol_short!("brand")), None);
+    assert_eq!(client.reverse(&squatter), None);
+}
+
 #[test]
 fn claim_sets_forward_and_reverse() {
     let (env, client, _admin) = setup();
@@ -62,6 +99,32 @@ fn claim_taken_by_other_reverts() {
     client.claim(&bob, &symbol_short!("star")); // panics: HandleTaken
 }
 
+/// A rename onto someone else's handle is a `claim` like any other, so it reverts with
+/// `HandleTaken` and the whole call rolls back: alice keeps `a` (it is not freed on the way),
+/// bob keeps `b`.
+#[test]
+fn renaming_into_a_taken_handle_reverts_and_changes_nothing() {
+    let (env, client, _admin) = setup();
+    let alice = claimed(&env, &client, "a");
+    let bob = claimed(&env, &client, "b");
+
+    assert_eq!(
+        client.try_claim(&alice, &symbol_short!("b")),
+        Err(Ok(Error::HandleTaken.into()))
+    );
+
+    assert_eq!(client.reverse(&alice), Some(symbol_short!("a")));
+    assert_eq!(client.resolve(&symbol_short!("a")), Some(alice));
+    assert_eq!(client.resolve(&symbol_short!("b")), Some(bob.clone()));
+    assert_eq!(client.reverse(&bob), Some(symbol_short!("b")));
+    // `a` is still held, so nobody else can take it
+    let carol = Address::generate(&env);
+    assert_eq!(
+        client.try_claim(&carol, &symbol_short!("a")),
+        Err(Ok(Error::HandleTaken.into()))
+    );
+}
+
 #[test]
 fn first_claim_emits_claimed() {
     let (env, client, _admin) = setup();
@@ -71,6 +134,28 @@ fn first_claim_emits_claimed() {
         env.events().all(),
         vec![&env, handle_event(&client, "claimed", &alice, "alice")]
     );
+}
+
+/// `handle/claimed` and `handle/released` are frozen in docs/ON_CHAIN_EVENTS.md and are the
+/// only way an indexer learns a handle changed hands, so their topics and payload order are
+/// pinned end to end: the claim announces `claimed`, the release announces `released`.
+#[test]
+fn claim_and_release_publish_the_documented_payloads() {
+    let (env, client, _admin) = setup();
+    let alice = claimed(&env, &client, "alice");
+
+    assert_eq!(
+        env.events().all(),
+        vec![&env, handle_event(&client, "claimed", &alice, "alice")]
+    );
+
+    client.release(&alice);
+    assert_eq!(
+        env.events().all(),
+        vec![&env, handle_event(&client, "released", &alice, "alice")]
+    );
+    // both applied in order, the indexer is left with nothing for this handle
+    assert_eq!(client.resolve(&symbol_short!("alice")), None);
 }
 
 #[test]
@@ -106,6 +191,8 @@ fn rename_frees_the_old_handle() {
     assert_eq!(client.reverse(&alice), Some(symbol_short!("new")));
 }
 
+/// Freeing a handle has to be real, not cosmetic: once alice renames away, another address
+/// can take the old name, and each reverse record follows its own holder.
 #[test]
 fn renamed_away_handle_is_reclaimable_by_another() {
     let (env, client, _admin) = setup();
@@ -118,8 +205,10 @@ fn renamed_away_handle_is_reclaimable_by_another() {
         env.events().all(),
         vec![&env, handle_event(&client, "claimed", &bob, "old")]
     );
-    assert_eq!(client.resolve(&symbol_short!("old")), Some(bob));
-    assert_eq!(client.resolve(&symbol_short!("new")), Some(alice));
+    assert_eq!(client.resolve(&symbol_short!("old")), Some(bob.clone()));
+    assert_eq!(client.resolve(&symbol_short!("new")), Some(alice.clone()));
+    assert_eq!(client.reverse(&bob), Some(symbol_short!("old")));
+    assert_eq!(client.reverse(&alice), Some(symbol_short!("new")));
 }
 
 #[test]
@@ -163,6 +252,33 @@ fn admin_release_clears_a_squatted_handle() {
     // now the rightful owner can claim it
     client.claim(&real, &symbol_short!("brand"));
     assert_eq!(client.resolve(&symbol_short!("brand")), Some(real));
+}
+
+/// Releasing a handle nobody holds is deliberately a silent no-op rather than a revert: the
+/// admin can sweep a list of handles without special-casing the free ones. Pinned so that
+/// turning it into an error, or giving it a voice, has to be a deliberate change.
+#[test]
+fn admin_release_of_an_unclaimed_handle_is_a_silent_no_op() {
+    let (env, client, _admin) = setup();
+    let alice = claimed(&env, &client, "alice");
+    client.set_meta(&alice, &FACE_03, &bio(&env, "not yours"));
+
+    client.admin_release(&symbol_short!("ghost"));
+
+    // nothing announced, nothing handed out, and no other holder disturbed
+    assert_eq!(env.events().all(), vec![&env]);
+    assert_eq!(client.resolve(&symbol_short!("ghost")), None);
+    assert_eq!(client.resolve(&symbol_short!("alice")), Some(alice.clone()));
+    assert_eq!(client.reverse(&alice), Some(symbol_short!("alice")));
+    assert_eq!(
+        client.get_meta(&alice),
+        Some(meta(&env, FACE_03, "not yours"))
+    );
+
+    // alice still owns her name and can hand it on, so the sweep changed nothing
+    client.release(&alice);
+    let bob = claimed(&env, &client, "alice");
+    assert_eq!(client.resolve(&symbol_short!("alice")), Some(bob));
 }
 
 /// Release build of this contract, committed so the upgrade path can be tested without a

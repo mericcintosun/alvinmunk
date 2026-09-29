@@ -200,7 +200,7 @@ export function IdentityBar() {
             >
               <Avatar address={profile.address} avatar={profile.avatar} handle={profile.handle} size={40} />
             </button>
-            <h1 className="truncate font-display text-lg font-semibold">@{profile.handle}</h1>
+            <p className="truncate font-display text-lg font-semibold">@{profile.handle}</p>
             <Badge variant="onchain">on-chain</Badge>
             <button
               onClick={() => {

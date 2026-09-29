@@ -5,7 +5,16 @@ import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { shortAddr } from '@alvinmunk/shared';
 import { useWallet } from '@/components/wallet/wallet-provider';
-import { claimVouch, getVouch, VOUCH_TTL_SECS, type VouchView } from '@/lib/reputation';
+import {
+  claimVouch,
+  claimVouchSigned,
+  getVouch,
+  isClaimCode,
+  parseClaimCode,
+  VOUCH_TTL_SECS,
+  type ClaimCode,
+  type VouchView,
+} from '@/lib/reputation';
 import { Crest } from '@/components/brand/crest';
 import { Frame } from '@/components/fx/frame';
 import { Stamp } from '@/components/fx/stamp';
@@ -14,24 +23,36 @@ import { Button, buttonVariants } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StateArt } from '@/components/ui/state-art';
 import { Sticker } from '@/components/ui/sticker';
+import { Input } from '@/components/ui/input';
+import { useCreateProfile } from '@/hooks/use-create-profile';
+import { useTranslations } from '@/lib/i18n';
 import { cn, humanizeError, withTimeout } from '@/lib/utils';
 
-/** Read the claim-secret from the URL fragment (#s=…), falling back to the legacy ?s=
- *  query for links shared before the switch. The fragment never reaches the server. */
-function readSecret(): string {
-  if (typeof window === 'undefined') return '';
-  const fromHash = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('s');
-  const fromQuery = new URLSearchParams(window.location.search).get('s');
-  return fromHash ?? fromQuery ?? '';
+/** Read the claim code from the URL: the claim key's seed (#k=…) on current links, the
+ *  plain secret (#s=…, or the older ?s= query) on links to cards minted before the key.
+ *  The fragment never reaches the server. */
+function readClaimCode(): ClaimCode | null {
+  if (typeof window === 'undefined') return null;
+  return parseClaimCode(window.location.hash, window.location.search);
 }
+
+const BAD_CODE = "This link's claim code is invalid.";
 
 const CLAIM_ERRORS: Record<number, string> = {
   4: "This vouch doesn't exist or has expired.",
   5: 'This star is already lit — it was claimed already.',
   6: "You can't claim your own vouch. Share the link with someone you trust instead.",
-  8: "This link's claim code is invalid.",
+  8: BAD_CODE,
   9: 'Daily limit reached — try again tomorrow.',
+  13: "This link doesn't fit this vouch — ask the person who sent it to share it again.",
 };
+
+/** A claim signature that doesn't verify traps in the host (Error(Crypto, …)), not with a
+ *  contract code: the link's key isn't this card's, or the link was cut short. */
+function claimErrorMessage(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e ?? '');
+  return raw.includes('Error(Crypto,') ? BAD_CODE : humanizeError(e, CLAIM_ERRORS);
+}
 
 export default function ClaimPage(props: { params: { id: string } }) {
   return (
@@ -46,7 +67,8 @@ function ClaimInner({ params }: { params: { id: string } }) {
   const vid = Number(id);
   const validId = Number.isInteger(vid) && vid >= 0;
   const { connect, profile } = useWallet();
-  const [secret, setSecret] = useState('');
+  const t = useTranslations();
+  const [claimCode, setClaimCode] = useState<ClaimCode | null>(null);
   const [state, setState] = useState<'preview' | 'claiming' | 'done' | 'error'>('preview');
   const [error, setError] = useState<string | null>(null);
   const [vouch, setVouch] = useState<VouchView | null | undefined>(undefined);
@@ -55,7 +77,7 @@ function ClaimInner({ params }: { params: { id: string } }) {
   const [loadError, setLoadError] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
-  useEffect(() => setSecret(readSecret()), []);
+  useEffect(() => setClaimCode(readClaimCode()), []);
 
   useEffect(() => {
     if (!validId) {
@@ -86,8 +108,13 @@ function ClaimInner({ params }: { params: { id: string } }) {
   const windowOpen = vouch ? !vouch.slashed && !vouch.claimed && nowSec < deadline : false;
 
   async function onClaim() {
-    if (!secret) {
+    if (!claimCode) {
       setError('This link is missing its claim code.');
+      setState('error');
+      return;
+    }
+    if (!isClaimCode(claimCode.code)) {
+      setError(BAD_CODE);
       setState('error');
       return;
     }
@@ -95,7 +122,9 @@ function ClaimInner({ params }: { params: { id: string } }) {
     setError(null);
     try {
       const wallet = await connect();
-      await claimVouch(wallet, vid, secret);
+      // The seed only signs here; the transaction carries a signature bound to this wallet.
+      if (claimCode.kind === 'key') await claimVouchSigned(wallet, vid, claimCode.code);
+      else await claimVouch(wallet, vid, claimCode.code);
       setState('done');
       // Fire-and-forget push notification to the voucher — no await so it never
       // blocks the success UX. Silently ignored if push infra is not configured.
@@ -111,7 +140,7 @@ function ClaimInner({ params }: { params: { id: string } }) {
         }).catch(() => {});
       }
     } catch (e) {
-      setError(humanizeError(e, CLAIM_ERRORS));
+      setError(claimErrorMessage(e));
       setState('error');
     }
   }
@@ -275,24 +304,28 @@ function ClaimInner({ params }: { params: { id: string } }) {
               href={`https://twitter.com/intent/tweet?${new URLSearchParams({
                 text: vouch?.note
                   ? `Someone just vouched for me on alvinmunk 🌟 "${vouch.note}" — reputation has a face, not a number. Collect people, not points:`
-                  : 'My star just ignited on alvinmunk 🌟 — reputation has a face. Collect people, not points:',
+                  : 'My star just ignited on alvinmunk 🌟 — reputation has a face, not a number. Collect people, not points:',
                 url: `${typeof window !== 'undefined' ? window.location.origin : ''}${profile ? `/u/${profile.handle}` : '/'}`,
               }).toString()}`}
               target="_blank"
               rel="noreferrer"
               className={cn(buttonVariants({ variant: 'flow', size: 'lg' }))}
             >
-              Share your star 🌟
+              Share your star <ArrowRight className="size-4" />
             </a>
-            <Link
-              href="/app"
-              className={cn(buttonVariants({ variant: 'secondary', size: 'lg' }))}
-            >
-              {profile ? 'Now light someone else’s star' : 'Create your profile'} <ArrowRight className="size-4" />
+
+            {/* Inline handle picker — the claimer just got a wallet, so they can pick
+                a name without a second connect or FaceID prompt. */}
+            {!profile && <ClaimHandlePicker />}
+
+            {/* Skipping naming still leaves a valid claim; the old "Create your profile"
+                path (and, for a returning user, their profile) both stay reachable. */}
+            <Link href="/app" className="font-mono text-xs text-muted-foreground underline">
+              {profile ? t('claim.openApp') : t('claim.skip')}
             </Link>
             {profile && (
               <Link href={`/u/${profile.handle}`} className="font-mono text-xs text-muted-foreground underline">
-                view_your_profile →
+                {t('claim.viewProfile')}
               </Link>
             )}
           </div>
@@ -302,11 +335,50 @@ function ClaimInner({ params }: { params: { id: string } }) {
   );
 }
 
+function ClaimHandlePicker() {
+  const t = useTranslations();
+  const { handle, setHandle, avail, creating, createProfile, normalizedHandle } = useCreateProfile({
+    from: 'claim',
+  });
+
+  return (
+    <form
+      className="flex w-full flex-col gap-2 rounded-2xl border border-border/60 bg-surface/30 p-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void createProfile();
+      }}
+    >
+      <p className="text-sm font-medium">{t('claim.handle.title')}</p>
+      <p className="text-xs text-muted-foreground">{t('claim.handle.subtitle')}</p>
+      <div className="flex items-center gap-2">
+        <span className="text-lg text-muted-foreground">@</span>
+        <Input
+          value={handle}
+          onChange={(e) => setHandle(e.target.value)}
+          placeholder={t('claim.handle.placeholder')}
+          aria-label={t('claim.handle.ariaLabel')}
+          aria-describedby="claim-handle-status"
+          className="flex-1"
+        />
+      </div>
+      <p id="claim-handle-status" aria-live="polite" className="h-4 text-xs">
+        {avail === 'checking' && <span className="text-muted-foreground">{t('claim.handle.checking')}</span>}
+        {avail === 'free' && <span className="text-secondary">{t('claim.handle.free', { handle: normalizedHandle })}</span>}
+        {avail === 'taken' && <span className="text-destructive">{t('claim.handle.taken', { handle: normalizedHandle })}</span>}
+      </p>
+      <Button type="submit" variant="flow" size="lg" disabled={creating || avail === 'taken' || normalizedHandle.length < 3}>
+        {creating ? t('claim.handle.submitting') : t('claim.handle.submit', { handle: normalizedHandle || 'handle' })}
+      </Button>
+    </form>
+  );
+}
+
 function Field({ label, value }: { label: string; value: string }) {
   return (
-    <div className="px-4 py-3 text-center">
-      <p className="text-[9px] uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
-      <p className="mt-1 text-sm text-foreground">{value}</p>
+    <div className="flex flex-col gap-1 px-4 py-3 text-center">
+      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</span>
+      <span className="text-xs text-foreground">{value}</span>
     </div>
   );
 }
