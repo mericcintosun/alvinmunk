@@ -14,10 +14,11 @@ import { Input } from '@/components/ui/input';
 export function Onboarding() {
   const t = useTranslations();
   const [face, setFace] = useState<FaceId | undefined>();
-  const { handle, setHandle, avail, creating, createProfile } = useCreateProfile({
-    from: 'app',
-    face,
-  });
+  const { handle, setHandle, avail, reservedUntil, creating, createProfile, restoring, restoreAccount } =
+    useCreateProfile({
+      from: 'app',
+      face,
+    });
 
   return (
     <div className="relative container flex max-w-md flex-col items-center gap-8 py-20">
@@ -61,11 +62,30 @@ export function Onboarding() {
           {avail === 'checking' && <span className="text-muted-foreground">{t('onboard.app.checking')}</span>}
           {avail === 'free' && <span className="text-secondary">{t('onboard.app.handleFree', { handle: normalizeHandle(handle) })}</span>}
           {avail === 'taken' && <span className="text-destructive">{t('onboard.app.handleTaken', { handle: normalizeHandle(handle) })}</span>}
+          {avail === 'reserved' && reservedUntil && <span className="text-destructive">{t('onboard.app.handleReserved', { handle: normalizeHandle(handle), date: reservedUntil })}</span>}
         </p>
-        <Button type="submit" size="lg" disabled={creating || avail === 'taken' } className="w-full">
+        <Button
+          type="submit"
+          size="lg"
+          disabled={creating || restoring || avail === 'taken' || avail === 'reserved'}
+          className="w-full"
+        >
           {creating ? t('onboard.app.submitting') : t('onboard.app.submit')}
         </Button>
       </form>
+
+      <div className="flex flex-col items-center gap-1.5">
+        <p className="text-xs text-muted-foreground">{t('onboard.app.or')}</p>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={creating || restoring}
+          onClick={() => void restoreAccount()}
+        >
+          {restoring ? t('onboard.app.restoring') : t('onboard.app.restore')}
+        </Button>
+      </div>
 
       <p className="text-center text-xs text-muted-foreground text-balance">
         {t('onboard.app.footer')}
