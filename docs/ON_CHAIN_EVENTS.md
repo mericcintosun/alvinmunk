@@ -850,6 +850,17 @@ pub struct RewardInfo {
 }
 ```
 
+### Daily cap (`get_daily_cap` / `get_daily_paid`)
+
+Both return `i128` USDC stroops. `get_daily_cap()` is the treasury's max payout per UTC
+day, `0` = unlimited; `get_daily_paid()` is what claims have paid so far in the current
+UTC day (`timestamp / 86_400`). `set_daily_cap` emits no event. It reverts with
+`InvalidAmount` (#8) for a negative cap, which would otherwise lift the limit instead of
+tightening it (`set_paused(true)` is the way to stop every payout), and with
+`CapBelowActiveReward` (#17) for a positive cap below an active row's `amount`. A negative
+cap stored by a contract deployed before that rule reads as `0`, which is how the payout
+checks always treated it.
+
 ### `Gate`
 
 ```rust

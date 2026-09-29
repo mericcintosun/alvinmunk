@@ -333,14 +333,16 @@ impl RewardsContract {
         env.storage().instance().set(&DataKey::Paused, &paused);
     }
 
-    /// Set the max treasury payout per UTC day. Admin-only.
+    /// Set the max treasury payout per UTC day, in USDC stroops. Admin-only.
     ///
-    /// - `0` means **unlimited** (no per-day ceiling). Use `set_paused(true)` to block
-    ///   all payouts entirely.
-    /// - Negative values are **rejected** with `Error::InvalidAmount`; they silently
-    ///   disable the cap instead of restricting it, which is the opposite of the intent.
+    /// - `0` means **unlimited** (no per-day ceiling). To block every payout, use
+    ///   `set_paused(true)`.
+    /// - A negative cap is rejected (`InvalidAmount`): `charge_daily` only enforces a
+    ///   positive cap, so a negative one would silently lift the limit instead of
+    ///   tightening it.
     /// - A positive cap below an active reward's amount is rejected
-    ///   (`CapBelowActiveReward`): lower or deactivate that reward first.
+    ///   (`CapBelowActiveReward`): lower or deactivate that reward first. `0` is always
+    ///   accepted.
     pub fn set_daily_cap(env: Env, cap: i128) {
         Self::admin(&env).require_auth();
         if cap < 0 {
@@ -350,11 +352,9 @@ impl RewardsContract {
         env.storage().instance().set(&DataKey::DailyCap, &cap);
     }
 
+    /// The daily payout cap in USDC stroops; `0` = unlimited. Never negative.
     pub fn get_daily_cap(env: Env) -> i128 {
-        env.storage()
-            .instance()
-            .get(&DataKey::DailyCap)
-            .unwrap_or(0)
+        Self::daily_cap(&env)
     }
 
     pub fn get_daily_paid(env: Env) -> i128 {
@@ -502,17 +502,25 @@ impl RewardsContract {
         Self::assert_amount_within_cap(env, amount);
     }
 
-    /// A payout larger than the daily cap can never be claimed: `charge_daily` refuses any
-    /// single claim above it. So while a cap is set (> 0) every ACTIVE reward must pay at
-    /// most the cap. `add_reward` and re-enabling check the row against the current cap,
-    /// and `set_daily_cap` checks a new cap against the active rows. Inactive rows may
-    /// exceed it until they are re-enabled. A cap of 0 or below is unlimited.
-    fn assert_amount_within_cap(env: &Env, amount: i128) {
+    /// The stored daily cap; `0` (unset) = unlimited. `set_daily_cap` rejects a negative
+    /// cap, but one stored before that rule reads as `0` here: it never limited anything,
+    /// and the views should not show it as a restriction.
+    fn daily_cap(env: &Env) -> i128 {
         let cap: i128 = env
             .storage()
             .instance()
             .get(&DataKey::DailyCap)
             .unwrap_or(0);
+        cap.max(0)
+    }
+
+    /// A payout larger than the daily cap can never be claimed: `charge_daily` refuses any
+    /// single claim above it. So while a cap is set (> 0) every ACTIVE reward must pay at
+    /// most the cap. `add_reward` and re-enabling check the row against the current cap,
+    /// and `set_daily_cap` checks a new cap against the active rows. Inactive rows may
+    /// exceed it until they are re-enabled. A cap of 0 is unlimited.
+    fn assert_amount_within_cap(env: &Env, amount: i128) {
+        let cap = Self::daily_cap(env);
         if cap > 0 && amount > cap {
             panic_with_error!(env, Error::AmountExceedsCap);
         }
@@ -540,11 +548,7 @@ impl RewardsContract {
 
     /// Accumulate today's treasury outflow and enforce the daily cap (0 = unlimited).
     fn charge_daily(env: &Env, amount: i128) {
-        let cap: i128 = env
-            .storage()
-            .instance()
-            .get(&DataKey::DailyCap)
-            .unwrap_or(0);
+        let cap = Self::daily_cap(env);
         let day = env.ledger().timestamp() / DAY_SECS;
         let key = DataKey::DailyPaid(day);
         let paid: i128 = env.storage().temporary().get(&key).unwrap_or(0);
