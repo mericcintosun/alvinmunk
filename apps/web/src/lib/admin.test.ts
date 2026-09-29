@@ -27,6 +27,7 @@ import {
   parseU32,
   parseUsdc,
   questConsequence,
+  questPeriodConsequence,
   questToggleConsequence,
   readContentAdmins,
   readContractAdmin,
@@ -261,6 +262,22 @@ describe('write consequences', () => {
     expect(questToggleConsequence(q, true)).toContain('award its 50 Earned XP again');
     expect(questToggleConsequence(q, false)).toContain("can't award it");
   });
+
+  it('describes repeating quests (#154)', () => {
+    const q = { id: 5, schemaId: 2, xp: 50n, active: true };
+    expect(questConsequence({ id: 5, schemaId: 2, xp: 50n }, null, 604_800)).toBe(
+      'Quest 5 will award 50 Earned XP (schema 2) once a week to each wallet the attester verifies for it.',
+    );
+    expect(questConsequence({ id: 5, schemaId: 2, xp: 50n }, q, 3 * 86_400)).toContain(
+      'once every 3 days to each wallet',
+    );
+    expect(questConsequence({ id: 5, schemaId: 2, xp: 50n }, q, 604_800)).toContain(
+      'can complete it again next round',
+    );
+    expect(questPeriodConsequence(q, 604_800)).toContain('once a week');
+    expect(questPeriodConsequence(q, 604_800)).toContain('a referral quest can’t repeat');
+    expect(questPeriodConsequence(q, 0)).toContain('one-shot again');
+  });
 });
 
 describe('contract errors', () => {
@@ -287,7 +304,10 @@ describe('contract errors', () => {
         },
       },
       gates: { crate: 'gate', names: { 1: 'NotInitialized', 3: 'GateNotFound', 6: 'BadTrack' } },
-      quests: { crate: 'quest_registry', names: { 1: 'NotInitialized', 4: 'QuestNotFound' } },
+      quests: {
+        crate: 'quest_registry',
+        names: { 1: 'NotInitialized', 4: 'QuestNotFound', 9: 'InvalidPeriod' },
+      },
     } as const;
     for (const [section, { crate, names }] of Object.entries(expected)) {
       const onChain = errorEnum(crate);

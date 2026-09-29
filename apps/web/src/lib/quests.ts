@@ -85,6 +85,17 @@ export async function createQuest(
   );
 }
 
+/** Make quest `id` repeatable once per `periodSecs` (`WEEK_SECS` = weekly), or one-shot
+ *  again with `0`. The contract refuses a period above 0 but under a day. */
+export async function setQuestPeriod(wallet: Wallet, id: number, periodSecs: number): Promise<string> {
+  return invokeAndWaitHash(
+    questRegistryId(),
+    'set_quest_period',
+    [args.u32(id), args.u64(periodSecs)],
+    wallet,
+  );
+}
+
 export async function setQuestActive(wallet: Wallet, id: number, active: boolean): Promise<string> {
   return invokeAndWaitHash(
     questRegistryId(),
@@ -118,7 +129,7 @@ export async function getStreak(addr: string, source?: string): Promise<Streak> 
 
 /**
  * Which of `questIds` `who` has completed, from one `get_completed` read (the replay guard
- * `award_quest` sets), keyed by quest id. Resolves `null` when the read fails — including a
+ * `award_quest` sets — for a repeatable quest, in the current period), keyed by quest id. Resolves `null` when the read fails — including a
  * deployed contract that predates the view — or returns something other than one flag per
  * id, so the UI leaves every quest available instead of guessing. Omit `source` for a
  * wallet-free read.
@@ -136,6 +147,30 @@ export async function getCompleted(
     if (!Array.isArray(v) || v.length !== questIds.length) return null;
     if (!v.every((flag) => typeof flag === 'boolean')) return null;
     return new Map(questIds.map((id, i) => [id, v[i] as boolean]));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Each of `questIds`' repeat period in seconds (0 = one-shot), from one `get_quest_periods`
+ * read, keyed by quest id. Resolves `null` when the read fails — including a deployed
+ * contract that predates repeatable quests, where every quest is one-shot — or returns
+ * something other than one period per id. Omit `source` for a wallet-free read.
+ */
+export async function getQuestPeriods(
+  questIds: number[],
+  source?: string,
+): Promise<Map<number, number> | null> {
+  try {
+    const call = [args.u32s(questIds)];
+    const v = source
+      ? await readContract<unknown>(questRegistryId(), 'get_quest_periods', call, source)
+      : await readPublic<unknown>(questRegistryId(), 'get_quest_periods', call);
+    if (!Array.isArray(v) || v.length !== questIds.length) return null;
+    const periods = v.map((p) => (typeof p === 'bigint' || typeof p === 'number' ? Number(p) : NaN));
+    if (!periods.every((p) => Number.isSafeInteger(p) && p >= 0)) return null;
+    return new Map(questIds.map((id, i) => [id, periods[i]]));
   } catch {
     return null;
   }

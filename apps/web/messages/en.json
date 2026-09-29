@@ -246,6 +246,10 @@
   "quests.vouchBackHint": "Vouch for {min} people, then claim — rewards backing others, not just being backed.",
   "quests.claimVouchBack": "Claim vouch-back ({min}+ vouches)",
   "quests.completed": "Completed",
+  "quests.repeatsWeekly": "repeats weekly",
+  "quests.repeatsEvery": "repeats every {days} days",
+  "quests.completedThisWeek": "Done this week",
+  "quests.completedThisRound": "Done this round",
   "quests.toast.success": "Quest verified — Earned XP added 🎉",
   "quests.done": "verified on-chain → Earned XP added",
 

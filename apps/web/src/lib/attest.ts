@@ -13,8 +13,12 @@
  *   2. Ownership — proven ON-CHAIN: the wallet submits `award_quest`, which calls
  *      `recipient.require_auth()`. There is no off-chain ownership signature.
  *   3. Replay — the quest_registry's on-chain replay guard (one completion per recipient
- *      per quest) is the hard cap, and an unredeemed signature expires on-chain
- *      QUEST_SIG_TTL_SECS after it is issued; the route adds only a per-IP rate limit.
+ *      per quest, or per period for a repeatable quest) is the hard cap, and an unredeemed
+ *      signature expires on-chain QUEST_SIG_TTL_SECS after it is issued; the route adds
+ *      only a per-IP rate limit.
+ *   4. Repeatable quests (#154) — the payload also names the period (`questWindow`), so a
+ *      signature can't carry over into the next one, and the evidence must be dated inside
+ *      the current period (`FRESH_EVIDENCE`): a standing condition must not pay every week.
  */
 import { Address, Keypair, hash, nativeToScVal, xdr } from '@stellar/stellar-sdk';
 
@@ -69,8 +73,52 @@ export function isStellarAddress(s: unknown): boolean {
   return typeof s === 'string' && STELLAR_ADDRESS.test(s);
 }
 
-/** Domain tag leading every quest award payload (the contract's `AWARD_DOMAIN`). */
+/** Domain tag leading every one-shot quest award payload (the contract's `AWARD_DOMAIN`). */
 export const QUEST_AWARD_DOMAIN = 'alvinmunk_award_quest_v1';
+/** Domain tag of a repeatable quest's payload (the contract's `AWARD_DOMAIN_V2`). */
+export const QUEST_AWARD_DOMAIN_V2 = 'alvinmunk_award_quest_v2';
+
+/** A weekly repeat period, the contract's streak week: Thursday 00:00 UTC to Thursday. */
+export const WEEK_SECS = 604_800;
+
+/**
+ * The period a repeatable quest is in at `nowSecs`, as the contract derives it: `epoch =
+ * floor(now / periodSecs)` (aligned on the Unix epoch), from `start` to `end` inclusive.
+ * `null` for a one-shot quest (`periodSecs` 0).
+ */
+export interface QuestWindow {
+  periodSecs: number;
+  epoch: number;
+  start: number;
+  end: number;
+}
+export function questWindow(nowSecs: number, periodSecs: number): QuestWindow | null {
+  if (!Number.isSafeInteger(periodSecs) || periodSecs <= 0) return null;
+  const epoch = Math.floor(nowSecs / periodSecs);
+  const start = epoch * periodSecs;
+  return { periodSecs, epoch, start, end: start + periodSecs - 1 };
+}
+
+/**
+ * The evidence types a REPEATABLE quest can take: each is checked for an action dated inside
+ * the current period (a PR merged, a vouch claimed). A referral has no date the attester can
+ * read — the invite marker just stands — so it would pay out every period for one referral.
+ */
+export const FRESH_EVIDENCE: ReadonlySet<EvidenceType> = new Set([
+  'github_pr',
+  'invite_converts',
+  'vouch_back',
+]);
+
+/**
+ * The expiry to sign: QUEST_SIG_TTL_SECS from now, but never past the end of a repeatable
+ * quest's period. Past it the contract names the next period and the signature could not
+ * verify, so it expires first and the wallet gets `SignatureExpired` (retry) instead.
+ */
+export function signatureExpiry(nowSecs: number, window: QuestWindow | null): number {
+  const ttl = nowSecs + QUEST_SIG_TTL_SECS;
+  return window ? Math.min(ttl, window.end) : ttl;
+}
 
 /** How long an award signature stays redeemable: `award_quest` refuses it once the ledger
  *  time passes `expiresAt`. Long enough for a wallet prompt and a slow submit. */
@@ -87,21 +135,31 @@ export interface QuestDeployment {
  * seconds, compared with the ledger time): the XDR of the ScVal vector
  * `[Symbol(QUEST_AWARD_DOMAIN), sha256(passphrase), contract, u32 questId, recipient,
  * u64 expiresAt]`, byte for byte the contract's `payload` (both sides pin the same test
- * vector). Built here, never read from an RPC node: a dishonest node could return the
- * payload for ITS address, and the attester key would sign the award over to it.
+ * vectors). For a repeatable quest (`window`) it is `[Symbol(QUEST_AWARD_DOMAIN_V2), …,
+ * recipient, u64 periodSecs, u64 epoch, u64 expiresAt]`. Built here, never read from an
+ * RPC node: a dishonest node could return the payload for ITS address, and the attester
+ * key would sign the award over to it.
  */
 export function questPayload(
   ctx: QuestDeployment,
   questId: number,
   recipient: string,
   expiresAt: number,
+  window: QuestWindow | null = null,
 ): Buffer {
+  const period = window
+    ? [
+        nativeToScVal(BigInt(window.periodSecs), { type: 'u64' }),
+        nativeToScVal(BigInt(window.epoch), { type: 'u64' }),
+      ]
+    : [];
   return xdr.ScVal.scvVec([
-    xdr.ScVal.scvSymbol(QUEST_AWARD_DOMAIN),
+    xdr.ScVal.scvSymbol(window ? QUEST_AWARD_DOMAIN_V2 : QUEST_AWARD_DOMAIN),
     xdr.ScVal.scvBytes(hash(Buffer.from(ctx.passphrase))),
     new Address(ctx.contractId).toScVal(),
     nativeToScVal(questId, { type: 'u32' }),
     new Address(recipient).toScVal(),
+    ...period,
     nativeToScVal(BigInt(expiresAt), { type: 'u64' }),
   ]).toXDR();
 }
@@ -114,16 +172,18 @@ export interface QuestSignature {
   expiresAt: number;
 }
 
-/** Sign the award payload for `questId` / `recipient` with the attester secret. */
+/** Sign the award payload for `questId` / `recipient` with the attester secret; pass the
+ *  current `window` for a repeatable quest. */
 export function signQuestPayload(
   secret: string,
   ctx: QuestDeployment,
   questId: number,
   recipient: string,
   expiresAt: number,
+  window: QuestWindow | null = null,
 ): QuestSignature {
   const kp = Keypair.fromSecret(secret);
-  const sig = kp.sign(questPayload(ctx, questId, recipient, expiresAt));
+  const sig = kp.sign(questPayload(ctx, questId, recipient, expiresAt, window));
   return { attester: kp.rawPublicKey().toString('hex'), sig: sig.toString('base64'), expiresAt };
 }
 

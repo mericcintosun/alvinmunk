@@ -246,6 +246,10 @@
   "quests.vouchBackHint": "{min} kişiyi destekle, sonra talep et — sadece desteklenmek değil, başkalarını desteklemek de kazandırır.",
   "quests.claimVouchBack": "Geri desteği al ({min}+ destek)",
   "quests.completed": "Tamamlandı",
+  "quests.repeatsWeekly": "her hafta tekrarlanır",
+  "quests.repeatsEvery": "{days} günde bir tekrarlanır",
+  "quests.completedThisWeek": "Bu hafta tamamlandı",
+  "quests.completedThisRound": "Bu tur tamamlandı",
   "quests.toast.success": "Görev doğrulandı — Kazanılan XP eklendi 🎉",
   "quests.done": "zincirde doğrulandı → Kazanılan XP eklendi",
 

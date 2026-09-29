@@ -16,8 +16,8 @@
  *     or down is a retryable 5xx, never a 422 (which says the evidence is wrong).
  */
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
-import { Address, Keypair, Networks, StrKey, nativeToScVal, rpc, scValToNative } from '@stellar/stellar-sdk';
-import { QUEST_SIG_TTL_SECS, questPayload } from '../../../lib/attest';
+import { Address, Keypair, Networks, StrKey, nativeToScVal, rpc, scValToNative, xdr } from '@stellar/stellar-sdk';
+import { QUEST_SIG_TTL_SECS, WEEK_SECS, questPayload, questWindow } from '../../../lib/attest';
 
 const RECIPIENT = Keypair.random().publicKey();
 const REFERRED = Keypair.random().publicKey();
@@ -35,6 +35,9 @@ const address = (a: string) => sim(new Address(a).toScVal());
 /** `is_completed` replies: the recipient has (or hasn't) completed the quest. */
 const completed = (done: boolean) => sim(nativeToScVal(done));
 const open = () => completed(false);
+/** `get_quest_periods([id])` replies: the quest's repeat period (0 = one-shot). */
+const period = (secs: number) => sim(xdr.ScVal.scvVec([nativeToScVal(secs, { type: 'u64' })]));
+const oneShot = () => period(0);
 
 type Post = (req: Request) => Promise<Response>;
 let POST: Post;
@@ -125,6 +128,7 @@ describe('POST /api/attest quest ↔ evidence binding', () => {
 
   it('lets the bound type through to verification', async () => {
     simulateSpy
+      .mockResolvedValueOnce(oneShot())
       .mockResolvedValueOnce(open())
       .mockResolvedValueOnce(score(5));
     const res = await attest({ questId: 2, evidence: { type: 'referral_tx', ref: REFERRED } });
@@ -140,6 +144,7 @@ describe('POST /api/attest quest ↔ evidence binding', () => {
       new Response(JSON.stringify({ data: { referral: marker } }), { status: 200 }),
     );
     simulateSpy
+      .mockResolvedValueOnce(oneShot())
       .mockResolvedValueOnce(open())
       .mockResolvedValueOnce(score(5));
     const before = Math.floor(Date.now() / 1000);
@@ -167,7 +172,7 @@ describe('POST /api/attest quest ↔ evidence binding', () => {
     expect(ATTESTER.verify(questPayload(ctx, 2, RECIPIENT, body.expiresAt), sig)).toBe(true);
     expect(ATTESTER.verify(questPayload(ctx, 2, RECIPIENT, body.expiresAt + 1), sig)).toBe(false);
     // ...and the payload was built here: no RPC node supplied the bytes that were signed.
-    expect(methods()).toEqual(['is_completed', 'get_score']);
+    expect(methods()).toEqual(['get_quest_periods', 'is_completed', 'get_score']);
   });
 
   it('binds a quest id configured in env, not its default', async () => {
@@ -196,13 +201,14 @@ describe('POST /api/attest referral_tx via the registry invite binding', () => {
 
   it('signs for a passkey account whose binding names the recipient, without Horizon', async () => {
     simulateSpy
+      .mockResolvedValueOnce(oneShot())
       .mockResolvedValueOnce(open())
       .mockResolvedValueOnce(score(5))
       .mockResolvedValueOnce(address(RECIPIENT));
     const res = await attest({ questId: 2, evidence: { type: 'referral_tx', ref: PASSKEY_REFERRED } });
     expect(res.status).toBe(200);
     expect(((await res.json()) as { sig: string }).sig).toBeTruthy();
-    expect(methods()).toEqual(['is_completed', 'get_score', 'invited_by']);
+    expect(methods()).toEqual(['get_quest_periods', 'is_completed', 'get_score', 'invited_by']);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -210,6 +216,7 @@ describe('POST /api/attest referral_tx via the registry invite binding', () => {
     const marker = Buffer.from(RECIPIENT, 'utf8').toString('base64');
     fetchSpy.mockResolvedValue(new Response(JSON.stringify({ data: { referral: marker } })));
     simulateSpy
+      .mockResolvedValueOnce(oneShot())
       .mockResolvedValueOnce(open())
       .mockResolvedValueOnce(score(5))
       .mockResolvedValueOnce(address(Keypair.random().publicKey()));
@@ -221,6 +228,7 @@ describe('POST /api/attest referral_tx via the registry invite binding', () => {
 
   it('gives an empty account bound to the recipient nothing', async () => {
     simulateSpy
+      .mockResolvedValueOnce(oneShot())
       .mockResolvedValueOnce(open())
       .mockResolvedValueOnce(score(0))
       .mockResolvedValueOnce(address(RECIPIENT));
@@ -237,6 +245,7 @@ describe('POST /api/attest referral_tx via the registry invite binding', () => {
       new Response(JSON.stringify({ data: { referral: marker } }), { status: 200 }),
     );
     simulateSpy
+      .mockResolvedValueOnce(oneShot())
       .mockResolvedValueOnce(open())
       .mockResolvedValueOnce(score(5))
       .mockResolvedValueOnce(
@@ -251,6 +260,7 @@ describe('POST /api/attest referral_tx via the registry invite binding', () => {
     const marker = Buffer.from(RECIPIENT, 'utf8').toString('base64');
     fetchSpy.mockResolvedValue(new Response(JSON.stringify({ data: { referral: marker } })));
     simulateSpy
+      .mockResolvedValueOnce(oneShot())
       .mockResolvedValueOnce(open())
       .mockResolvedValueOnce(score(5))
       .mockResolvedValueOnce(simError('rpc overloaded'));
@@ -271,6 +281,7 @@ describe('POST /api/attest referral_tx via the registry invite binding', () => {
     // No registry binding for REFERRED (invited_by resolves to null) — falls back to
     // the manageData marker.
     simulateSpy
+      .mockResolvedValueOnce(oneShot())
       .mockResolvedValueOnce(open())
       .mockResolvedValueOnce(score(5))
       .mockResolvedValueOnce(sim(null));
@@ -286,6 +297,7 @@ describe('POST /api/attest referral_tx via the registry invite binding', () => {
     const marker = Buffer.from(someoneElse, 'utf8').toString('base64');
     fetchSpy.mockResolvedValue(new Response(JSON.stringify({ data: { referral: marker } })));
     simulateSpy
+      .mockResolvedValueOnce(oneShot())
       .mockResolvedValueOnce(open())
       .mockResolvedValueOnce(score(5))
       .mockResolvedValueOnce(sim(null));
@@ -302,6 +314,7 @@ describe('POST /api/attest referral_tx via the registry invite binding', () => {
     // (#173), not be folded into "no referral binding found".
     fetchSpy.mockResolvedValue(new Response('rate limited', { status: 503 }));
     simulateSpy
+      .mockResolvedValueOnce(oneShot())
       .mockResolvedValueOnce(open())
       .mockResolvedValueOnce(score(5))
       .mockResolvedValueOnce(sim(null));
@@ -485,7 +498,7 @@ describe('POST /api/attest — status codes (issue #180)', () => {
 
   // ── signing: local, never fed by an RPC node (issue #142) ───────────────────
 
-  it('signs with no RPC read but the completion check, so a failing node can neither block nor feed it', async () => {
+  it('signs with no RPC read but the period and completion checks, so a failing node can neither block nor feed it', async () => {
     vi.resetModules();
     vi.stubEnv('QUEST_GITHUB_ID', '1');
     ({ POST } = (await import('./route')) as { POST: Post });
@@ -493,7 +506,7 @@ describe('POST /api/attest — status codes (issue #180)', () => {
     simulateSpy.mockRejectedValue(new Error('rpc timeout'));
     const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#1' } });
     expect(res.status).toBe(200);
-    expect(methods()).toEqual(['is_completed']);
+    expect(methods()).toEqual(['get_quest_periods', 'is_completed']);
   });
 
   it('500 when the attester secret is malformed, with no signature', async () => {
@@ -555,6 +568,7 @@ describe('POST /api/attest — status codes (issue #180)', () => {
       new Response(JSON.stringify({ data: { referral: marker } }), { status: 200 }),
     );
     simulateSpy
+      .mockResolvedValueOnce(oneShot())
       .mockResolvedValueOnce(open())
       .mockResolvedValueOnce(score(5));
 
@@ -613,16 +627,16 @@ describe('POST /api/attest — upstream failures (issue #173)', () => {
         vi.resetModules();
         vi.stubEnv('QUEST_GITHUB_ID', '1');
         ({ POST } = (await import('./route')) as { POST: Post });
-        simulateSpy.mockResolvedValueOnce(open()); // not completed yet (#156)
+        simulateSpy.mockResolvedValueOnce(oneShot()).mockResolvedValueOnce(open()); // one-shot, not completed yet (#156)
       },
       request: { questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#1' } },
     },
     {
       upstream: 'horizon',
       async setup() {
-        // Not completed yet (#156), then a wallet with a score and no registry binding: the
+        // One-shot, not completed yet (#156), then a wallet with a score and no registry binding: the
         // manageData marker decides.
-        simulateSpy.mockResolvedValueOnce(open()).mockResolvedValueOnce(score(5));
+        simulateSpy.mockResolvedValueOnce(oneShot()).mockResolvedValueOnce(open()).mockResolvedValueOnce(score(5));
       },
       request: { questId: 2, evidence: { type: 'referral_tx', ref: REFERRED } },
     },
@@ -706,7 +720,7 @@ describe('POST /api/attest — upstream failures (issue #173)', () => {
 
   it('a Horizon outage does not hide that the referred wallet has no score yet', async () => {
     // judgeReferral decides on the score first: with none, Horizon's answer can't matter.
-    simulateSpy.mockResolvedValueOnce(open()).mockResolvedValueOnce(score(0));
+    simulateSpy.mockResolvedValueOnce(oneShot()).mockResolvedValueOnce(open()).mockResolvedValueOnce(score(0));
     fetchSpy.mockRejectedValueOnce(new TypeError('fetch failed'));
     const res = await attest({ questId: 2, evidence: { type: 'referral_tx', ref: REFERRED } });
     expect(res.status).toBe(422);
@@ -733,13 +747,14 @@ describe('POST /api/attest already-completed quests (issue #156)', () => {
     'HostError: Error(WasmVm, MissingValue) trying to invoke non-existent contract function';
 
   it('answers 409 before verifying evidence, and signs nothing', async () => {
-    simulateSpy.mockResolvedValueOnce(completed(true));
+    simulateSpy.mockResolvedValueOnce(oneShot()).mockResolvedValueOnce(completed(true));
     const res = await attest({ questId: 2, evidence: { type: 'referral_tx', ref: REFERRED } });
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: 'You’ve already completed this quest.' });
-    // One read, of this quest for this recipient; no Horizon, GitHub or other RPC call.
-    expect(methods()).toEqual(['is_completed']);
-    const [tx] = simulateSpy.mock.calls[0];
+    // The period, then one completion read of this quest for this recipient; no Horizon,
+    // GitHub or other RPC call.
+    expect(methods()).toEqual(['get_quest_periods', 'is_completed']);
+    const [tx] = simulateSpy.mock.calls[1];
     const call = (tx as unknown as { operations: { func: { invokeContract(): { args(): unknown[] } } }[] })
       .operations[0].func.invokeContract();
     expect(call.args().map((a) => scValToNative(a as never))).toEqual([2, RECIPIENT]);
@@ -759,13 +774,137 @@ describe('POST /api/attest already-completed quests (issue #156)', () => {
     ]) {
       simulateSpy.mockClear();
       fetchSpy.mockClear();
+      simulateSpy.mockResolvedValueOnce(oneShot());
       reply();
       simulateSpy.mockResolvedValueOnce(score(5));
       const res = await attest({ questId: 2, evidence: { type: 'referral_tx', ref: REFERRED } });
       expect(res.status).toBe(422);
       expect(((await res.json()) as { error: string }).error).toMatch(/^no referral binding found/);
-      expect(methods()).toEqual(['is_completed', 'get_score']);
+      expect(methods()).toEqual(['get_quest_periods', 'is_completed', 'get_score']);
       expect(fetchSpy).toHaveBeenCalledTimes(1);
     }
+  });
+});
+
+describe('POST /api/attest repeatable quests (issue #154)', () => {
+  const THU = 1_790_812_800; // a week boundary: 2026-10-01 00:00 UTC
+  const ctx = { contractId: QUEST_CONTRACT, passphrase: Networks.TESTNET };
+  const iso = (secs: number) => new Date(secs * 1000).toISOString();
+  const pr = (mergedAt: number) =>
+    new Response(JSON.stringify({ merged: true, merged_at: iso(mergedAt) }), { status: 200 });
+
+  beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime((THU + 3 * 86_400) * 1000); // mid-week
+    vi.resetModules();
+    vi.stubEnv('QUEST_GITHUB_ID', '1');
+    ({ POST } = (await import('./route')) as { POST: Post });
+  });
+
+  afterEach(() => vi.useRealTimers());
+
+  it('signs the v2 payload for this week, for a PR merged this week', async () => {
+    fetchSpy.mockResolvedValueOnce(pr(THU + 60));
+    simulateSpy.mockResolvedValueOnce(period(WEEK_SECS)).mockResolvedValueOnce(open());
+    const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#7' } });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { sig: string; expiresAt: number };
+    const now = THU + 3 * 86_400;
+    expect(body.expiresAt).toBe(now + QUEST_SIG_TTL_SECS);
+    const sig = Buffer.from(body.sig, 'base64');
+    const week = questWindow(now, WEEK_SECS);
+    expect(ATTESTER.verify(questPayload(ctx, 1, RECIPIENT, body.expiresAt, week), sig)).toBe(true);
+    // Not a one-shot signature, and not one for next week.
+    expect(ATTESTER.verify(questPayload(ctx, 1, RECIPIENT, body.expiresAt), sig)).toBe(false);
+    const next = questWindow(now + WEEK_SECS, WEEK_SECS);
+    expect(ATTESTER.verify(questPayload(ctx, 1, RECIPIENT, body.expiresAt, next), sig)).toBe(false);
+    expect(methods()).toEqual(['get_quest_periods', 'is_completed']);
+  });
+
+  it('refuses a PR merged before this week, so one PR cannot pay every week', async () => {
+    for (const merged of [THU - 1, NaN]) {
+      fetchSpy.mockResolvedValueOnce(
+        Number.isNaN(merged)
+          ? new Response(JSON.stringify({ merged: true }), { status: 200 }) // undated
+          : pr(merged),
+      );
+      simulateSpy.mockResolvedValueOnce(period(WEEK_SECS)).mockResolvedValueOnce(open());
+      const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#7' } });
+      expect(res.status).toBe(422);
+      expect(((await res.json()) as { error: string }).error).toMatch(/merged before this round/);
+    }
+  });
+
+  it('stops the signature at the last second of the week', async () => {
+    vi.setSystemTime((THU + WEEK_SECS - 60) * 1000);
+    fetchSpy.mockResolvedValueOnce(pr(THU + 60));
+    simulateSpy.mockResolvedValueOnce(period(WEEK_SECS)).mockResolvedValueOnce(open());
+    const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#7' } });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { expiresAt: number }).expiresAt).toBe(THU + WEEK_SECS - 1);
+  });
+
+  it('keeps a GitHub outage a retryable failure on a weekly quest, not a stale PR', async () => {
+    fetchSpy.mockResolvedValueOnce(new Response('down', { status: 503 }));
+    simulateSpy.mockResolvedValueOnce(period(WEEK_SECS)).mockResolvedValueOnce(open());
+    const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#7' } });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: 'github unavailable (503) — try again', retryable: true });
+  });
+
+  it('refuses a referral for a repeatable quest before reading any evidence', async () => {
+    simulateSpy.mockResolvedValueOnce(period(WEEK_SECS));
+    const res = await attest({ questId: 2, evidence: { type: 'referral_tx', ref: REFERRED } });
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toMatch(/can’t be dated/);
+    expect(methods()).toEqual(['get_quest_periods']);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('says a weekly quest is done for this week', async () => {
+    simulateSpy.mockResolvedValueOnce(period(WEEK_SECS)).mockResolvedValueOnce(completed(true));
+    const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#7' } });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'You’ve already completed this quest this week.' });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('counts only this week’s vouch claims for a weekly vouch-back quest', async () => {
+    const claim = (n: number, claimer: string, at: number) => ({
+      value: nativeToScVal([n, RECIPIENT, claimer]),
+      ledgerClosedAt: iso(at),
+    });
+    const [a, b, c] = [1, 2, 3].map(() => Keypair.random().publicKey());
+    vi.spyOn(rpc.Server.prototype, 'getHealth').mockResolvedValue({
+      oldestLedger: 1,
+    } as unknown as rpc.Api.GetHealthResponse);
+    const events = vi.spyOn(rpc.Server.prototype, 'getEvents');
+    const page = (list: unknown[]) =>
+      ({ events: list, cursor: undefined }) as unknown as rpc.Api.GetEventsResponse;
+
+    // Two claims this week and one last week: short of three.
+    events.mockResolvedValueOnce(page([claim(1, a, THU + 10), claim(2, b, THU + 20), claim(3, c, THU - 10)]));
+    simulateSpy.mockResolvedValueOnce(period(WEEK_SECS)).mockResolvedValueOnce(open());
+    const short = await attest({ questId: 4, evidence: { type: 'vouch_back', ref: '' } });
+    expect(short.status).toBe(422);
+    expect(((await short.json()) as { error: string }).error).toBe(
+      'vouch for 3 people first (2 claimed this round)',
+    );
+
+    // All three this week.
+    events.mockResolvedValueOnce(page([claim(1, a, THU + 10), claim(2, b, THU + 20), claim(3, c, THU + 30)]));
+    simulateSpy.mockResolvedValueOnce(period(WEEK_SECS)).mockResolvedValueOnce(open());
+    const ok = await attest({ questId: 4, evidence: { type: 'vouch_back', ref: '' } });
+    expect(ok.status).toBe(200);
+  });
+
+  it('signs as one-shot when the period cannot be read', async () => {
+    fetchSpy.mockResolvedValueOnce(pr(THU - 30 * 86_400)); // an old PR is fine for a one-shot quest
+    simulateSpy.mockRejectedValueOnce(new Error('rpc down')).mockResolvedValueOnce(open());
+    const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#7' } });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { sig: string; expiresAt: number };
+    const sig = Buffer.from(body.sig, 'base64');
+    expect(ATTESTER.verify(questPayload(ctx, 1, RECIPIENT, body.expiresAt), sig)).toBe(true);
   });
 });
