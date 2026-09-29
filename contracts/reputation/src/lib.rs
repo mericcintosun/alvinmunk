@@ -185,12 +185,14 @@ impl ReputationContract {
 
     // --- Async vouch (cold-start fix via claim-secret) ---
 
-    /// `from` mints a half‑card bound to `claim_hash` (= sha256 of a secret held in the share link).
-    /// Escrows `VOUCH_STAKE` Social XP from `from` (refunded on a timely claim, else slashed).
-    /// New wallets get `STARTER_SOCIAL` first so the first vouch is free.
-    /// Per‑day cap applies and is measured using a UTC calendar day (`timestamp / DAY_SECS`).
-    /// The cap resets exactly at the day boundary.
-    /// `note` is at most `MAX_NOTE_BYTES` bytes of UTF‑8, else `NoteTooLong`: it is stored in the vouch, which every claim rewrites.
+    /// `from` mints a half-card bound to `claim_hash` (= sha256 of a secret held in
+    /// the share link). Escrows `VOUCH_STAKE` Social XP from `from` (refunded on a
+    /// timely claim, else slashed). New wallets get `STARTER_SOCIAL` first so the
+    /// first vouch is free. Each voucher may mint `MAX_VOUCH_PER_DAY` per UTC calendar day
+    /// (`timestamp / DAY_SECS`), else `DailyCapReached`. The count resets at 00:00:00 UTC, not
+    /// 24 hours after the first mint, so a full day's mints at 23:59:59 and another full day's
+    /// a second later are both allowed. `note` is at most `MAX_NOTE_BYTES` bytes
+    /// of UTF-8, else `NoteTooLong`: it is stored in the vouch, which every claim rewrites.
     /// Returns the vouch id.
     pub fn mint_vouch(env: Env, from: Address, claim_hash: BytesN<32>, note: String) -> u64 {
         from.require_auth();
