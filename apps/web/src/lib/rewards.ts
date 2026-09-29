@@ -129,6 +129,9 @@ export interface RewardEntry {
   max_claims?: number;
   /** Claims paid so far. Absent on contracts deployed before supply caps. */
   claims?: number;
+  /** Live weekly quest streak required to claim, on top of `threshold` (0 = none). Absent on
+   *  contracts deployed before streak-gated rewards. */
+  min_streak?: number;
 }
 
 /** The full unlock table (admin-registered on-chain). */
@@ -207,6 +210,33 @@ export async function getRewardStats(rewardId: number, source: string): Promise<
     source,
   );
   return v ?? { claims: 0, max_claims: 0 };
+}
+
+/** The live weekly quest streak a reward requires (0 = none). `get_rewards` carries the
+ *  same value as `min_streak`. */
+export async function getRewardMinStreak(rewardId: number, source: string): Promise<number> {
+  const v = await readContract<number>(
+    rewardsId(),
+    'get_reward_min_streak',
+    [args.u32(rewardId)],
+    source,
+  );
+  return Number(v ?? 0);
+}
+
+/** Require a live weekly quest streak of `weeks` to claim `rewardId` (0 removes it). A
+ *  non-zero minimum needs the rewards contract wired to the QuestRegistry first. */
+export async function setRewardMinStreak(
+  wallet: Wallet,
+  rewardId: number,
+  weeks: number,
+): Promise<string> {
+  return invokeAndWaitHash(
+    rewardsId(),
+    'set_reward_min_streak',
+    [args.u32(rewardId), args.u32(weeks)],
+    wallet,
+  );
 }
 
 /** Has this wallet already claimed `rewardId`? */

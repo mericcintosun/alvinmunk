@@ -53,8 +53,10 @@ async function resolveWith(root: Metadata, pathname: string, ...segments: Segmen
 const profile = (handle: string) => () => profileLayout.generateMetadata({ params: { handle } });
 const invite = (handle: string) => () => inviteLayout.generateMetadata({ params: { handle } });
 
-const imageUrls = (images: { url: string | URL }[] | undefined) =>
-  (images ?? []).map((i) => i.url.toString());
+// Next's OGImage union also allows a bare string/URL, not just a descriptor object;
+// mirror that here since the resolved metadata type keeps the full union.
+const imageUrls = (images: Array<string | URL | { url: string | URL }> | undefined) =>
+  (images ?? []).map((i) => (typeof i === 'string' || i instanceof URL ? i.toString() : i.url.toString()));
 
 /** Every piece of text a page or its unfurl shows. */
 function texts(m: ResolvedMetadata) {
