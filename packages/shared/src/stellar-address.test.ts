@@ -1,4 +1,4 @@
-import { Keypair } from '@stellar/stellar-sdk';
+import { Keypair, StrKey } from '@stellar/stellar-sdk';
 import { describe, expect, it } from 'vitest';
 import { isStellarAddress } from './stellar-address';
 
@@ -25,5 +25,12 @@ describe('isStellarAddress', () => {
     const g = Keypair.random().publicKey();
     expect(isStellarAddress(g, { allowContract: false })).toBe(true);
     expect(isStellarAddress(g, { allowContract: true })).toBe(true);
+  });
+
+  it('accepts a valid contract address by default, rejects it when allowContract is false', () => {
+    const c = StrKey.encodeContract(Buffer.alloc(32, 7));
+    expect(isStellarAddress(c)).toBe(true);
+    expect(isStellarAddress(c, { allowContract: true })).toBe(true);
+    expect(isStellarAddress(c, { allowContract: false })).toBe(false);
   });
 });
