@@ -245,6 +245,13 @@ async function expectRevert(code, fn) {
   });
 
   // ── NEGATIVE: circuit breaker (mutates config → reset after) ──
+  await test('negative: a negative daily cap reverts (#8 InvalidAmount)', async () => {
+    try {
+      await expectRevert(8, () => invoke(ADMIN, REWARDS, 'set_daily_cap', [i128(-1n)]));
+    } finally {
+      await invoke(ADMIN, REWARDS, 'set_daily_cap', [i128(500000000n)]);
+    }
+  });
   await test('negative: cap below an active reward reverts (#17 CapBelowActiveReward)', async () => {
     try {
       await expectRevert(17, () => invoke(ADMIN, REWARDS, 'set_daily_cap', [i128(1n)]));

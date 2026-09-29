@@ -271,6 +271,22 @@ proptest! {
         }
     }
 
+    /// Invariant (#145): `set_daily_cap` accepts exactly the caps >= 0, and the view then
+    /// reads back what was accepted; a rejected cap leaves the previous one in place.
+    #[test]
+    fn set_daily_cap_accepts_only_non_negative_caps(cap in any::<i128>()) {
+        let f = setup();
+        f.rewards.set_daily_cap(&7i128);
+        let res = f.rewards.try_set_daily_cap(&cap);
+        if cap < 0 {
+            prop_assert_eq!(res, Err(Ok(contract_err(Error::InvalidAmount))));
+            prop_assert_eq!(f.rewards.get_daily_cap(), 7);
+        } else {
+            prop_assert_eq!(res, Ok(Ok(())));
+            prop_assert_eq!(f.rewards.get_daily_cap(), cap);
+        }
+    }
+
     /// Invariant (#146): `add_reward` only accepts rows that can pay out. It refuses a zero
     /// threshold and, while a cap is set, an amount above it; anything it accepts pays its
     /// stored amount to a wallet that clears the threshold.
@@ -542,6 +558,61 @@ fn set_daily_cap_zero_is_always_allowed() {
     f.rewards.set_daily_cap(&200i128);
     assert_eq!(f.rewards.try_set_daily_cap(&0i128), Ok(Ok(())));
     assert_eq!(f.rewards.get_daily_cap(), 0);
+}
+
+/// #145: `charge_daily` only enforces a positive cap, so a stored negative cap would lift
+/// the limit instead of tightening it. `set_daily_cap` refuses one and keeps the old cap.
+#[test]
+fn set_daily_cap_rejects_a_negative_cap() {
+    let f = setup();
+    f.rewards.add_reward(&1u32, &10u64, &100i128);
+    f.rewards.add_reward(&2u32, &10u64, &100i128);
+    f.rewards.set_daily_cap(&150i128);
+    for bad in [-1i128, -100, i128::MIN] {
+        assert_eq!(
+            f.rewards.try_set_daily_cap(&bad),
+            Err(Ok(contract_err(Error::InvalidAmount))),
+            "cap = {bad}"
+        );
+    }
+    assert_eq!(f.rewards.get_daily_cap(), 150); // unchanged
+
+    // The breaker still holds: 100 + 100 > 150.
+    f.rewards.claim_reward(&earner(&f, 10), &1u32);
+    assert_eq!(
+        f.rewards.try_claim_reward(&earner(&f, 10), &2u32),
+        Err(Ok(contract_err(Error::DailyCapExceeded)))
+    );
+    assert_eq!(f.rewards.get_daily_paid(), 100);
+}
+
+#[test]
+fn set_daily_cap_rejects_a_negative_cap_when_unlimited() {
+    let f = setup(); // no cap set = 0 = unlimited
+    assert_eq!(
+        f.rewards.try_set_daily_cap(&-1i128),
+        Err(Ok(contract_err(Error::InvalidAmount)))
+    );
+    assert_eq!(f.rewards.get_daily_cap(), 0);
+}
+
+/// A negative cap written before #145 never limited anything; the view reads it as 0
+/// (unlimited) rather than as a restriction, and the cap checks treat it the same way.
+#[test]
+fn a_negative_cap_stored_before_the_rule_reads_as_unlimited() {
+    let f = setup();
+    f.env.as_contract(&f.rewards_id, || {
+        f.env.storage().instance().set(&DataKey::DailyCap, &-5i128)
+    });
+    assert_eq!(f.rewards.get_daily_cap(), 0);
+
+    f.rewards.add_reward(&1u32, &10u64, &600i128);
+    f.rewards.claim_reward(&earner(&f, 10), &1u32);
+    assert_eq!(f.rewards.get_daily_paid(), 600);
+
+    // Setting a real cap again works as usual.
+    f.rewards.set_daily_cap(&600i128);
+    assert_eq!(f.rewards.get_daily_cap(), 600);
 }
 
 #[test]

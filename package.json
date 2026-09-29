@@ -2,14 +2,14 @@
   "name": "alvinmunk",
   "version": "0.1.0",
   "private": true,
-  "description": "alvinmunk — Stellar Passport: a social proof-of-people reputation game on Stellar/Soroban",
+  "description": "alvinmunk \u2014 Stellar Passport: a social proof-of-people reputation game on Stellar/Soroban",
   "packageManager": "pnpm@9.7.0",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "dev": "turbo run dev",
-    "build": "turbo run build",
+    "dev": "node api.js && turbo run dev",
+    "build": "node api.js && turbo run build",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
