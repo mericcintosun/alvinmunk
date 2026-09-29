@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Users, Activity, ExternalLink } from 'lucide-react';
 import { shortAddr } from '@alvinmunk/shared';
 import { cn } from '@/lib/utils';
+import { usePoll } from '@/lib/use-poll';
 import type { VouchFunnel } from '@/lib/vouch-funnel';
 import { LoopHealth } from '@/components/LoopHealth';
 
@@ -43,6 +44,7 @@ export default function StatsPage() {
   const [stale, setStale] = useState<Record<NetKey, boolean>>({ testnet: false, mainnet: false });
   const [loading, setLoading] = useState(true);
 
+  const [pollKey, setPollKey] = useState(0);
   useEffect(() => {
     let alive = true;
     const load = () => {
@@ -66,14 +68,19 @@ export default function StatsPage() {
         });
     };
     setLoading(!data[tab]);
-    load();
-    const t = setInterval(load, 10000); // live: refresh every 10s
     return () => {
       alive = false;
-      clearInterval(t);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
+  }, [tab, pollKey]);
+
+  usePoll(
+    () => {
+      setPollKey((k) => k + 1);
+      return Promise.resolve();
+    },
+    10000,
+  );
 
   const s = data[tab];
   const users = s?.users;
