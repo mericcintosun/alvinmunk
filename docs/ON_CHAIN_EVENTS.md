@@ -354,6 +354,40 @@ env.events().publish(
 > operation that cleans up state silently). It does emit `meta` / `cleared` when
 > the holder had a profile.
 
+### `invite` / `bound`
+
+An on-chain record of WHO INVITED WHOM: a wallet (classic G… or passkey smart-wallet
+C…) binds, once and forever, that it was invited by `inviter` — the on-chain form of
+the `/v/<handle>` recruiting link. The invitee signs (`set_inviter(caller, inviter)`);
+the inviter is named by ADDRESS, so the edge survives renames and releases. One inviter
+per invitee: a second `set_inviter` reverts with `AlreadyInvited` (#10), naming yourself
+with `SelfInvite` (#9), and naming an address that holds no handle (or no longer holds
+one) with `NoHandle` (#4) — so the graph only grows, never rewrites.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol("invite")` | Event discriminator |
+| **topics[1]** | `Symbol("bound")` | Sub-type |
+
+**Data tuple**:
+
+| Index | Type | Description |
+|-------|------|-------------|
+| 0 | `Address` | `invitee` — the wallet that was invited (the one who signed) |
+| 1 | `Address` | `inviter` — the wallet that invited them (must hold a handle at bind time) |
+
+An indexer folds this into the invite graph: `bound` inserts the edge `invitee →
+inviter` (there is no unbind, so nothing ever deletes one). Feed the viral coefficient:
+distinct `invitee` per `inviter` is that inviter's recruited count.
+
+**Contract source**: `registry/src/lib.rs` → `fn set_inviter()`
+
+```rust
+env.events().publish(
+    (symbol_short!("invite"), symbol_short!("bound")),
+    (caller, inviter));
+```
+
 ### `meta` / `set`
 
 A handle holder publishes its profile face and bio (`set_meta()`), replacing any
@@ -602,6 +636,7 @@ Quick-reference table of all event discriminators and their sub-types.
 | `quest` | `created`, `awarded` | QuestRegistry | [↑](#2-questregistry-contract) |
 | `streak` | *(none)* | QuestRegistry | [↑](#streak-weekly-retention) |
 | `handle` | `claimed`, `released` | Registry | [↑](#3-registry-contract-handles) |
+| `invite` | `bound` | Registry | [↑](#invite--bound) |
 | `meta` | `set`, `cleared` | Registry | [↑](#meta--set) |
 | `gate` | `created` | Gate | [↑](#4-gate-contract) |
 | `unlocked` | *(none)* | Gate | [↑](#unlocked) |
@@ -795,6 +830,20 @@ So `face-03` is `0x0000000000000003` and the kit skin 3 / hair 7 / eyes 5 / mout
 acc 9 / bg 2 is `0x0100030705040902`. The ranges are the portrait assets the web app
 ships (`FACE_IDS` / `KIT_COUNTS` in `apps/web/src/lib/avatar.ts`, which packs with
 `encodeAvatar`); adding assets means upgrading the contract to accept them.
+
+### Invite binding (`invited_by`)
+
+`invited_by(addr) -> Option<Address>` reads the one-shot invite edge recorded with
+[`set_inviter`](#invite--bound) (`DataKey::InvitedBy(addr)`): the address that invited
+`addr`, or `None` while it was never invited (and always `None` for an inviter's own
+row — the edge lives on the invitee). A registry deployed before `set_inviter` has no
+`invited_by`, so treat a failed call as "unbound", not an error
+(`getInvitedBy` in `apps/web/src/lib/registry.ts` already does).
+
+The binding is never deleted or rewritten — not by a rename, not by a release — so the
+read needs no event folding and never goes stale. The web app reads it to hide the
+vouch-back nudge once the edge exists (`apps/web/src/components/InviteNudge.tsx`); the
+Blue-belt viral coefficient and the referral quest read it to attribute a conversion.
 
 ### `QuestConfig`
 

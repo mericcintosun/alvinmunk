@@ -40,6 +40,8 @@ pub enum Error {
     BadBio = 6,
     BadAvatar = 7,
     TooMany = 8,
+    SelfInvite = 9,
+    AlreadyInvited = 10,
 }
 
 /// Bio limit in UTF-8 BYTES (what `String::len` counts), not characters: 80 ASCII
@@ -74,9 +76,10 @@ const KIT_BG: u64 = 5;
 #[derive(Clone)]
 pub enum DataKey {
     Admin,
-    Fwd(Symbol),   // handle -> Address
-    Rev(Address),  // Address -> handle (one handle per address)
-    Meta(Address), // Address -> ProfileMeta (only while the address holds a handle)
+    Fwd(Symbol),        // handle -> Address
+    Rev(Address),       // Address -> handle (one handle per address)
+    Meta(Address),      // Address -> ProfileMeta (only while the address holds a handle)
+    InvitedBy(Address), // Address -> who invited them (one-shot, never rewritten)
 }
 
 /// A handle holder's public profile. `avatar` is the packed face (layout above); `bio` is
@@ -251,6 +254,44 @@ impl RegistryContract {
     /// handle (pure read, any caller).
     pub fn get_meta(env: Env, addr: Address) -> Option<ProfileMeta> {
         env.storage().persistent().get(&DataKey::Meta(addr))
+    }
+
+    /// Bind, once and forever, that `caller` was invited by `inviter` — the recruiting link
+    /// `/v/<handle>` finally lands on-chain. `caller` signs; `inviter` must hold a handle
+    /// (`NoHandle`), `caller` cannot invite themself (`SelfInvite`), and an already-bound
+    /// wallet reverts (`AlreadyInvited`): one inviter per invitee, set by the invitee only,
+    /// so the invite graph can't be rewritten or forged. The invitee needs no handle of
+    /// their own (a passkey smart wallet C… binds fine), and the binding survives renames
+    /// and releases — it records what happened, not who currently holds which name.
+    pub fn set_inviter(env: Env, caller: Address, inviter: Address) {
+        caller.require_auth();
+        if caller == inviter {
+            panic_with_error!(&env, Error::SelfInvite);
+        }
+        let ikey = DataKey::InvitedBy(caller.clone());
+        if env.storage().persistent().has(&ikey) {
+            panic_with_error!(&env, Error::AlreadyInvited);
+        }
+        if !env
+            .storage()
+            .persistent()
+            .has(&DataKey::Rev(inviter.clone()))
+        {
+            panic_with_error!(&env, Error::NoHandle);
+        }
+        env.storage().persistent().set(&ikey, &inviter);
+        Self::bump(&env, &ikey);
+
+        env.events().publish(
+            (symbol_short!("invite"), symbol_short!("bound")),
+            (caller, inviter),
+        );
+    }
+
+    /// Who invited `addr` (the one-shot binding above), `None` while unbound. Pure read,
+    /// any caller.
+    pub fn invited_by(env: Env, addr: Address) -> Option<Address> {
+        env.storage().persistent().get(&DataKey::InvitedBy(addr))
     }
 
     // --- internal ---

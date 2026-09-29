@@ -35,6 +35,20 @@ fn handle_event(
     )
 }
 
+/// An `invite/bound (invitee, inviter)` event as `env.events().all()` reports it.
+fn invite_event(
+    client: &RegistryContractClient,
+    invitee: &Address,
+    inviter: &Address,
+) -> (Address, Vec<Val>, Val) {
+    let env = &client.env;
+    (
+        client.address.clone(),
+        (symbol_short!("invite"), symbol_short!("bound")).into_val(env),
+        (invitee.clone(), inviter.clone()).into_val(env),
+    )
+}
+
 #[test]
 fn claim_sets_forward_and_reverse() {
     let (env, client, _admin) = setup();
@@ -206,6 +220,159 @@ fn non_admin_upgrade_reverts() {
     client.init(&admin);
     let hash = soroban_sdk::BytesN::from_array(&env, &[1; 32]);
     client.upgrade(&hash);
+}
+
+// --- Invite binding ---
+
+#[test]
+fn set_inviter_binds_once_and_emits_invite_bound() {
+    let (env, client, _admin) = setup();
+    let inviter = claimed(&env, &client, "alice");
+    let invitee = Address::generate(&env);
+    client.set_inviter(&invitee, &inviter);
+
+    // only the invitee signs (assert before any later client call clears the record)
+    assert_eq!(
+        env.auths(),
+        std::vec![(
+            invitee.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    client.address.clone(),
+                    Symbol::new(&env, "set_inviter"),
+                    (invitee.clone(), inviter.clone()).into_val(&env),
+                )),
+                sub_invocations: std::vec![],
+            }
+        )]
+    );
+    // exactly one event: invite/bound (invitee, inviter)
+    assert_eq!(
+        env.events().all(),
+        vec![&env, invite_event(&client, &invitee, &inviter)]
+    );
+
+    assert_eq!(client.invited_by(&invitee), Some(inviter.clone()));
+
+    // one inviter per invitee, forever: a second call reverts and changes nothing
+    let other = claimed(&env, &client, "bob");
+    assert_eq!(
+        client.try_set_inviter(&invitee, &other),
+        Err(Ok(Error::AlreadyInvited.into()))
+    );
+    assert_eq!(client.invited_by(&invitee), Some(inviter.clone()));
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Contract, #9)")]
+fn set_inviter_rejects_self() {
+    let (env, client, _admin) = setup();
+    let alice = claimed(&env, &client, "alice");
+    client.set_inviter(&alice, &alice); // panics: SelfInvite
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Contract, #4)")]
+fn set_inviter_rejects_an_inviter_without_a_handle() {
+    let (env, client, _admin) = setup();
+    let invitee = Address::generate(&env);
+    client.set_inviter(&invitee, &Address::generate(&env)); // panics: NoHandle
+}
+
+/// A released inviter can't be named by anyone who hasn't bound yet.
+#[test]
+#[should_panic(expected = "HostError: Error(Contract, #4)")]
+fn set_inviter_rejects_a_released_inviter() {
+    let (env, client, _admin) = setup();
+    let inviter = claimed(&env, &client, "alice");
+    client.release(&inviter);
+    let invitee = Address::generate(&env);
+    client.set_inviter(&invitee, &inviter); // panics: NoHandle
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn set_inviter_requires_the_callers_auth() {
+    let (env, client, _admin) = setup();
+    let inviter = claimed(&env, &client, "alice");
+    let invitee = Address::generate(&env);
+    env.mock_auths(&[]); // nobody signs from here on
+    client.set_inviter(&invitee, &inviter);
+}
+
+#[test]
+fn invited_by_is_none_until_bound() {
+    let (env, client, _admin) = setup();
+    let ghost = Address::generate(&env);
+    assert_eq!(client.invited_by(&ghost), None);
+
+    let inviter = claimed(&env, &client, "alice");
+    let invitee = Address::generate(&env);
+    client.set_inviter(&invitee, &inviter);
+    assert_eq!(client.invited_by(&invitee), Some(inviter));
+    assert_eq!(client.invited_by(&ghost), None); // the inviter's own row stays None
+}
+
+/// The binding records what happened, not who currently holds which name: a rename keeps
+/// it, and even releasing the inviter's handle leaves the history in place.
+#[test]
+fn invite_binding_survives_rename_and_release() {
+    let (env, client, _admin) = setup();
+    let inviter = claimed(&env, &client, "old");
+    let invitee = Address::generate(&env);
+    client.set_inviter(&invitee, &inviter);
+
+    client.claim(&inviter, &symbol_short!("new"));
+    assert_eq!(client.invited_by(&invitee), Some(inviter.clone()));
+
+    client.release(&inviter);
+    assert_eq!(client.invited_by(&invitee), Some(inviter));
+}
+
+/// An invitee may already hold a handle of their own (a vouch-back friend, not a fresh
+/// wallet) — only the inviter needs one.
+#[test]
+fn set_inviter_accepts_an_invitee_who_already_holds_a_handle() {
+    let (env, client, _admin) = setup();
+    let inviter = claimed(&env, &client, "alice");
+    let invitee = claimed(&env, &client, "bob");
+    client.set_inviter(&invitee, &inviter);
+    assert_eq!(client.invited_by(&invitee), Some(inviter));
+}
+
+#[test]
+fn set_inviter_extends_the_binding_to_bump_extend() {
+    for ttls in [TESTNET_TTLS, MAINNET_TTLS] {
+        let (env, client) = setup_with_ttls(ttls);
+        let inviter = Address::generate(&env);
+        client.claim(&inviter, &symbol_short!("alice"));
+        let invitee = Address::generate(&env);
+        // days later the inviter's entries have aged; binding tops the new entry up
+        env.ledger()
+            .with_mut(|l| l.sequence_number += DAY_LEDGERS * 3);
+        client.set_inviter(&invitee, &inviter);
+        assert_eq!(
+            ttl(&env, &client, &DataKey::InvitedBy(invitee.clone())),
+            BUMP_EXTEND
+        );
+    }
+}
+
+/// `invited_by` is a pure read (the web app only simulates it), so it must not extend.
+#[test]
+fn invited_by_does_not_extend_the_binding() {
+    let (env, client) = setup_with_ttls(TESTNET_TTLS);
+    let inviter = Address::generate(&env);
+    client.claim(&inviter, &symbol_short!("alice"));
+    let invitee = Address::generate(&env);
+    client.set_inviter(&invitee, &inviter);
+    env.ledger()
+        .with_mut(|l| l.sequence_number += DAY_LEDGERS * 3);
+    assert_eq!(client.invited_by(&invitee), Some(inviter));
+    assert_eq!(
+        ttl(&env, &client, &DataKey::InvitedBy(invitee)),
+        BUMP_EXTEND - DAY_LEDGERS * 3
+    );
 }
 
 // --- Storage TTLs ---
