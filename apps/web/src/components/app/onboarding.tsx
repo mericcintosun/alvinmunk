@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 export function Onboarding() {
   const t = useTranslations();
   const [face, setFace] = useState<FaceId | undefined>();
-  const { handle, setHandle, avail, creating, createProfile } = useCreateProfile({
+  const { handle, setHandle, avail, reservedUntil, creating, createProfile } = useCreateProfile({
     from: 'app',
     face,
   });
@@ -61,8 +61,9 @@ export function Onboarding() {
           {avail === 'checking' && <span className="text-muted-foreground">{t('onboard.app.checking')}</span>}
           {avail === 'free' && <span className="text-secondary">{t('onboard.app.handleFree', { handle: normalizeHandle(handle) })}</span>}
           {avail === 'taken' && <span className="text-destructive">{t('onboard.app.handleTaken', { handle: normalizeHandle(handle) })}</span>}
+          {avail === 'reserved' && reservedUntil && <span className="text-destructive">{t('onboard.app.handleReserved', { handle: normalizeHandle(handle), date: reservedUntil })}</span>}
         </p>
-        <Button type="submit" size="lg" disabled={creating || avail === 'taken' } className="w-full">
+        <Button type="submit" size="lg" disabled={creating || avail === 'taken' || avail === 'reserved'} className="w-full">
           {creating ? t('onboard.app.submitting') : t('onboard.app.submit')}
         </Button>
       </form>

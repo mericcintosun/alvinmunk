@@ -23,7 +23,7 @@ export function LandingOnboard() {
   const t = useTranslations();
   const { profile } = useWallet();
   const router = useRouter();
-  const { handle, setHandle, avail, creating, createProfile } = useCreateProfile({
+  const { handle, setHandle, avail, reservedUntil, creating, createProfile } = useCreateProfile({
     from: 'landing',
     onCreated: () => router.push('/app'),
   });
@@ -56,7 +56,7 @@ export function LandingOnboard() {
           aria-label={t('onboard.landing.ariaLabel')}
           className="h-11 flex-1 border-0 bg-transparent focus-visible:ring-0"
         />
-        <Button type="submit" variant="flow" size="md" disabled={creating || avail === 'taken' } className="shrink-0">
+        <Button type="submit" variant="flow" size="md" disabled={creating || avail === 'taken' || avail === 'reserved'} className="shrink-0">
           {creating ? t('onboard.landing.creating') : t('onboard.landing.startFree')}
           {!creating && <ArrowRight className="size-4" />}
         </Button>
@@ -65,6 +65,7 @@ export function LandingOnboard() {
         {avail === 'checking' && <span className="text-muted-foreground">{t('onboard.landing.checking')}</span>}
         {avail === 'free' && <span className="text-secondary">{t('onboard.landing.handleFree', { handle: normalizeHandle(handle) })}</span>}
         {avail === 'taken' && <span className="text-destructive">{t('onboard.landing.handleTaken', { handle: normalizeHandle(handle) })}</span>}
+        {avail === 'reserved' && reservedUntil && <span className="text-destructive">{t('onboard.landing.handleReserved', { handle: normalizeHandle(handle), date: reservedUntil })}</span>}
         {avail === 'idle' && <span className="text-muted-foreground">{t('onboard.landing.pill')}</span>}
       </p>
     </form>
