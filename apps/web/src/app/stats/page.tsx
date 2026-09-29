@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { Users, Activity, ExternalLink } from 'lucide-react';
 import { shortAddress } from '@/lib/utils';
 import { cn } from '@/lib/utils';
+import type { VouchFunnel } from '@/lib/vouch-funnel';
+import { LoopHealth } from '@/components/LoopHealth';
 
 type NetKey = 'testnet' | 'mainnet';
 
@@ -14,6 +16,8 @@ interface Stats {
   target: number;
   latestLedger?: number;
   addresses: string[];
+  funnel: VouchFunnel | null;
+  funnelError?: string;
   error?: string;
 }
 
@@ -33,6 +37,9 @@ function explorer(net: NetKey, addr: string) {
 export default function StatsPage() {
   const [tab, setTab] = useState<NetKey>('testnet');
   const [data, setData] = useState<Record<NetKey, Stats | null>>({ testnet: null, mainnet: null });
+  // Per-network: true once a poll has failed and we have not yet recovered. The last good
+  // `data[tab]` is kept on screen (never cleared on failure) — only the "live"/"stale"
+  // marker below reacts, so an outage never masquerades as a fresh zero.
   const [stale, setStale] = useState<Record<NetKey, boolean>>({ testnet: false, mainnet: false });
   const [loading, setLoading] = useState(true);
 
@@ -40,11 +47,11 @@ export default function StatsPage() {
     let alive = true;
     const load = () => {
       fetch(`/api/stats?network=${tab}`, { cache: 'no-store' })
-        .then(async (r) => {
-          if (!r.ok) throw new Error('fetch failed');
-          return r.json();
+        .then((r) => {
+          if (!r.ok) throw new Error(`stats ${r.status}`);
+          return r.json() as Promise<Stats>;
         })
-        .then((d: Stats) => {
+        .then((d) => {
           if (alive) {
             setData((prev) => ({ ...prev, [tab]: d }));
             setStale((prev) => ({ ...prev, [tab]: false }));
@@ -52,10 +59,10 @@ export default function StatsPage() {
           }
         })
         .catch(() => {
-          if (alive) {
-            setStale((prev) => ({ ...prev, [tab]: true }));
-            setLoading(false);
-          }
+          if (!alive) return;
+          // Keep the last good numbers on a failed poll; only the marker below reacts.
+          setStale((prev) => ({ ...prev, [tab]: true }));
+          setLoading(false);
         });
     };
     setLoading(!data[tab]);
@@ -145,6 +152,15 @@ export default function StatsPage() {
           </>
         )}
       </div>
+
+      {/* contract-backed claim funnel (hidden where the contracts are not live yet) */}
+      {(!s || s.configured) && (
+        <LoopHealth
+          funnel={s?.funnel}
+          loading={loading && !s}
+          error={s ? s.funnelError : isStale ? 'Stats could not be loaded. Retrying…' : undefined}
+        />
+      )}
 
       {/* wallet list */}
       {s?.configured && s.addresses.length > 0 && (
