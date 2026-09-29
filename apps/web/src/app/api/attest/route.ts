@@ -137,21 +137,20 @@ export async function POST(req: Request): Promise<Response> {
     return json({ error: reason }, 422);
   }
 
-  // 2b) Replay check: reject already-completed quests before verifying evidence (saves quota/rate-limits).
-  try {
-    const alreadyDone = await isQuestCompleted(body.questId, body.recipient);
-    if (alreadyDone) {
-      return json({ error: 'You’ve already completed this quest' }, 409);
-    }
-  } catch {
-    // Non-fatal if simulation fails (e.g. mock test environment)
+  // 3) A quest the recipient already completed can't be awarded again (the contract's
+  // replay guard), so stop before verifying evidence: no GitHub/Horizon/RPC quota spent and
+  // nothing signed. One read of `is_completed`; if it fails or the deployed contract
+  // predates the view, carry on — the on-chain guard still refuses the award.
+  if (await questCompleted(body.questId, body.recipient)) {
+    logEvent({ route: 'attest', outcome: 'completed', questId: body.questId, ms: Date.now() - now });
+    return json({ error: 'You’ve already completed this quest.' }, 409);
   }
 
-  // 3) Verify the real-world action (network).
+  // 4) Verify the real-world action (network).
   const verified = await verifyEvidence(body.evidence as AttestEvidence, body.recipient);
   if (!verified.ok) return json({ error: verified.reason }, 422);
 
-  // 4) Sign the contract's canonical payload — the recipient redeems it on-chain.
+  // 5) Sign the contract's canonical payload — the recipient redeems it on-chain.
   try {
     const signed = await signQuestPayload(secret, body.questId, body.recipient);
     logEvent({ route: 'attest', outcome: 'ok', questId: body.questId, ms: Date.now() - now });
@@ -349,25 +348,32 @@ async function signQuestPayload(
   return { attester: kp.rawPublicKey().toString('hex'), sig: sig.toString('base64') };
 }
 
-/** Read is_completed via simulation — no fee, no signature. */
-async function isQuestCompleted(questId: number, addr: string): Promise<boolean> {
-  if (!QUEST_ID) return false;
-  const server = new rpc.Server(RPC_URL, { allowHttp: RPC_URL.startsWith('http://') });
-  const source = new Account(Keypair.random().publicKey(), '0');
-  const tx = new TransactionBuilder(source, { fee: '100', networkPassphrase: PASSPHRASE })
-    .addOperation(
-      new Contract(QUEST_ID).call(
-        'is_completed',
-        nativeToScVal(questId, { type: 'u32' }),
-        new Address(addr).toScVal(),
-      ),
-    )
-    .setTimeout(30)
-    .build();
-  const sim = await server.simulateTransaction(tx);
-  if (rpc.Api.isSimulationError(sim)) return false;
-  const v = sim.result?.retval;
-  return v ? Boolean(scValToNative(v)) : false;
+/**
+ * `quest_registry.is_completed(quest_id, addr)` via simulation. False when the read fails
+ * for any reason (RPC error, or a deployed contract without the view): this is only an
+ * early exit, never the guard itself.
+ */
+async function questCompleted(questId: number, addr: string): Promise<boolean> {
+  try {
+    const server = new rpc.Server(RPC_URL, { allowHttp: RPC_URL.startsWith('http://') });
+    const source = new Account(Keypair.random().publicKey(), '0');
+    const tx = new TransactionBuilder(source, { fee: '100', networkPassphrase: PASSPHRASE })
+      .addOperation(
+        new Contract(QUEST_ID).call(
+          'is_completed',
+          nativeToScVal(questId, { type: 'u32' }),
+          new Address(addr).toScVal(),
+        ),
+      )
+      .setTimeout(30)
+      .build();
+    const sim = await server.simulateTransaction(tx);
+    if (rpc.Api.isSimulationError(sim)) return false;
+    const v = sim.result?.retval;
+    return v ? scValToNative(v) === true : false;
+  } catch {
+    return false;
+  }
 }
 
 function json(data: unknown, status = 200): Response {

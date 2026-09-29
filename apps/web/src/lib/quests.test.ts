@@ -1,4 +1,5 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
+import { scValToNative, type xdr } from '@stellar/stellar-sdk';
 
 const { readPublicMock, readContractMock, invokeAndWaitMock } = vi.hoisted(() => ({
   readPublicMock: vi.fn(),
@@ -13,7 +14,7 @@ vi.mock('./contracts', async (importOriginal) => ({
   readContract: readContractMock,
   invokeAndWait: invokeAndWaitMock,
 }));
-import { completeQuest, getStreak, getWeekBounds, timeUntilReset, isCompleted, getCompleted } from './quests';
+import { completeQuest, getCompleted, getStreak, getWeekBounds, timeUntilReset } from './quests';
 import type { Wallet } from './wallet';
 
 beforeEach(() => {
@@ -75,37 +76,88 @@ describe('completeQuest', () => {
   });
 });
 
-describe('isCompleted', () => {
-  const OWNER = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
-
-  it('reads wallet-free when no source is given', async () => {
-    readPublicMock.mockResolvedValueOnce(true);
-    await expect(isCompleted(1, OWNER)).resolves.toBe(true);
-    expect(readPublicMock).toHaveBeenCalledWith('CQUEST', 'is_completed', expect.any(Array));
-    expect(readContractMock).not.toHaveBeenCalled();
-  });
-
-  it('keeps the source-account read when a source is given', async () => {
-    readContractMock.mockResolvedValueOnce(false);
-    await expect(isCompleted(1, OWNER, OWNER)).resolves.toBe(false);
-    expect(readContractMock).toHaveBeenCalledWith('CQUEST', 'is_completed', expect.any(Array), OWNER);
-  });
-});
-
 describe('getCompleted', () => {
   const OWNER = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
 
+  it('reads one flag per quest id, keyed by id, with one get_completed call', async () => {
+    readContractMock.mockResolvedValueOnce([true, false, true]);
+    const done = await getCompleted(OWNER, [2, 3, 4], OWNER);
+    expect(done).toEqual(new Map([[2, true], [3, false], [4, true]]));
+    expect(readContractMock).toHaveBeenCalledOnce();
+    const [contract, method, callArgs, source] = readContractMock.mock.calls[0];
+    expect([contract, method, source]).toEqual(['CQUEST', 'get_completed', OWNER]);
+    expect(callArgs.map((a: xdr.ScVal) => scValToNative(a))).toEqual([OWNER, [2, 3, 4]]);
+    expect(callArgs[1].vec().map((v: xdr.ScVal) => v.switch().name)).toEqual([
+      'scvU32',
+      'scvU32',
+      'scvU32',
+    ]);
+  });
+
   it('reads wallet-free when no source is given', async () => {
-    readPublicMock.mockResolvedValueOnce([true, false, true]);
-    await expect(getCompleted(OWNER, [1, 2, 3])).resolves.toEqual([true, false, true]);
+    readPublicMock.mockResolvedValueOnce([false]);
+    await expect(getCompleted(OWNER, [2])).resolves.toEqual(new Map([[2, false]]));
     expect(readPublicMock).toHaveBeenCalledWith('CQUEST', 'get_completed', expect.any(Array));
     expect(readContractMock).not.toHaveBeenCalled();
   });
 
-  it('handles non-array response gracefully', async () => {
-    readContractMock.mockResolvedValueOnce(undefined);
-    await expect(getCompleted(OWNER, [1], OWNER)).resolves.toEqual([]);
-    expect(readContractMock).toHaveBeenCalledWith('CQUEST', 'get_completed', expect.any(Array), OWNER);
+  it('is null when the deployed contract predates get_completed', async () => {
+    readContractMock.mockRejectedValueOnce(
+      new Error('simulate get_completed failed: HostError: Error(WasmVm, MissingValue)'),
+    );
+    await expect(getCompleted(OWNER, [2, 3], OWNER)).resolves.toBeNull();
+  });
+
+  it('is null for a reply that is not one boolean per id', async () => {
+    for (const v of [undefined, [], [true], [true, false, true], [true, 1], ['true', false]]) {
+      readContractMock.mockResolvedValueOnce(v);
+      await expect(getCompleted(OWNER, [2, 3], OWNER), JSON.stringify(v)).resolves.toBeNull();
+    }
+  });
+});
+
+describe('completeQuest on a completed quest', () => {
+  const wallet: Wallet = {
+    kind: 'freighter',
+    address: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
+    sign: async (x) => x,
+    signMessage: vi.fn(),
+  };
+
+  beforeEach(() => invokeAndWaitMock.mockReset());
+
+  it('flags the attester’s 409 as completed and never submits', async () => {
+    vi.stubGlobal('fetch', (async () => ({
+      ok: false,
+      status: 409,
+      json: async () => ({ error: 'You’ve already completed this quest.' }),
+    })) as unknown as typeof fetch);
+    await expect(completeQuest(wallet, 2, { type: 'vouch_back', ref: '' })).resolves.toEqual({
+      ok: false,
+      error: 'You’ve already completed this quest.',
+      completed: true,
+    });
+    expect(invokeAndWaitMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it('flags the contract’s AlreadyClaimed (#5) as completed', async () => {
+    vi.stubGlobal('fetch', (async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ attester: '00'.repeat(32), sig: btoa('s'.repeat(64)) }),
+    })) as unknown as typeof fetch);
+    invokeAndWaitMock.mockRejectedValueOnce(new Error('HostError: Error(Contract, #5)'));
+    await expect(completeQuest(wallet, 2, { type: 'vouch_back', ref: '' })).resolves.toEqual({
+      ok: false,
+      error: 'You’ve already completed this quest.',
+      completed: true,
+    });
+    // Any other failure leaves the quest available.
+    invokeAndWaitMock.mockRejectedValueOnce(new Error('HostError: Error(Contract, #6)'));
+    const r = await completeQuest(wallet, 2, { type: 'vouch_back', ref: '' });
+    expect(r.completed).toBeUndefined();
+    vi.unstubAllGlobals();
   });
 });
 

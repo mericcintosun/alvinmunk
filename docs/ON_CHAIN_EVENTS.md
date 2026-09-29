@@ -1012,6 +1012,23 @@ pub struct QuestConfig {
 }
 ```
 
+### Quest completion (`is_completed` / `get_completed`)
+
+`is_completed(quest_id, who) -> bool` reads the replay guard `award_quest` sets, the
+persistent entry `DataKey::Claimed(quest_id, who)`: `true` once `who` has been awarded the
+quest, and from then on another award for the pair reverts with `AlreadyClaimed` (#5). An
+unknown quest, or an award that reverted, reads as `false`.
+
+`get_completed(who, ids: Vec<u32>) -> Vec<bool>` is the batched form for one wallet: one
+flag per id, in input order, duplicates repeated. Each id is one persistent read, so keep a
+call to the few quests a page shows (the web app asks for its three). Both are pure reads
+that any caller can make, and they don't extend the entry's TTL.
+
+A contract deployed before these views has neither; treat a failed call as "unknown". The
+web app then shows every quest as available, and `/api/attest` goes on to verify the
+evidence as before, since the on-chain guard still refuses a second award. With the views,
+`/api/attest` answers `409` for a completed quest before it verifies any evidence.
+
 ### Quest attester scope (`get_quest_attester`)
 
 `get_quest_attester(quest_id) -> Option<BytesN<32>>` returns the ed25519 key bound to a

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
-import { Address, Keypair, StrKey, nativeToScVal, rpc } from '@stellar/stellar-sdk';
+import { Address, Keypair, StrKey, nativeToScVal, rpc, scValToNative } from '@stellar/stellar-sdk';
 
 // POST /api/attest must refuse to sign a quest id for any evidence type other than the one
 // bound to it, and must do so before verifying anything over the network.
@@ -18,6 +18,9 @@ const simError = (error: string) => ({ error }) as unknown as rpc.Api.SimulateTr
 const score = (n: number) => sim(nativeToScVal(n, { type: 'u64' }));
 const address = (a: string) => sim(new Address(a).toScVal());
 const payload = () => sim(nativeToScVal(Buffer.from('payload')));
+/** `is_completed` replies: the recipient has (or hasn't) completed the quest. */
+const completed = (done: boolean) => sim(nativeToScVal(done));
+const open = () => completed(false);
 
 type Post = (req: Request) => Promise<Response>;
 let POST: Post;
@@ -49,6 +52,9 @@ beforeEach(async () => {
   fetchSpy = vi.fn(async () => new Response('{}', { status: 404 }));
   vi.stubGlobal('fetch', fetchSpy);
   simulateSpy = vi.spyOn(rpc.Server.prototype, 'simulateTransaction');
+  // Every read a test expects is queued with mockResolvedValueOnce; anything else fails
+  // instead of reaching a real RPC node.
+  simulateSpy.mockRejectedValue(new Error('unexpected simulateTransaction'));
   ledgerSpy = vi.spyOn(rpc.Server.prototype, 'getLatestLedger');
   ({ POST } = (await import('./route')) as { POST: Post });
 });
@@ -58,6 +64,14 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
+
+/** The contract functions simulated so far, in call order. */
+const methods = () =>
+  simulateSpy.mock.calls.map(([tx]) => {
+    const op = (tx as unknown as { operations: { func: { invokeContract(): { functionName(): Buffer } } }[] })
+      .operations[0];
+    return op.func.invokeContract().functionName().toString();
+  });
 
 function expectNoNetwork() {
   expect(fetchSpy).not.toHaveBeenCalled();
@@ -96,7 +110,7 @@ describe('POST /api/attest quest ↔ evidence binding', () => {
   });
 
   it('lets the bound type through to verification', async () => {
-    simulateSpy.mockResolvedValueOnce(score(5));
+    simulateSpy.mockResolvedValueOnce(open()).mockResolvedValueOnce(score(5));
     const res = await attest({ questId: 2, evidence: { type: 'referral_tx', ref: REFERRED } });
     expect(res.status).toBe(422);
     expect(((await res.json()) as { error: string }).error).toMatch(/^no referral binding found/);
@@ -109,7 +123,10 @@ describe('POST /api/attest quest ↔ evidence binding', () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(JSON.stringify({ data: { referral: marker } }), { status: 200 }),
     );
-    simulateSpy.mockResolvedValueOnce(score(5)).mockResolvedValueOnce(payload());
+    simulateSpy
+      .mockResolvedValueOnce(open())
+      .mockResolvedValueOnce(score(5))
+      .mockResolvedValueOnce(payload());
     const res = await attest({ questId: 2, evidence: { type: 'referral_tx', ref: REFERRED } });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { ok: boolean; questId: number; sig: string };
@@ -128,6 +145,7 @@ describe('POST /api/attest quest ↔ evidence binding', () => {
     expect(res.status).toBe(422);
     expectNoNetwork();
     // github_pr is now attestable on quest 1 (the GitHub API is reached)
+    simulateSpy.mockResolvedValueOnce(open());
     const gh = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'o/r#1' } });
     expect(gh.status).toBe(422);
     expect(await gh.json()).toEqual({ error: 'github 404' });
@@ -142,22 +160,16 @@ describe('POST /api/attest referral_tx via the registry invite binding', () => {
     ({ POST } = (await import('./route')) as { POST: Post });
   });
 
-  const methods = () =>
-    simulateSpy.mock.calls.map(([tx]) => {
-      const op = (tx as unknown as { operations: { func: { invokeContract(): { functionName(): Buffer } } }[] })
-        .operations[0];
-      return op.func.invokeContract().functionName().toString();
-    });
-
   it('signs for a passkey account whose binding names the recipient, without Horizon', async () => {
     simulateSpy
+      .mockResolvedValueOnce(open())
       .mockResolvedValueOnce(score(5))
       .mockResolvedValueOnce(address(RECIPIENT))
       .mockResolvedValueOnce(payload());
     const res = await attest({ questId: 2, evidence: { type: 'referral_tx', ref: PASSKEY_REFERRED } });
     expect(res.status).toBe(200);
     expect(((await res.json()) as { sig: string }).sig).toBeTruthy();
-    expect(methods()).toEqual(['get_score', 'invited_by', 'quest_payload']);
+    expect(methods()).toEqual(['is_completed', 'get_score', 'invited_by', 'quest_payload']);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -165,6 +177,7 @@ describe('POST /api/attest referral_tx via the registry invite binding', () => {
     const marker = Buffer.from(RECIPIENT, 'utf8').toString('base64');
     fetchSpy.mockResolvedValue(new Response(JSON.stringify({ data: { referral: marker } })));
     simulateSpy
+      .mockResolvedValueOnce(open())
       .mockResolvedValueOnce(score(5))
       .mockResolvedValueOnce(address(Keypair.random().publicKey()));
     const res = await attest({ questId: 2, evidence: { type: 'referral_tx', ref: REFERRED } });
@@ -174,7 +187,10 @@ describe('POST /api/attest referral_tx via the registry invite binding', () => {
   });
 
   it('gives an empty account bound to the recipient nothing', async () => {
-    simulateSpy.mockResolvedValueOnce(score(0)).mockResolvedValueOnce(address(RECIPIENT));
+    simulateSpy
+      .mockResolvedValueOnce(open())
+      .mockResolvedValueOnce(score(0))
+      .mockResolvedValueOnce(address(RECIPIENT));
     const res = await attest({ questId: 2, evidence: { type: 'referral_tx', ref: PASSKEY_REFERRED } });
     expect(res.status).toBe(422);
     expect(await res.json()).toEqual({
@@ -188,6 +204,7 @@ describe('POST /api/attest referral_tx via the registry invite binding', () => {
       new Response(JSON.stringify({ data: { referral: marker } }), { status: 200 }),
     );
     simulateSpy
+      .mockResolvedValueOnce(open())
       .mockResolvedValueOnce(score(5))
       .mockResolvedValueOnce(
         simError('HostError: Error(WasmVm, MissingValue) trying to invoke non-existent contract function'),
@@ -201,11 +218,56 @@ describe('POST /api/attest referral_tx via the registry invite binding', () => {
   it('refuses rather than falling back when the registry read fails', async () => {
     const marker = Buffer.from(RECIPIENT, 'utf8').toString('base64');
     fetchSpy.mockResolvedValue(new Response(JSON.stringify({ data: { referral: marker } })));
-    simulateSpy.mockResolvedValueOnce(score(5)).mockResolvedValueOnce(simError('rpc overloaded'));
+    simulateSpy
+      .mockResolvedValueOnce(open())
+      .mockResolvedValueOnce(score(5))
+      .mockResolvedValueOnce(simError('rpc overloaded'));
     const res = await attest({ questId: 2, evidence: { type: 'referral_tx', ref: REFERRED } });
     expect(res.status).toBe(422);
     expect(await res.json()).toEqual({
       error: 'couldn’t read who invited that wallet right now — try again',
     });
+  });
+});
+
+describe('POST /api/attest already-completed quests (issue #156)', () => {
+  const MISSING_VIEW =
+    'HostError: Error(WasmVm, MissingValue) trying to invoke non-existent contract function';
+
+  it('answers 409 before verifying evidence, and signs nothing', async () => {
+    simulateSpy.mockResolvedValueOnce(completed(true));
+    const res = await attest({ questId: 2, evidence: { type: 'referral_tx', ref: REFERRED } });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'You’ve already completed this quest.' });
+    // One read, of this quest for this recipient; no Horizon, GitHub or other RPC call.
+    expect(methods()).toEqual(['is_completed']);
+    const [tx] = simulateSpy.mock.calls[0];
+    const call = (tx as unknown as { operations: { func: { invokeContract(): { args(): unknown[] } } }[] })
+      .operations[0].func.invokeContract();
+    expect(call.args().map((a) => scValToNative(a as never))).toEqual([2, RECIPIENT]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('checks only after the network-free evidence checks', async () => {
+    const res = await attest({ questId: 3, evidence: { type: 'referral_tx', ref: REFERRED } });
+    expect(res.status).toBe(422);
+    expectNoNetwork();
+  });
+
+  it('carries on to verification when the contract predates is_completed or the read fails', async () => {
+    for (const reply of [
+      () => simulateSpy.mockResolvedValueOnce(simError(MISSING_VIEW)),
+      () => simulateSpy.mockRejectedValueOnce(new Error('rpc down')),
+    ]) {
+      simulateSpy.mockClear();
+      fetchSpy.mockClear();
+      reply();
+      simulateSpy.mockResolvedValueOnce(score(5));
+      const res = await attest({ questId: 2, evidence: { type: 'referral_tx', ref: REFERRED } });
+      expect(res.status).toBe(422);
+      expect(((await res.json()) as { error: string }).error).toMatch(/^no referral binding found/);
+      expect(methods()).toEqual(['is_completed', 'get_score']);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    }
   });
 });

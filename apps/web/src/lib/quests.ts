@@ -19,11 +19,12 @@ import {
   args,
   questId as questRegistryId,
 } from './contracts';
-import { humanizeError } from './utils';
+import { contractErrorCode, humanizeError } from './utils';
 import type { EvidenceType } from './attest';
 import type { Wallet } from './wallet';
 
 // QuestRegistry contract error codes → friendly copy (mirrors contracts/quest_registry Error enum).
+const ALREADY_CLAIMED = 5;
 const QUEST_ERRORS: Record<number, string> = {
   3: 'This quest verification isn’t authorized — try again in a moment.',
   4: 'That quest doesn’t exist.',
@@ -36,6 +37,9 @@ export interface QuestResult {
   ok: boolean;
   hash?: string;
   error?: string;
+  /** The wallet had already completed this quest: the attester answered 409, or the
+   *  contract's replay guard refused the award (`AlreadyClaimed`). */
+  completed?: boolean;
 }
 
 // --- Admin content management. Every write is `admin.require_auth()`-gated on-chain. ---
@@ -111,22 +115,29 @@ export async function getStreak(addr: string, source?: string): Promise<Streak> 
   };
 }
 
-/** Has this wallet already completed `questId`? */
-export async function isCompleted(questId: number, who: string, source?: string): Promise<boolean> {
-  const call = [args.u32(questId), args.addr(who)];
-  const v = source
-    ? await readContract<boolean>(questRegistryId(), 'is_completed', call, source)
-    : await readPublic<boolean>(questRegistryId(), 'is_completed', call);
-  return Boolean(v);
-}
-
-/** Batch read for multiple quest completions for `who`. */
-export async function getCompleted(who: string, questIds: number[], source?: string): Promise<boolean[]> {
-  const call = [args.addr(who), args.u32s(questIds)];
-  const v = source
-    ? await readContract<boolean[]>(questRegistryId(), 'get_completed', call, source)
-    : await readPublic<boolean[]>(questRegistryId(), 'get_completed', call);
-  return Array.isArray(v) ? v : [];
+/**
+ * Which of `questIds` `who` has completed, from one `get_completed` read (the replay guard
+ * `award_quest` sets), keyed by quest id. Resolves `null` when the read fails — including a
+ * deployed contract that predates the view — or returns something other than one flag per
+ * id, so the UI leaves every quest available instead of guessing. Omit `source` for a
+ * wallet-free read.
+ */
+export async function getCompleted(
+  who: string,
+  questIds: number[],
+  source?: string,
+): Promise<Map<number, boolean> | null> {
+  try {
+    const call = [args.addr(who), args.u32s(questIds)];
+    const v = source
+      ? await readContract<unknown>(questRegistryId(), 'get_completed', call, source)
+      : await readPublic<unknown>(questRegistryId(), 'get_completed', call);
+    if (!Array.isArray(v) || v.length !== questIds.length) return null;
+    if (!v.every((flag) => typeof flag === 'boolean')) return null;
+    return new Map(questIds.map((id, i) => [id, v[i] as boolean]));
+  } catch {
+    return null;
+  }
 }
 
 /** The current streak week in UTC unix seconds: `start` is its first second and `end` its
@@ -208,6 +219,9 @@ export async function completeQuest(
     sig?: string;
     error?: string;
   };
+  if (res.status === 409) {
+    return { ok: false, error: data.error ?? QUEST_ERRORS[ALREADY_CLAIMED], completed: true };
+  }
   if (!res.ok || !data.attester || !data.sig) {
     return { ok: false, error: data.error ?? `error ${res.status}` };
   }
@@ -228,6 +242,9 @@ export async function completeQuest(
     );
     return { ok: true };
   } catch (e) {
-    return { ok: false, error: humanizeError(e, QUEST_ERRORS) };
+    const error = humanizeError(e, QUEST_ERRORS);
+    return contractErrorCode(e) === ALREADY_CLAIMED
+      ? { ok: false, error, completed: true }
+      : { ok: false, error };
   }
 }

@@ -132,17 +132,18 @@ export function Quests({ address }: { address: string }) {
       .then((s) => setStreak({ weeks: s.weeks, best: s.best }))
       .catch(() => setStreak({ weeks: 0, best: 0 }));
 
-    getCompleted(address, [REFERRAL_QUEST_ID, INVITE_QUEST_ID, VOUCHBACK_QUEST_ID], address)
-      .then((res) => {
-        setCompleted({
-          [REFERRAL_QUEST_ID]: Boolean(res[0]),
-          [INVITE_QUEST_ID]: Boolean(res[1]),
-          [VOUCHBACK_QUEST_ID]: Boolean(res[2]),
-        });
-      })
-      .catch(() => {
-        /* keep existing state on read failure */
-      });
+    // Quests this wallet already completed show as done. `null` (the read failed, or the
+    // deployed contract predates `get_completed`) leaves every quest available, as before.
+    let alive = true;
+    setCompleted({});
+    getCompleted(address, [REFERRAL_QUEST_ID, INVITE_QUEST_ID, VOUCHBACK_QUEST_ID], address).then(
+      (done) => {
+        if (alive && done) setCompleted(Object.fromEntries(done));
+      },
+    );
+    return () => {
+      alive = false;
+    };
   }, [address]);
 
   // A run can lapse when the week rolls over, so the countdown re-reads the streak then.
@@ -161,9 +162,9 @@ export function Quests({ address }: { address: string }) {
     try {
       const wallet = await getWallet();
       const r = await completeQuest(wallet, questId, evidence);
+      if (r.ok || r.completed) setCompleted((prev) => ({ ...prev, [questId]: true }));
       if (!r.ok) throw new Error(r.error);
       setDone(true);
-      setCompleted((prev) => ({ ...prev, [questId]: true }));
       toast.success('Quest verified — Earned XP added 🎉');
       setEarned(await getEarnedScore(address, address));
       const s = await getStreak(address, address);
