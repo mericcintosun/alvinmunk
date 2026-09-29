@@ -8,8 +8,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 (globalThis as { React?: typeof React }).React = React;
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const { mintVouchMock, addMyVouchMock, toastMock } = vi.hoisted(() => ({
+const { mintVouchMock, mintVouchesMock, addMyVouchMock, toastMock } = vi.hoisted(() => ({
   mintVouchMock: vi.fn(),
+  mintVouchesMock: vi.fn(),
   addMyVouchMock: vi.fn(),
   toastMock: { success: vi.fn(), error: vi.fn() },
 }));
@@ -27,6 +28,7 @@ vi.mock('@/lib/contracts', () => ({
 vi.mock('@/lib/reputation', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/reputation')>()),
   mintVouch: mintVouchMock,
+  mintVouches: mintVouchesMock,
 }));
 vi.mock('@/lib/myvouches', () => ({
   addMyVouch: addMyVouchMock,
@@ -142,5 +144,121 @@ describe('VouchCompose note', () => {
 
     await act(async () => toggle.click());
     expect(container.querySelector('[data-testid="qr"]')).toBeNull();
+  });
+});
+
+describe('VouchCompose for several people (#271)', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  const writeText = vi.fn(async (_text: string) => {});
+
+  beforeEach(() => {
+    mintVouchesMock
+      .mockReset()
+      .mockImplementation(async (_w: unknown, notes: string[]) =>
+        notes.map((_, i) => ({ id: 20 + i, seed: `${i}`.repeat(64) })),
+      );
+    addMyVouchMock.mockReset();
+    toastMock.success.mockReset();
+    toastMock.error.mockReset();
+    writeText.mockClear();
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  const button = (text: string | RegExp) =>
+    [...container.querySelectorAll('button')].find((b) =>
+      typeof text === 'string' ? b.textContent === text : text.test(b.textContent ?? ''),
+    )!;
+  const rows = () => [...container.querySelectorAll<HTMLInputElement>('input')];
+  async function click(el: HTMLElement) {
+    await act(async () => el.click());
+    await act(async () => {
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    });
+  }
+  async function type(el: HTMLInputElement, text: string) {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    await act(async () => {
+      setter.call(el, text);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+  async function openBatch() {
+    await act(async () => root.render(<VouchCompose />));
+    await click(button('Several people'));
+  }
+
+  it('mints every row in one call and lists a labelled link for each card', async () => {
+    await openBatch();
+    expect(rows()).toHaveLength(2);
+    await click(button('Add a person'));
+    await type(rows()[0], 'ada');
+    await type(rows()[1], '💧'.repeat(70));
+    await click(button('Light 3 stars'));
+
+    // One signature for all three; an empty row gets the default note.
+    expect(mintVouchesMock).toHaveBeenCalledTimes(1);
+    expect(mintVouchesMock).toHaveBeenCalledWith(WALLET, ['ada', '💧'.repeat(60), 'vouched for you']);
+    const links = [...container.querySelectorAll('li code')].map((c) => c.textContent);
+    const origin = window.location.origin;
+    expect(links).toEqual([0, 1, 2].map((i) => `${origin}/claim/${20 + i}#k=${`${i}`.repeat(64)}`));
+    expect(container.textContent).toContain('Card 1 — ada');
+    expect(container.textContent).toContain('Card 3 — vouched for you');
+    expect(container.textContent).toContain('3 stars are lit');
+    // Each card is kept on this device with its own seed, never a legacy secret.
+    expect(addMyVouchMock.mock.calls.map(([v]) => [v.id, v.seed])).toEqual(
+      [0, 1, 2].map((i) => [20 + i, `${i}`.repeat(64)]),
+    );
+    for (const [v] of addMyVouchMock.mock.calls) expect(v).not.toHaveProperty('secret');
+  });
+
+  it('copies one card’s link, or every card with its label', async () => {
+    await openBatch();
+    await type(rows()[0], 'ada');
+    await type(rows()[1], 'grace');
+    await click(button('Light 2 stars'));
+    const origin = window.location.origin;
+
+    await click(container.querySelector<HTMLButtonElement>('[aria-label="Copy link for card 2"]')!);
+    expect(writeText).toHaveBeenLastCalledWith(`${origin}/claim/21#k=${'1'.repeat(64)}`);
+
+    await click(button(/Copy all/));
+    expect(writeText).toHaveBeenLastCalledWith(
+      `Card 1 — ada\n${origin}/claim/20#k=${'0'.repeat(64)}\n\n` +
+        `Card 2 — grace\n${origin}/claim/21#k=${'1'.repeat(64)}`,
+    );
+  });
+
+  it('stops adding rows at the contract’s batch cap and removes the row asked for', async () => {
+    await openBatch();
+    // two rows cannot be removed: fewer is the one-person form
+    expect(container.querySelector('[aria-label="Remove card 1"]')).toBeNull();
+    for (let i = 2; i < 10; i++) await click(button('Add a person'));
+    expect(rows()).toHaveLength(10);
+    expect(button('Add a person').disabled).toBe(true);
+
+    await type(rows()[0], 'ada');
+    await type(rows()[1], 'grace');
+    await click(container.querySelector<HTMLButtonElement>('[aria-label="Remove card 1"]')!);
+    expect(rows()).toHaveLength(9);
+    expect(rows()[0].value).toBe('grace');
+    expect(button('Add a person').disabled).toBe(false);
+  });
+
+  it('shows why a batch reverted and lists no links (#9)', async () => {
+    mintVouchesMock.mockRejectedValue(new Error('HostError: Error(Contract, #9)'));
+    await openBatch();
+    await click(button('Light 2 stars'));
+    expect(toastMock.error).toHaveBeenCalledWith("You've hit today's vouch limit — try again tomorrow.");
+    expect(container.querySelectorAll('li code')).toHaveLength(0);
+    expect(addMyVouchMock).not.toHaveBeenCalled();
   });
 });
