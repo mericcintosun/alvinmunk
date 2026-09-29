@@ -3,13 +3,31 @@
 import { useEffect, useState } from 'react';
 import { Bell } from 'lucide-react';
 import { toast } from '@/components/ui/toaster';
-import { pollNewlyClaimed } from '@/lib/myvouches';
+import { useWallet } from '@/components/wallet/wallet-provider';
+import { pollNewlyClaimed, getPendingVouchIds } from '@/lib/myvouches';
 import {
   registerServiceWorker,
   requestPermission,
   getPermission,
   getActivePushSubscription,
+  syncPushSubscription,
 } from '@/lib/push';
+
+/**
+ * Give the service worker the owning wallet address so its pushsubscriptionchange handler
+ * can prove ownership when PATCHing /api/push/subscribe (localStorage is unavailable
+ * inside a service worker). Best-effort — if it fails the SW falls back to a plain re-subscribe.
+ */
+async function shareWalletWithServiceWorker(walletAddress: string): Promise<void> {
+  try {
+    const reg = await registerServiceWorker();
+    if (!reg || !reg.active) return;
+    const cache = await caches.open('alvinmunk-push-meta');
+    await cache.put('/__push/wallet', new Response(JSON.stringify({ walletAddress })));
+  } catch {
+    // Ignore — best-effort.
+  }
+}
 
 /**
  * VouchClaimedNotice
@@ -44,6 +62,26 @@ export function VouchClaimedNotice() {
       alive = false;
     };
   }, []);
+
+  // ─── 1b. Rotation re-sync (#169) ──────────────────────────────────────────
+  // Push services rotate endpoints; a rotated subscription used to never reach the
+  // server again (the next notify 410s and prunes it). On every dashboard mount, if
+  // permission is granted and the active endpoint differs from the last one the server
+  // acknowledged, move the stored record (PATCH) so notifications keep flowing.
+  const { profile } = useWallet();
+  const walletAddress = profile?.address;
+  useEffect(() => {
+    if (!walletAddress) return;
+    let alive = true;
+    syncPushSubscription(walletAddress, () => getPendingVouchIds())
+      .catch(() => {})
+      .finally(() => {
+        if (alive) void shareWalletWithServiceWorker(walletAddress);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [walletAddress]);
 
   // ─── 2. Push opt-in prompt ─────────────────────────────────────────────────
   const [showBanner, setShowBanner] = useState(false);

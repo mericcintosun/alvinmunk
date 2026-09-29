@@ -56,8 +56,8 @@ export function decodeScVal(v: xdr.ScVal | string): unknown {
  * caller degrades gracefully. Concurrent callers (feed, constellation, badges mounting
  * together) share one scan.
  */
-export async function fetchReputationEvents(): Promise<RepEvent[]> {
-  return fetchContractEvents(config.contracts.reputation, ['*', '*'], PAGE_SIZE * MAX_PAGES);
+export async function fetchReputationEvents(options?: { throwOnError?: boolean }): Promise<RepEvent[]> {
+  return fetchContractEvents(config.contracts.reputation, ['*', '*'], PAGE_SIZE * MAX_PAGES, options?.throwOnError);
 }
 
 /**
@@ -79,10 +79,13 @@ export async function fetchTipsSent(from: string, limit = 1): Promise<RepEvent[]
 
 const pendingScans = new Map<string, Promise<RepEvent[]>>();
 
-function fetchContractEvents(contractId: string, topics: string[], limit: number): Promise<RepEvent[]> {
-  if (!contractId) return Promise.resolve([]);
-  return shareInFlight(pendingScans, `${contractId}|${topics.join(',')}|${limit}`, () =>
-    scanContractEvents(contractId, topics, limit),
+function fetchContractEvents(contractId: string, topics: string[], limit: number, throwOnError?: boolean): Promise<RepEvent[]> {
+  if (!contractId) {
+    if (throwOnError) return Promise.reject(new Error('No contract ID'));
+    return Promise.resolve([]);
+  }
+  return shareInFlight(pendingScans, `${contractId}|${topics.join(',')}|${limit}|${throwOnError}`, () =>
+    scanContractEvents(contractId, topics, limit, throwOnError),
   );
 }
 
@@ -98,12 +101,13 @@ function fetchContractEvents(contractId: string, topics: string[], limit: number
  * A request failing part-way drops the whole scan to []: an oldest-only prefix would read
  * to every caller as "nothing happened since".
  */
-async function scanContractEvents(contractId: string, topics: string[], limit: number): Promise<RepEvent[]> {
+async function scanContractEvents(contractId: string, topics: string[], limit: number, throwOnError?: boolean): Promise<RepEvent[]> {
   let startLedger: number;
   try {
     const latest = await server.getLatestLedger();
     startLedger = Math.max(1, latest.sequence - EVENT_LEDGER_WINDOW);
-  } catch {
+  } catch (err) {
+    if (throwOnError) throw err;
     return [];
   }
 
@@ -129,7 +133,8 @@ async function scanContractEvents(contractId: string, topics: string[], limit: n
       if (res.events.length < pageLimit || !res.cursor) break;
       cursor = res.cursor;
     }
-  } catch {
+  } catch (err) {
+    if (throwOnError) throw err;
     return [];
   }
   return out;

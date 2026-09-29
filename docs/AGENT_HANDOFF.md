@@ -70,7 +70,7 @@ Leaderboard reads RPC directly (+ localStorage cache). Indexer deferred to Blue/
 - Reputation:     `CBNIZXITUVTRVW6RZGEGCI7KNF46REG4EDM4XUVHKDAV63WOHWW75SZM`
 - QuestRegistry:  `CD6RZUVNQ3TV3X6MNQM25NB2YRFRGMSUGKWTMAIGJOC23C6ESHJKYNFO` (redeployed Green: weekly streak + `quest.active` enforced; old `CA4LP…AZX` de-allowlisted in Reputation)
 - Rewards:        `CBUKGIFOEOS74I2IUUHYNRBZODQFOFCFWIJY3DUJHOUUJV7TT2QYADOU` (Green v4: reward registry + daily-cap circuit breaker + frozen-set gate + proof-of-funding toggle (`set_require_funding`, OFF on testnet); supersedes CDABZ…/CC3XB…/CDEO3…. Daily cap 50 USDC; treasury 10 USDC)
-- Ops scripts: `scripts/bump-ttl.sh` (TTL keeper), `scripts/freeze-rings.mjs` (ring detector → set_frozen; APPLY=1 + ADMIN_SECRET_KEY), `scripts/status.mjs` (on-chain ops snapshot). Health probe: `/api/health`.
+- Ops scripts: `scripts/bump-ttl.sh` (TTL keeper), `scripts/freeze-rings.mjs` (ring detector → set_frozen; APPLY=1 + ADMIN_SECRET_KEY), `scripts/status.mjs` (on-chain ops snapshot; exits 1 if any read fails, so it can run as a health check; offline tests: `node --test scripts/status.test.mjs`). Health probe: `/api/health`.
 - USDC test SAC:  `CAKT2EK2SFGNXTXVSYZLZXA5YB5QPVHLTVUMRHLJTF5RFFAFMIRNPZT2`
 - CLI identities (in `stellar keys`): `passport-admin` (admin+issuer), `passport-attester` (allowlisted), `passport-alice/bob/carol/dave/eve/frank` (test users).
 - If you change a contract's interface, you MUST redeploy + re-wire attesters (`reputation.add_attester(quest_id)`, `quest.add_attester(attester_pubkey)`) + update `.env.local` and Vercel env.
