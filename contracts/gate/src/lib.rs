@@ -84,8 +84,20 @@ pub enum DataKey {
     Reputation,
     Gate(u32),
     GateIds,
-    Unlocked(Address, u32), // (addr, gate_id) -> bool
+    Unlocked(Address, u32), // (addr, gate_id) -> UnlockRecord
     GateRules(u32),         // gate_id -> GateRules (composite gates only)
+    GateVersion(u32),       // gate_id -> u32 (incremented on every redefinition)
+}
+
+/// Snapshot stored when a user unlocks a gate. Lets callers detect stale unlocks.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UnlockRecord {
+    /// The gate version that was current when the user unlocked. `is_unlocked` compares
+    /// this against the live version; a mismatch means the gate was redefined since.
+    pub version: u32,
+    /// The ledger sequence at unlock time — provenance for off-chain consumers.
+    pub ledger: u32,
 }
 
 /// An access gate: `min` of `track` reputation unlocks it.
@@ -228,19 +240,50 @@ impl GateContract {
         if !Self::passes(&env, &caller, &g) {
             panic_with_error!(&env, Error::BelowThreshold);
         }
+        let version: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::GateVersion(id))
+            .unwrap_or(0);
+        let record = UnlockRecord {
+            version,
+            ledger: env.ledger().sequence(),
+        };
         env.storage()
             .persistent()
-            .set(&DataKey::Unlocked(caller.clone(), id), &true);
+            .set(&DataKey::Unlocked(caller.clone(), id), &record);
         Self::bump(&env, &DataKey::Unlocked(caller.clone(), id));
         env.events()
             .publish((symbol_short!("unlocked"), caller), id);
     }
 
+    /// Returns `true` only when `addr` holds an `UnlockRecord` that matches the **current**
+    /// gate version. A stale record (gate was redefined after the unlock) returns `false`.
     pub fn is_unlocked(env: Env, addr: Address, id: u32) -> bool {
+        let record: UnlockRecord = match env
+            .storage()
+            .persistent()
+            .get(&DataKey::Unlocked(addr, id))
+        {
+            Some(r) => r,
+            None => return false,
+        };
+        let current_ver: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::GateVersion(id))
+            .unwrap_or(0);
+        record.version == current_ver
+    }
+
+    /// Returns the raw `UnlockRecord` for `addr` on gate `id`, or `None` if the address
+    /// has never unlocked this gate. The record is returned regardless of whether it is
+    /// still valid (use `is_unlocked` for the validity check). Useful for off-chain
+    /// consumers that want to know *when* and under *which* definition the unlock happened.
+    pub fn get_unlock(env: Env, addr: Address, id: u32) -> Option<UnlockRecord> {
         env.storage()
             .persistent()
             .get(&DataKey::Unlocked(addr, id))
-            .unwrap_or(false)
     }
 
     // --- internal ---
@@ -253,6 +296,8 @@ impl GateContract {
     }
 
     /// Write gate `id` (active), list it once in `GateIds`, emit `gate`/`created`.
+    /// Every redefinition of an existing gate bumps `GateVersion(id)` so that
+    /// `is_unlocked` can detect stale `UnlockRecord`s from the old definition.
     fn put_gate(env: &Env, id: u32, track: u32, min: u64, label: String) {
         let existed = env
             .storage()
@@ -268,7 +313,20 @@ impl GateContract {
         };
         env.storage().persistent().set(&DataKey::Gate(id), &gate);
         Self::bump(env, &DataKey::Gate(id));
-        if !existed {
+        if existed {
+            // Bump the version so any existing UnlockRecord is now stale.
+            let ver: u32 = env
+                .storage()
+                .persistent()
+                .get(&DataKey::GateVersion(id))
+                .unwrap_or(0);
+            let new_ver = ver + 1;
+            env.storage()
+                .persistent()
+                .set(&DataKey::GateVersion(id), &new_ver);
+            Self::bump(env, &DataKey::GateVersion(id));
+        } else {
+            // First creation: version starts at 0 (no explicit write needed; reads default to 0).
             let mut ids: Vec<u32> = env
                 .storage()
                 .persistent()

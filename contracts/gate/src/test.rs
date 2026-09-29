@@ -494,7 +494,7 @@ fn replacing_a_gate_switches_between_single_and_composite() {
         "After",
     );
     assert!(!f.gate.check(&user, &60u32));
-    assert!(f.gate.is_unlocked(&user, &60u32)); // existing unlocks are kept
+    assert!(!f.gate.is_unlocked(&user, &60u32)); // redefinition bumped the version — old unlock is stale
     assert_eq!(f.gate.get_gates().len(), 1); // same id, listed once
     assert_eq!(
         f.gate.get_gate(&60u32).unwrap().label,
@@ -654,4 +654,112 @@ fn upgrade_to_identical_wasm_preserves_composite_gates() {
     assert!(f.gate.check(&user, &2u32));
     earn_social(&f, &user, 1);
     assert!(f.gate.check(&user, &1u32));
+}
+
+// --- Issue #149: gate unlock versioning ---
+
+/// Acceptance criterion 1: raising the threshold invalidates an unlock earned under the
+/// weaker rule.
+#[test]
+fn raised_threshold_invalidates_old_unlock() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    earn(&f, &user, 30); // Earned = 30
+
+    // Gate v0: threshold 30 → user qualifies and unlocks.
+    f.gate
+        .create_gate(&1u32, &TRACK_EARNED, &30u64, &String::from_str(&f.env, "Bounty"));
+    f.gate.unlock(&user, &1u32);
+    assert!(f.gate.is_unlocked(&user, &1u32));
+
+    // get_unlock returns the record; version is 0 (first creation).
+    let rec = f.gate.get_unlock(&user, &1u32).expect("record present");
+    assert_eq!(rec.version, 0);
+
+    // Admin raises the threshold to 1000 → gate version becomes 1.
+    f.gate
+        .create_gate(&1u32, &TRACK_EARNED, &1000u64, &String::from_str(&f.env, "Bounty+"));
+    // check correctly returns false (user only has 30 earned).
+    assert!(!f.gate.check(&user, &1u32));
+    // is_unlocked must also return false — old record has version 0, gate is now version 1.
+    assert!(!f.gate.is_unlocked(&user, &1u32));
+
+    // The record itself is still readable via get_unlock (for history / auditing).
+    let stale = f.gate.get_unlock(&user, &1u32).expect("record still stored");
+    assert_eq!(stale.version, 0); // old version
+    assert_ne!(stale.version, 1); // != current
+
+    // After earning enough and re-unlocking, is_unlocked becomes true again.
+    earn(&f, &user, 970); // total = 1000
+    f.gate.unlock(&user, &1u32);
+    assert!(f.gate.is_unlocked(&user, &1u32));
+    let fresh = f.gate.get_unlock(&user, &1u32).unwrap();
+    assert_eq!(fresh.version, 1);
+}
+
+/// Acceptance criterion 2: changing the track (Social → Earned) invalidates a Social-track
+/// unlock, preventing a clout unlock from passing as an Earned-track (verified) gate.
+#[test]
+fn changed_track_invalidates_old_unlock() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    earn_social(&f, &user, 2); // Social = 50, Earned = 0
+
+    // Gate v0: Social ≥ 40 → user qualifies on the Social track.
+    f.gate
+        .create_gate(&2u32, &TRACK_SOCIAL, &40u64, &String::from_str(&f.env, "Clout gate"));
+    assert!(f.gate.check(&user, &2u32));
+    f.gate.unlock(&user, &2u32);
+    assert!(f.gate.is_unlocked(&user, &2u32));
+
+    // Admin changes the gate to Earned ≥ 10 (track switch) → version → 1.
+    f.gate
+        .create_gate(&2u32, &TRACK_EARNED, &10u64, &String::from_str(&f.env, "Earned gate"));
+    // check: user has 0 earned → false.
+    assert!(!f.gate.check(&user, &2u32));
+    // is_unlocked: record has version 0, gate is now version 1 → false.
+    assert!(!f.gate.is_unlocked(&user, &2u32));
+
+    // A Social-track clout unlock can't masquerade as an Earned-track unlock.
+    let stale = f.gate.get_unlock(&user, &2u32).unwrap();
+    assert_eq!(stale.version, 0);
+}
+
+/// Acceptance criterion 3: disabling a gate then re-enabling it (which is a `set_gate_active`
+/// toggle, not a redefinition) keeps the unlock valid — version is NOT bumped by activate/
+/// deactivate. Only `create_gate` / `create_gate_rules` (i.e. a structural redefinition)
+/// should invalidate prior unlocks.
+///
+/// Additionally verifies that a `create_gate` call that *does* redefine the gate invalidates
+/// the unlock, and that re-unlocking after re-enabling restores validity.
+#[test]
+fn disable_reenable_preserves_unlock_but_redefine_invalidates() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    earn(&f, &user, 50);
+
+    f.gate
+        .create_gate(&3u32, &TRACK_EARNED, &30u64, &String::from_str(&f.env, "Perk"));
+    f.gate.unlock(&user, &3u32);
+    assert!(f.gate.is_unlocked(&user, &3u32));
+
+    // Disabling the gate does NOT bump the version — is_unlocked stays true.
+    f.gate.set_gate_active(&3u32, &false);
+    assert!(!f.gate.check(&user, &3u32)); // gate inactive → check false
+    assert!(f.gate.is_unlocked(&user, &3u32)); // version unchanged → still valid
+
+    // Re-enabling also does NOT bump the version.
+    f.gate.set_gate_active(&3u32, &true);
+    assert!(f.gate.check(&user, &3u32));
+    assert!(f.gate.is_unlocked(&user, &3u32));
+
+    // A structural redefinition while the gate is active DOES bump the version.
+    f.gate
+        .create_gate(&3u32, &TRACK_EARNED, &30u64, &String::from_str(&f.env, "Perk v2"));
+    assert!(!f.gate.is_unlocked(&user, &3u32)); // version mismatch → stale
+
+    // Re-unlock under the new definition restores validity.
+    f.gate.unlock(&user, &3u32);
+    assert!(f.gate.is_unlocked(&user, &3u32));
+    assert_eq!(f.gate.get_unlock(&user, &3u32).unwrap().version, 1);
 }
