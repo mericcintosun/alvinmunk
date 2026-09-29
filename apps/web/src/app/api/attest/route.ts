@@ -46,6 +46,7 @@ import {
   validateEvidence,
   type AttestEvidence,
 } from '../../../lib/attest';
+import { json, withRoute } from '../../../lib/api-route';
 // The app's one resolved (and validated) network config — no per-route testnet defaults — so
 // the attester signs for the same network, passphrase and contracts as the client.
 import { config, misconfiguredResponse } from '../../../lib/stellar';
@@ -91,7 +92,7 @@ const QUEST_EVIDENCE = buildQuestEvidenceMap(process.env);
 // Recipient may be a classic (G…) OR a passkey smart-account (C…) address.
 const STELLAR_ADDRESS = /^[GC][A-Z2-7]{55}$/;
 
-export async function POST(req: Request): Promise<Response> {
+export const POST = withRoute('POST /api/attest', async (req: Request): Promise<Response> => {
   // Never sign on an inconsistent config (say, a mainnet passphrase with a testnet contract).
   const misconfigured = misconfiguredResponse();
   if (misconfigured) return misconfigured;
@@ -152,17 +153,11 @@ export async function POST(req: Request): Promise<Response> {
     const expiresAt = Math.floor(Date.now() / 1000) + QUEST_SIG_TTL_SECS;
     const ctx = { contractId: QUEST_ID, passphrase: PASSPHRASE };
     const signed = signQuestPayload(secret, ctx, body.questId, body.recipient, expiresAt);
-    logEvent({ route: 'attest', outcome: 'ok', questId: body.questId, ms: Date.now() - now });
     return json({ ok: true, ...signed, recipient: body.recipient, questId: body.questId });
   } catch (e) {
-    logEvent({ route: 'attest', outcome: 'error', questId: body.questId, ms: Date.now() - now });
     return json({ error: e instanceof Error ? e.message : 'sign failed' }, 500);
   }
-}
-
-function logEvent(fields: Record<string, unknown>): void {
-  console.log(JSON.stringify({ t: new Date().toISOString(), ...fields }));
-}
+});
 
 async function verifyEvidence(
   ev: AttestEvidence,
@@ -370,11 +365,4 @@ async function countVouchesClaimedBy(repId: string, from: string): Promise<numbe
   }
 
   return claimers.size;
-}
-
-function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  });
 }

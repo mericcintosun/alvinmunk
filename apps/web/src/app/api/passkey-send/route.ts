@@ -19,6 +19,7 @@
  */
 import { ChannelsClient } from '@openzeppelin/relayer-plugin-channels';
 import { Transaction, Keypair, hash as sha256, xdr } from '@stellar/stellar-sdk';
+import { json, withRoute } from '../../../lib/api-route';
 
 export const runtime = 'nodejs';
 // Read the relayer secrets at REQUEST time, never at build (they're absent then). Same
@@ -26,13 +27,6 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const PASSPHRASE = process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE ?? 'Test SDF Network ; September 2015';
-
-function json(body: unknown, status: number): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  });
-}
 
 /**
  * passkey-kit deploys every smart wallet from a single shared deployer account whose seed is
@@ -59,7 +53,7 @@ function refeeDeploy(xdrStr: string): string {
   return rebuilt.toXDR();
 }
 
-export async function POST(req: Request): Promise<Response> {
+export const POST = withRoute('POST /api/passkey-send', async (req: Request): Promise<Response> => {
   const relayerUrl = process.env.PASSKEY_RELAYER_URL;
   const relayerApiKey = process.env.PASSKEY_RELAYER_API_KEY;
   if (!relayerUrl || !relayerApiKey) {
@@ -97,4 +91,4 @@ export async function POST(req: Request): Promise<Response> {
     const msg = e instanceof Error ? e.message : 'relayer submit failed';
     return json({ error: msg }, 502);
   }
-}
+});
