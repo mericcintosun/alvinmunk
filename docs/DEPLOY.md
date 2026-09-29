@@ -99,6 +99,14 @@ NEXT_PUBLIC_GATE_CONTRACT_ID=C…
 
 Without them: vouch / tip / basic dashboard still work against the three contracts from step 3; `@handle` resolution and gate unlocks do not.
 
+### CI uses a set of its own — do not point CI at these
+
+The e2e job's smoke test writes on-chain, so it must not run against the contracts above: every run
+would add a bot wallet to the registry/reputation events that `/api/stats` counts and that
+`scripts/scan-roster.mjs` commits into the roster. Deploy a separate throwaway set with
+`scripts/deploy-ci-contracts.sh` and publish its ids as repository variables — see
+[CI_CONTRACTS.md](./CI_CONTRACTS.md).
+
 ---
 
 ## 4. Wire `apps/web/.env.local`

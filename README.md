@@ -88,7 +88,7 @@ A complete end-to-end Stellar dApp: five Soroban contracts that talk to each oth
 | Advanced smart contract development | 5 contracts: two-track reputation (async vouch mint/claim, first-pair guard, `att_set` versioning), signature-verified quest registry, USDC rewards with treasury circuit breaker, reputation gate, handle registry |
 | **Inter-contract communication** | `gate.check`/`unlock` cross-reads `reputation.get_score`/`get_earned` (`gate/src/lib.rs:196`); `quest_registry.award_quest` cross-calls `reputation.award_xp` (`quest_registry/src/lib.rs:200`); `rewards` moves USDC via the SAC `token::Client` |
 | **Event streaming & real-time updates** | Every contract publishes events (`social`, `xp`, `tipped`, `reward`, `unlocked`, `streak`, …); the leaderboard + activity feed poll RPC `getEvents` every 5s (`lib/events.ts`, `app/leaderboard/page.tsx`) |
-| **CI/CD pipeline** | `.github/workflows/ci.yml` — contracts job (`cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`) + web job (`pnpm typecheck`, `pnpm lint`, `pnpm test`) on every push/PR |
+| **CI/CD pipeline** | `.github/workflows/ci.yml` — contracts job (`cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`), web job (`pnpm typecheck`, `pnpm lint`, `pnpm test`), scripts job (`node --test scripts/*.test.mjs`) and a `web-e2e` job on every push/PR — the e2e smoke test runs against its own contract set, never the published ones ([runbook](./docs/CI_CONTRACTS.md)) |
 | Smart contract deployment workflow | `scripts/deploy-testnet.sh` (build → deploy → init → cross-wire all 5 contracts); `contracts/Makefile` |
 | Mobile responsive frontend | Tailwind responsive layout across all routes — see screenshot above |
 | Error handling & loading states | `utils.ts` `humanizeError` (insufficient / trustline / timeout / rejected), toast + pending/success/fail status on every contract call |
@@ -121,6 +121,7 @@ A production MVP on Stellar with real users, one-tap onboarding, analytics + mon
 ### Proof of 10+ user wallet interactions
 
 - **50+ unique wallets** have interacted with the contracts (live count at [`/stats`](https://alvinmunk.vercel.app/stats), read straight from Soroban RPC — screenshot above). Each onboarded user signs on-chain: a genesis `manageData` tx + a `registry.claim` contract call; passkey users onboard as `C…` smart wallets, classic users as `G…`.
+- **That count is people, not CI:** `/stats` counts the addresses it sees in the contracts deployed above, and the e2e job writes on-chain too — so CI runs against a separate, disposable contract set published as repository variables, and `scripts/check-ci-contracts.mjs` fails the job if a variable is unset or points back at the published contracts ([runbook](./docs/CI_CONTRACTS.md)).
 - **Verify on-chain:** every wallet + tx is on Stellar Expert. The registry contract shows all handle claims: [`CCT5EGFZ…`](https://stellar.expert/explorer/testnet/contract/CCT5EGFZ33IFLMUU6EBMC6NWRLX5TWJS5FICNJFBG7MU5PTAU6PFMVH4); the reputation contract shows vouch activity: [`CDRYXUS5…`](https://stellar.expert/explorer/testnet/contract/CDRYXUS55TKGYEM3YUB3YTJWQKSWWQABK6YPQK7SLEPVALWYK4IR7WCL).
 
 ### User feedback — collection, exported sheet & iteration
@@ -206,6 +207,7 @@ Feedback is collected via the public [Google Form](https://forms.gle/kNXR3zmZhGh
 | **[Ecosystem contribution](./docs/ECOSYSTEM.md)** | Open-source / community: Drips Wave maintainer, 26 bountied issues, **15 merged external-contributor PRs** |
 | **[Security review](./docs/SECURITY_REVIEW.md)** | Free self-audit — Scout + cargo-audit + cargo-deny + clippy + no-`unsafe`; 4 critical overflow findings fixed, 22 medium triaged, **0 exploitable** |
 | **[Deploy your own (testnet)](./docs/DEPLOY.md)** · **[Mainnet runbook](./docs/DEPLOY_MAINNET.md)** | Stand up a fresh instance; mainnet cutover checklist |
+| **[CI contract set](./docs/CI_CONTRACTS.md)** | Why CI gets its own contracts, how to deploy/rotate them, and what fails when a variable is missing |
 | **[On-chain event schema](./docs/ON_CHAIN_EVENTS.md)** · **[Contributing](./CONTRIBUTING.md)** | Frozen event shapes; how to contribute |
 | **[Marketing kit](./docs/MARKETING.md)** · **[Pitch deck](./docs/pitch-deck.pdf)** | Launch thread + promotion; the designed deck |
 
