@@ -16,6 +16,7 @@
  *     factory is called.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { SEND_ATTEMPTS } from '../../../lib/submit';
 
 // ─── hardcoded valid test addresses ───────────────────────────────────────
 // Pre-generated so we never call Keypair.random() at module evaluation time
@@ -254,10 +255,18 @@ describe('POST /api/faucet — SAC mint path (C… recipients)', () => {
 
   it('returns 503 for TRY_AGAIN_LATER and does not mark funded', async () => {
     rpcMocks.sendTransaction.mockResolvedValue({ status: 'TRY_AGAIN_LATER', hash: 'tal-hash' });
+    vi.useFakeTimers();
 
-    const res = await POST(makeReq({ recipient: C_ADDR }));
+    const promise = POST(makeReq({ recipient: C_ADDR }));
+    // submitSigned resubmits the same envelope with backoff before giving up.
+    await vi.runAllTimersAsync();
+    const res = await promise;
+    vi.useRealTimers();
+
     expect(res.status).toBe(503);
     expect((await res.json()).error).toMatch(/try again/i);
+    expect(rpcMocks.sendTransaction).toHaveBeenCalledTimes(SEND_ATTEMPTS);
+    expect(rpcMocks.getTransaction).not.toHaveBeenCalled(); // a never-queued hash is never polled
 
     // Must NOT be in funded — a retry succeeds rather than hitting 429.
     rpcMocks.sendTransaction.mockResolvedValue({ status: 'PENDING', hash: 'abc123' });
