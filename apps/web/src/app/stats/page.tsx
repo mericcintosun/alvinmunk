@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Users, Activity, ExternalLink } from 'lucide-react';
 import { shortAddr } from '@alvinmunk/shared';
@@ -44,29 +44,35 @@ export default function StatsPage() {
   // marker below reacts, so an outage never masquerades as a fresh zero.
   const [stale, setStale] = useState<Record<NetKey, boolean>>({ testnet: false, mainnet: false });
   const [loading, setLoading] = useState(true);
+  const tabRef = useRef(tab);
 
   useEffect(() => {
     setLoading(!data[tab]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
-  // Refresh every 30s while the tab is visible, never overlapping (lib/use-poll.ts). The tab is
+  useEffect(() => {
+    tabRef.current = tab;
+  }, [tab]);
+
+  // Refresh every 10s while the tab is visible, never overlapping (lib/use-poll.ts). The tab is
   // the poll's key: switching network restarts it with an immediate fetch, and the signal
   // drops the previous network's late response.
   usePoll(
     async (signal) => {
       try {
-        const r = await fetch(`/api/stats?network=${tab}`, { cache: 'no-store' });
+        const net = tabRef.current;
+        const r = await fetch(`/api/stats?network=${net}`, { cache: 'no-store' });
         if (!r.ok) throw new Error(`stats ${r.status}`);
         const d = (await r.json()) as Stats;
         if (signal.aborted) return;
-        setData((prev) => ({ ...prev, [tab]: d }));
-        setStale((prev) => ({ ...prev, [tab]: false }));
+        setData((prev) => ({ ...prev, [net]: d }));
+        setStale((prev) => ({ ...prev, [net]: false }));
         setLoading(false);
       } catch (err) {
         if (signal.aborted) return;
         // Keep the last good numbers on a failed poll; only the marker below reacts.
-        setStale((prev) => ({ ...prev, [tab]: true }));
+        setStale((prev) => ({ ...prev, [tabRef.current]: true }));
         setLoading(false);
         throw err; // so the poll backs off
       }

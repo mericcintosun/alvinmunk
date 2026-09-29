@@ -25,8 +25,8 @@ export default function LeaderboardPage({
 }: {
   searchParams?: { network?: string | string[] };
 }) {
-  // `?network=testnet` ranks the testnet deployment, read-only (lib/read-network). Keyed so switching
-  // networks starts over instead of mixing the two networks' rows and handles.
+  // `?network=testnet` ranks the testnet deployment, read-only (lib/read-network). Keyed so
+  // switching networks starts over instead of mixing the two networks' rows and handles.
   const net = readNetworkFor(searchParams?.network);
   return <Leaderboard key={net?.network ?? 'deployment'} net={net} />;
 }
@@ -79,7 +79,7 @@ function Leaderboard({ net }: { net: ReadNetwork | null }) {
 
   // Every 5s while the tab is visible, never overlapping, backing off on failures (lib/use-poll.ts).
   // `net` is fixed for this instance: the page remounts it (keyed) when the network changes.
-  usePoll(async (signal) => {
+  usePoll(async (signal: AbortSignal) => {
     try {
       // A new `rows` array reference on every tick is fine now — the handle-lookup
       // effect above depends on `addressKey` (the stable, sorted set of addresses),
@@ -98,7 +98,7 @@ function Leaderboard({ net }: { net: ReadNetwork | null }) {
   }, 5000);
 
   return (
-    <div className="container max-w-2la py-14">
+    <div className="container max-w-2xl py-14">
       {net && <ReadOnlyBanner network={net.network} />}
       <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-primary/80">{t('leaderboard.eyebrow')}</p>
       <div className="mt-4 flex items-end justify-between border-b border-border/60 pb-3">
@@ -151,7 +151,7 @@ function Leaderboard({ net }: { net: ReadNetwork | null }) {
                     .catch(() => setStale(true))
                     .finally(() => setLoading(false));
                 }}
-                className="mt-2 rounded bg-primary/10 px-4 py-2 font-mono texe-xs text-primary hover:bg-primary/20"
+                className="mt-2 rounded bg-primary/10 px-4 py-2 font-mono text-xs text-primary hover:bg-primary/20"
               >
                 {t('leaderboard.retry')}
               </button>

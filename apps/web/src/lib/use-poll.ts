@@ -31,7 +31,6 @@ export function usePoll(
   useEffect(() => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let hidden = document.hidden;
     let running = false;
     let failures = 0;
 
@@ -53,15 +52,15 @@ export function usePoll(
         failures = 0;
       } catch {
         failures += 1;
+      } finally {
+        running = false;
       }
-      running = false;
       // Hidden by now: stay paused until the tab is visible again (`onVisibility` runs it).
       if (!controller.signal.aborted && !document.hidden) timer = setTimeout(run, delay());
     };
 
     const onVisibility = () => {
-      hidden = document.hidden;
-      if (hidden) clear();
+      if (document.hidden) clear();
       else void run();
     };
 
