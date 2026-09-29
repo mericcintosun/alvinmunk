@@ -11,7 +11,14 @@
  * social/vouch XP is never cashable.
  */
 import { Asset, Operation, TransactionBuilder } from '@stellar/stellar-sdk';
-import { invokeAndWait, invokeAndWaitHash, readContract, args, rewardsId } from './contracts';
+import {
+  invokeAndWait,
+  invokeAndWaitHash,
+  readContract,
+  readPublic,
+  args,
+  rewardsId,
+} from './contracts';
 import { server, horizon, networkPassphrase, config } from './stellar';
 import type { Wallet } from './wallet';
 
@@ -130,16 +137,24 @@ export async function getRewards(source: string): Promise<RewardEntry[]> {
   return (v ?? []).filter((r) => r.active);
 }
 
-/** Full admin table, including inactive entries. Public reward views should use getRewards. */
-export async function getAllRewards(source: string): Promise<RewardEntry[]> {
-  const v = await readContract<RewardEntry[]>(rewardsId(), 'get_rewards', [], source);
-  return v ?? [];
+// --- Admin content management. Every write is `admin.require_auth()`-gated on-chain. ---
+
+/** The whole unlock table, INACTIVE rows included — for the admin view. Throws on RPC
+ *  failure so an outage isn't shown as an empty table. Players use `getRewards`. */
+export async function getAllRewards(): Promise<RewardEntry[]> {
+  return (await readPublic<RewardEntry[]>(rewardsId(), 'get_rewards', [])) ?? [];
 }
 
+/** Max treasury payout per UTC day, in stroops (0 = unlimited). */
+export async function getDailyCap(): Promise<bigint> {
+  return BigInt((await readPublic<bigint>(rewardsId(), 'get_daily_cap', [])) ?? 0);
+}
+
+/** Register or replace a reward (always saved ACTIVE). Resolves the confirmed tx hash. */
 export async function addReward(
   wallet: Wallet,
   id: number,
-  threshold: number,
+  threshold: bigint,
   amount: bigint,
 ): Promise<string> {
   return invokeAndWaitHash(
@@ -163,6 +178,20 @@ export async function setRewardActive(
   );
 }
 
+/** Cap a reward at `maxClaims` wallets in total (0 = unlimited). */
+export async function setRewardSupply(
+  wallet: Wallet,
+  id: number,
+  maxClaims: number,
+): Promise<string> {
+  return invokeAndWaitHash(
+    rewardsId(),
+    'set_reward_supply',
+    [args.u32(id), args.u32(maxClaims)],
+    wallet,
+  );
+}
+
 /** Per-reward supply counters (a fixed-size pool's cap + running claim count). */
 export interface RewardStats {
   claims: number;
@@ -182,14 +211,7 @@ export async function getRewardStats(rewardId: number, source: string): Promise<
 
 /** Has this wallet already claimed `rewardId`? */
 export async function isClaimed(rewardId: number, who: string, source: string): Promise<boolean> {
-  return (
-    (await readContract<boolean>(
-      rewardsId(),
-      'is_claimed',
-      [args.u32(rewardId), args.addr(who)],
-      source,
-    )) ?? false
-  );
+  return (await readContract<boolean>(rewardsId(), 'is_claimed', [args.u32(rewardId), args.addr(who)], source)) ?? false;
 }
 
 /**

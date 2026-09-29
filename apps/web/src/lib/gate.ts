@@ -17,9 +17,15 @@ export interface Gate {
 
 export async function getGates(): Promise<Gate[]> {
   if (!gateId()) return [];
+  return readGates().catch(() => []);
+}
+
+/** Every gate, active or not. Throws on RPC failure (the admin table must not read an
+ *  outage as "no gates"); `getGates` is the forgiving variant for player views. */
+export async function readGates(): Promise<Gate[]> {
   const raw = await readPublic<
     Array<{ id: number; track: number; min: bigint; label: string; active: boolean }>
-  >(gateId(), 'get_gates', []).catch(() => []);
+  >(gateId(), 'get_gates', []);
   return (raw ?? []).map((g) => ({
     id: Number(g.id),
     track: Number(g.track),
@@ -52,11 +58,14 @@ export async function unlockGate(wallet: Wallet, id: number): Promise<void> {
   await invokeAndWait(gateId(), 'unlock', [args.addr(wallet.address), args.u32(id)], wallet);
 }
 
+// --- Admin content management. Every write is `admin.require_auth()`-gated on-chain. ---
+
+/** Define or replace gate `id` (always saved ACTIVE). Resolves the confirmed tx hash. */
 export async function createGate(
   wallet: Wallet,
   id: number,
   track: number,
-  min: number,
+  min: bigint,
   label: string,
 ): Promise<string> {
   return invokeAndWaitHash(
