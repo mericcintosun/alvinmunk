@@ -96,11 +96,20 @@ export const POST = withRoute('POST /api/faucet', async (req: Request): Promise<
       prepared.sign(issuer); // source = issuer = SAC admin → satisfies mint's admin auth
       const sent = await srpc.sendTransaction(prepared);
       if (sent.status === 'ERROR') throw new Error(JSON.stringify(sent.errorResult));
+      // TRY_AGAIN_LATER means the network didn't accept the tx — never mark funded.
+      if (sent.status === 'TRY_AGAIN_LATER') {
+        return json({ error: 'network busy, try again later', hash: sent.hash }, 503);
+      }
+      let confirmed = false;
       for (let i = 0; i < 30; i++) {
         const r = await srpc.getTransaction(sent.hash);
-        if (r.status === 'SUCCESS') break;
+        if (r.status === 'SUCCESS') { confirmed = true; break; }
         if (r.status === 'FAILED') throw new Error('mint failed on-chain');
         await new Promise((res) => setTimeout(res, 1000));
+      }
+      // Loop exhausted without SUCCESS — don't mark funded, so a retry can work.
+      if (!confirmed) {
+        return json({ error: 'mint not confirmed in time', hash: sent.hash }, 504);
       }
       funded.add(recipient);
       return json({ ok: true, hash: sent.hash, amount: DRIP });
@@ -116,8 +125,14 @@ export const POST = withRoute('POST /api/faucet', async (req: Request): Promise<
   let recipientAccount;
   try {
     recipientAccount = await server.loadAccount(recipient);
-  } catch {
-    return json({ error: 'recipient account not found on testnet' }, 404);
+  } catch (e) {
+    // Only 404 when Horizon confirmed the account truly doesn't exist.
+    // Any other failure (5xx, network error) is a transient Horizon problem, not a
+    // missing account — reporting it as 404 would confuse the user and block retries.
+    if (e instanceof Horizon.NotFoundError) {
+      return json({ error: 'recipient account not found on testnet' }, 404);
+    }
+    return json({ error: 'could not reach Horizon, try again later' }, 502);
   }
   const trusts = recipientAccount.balances.some(
     (b) => 'asset_code' in b && b.asset_code === 'USDC' && b.asset_issuer === issuer.publicKey(),
@@ -135,6 +150,17 @@ export const POST = withRoute('POST /api/faucet', async (req: Request): Promise<
     funded.add(recipient);
     return json({ ok: true, hash: res.hash, amount: DRIP });
   } catch (e) {
-    return json({ error: e instanceof Error ? e.message : 'faucet payment failed' }, 502);
+    // Include Horizon result_codes when present so the caller can distinguish
+    // op_no_trust, op_line_full, tx_bad_seq, etc. from generic failures.
+    const resultCodes = (
+      e as { response?: { data?: { extras?: { result_codes?: unknown } } } }
+    )?.response?.data?.extras?.result_codes;
+    return json(
+      {
+        error: e instanceof Error ? e.message : 'faucet payment failed',
+        ...(resultCodes !== undefined ? { result_codes: resultCodes } : {}),
+      },
+      502,
+    );
   }
 });
