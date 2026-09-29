@@ -1051,23 +1051,42 @@ fn later_writes_top_the_ttl_back_up() {
     );
 }
 
+// --- Attester allowlist removal (issue #132) ---
+
+/// `remove_attester` is the operator's kill switch for a compromised attester (the
+/// quest_registry contract included): it must stop new Earned XP without undoing old awards.
 #[test]
 fn remove_attester_revokes_authorization_and_leaves_prior_awards_intact() {
+    use soroban_sdk::{testutils::Events as _, vec, IntoVal, Val};
     let (env, client, _admin) = setup();
     let att = Address::generate(&env);
+    let other = Address::generate(&env);
     let user = Address::generate(&env);
 
     client.add_attester(&att);
+    client.add_attester(&other);
     assert!(client.is_attester(&att));
 
     client.award_xp(&att, &user, &2u32, &10u64);
 
     client.remove_attester(&att);
+    // `all()` holds the last invocation's events: exactly the `(attester, rm)` notice.
+    let rm: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("attester"), symbol_short!("rm")).into_val(&env),
+        att.clone().into_val(&env),
+    );
+    assert_eq!(env.events().all(), vec![&env, rm]);
     assert!(!client.is_attester(&att));
+    // Only the removed attester loses the right.
+    assert!(client.is_attester(&other));
 
     assert_eq!(
         client.try_award_xp(&att, &user, &2u32, &10u64),
         Err(Ok(contract_err(Error::NotAuthorized)))
     );
+    // The award made before the removal is untouched, and the rejected one wrote nothing.
     assert_eq!(client.get_earned(&user), 10);
+    let record = client.get_attestation(&user, &2).unwrap();
+    assert_eq!((record.value, record.issuer), (10, att.clone()));
 }
