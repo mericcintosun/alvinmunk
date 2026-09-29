@@ -49,6 +49,7 @@ const XP_CLAIMER: u64 = 10; // claimer's Social XP on a fresh (first-pair) claim
 const BONUS_VOUCHER: u64 = 5; // voucher's 2nd-order bonus, released once the claimer verifies
 const VOUCH_TTL_SECS: u64 = 604_800; // 7 days — claim within this window to refund the stake
 const MAX_PENDING: u32 = 64; // cap on pending 2nd-order bonuses per claimer (bounds the flush loop)
+
 // Most half-cards one `mint_vouches` call mints. Each card writes its `Vouch` and
 // `ClaimPubkey` entries and emits two events, so a full batch stays far inside the
 // per-transaction limits (testnet and mainnet, checked 2026-09-29: 200 written entries,

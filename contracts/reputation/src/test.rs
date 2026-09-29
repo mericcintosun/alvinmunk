@@ -2007,8 +2007,15 @@ fn mint_vouches_mints_cards_that_each_claim_with_their_own_key() {
     );
     for (i, claimer) in [bob, carol, Address::generate(&env)].iter().enumerate() {
         let id = ids.get(i as u32).unwrap();
-        client.claim_vouch_signed(claimer, &id, &claim_sig(&env, &client, &sks[i], id, claimer));
-        assert_eq!(client.get_vouch(&id).unwrap().claimer, Some(claimer.clone()));
+        client.claim_vouch_signed(
+            claimer,
+            &id,
+            &claim_sig(&env, &client, &sks[i], id, claimer),
+        );
+        assert_eq!(
+            client.get_vouch(&id).unwrap().claimer,
+            Some(claimer.clone())
+        );
     }
     // every timely claim refunded its own stake
     assert_eq!(client.get_score(&alice), STARTER_SOCIAL);
@@ -2099,8 +2106,24 @@ fn mint_vouches_writes_what_single_mints_write() {
         for (i, (a, b)) in batch.iter().zip(singles).enumerate() {
             let (va, vb) = (client.get_vouch(&a).unwrap(), client.get_vouch(&b).unwrap());
             assert_eq!(
-                (va.claim_hash, va.note, va.claimed, va.claimer, va.created, va.stake, va.slashed),
-                (vb.claim_hash, vb.note, vb.claimed, vb.claimer, vb.created, vb.stake, vb.slashed)
+                (
+                    va.claim_hash,
+                    va.note,
+                    va.claimed,
+                    va.claimer,
+                    va.created,
+                    va.stake,
+                    va.slashed
+                ),
+                (
+                    vb.claim_hash,
+                    vb.note,
+                    vb.claimed,
+                    vb.claimer,
+                    vb.created,
+                    vb.stake,
+                    vb.slashed
+                )
             );
             assert_eq!(client.get_claim_key(&a), client.get_claim_key(&b));
             assert_eq!(client.get_claim_key(&a), Some(keys.get(i as u32).unwrap()));
@@ -2196,7 +2219,12 @@ fn mint_vouches_over_the_daily_cap_reverts_the_whole_batch() {
 
     // The last slot is still there for a batch of one; then the day is full.
     let one = keys.slice(0..1);
-    assert_eq!(client.mint_vouches(&alice, &one, &batch_notes(&env, 1, "n")).len(), 1);
+    assert_eq!(
+        client
+            .mint_vouches(&alice, &one, &batch_notes(&env, 1, "n"))
+            .len(),
+        1
+    );
     assert_eq!(daily_count(&env, &client, &alice), MAX_VOUCH_PER_DAY);
     let last = keys.slice(1..2);
     assert_eq!(
@@ -2247,7 +2275,10 @@ fn mint_vouches_shares_the_note_cap() {
 
     let ids = client.mint_vouches(&alice, &keys, &notes);
     for (i, id) in ids.iter().enumerate() {
-        assert_eq!(client.get_vouch(&id).unwrap().note, notes.get(i as u32).unwrap());
+        assert_eq!(
+            client.get_vouch(&id).unwrap().note,
+            notes.get(i as u32).unwrap()
+        );
     }
 }
 
@@ -2281,7 +2312,10 @@ fn a_full_mint_vouches_fits_one_transaction() {
     assert_eq!(used.write_entries, 2 * MAX_BATCH_VOUCH + 4, "{used:?}");
     assert!(used.write_entries < TX_MAX_WRITE_ENTRIES / 4, "{used:?}");
     assert!(used.write_bytes < TX_MAX_WRITE_BYTES / 4, "{used:?}");
-    assert!(used.contract_events_size_bytes < TX_MAX_EVENTS_BYTES / 4, "{used:?}");
+    assert!(
+        used.contract_events_size_bytes < TX_MAX_EVENTS_BYTES / 4,
+        "{used:?}"
+    );
     assert!(used.instructions < TX_MAX_INSTRUCTIONS / 4, "{used:?}");
 }
 
