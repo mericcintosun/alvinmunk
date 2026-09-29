@@ -783,6 +783,92 @@ proptest! {
     }
 }
 
+// --- Completion views (issue #156) ---
+
+#[test]
+fn is_completed_reads_the_replay_guard() {
+    let f = setup();
+    let (user, other) = (Address::generate(&f.env), Address::generate(&f.env));
+    f.quest.create_quest(&1u32, &2u32, &50u64);
+    f.quest.create_quest(&2u32, &2u32, &50u64);
+    assert!(!f.quest.is_completed(&1u32, &user));
+
+    award(&f, &f.attester_sk, 1, &user);
+    assert!(f.quest.is_completed(&1u32, &user));
+    // Per quest and per wallet; an unknown quest reads as not completed.
+    assert!(!f.quest.is_completed(&2u32, &user));
+    assert!(!f.quest.is_completed(&1u32, &other));
+    assert!(!f.quest.is_completed(&99u32, &user));
+    // `true` is exactly the state in which another award is refused.
+    assert_eq!(
+        try_award(&f, &f.attester_sk, 1, &user),
+        Err(Error::AlreadyClaimed)
+    );
+}
+
+#[test]
+fn a_rejected_award_does_not_read_as_completed() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    f.quest.create_quest(&1u32, &2u32, &50u64);
+    f.quest.set_quest_active(&1u32, &false);
+    assert_eq!(
+        try_award(&f, &f.attester_sk, 1, &user),
+        Err(Error::QuestInactive)
+    );
+    assert_eq!(
+        try_award(&f, &signing_key(99), 1, &user),
+        Err(Error::NotAuthorized)
+    );
+    assert!(!f.quest.is_completed(&1u32, &user));
+}
+
+#[test]
+fn get_completed_answers_each_id_in_input_order() {
+    let f = setup();
+    let (user, other) = (Address::generate(&f.env), Address::generate(&f.env));
+    for id in 1..=3u32 {
+        f.quest.create_quest(&id, &2u32, &50u64);
+    }
+    award(&f, &f.attester_sk, 1, &user);
+    award(&f, &f.attester_sk, 3, &user);
+    award(&f, &f.attester_sk, 2, &other);
+
+    let ids = vec![&f.env, 3u32, 2, 1, 99, 3];
+    let flags = f.quest.get_completed(&user, &ids);
+    assert_eq!(flags, vec![&f.env, true, false, true, false, true]);
+    assert_eq!(
+        f.quest.get_completed(&other, &ids),
+        vec![&f.env, false, true, false, false, false]
+    );
+    for (i, id) in ids.iter().enumerate() {
+        assert_eq!(
+            flags.get_unchecked(i as u32),
+            f.quest.is_completed(&id, &user)
+        );
+    }
+    assert_eq!(f.quest.get_completed(&user, &vec![&f.env]), vec![&f.env]);
+}
+
+#[test]
+fn completion_reads_do_not_extend_the_replay_guard() {
+    let f = setup_with_ttls(TESTNET_TTLS);
+    let user = Address::generate(&f.env);
+    f.quest.create_quest(&1u32, &2u32, &50u64);
+    award(&f, &f.attester_sk, 1, &user);
+    let key = DataKey::Claimed(1, user.clone());
+    f.env
+        .ledger()
+        .with_mut(|l| l.sequence_number += DAY_LEDGERS * 3);
+    let before = ttl(&f, &key);
+    assert!(f.quest.is_completed(&1u32, &user));
+    assert_eq!(
+        f.quest.get_completed(&user, &vec![&f.env, 1u32]),
+        vec![&f.env, true]
+    );
+    assert_eq!(ttl(&f, &key), before);
+}
+
 /// Release build of this contract, committed so the upgrade path can be tested without a
 /// wasm build step in CI. Refresh with `make upgrade-fixtures` after changing the contract.
 const QUEST_WASM: &[u8] = include_bytes!("../testdata/alvinmunk_quest_registry.wasm");
@@ -796,10 +882,18 @@ fn upgrade_to_identical_wasm_preserves_quests_and_attester_keys() {
     let partner = signing_key(42);
     f.quest.set_quest_attester(&2u32, &pub_key(&f, &partner));
     f.quest.set_attester_budget(&f.attester_pub, &60u64);
-    award(&f, &f.attester_sk, 3, &Address::generate(&f.env));
+    let early = Address::generate(&f.env);
+    award(&f, &f.attester_sk, 3, &early);
 
     let hash = f.env.deployer().upload_contract_wasm(QUEST_WASM);
     f.quest.upgrade(&hash);
+
+    // The completion views read replay guards written before the upgrade.
+    assert!(f.quest.is_completed(&3u32, &early));
+    assert_eq!(
+        f.quest.get_completed(&early, &vec![&f.env, 1u32, 3]),
+        vec![&f.env, false, true]
+    );
 
     // The budget and today's usage survived: 50 of 60 is spent, so a 50 XP award reverts.
     let user = Address::generate(&f.env);

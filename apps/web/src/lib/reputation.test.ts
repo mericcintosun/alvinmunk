@@ -25,6 +25,8 @@ vi.mock('./contracts', () => ({
     u64: (n: number) => ({ __u64: n }),
     str: (s: string) => ({ __str: s }),
     bytes: (b: Uint8Array) => ({ __bytes: b }),
+    bytesVec: (bs: Uint8Array[]) => ({ __bytesVec: bs }),
+    strs: (ss: string[]) => ({ __strs: ss }),
   },
 }));
 
@@ -38,6 +40,7 @@ import {
   clampVouchNote,
   isClaimCode,
   mintVouch,
+  mintVouches,
   parseClaimCode,
   signClaim,
   fromHex,
@@ -46,6 +49,7 @@ import {
   getPending,
   getProfile,
   getScores,
+  VOUCH_BATCH_MAX,
   VOUCH_NOTE_MAX_BYTES,
   VOUCH_NOTE_MAX_CHARS,
   vouchNoteBytes,
@@ -304,6 +308,38 @@ describe('vouch mint and claim', () => {
     // Every mint gets its own key.
     const again = await mintVouch(wallet, 'gm');
     expect(again.seed).not.toBe(seed);
+  });
+
+  it('batch-mints one fresh claim key per note in a single call, in order', async () => {
+    invokeMock.mockResolvedValue([4n, 5n, 6n]);
+    const cards = await mintVouches(wallet, ['ada', 'grace', 'linus']);
+
+    expect(cards.map((c) => c.id)).toEqual([4, 5, 6]);
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    const [contract, method, callArgs, signer] = invokeMock.mock.calls[0];
+    expect([contract, method, signer]).toEqual([REP_ID, 'mint_vouches', wallet]);
+    expect(callArgs[0]).toEqual({ __addr: CLASSIC });
+    expect(callArgs[2]).toEqual({ __strs: ['ada', 'grace', 'linus'] });
+    // Card i is bound to the public half of seed i; the seeds stay here.
+    const keys = (callArgs[1] as { __bytesVec: Uint8Array[] }).__bytesVec;
+    expect(keys).toEqual(cards.map((c) => claimPublicKey(fromHex(c.seed))));
+    for (const c of cards) expect(isClaimCode(c.seed)).toBe(true);
+    expect(new Set(cards.map((c) => c.seed)).size).toBe(3);
+    expect(JSON.stringify(invokeMock.mock.calls)).not.toContain(cards[0].seed);
+  });
+
+  it('refuses an empty or oversized batch before asking the wallet to sign', async () => {
+    expect(VOUCH_BATCH_MAX).toBe(10);
+    await expect(mintVouches(wallet, [])).rejects.toThrow('1 to 10');
+    await expect(mintVouches(wallet, Array(VOUCH_BATCH_MAX + 1).fill('gm'))).rejects.toThrow('not 11');
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it('passes a reverted batch through, and rejects a result that does not match the notes', async () => {
+    invokeMock.mockRejectedValueOnce(new Error('HostError: Error(Contract, #9)'));
+    await expect(mintVouches(wallet, ['a', 'b'])).rejects.toThrow('#9');
+    invokeMock.mockResolvedValueOnce([4n]);
+    await expect(mintVouches(wallet, ['a', 'b'])).rejects.toThrow('unexpected result');
   });
 
   it('claims with a signature for the wallet, never the seed itself', async () => {

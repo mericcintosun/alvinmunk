@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Transaction } from '@stellar/stellar-sdk';
+import { xdr, type Transaction } from '@stellar/stellar-sdk';
 
 const { server } = vi.hoisted(() => ({ server: { sendTransaction: vi.fn() } }));
 vi.mock('./stellar', () => ({ server }));
 
-import { SEND_ATTEMPTS, TxNotQueuedError, submitSigned } from './submit';
+import { SEND_ATTEMPTS, TxNotQueuedError, TxRejectedError, submitSigned } from './submit';
 
 const tx = { envelope: 'signed' } as unknown as Transaction;
 
@@ -59,10 +59,31 @@ describe('submitSigned', () => {
     expect(server.sendTransaction).toHaveBeenCalledTimes(SEND_ATTEMPTS);
   });
 
-  it('ERROR: throws at once and never resubmits', async () => {
-    server.sendTransaction.mockResolvedValue({ status: 'ERROR', hash: 'H5', errorResult: { code: 'x' } });
-    await expect(submitSigned(tx, 'payment')).rejects.toThrow(/^payment rejected/);
+  it('ERROR: throws the decoded rejection at once and never resubmits', async () => {
+    const errorResult = new xdr.TransactionResult({
+      feeCharged: xdr.Int64.fromString('100'),
+      result: xdr.TransactionResultResult.txBadSeq(),
+      ext: new xdr.TransactionResultExt(0),
+    });
+    server.sendTransaction.mockResolvedValue({ status: 'ERROR', hash: 'H5', errorResult });
+
+    const err = await submitSigned(tx, 'payment').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(TxRejectedError);
+    expect(err).toMatchObject({
+      code: 'txBadSeq',
+      what: 'payment',
+      message: 'Another transaction went out at the same moment — try again.',
+    });
     expect(server.sendTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('ERROR without a readable result: still a plain sentence, never an XDR dump', async () => {
+    server.sendTransaction.mockResolvedValue({ status: 'ERROR', hash: 'H7', errorResult: { code: 'x' } });
+    const err = await submitSigned(tx, 'payment').catch((e: unknown) => e);
+    expect(err).toMatchObject({
+      code: 'unknown',
+      message: 'The network rejected this transaction. Try again in a moment.',
+    });
   });
 
   it('sends through the RPC server it is given', async () => {

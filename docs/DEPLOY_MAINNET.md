@@ -12,7 +12,7 @@ This is the step-by-step for taking the five Soroban contracts from testnet to *
 - [x] Full test suite green: 57 contract tests (`cargo test`) incl. property/fuzz, + 77 web/shared. CI green on every push.
 - [x] End-to-end integration test exists: `scripts/e2e-testnet.mjs` (deploy → invoke vouch/quest/tip/reward → assert state, happy + negative paths).
 - [x] Storage/TTL: every contract bumps TTL on long-lived keys (`BUMP_THRESHOLD`/`BUMP_EXTEND`); daily counters use temporary storage that auto-GCs. Re-profile before deploy with `scripts/bump-ttl.sh`.
-- [ ] Re-review every `require_auth`: `mint_vouch_signed` / `mint_vouch`(from), `claim_vouch_signed`(claimer + ed25519 claim-key sig), `claim_vouch`(claimer), `award_quest`(recipient + ed25519 sig), `tip`/`claim_reward`(from/to), all admin setters. Confirm no sensitive op is unauthenticated.
+- [ ] Re-review every `require_auth`: `mint_vouch_signed` / `mint_vouches` / `mint_vouch`(from), `claim_vouch_signed`(claimer + ed25519 claim-key sig), `claim_vouch`(claimer), `award_quest`(recipient + ed25519 sig), `tip`/`claim_reward`(from/to), all admin setters. Confirm no sensitive op is unauthenticated.
 - [x] Cross-contract calls are read-only where they should be (`rewards`→`get_earned`, `gate`→`get_score/get_earned`) and write only via the allowlisted attester (`quest_registry`→`award_xp`).
 
 **Security**
