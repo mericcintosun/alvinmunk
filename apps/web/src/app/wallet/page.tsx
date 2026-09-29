@@ -5,7 +5,6 @@ import { type Wallet } from '@/lib/wallet';
 import { connectViaKit } from '@/lib/wallet-kit';
 import { getXlmBalance, txExplorerUrl } from '@/lib/stellar';
 import { sendXlm, type PaymentResult } from '@/lib/payments';
-import { transferHandle, getHandle } from '@/lib/registry';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,14 +25,9 @@ export default function WalletPage() {
   const [busy, setBusy] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [handle, setHandle] = useState<string | null>(null);
-  const [transferTo, setTransferTo] = useState('');
-  const [transferResult, setTransferResult] = useState<PaymentResult | null>(null);
-  const [transferring, setTransferring] = useState(false);
 
   const validAddr = /^G[A-Z2-7]{55}$/.test(to.trim());
   const validAmount = Number(amount) > 0;
-  const validTransferAddr = /^G[A-Z2-7]{55}$/.test(transferTo.trim());
 
   async function connect() {
     setError(null);
@@ -42,7 +36,6 @@ export default function WalletPage() {
       const w = await connectViaKit();
       setWallet(w);
       setBalance(await getXlmBalance(w.address).catch(() => '0'));
-      setHandle(await getHandle(w.address).catch(() => null));
     } catch (e) {
       setError(msg(e));
     } finally {
@@ -67,22 +60,6 @@ export default function WalletPage() {
       setError(msg(e));
     } finally {
       setBusy(false);
-    }
-  }
-
-  async function moveHandle() {
-    if (!wallet) return;
-    setTransferring(true);
-    setError(null);
-    setTransferResult(null);
-    try {
-      const r = await transferHandle(wallet, transferTo.trim());
-      setTransferResult(r);
-      setHandle(await getHandle(wallet.address).catch(() => null));
-    } catch (e) {
-      setError(msg(e));
-    } finally {
-      setTransferring(false);
     }
   }
 
@@ -164,62 +141,6 @@ export default function WalletPage() {
                   >
                     {result.hash}
                   </a>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="flex flex-col gap-3 p-5">
-              <h2 className="text-sm font-semibold">Handle</h2>
-              <p className="text-xs text-muted-foreground">
-                {handle ? `@${handle}` : 'No handle on this address'}
-              </p>
-              {handle && (
-                <div className="flex flex-col gap-3">
-                  <Input
-                    value={transferTo}
-                    onChange={(e) => setTransferTo(e.target.value)}
-                    placeholder="new wallet address (G…)"
-                    className="font-mono text-xs"
-                  />
-                  <Button
-                    onClick={moveHandle}
-                    disabled={transferring || !validTransferAddr}
-                  >
-                    {transferring ? 'Moving…' : 'Move handle'}
-                  </Button>
-                  <p className="text-xs text-muted-foreground">
-                    The new wallet must sign to accept the handle. Social and Earned XP stay
-                    with the old address.
-                  </p>
-                  {transferResult && (
-                    <div
-                      className={
-                        transferResult.status === 'SUCCESS'
-                          ? 'rounded-xl bg-success/10 p-3 text-xs text-success ring-1 ring-success/30'
-                          : transferResult.status === 'FAILED'
-                            ? 'rounded-xl bg-destructive/10 p-3 text-xs text-destructive ring-1 ring-destructive/30'
-                            : 'rounded-xl bg-muted p-3 text-xs text-muted-foreground'
-                    }
-                  >
-                    <p className="font-semibold">
-                      {transferResult.status === 'SUCCESS'
-                        ? '✓ Handle moved'
-                        : transferResult.status === 'FAILED'
-                          ? '✗ Transfer failed'
-                          : '… Submitted (pending)'}
-                    </p>
-                    <a
-                      href={txExplorerUrl(transferResult.hash)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="break-all underline"
-                    >
-                      {transferResult.hash}
-                    </a>
-                  </div>
-                  )}
                 </div>
               )}
             </CardContent>
