@@ -32,12 +32,24 @@ const LIVE_WINDOW = 17_280; // ~1 day of ledgers
 const MAX_PAGES = 25;
 type NetKey = 'testnet' | 'mainnet';
 
+/** An RPC URL env value, trimmed with blank treated as unset — the same normalisation as the
+ *  app's validated config (`readNetworkConfig`), so `allowHttp` is decided on the URL in use. */
+function rpcUrl(env: string | undefined, fallback: string): string {
+  return env?.trim() || fallback;
+}
+
+/** An RPC client for `url`. `http://` (a local quickstart node) needs `allowHttp`, as in every
+ *  other route; without it the SDK constructor throws. */
+function rpcServer(url: string): rpc.Server {
+  return new rpc.Server(url, { allowHttp: url.startsWith('http://') });
+}
+
 const NETWORKS: Record<
   NetKey,
   { rpc: string; rep?: string; registry?: string; exclude?: (string | undefined)[] }
 > = {
   testnet: {
-    rpc: process.env.NEXT_PUBLIC_RPC_URL || 'https://soroban-testnet.stellar.org',
+    rpc: rpcUrl(process.env.NEXT_PUBLIC_RPC_URL, 'https://soroban-testnet.stellar.org'),
     rep: process.env.NEXT_PUBLIC_REPUTATION_CONTRACT_ID,
     registry: process.env.NEXT_PUBLIC_REGISTRY_CONTRACT_ID,
     // The app's own contracts appear in event topics (e.g. the quest_registry as att_set
@@ -52,7 +64,7 @@ const NETWORKS: Record<
     ],
   },
   mainnet: {
-    rpc: process.env.MAINNET_RPC_URL || 'https://mainnet.sorobanrpc.com',
+    rpc: rpcUrl(process.env.MAINNET_RPC_URL, 'https://mainnet.sorobanrpc.com'),
     rep: process.env.MAINNET_REPUTATION_CONTRACT_ID,
     registry: process.env.MAINNET_REGISTRY_CONTRACT_ID,
     exclude: [
@@ -93,9 +105,12 @@ async function liveScan(cfg: (typeof NETWORKS)[NetKey]): Promise<{ seen: Set<str
   const seen = new Set<string>();
   const ids = [cfg.rep, cfg.registry].filter(Boolean) as string[];
   if (ids.length === 0) return { seen, latest: 0 };
-  const server = new rpc.Server(cfg.rpc);
+  let server: rpc.Server;
   let latest = 0;
   try {
+    // Inside the try: a malformed URL makes the constructor throw, and that falls back to the
+    // roster-only count like any other RPC failure instead of failing the request.
+    server = rpcServer(cfg.rpc);
     latest = (await server.getLatestLedger()).sequence;
   } catch {
     return { seen, latest: 0 };
@@ -183,7 +198,7 @@ function funnelFor(net: NetKey): Promise<FunnelResult> {
 async function readFunnel(cfg: (typeof NETWORKS)[NetKey]): Promise<FunnelResult> {
   if (!cfg.rep) return { funnel: null };
   try {
-    const { total, records } = await readVouchRecords(new rpc.Server(cfg.rpc), cfg.rep);
+    const { total, records } = await readVouchRecords(rpcServer(cfg.rpc), cfg.rep);
     // Same rule as the wallet count: the app's own contracts are not users.
     const excluded = new Set(cfg.exclude?.filter(Boolean));
     const users = records.filter((v) => !excluded.has(v.from) && !(v.claimer && excluded.has(v.claimer)));
