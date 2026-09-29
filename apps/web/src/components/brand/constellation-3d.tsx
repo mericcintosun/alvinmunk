@@ -27,6 +27,7 @@ import {
   useFrameloop,
   usePrefersReducedMotion,
 } from './constellation-parts';
+import { useLocale, useTranslations } from '@/lib/i18n';
 
 const RADIUS = 3.0;
 
@@ -36,12 +37,14 @@ function Scene({
   onSelect,
   hoverId,
   setHoverId,
+  locale,
 }: {
   vouchers: VoucherStar[];
   reduced: boolean;
   onSelect: (v: VoucherStar | null) => void;
   hoverId: number | null;
   setHoverId: (id: number | null) => void;
+  locale: string;
 }) {
   const skyTilt = useRef<THREE.Group>(null);
   const tilt = useRef<THREE.Group>(null);
@@ -139,7 +142,7 @@ function Scene({
                       <Html position={[0, 0.34, 0]} center distanceFactor={9} zIndexRange={[40, 0]}>
                         <div className="pointer-events-none -translate-y-2 whitespace-nowrap rounded-full border border-border bg-popover/90 px-2.5 py-1 text-[11px] text-foreground backdrop-blur">
                           <span className="font-mono">{shortAddr(v.from)}</span>
-                          {v.created ? <span className="text-muted-foreground"> · {timeAgo(v.created)}</span> : null}
+                          {v.created ? <span className="text-muted-foreground"> · {timeAgo(v.created, locale)}</span> : null}
                         </div>
                       </Html>
                     )}
@@ -153,6 +156,9 @@ function Scene({
 }
 
 export default function ConstellationHero3D({ address, handle }: { address: string; handle: string }) {
+  const t = useTranslations();
+  const { locale } = useLocale();
+  const numberFormat = new Intl.NumberFormat(locale === 'tr' ? 'tr-TR' : 'en-US');
   const [vouchers, setVouchers] = useState<VoucherStar[] | null>(null);
   // Everyone who vouched you (durable on-chain count) — the stars only cover the RPC window.
   const [vouchedBy, setVouchedBy] = useState<number | null>(null);
@@ -202,7 +208,7 @@ export default function ConstellationHero3D({ address, handle }: { address: stri
 
   return (
     <section
-      aria-label="Your constellation"
+      aria-label={t('constellation.label')}
       className="relative overflow-hidden rounded-3xl border border-border/60"
     >
       <div className="aurora absolute inset-0" />
@@ -223,38 +229,39 @@ export default function ConstellationHero3D({ address, handle }: { address: stri
             onSelect={setSelected}
             hoverId={hoverId}
             setHoverId={setHoverId}
+            locale={locale}
           />
         </Canvas>
 
         <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-5 sm:p-7">
           <div>
-            <p className="eyebrow">Your constellation</p>
+            <p className="eyebrow">{t('constellation.label')}</p>
             <h1 className="mt-2 font-display text-4xl font-semibold tracking-tight text-foreground text-glow sm:text-5xl">
               @{handle}
             </h1>
           </div>
           <p className="max-w-md text-sm text-muted-foreground" aria-live="polite">
             {vouchers === null || vouchedBy === null
-              ? 'Reading your sky…'
+              ? t('constellation.reading')
               : loadFailed && count === 0
-                ? 'Couldn’t read your sky right now — the network is slow. It’ll fill in on refresh.'
+                ? t('constellation.loadError')
                 : count === 0
-                  ? 'Your sky is dark — for now. Vouch someone, and their star ignites in your orbit.'
+                  ? t('constellation.empty')
                   : count === 1
-                    ? 'One star lights your sky. Move your cursor — the field follows.'
-                    : `${count} people light your sky.${shown > 0 ? ' Hover a star to see who.' : ''}`}
+                    ? t('constellation.oneStar')
+                    : `${t('constellation.manyStars', { count: numberFormat.format(count) })}${shown > 0 ? ` ${t('constellation.hoverStar')}` : ''}`}
           </p>
         </div>
 
         {/* Accessible, non-visual mirror of the sky: keyboard/screen-reader users get the
             same social proof the 3D hover tooltips show sighted-mouse users. */}
         {shown > 0 && (
-          <ul className="sr-only" aria-label={`${count} people vouched for you`}>
+          <ul className="sr-only" aria-label={t('constellation.peopleVouchedFor', { count: numberFormat.format(count) })}>
             {vouchers!.map((v) => (
               <li key={v.vouchId}>
                 {shortAddr(v.from)}
                 {v.note ? ` — “${v.note}”` : ''}
-                {v.created ? ` (${timeAgo(v.created)})` : ''}
+                {v.created ? ` (${timeAgo(v.created, locale)})` : ''}
               </li>
             ))}
           </ul>
@@ -265,7 +272,7 @@ export default function ConstellationHero3D({ address, handle }: { address: stri
             <button
               onClick={() => setSelected(null)}
               className="absolute right-2 top-2 text-xs text-muted-foreground hover:text-foreground"
-              aria-label="Dismiss"
+              aria-label={t('constellation.dismiss')}
             >
               ✕
             </button>
@@ -273,12 +280,12 @@ export default function ConstellationHero3D({ address, handle }: { address: stri
               {selected.note ? (
                 <span className="italic text-foreground/90">&ldquo;{selected.note}&rdquo;</span>
               ) : (
-                <span className="text-muted-foreground">vouched for you</span>
+                <span className="text-muted-foreground">{t('constellation.vouchedForYou')}</span>
               )}
             </p>
             <p className="mt-1.5 font-mono text-xs text-muted-foreground">
               {shortAddr(selected.from)}
-              {selected.created ? ` · ${timeAgo(selected.created)}` : ''}
+              {selected.created ? ` · ${timeAgo(selected.created, locale)}` : ''}
             </p>
           </div>
         )}

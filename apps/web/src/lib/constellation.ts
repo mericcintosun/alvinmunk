@@ -66,16 +66,19 @@ export async function getPeopleCounts(address: string): Promise<PeopleCounts> {
 }
 
 /** Warm relative time from a unix-seconds timestamp. */
-export function timeAgo(unixSecs: number): string {
+export function timeAgo(unixSecs: number, locale = 'en'): string {
   if (!unixSecs) return '';
   const s = Math.max(0, Math.floor(Date.now() / 1000) - unixSecs);
   const days = Math.floor(s / 86_400);
-  if (days <= 0) return 'today';
-  if (days === 1) return 'yesterday';
-  if (days < 7) return `${days} days ago`;
+  const localeTag = locale === 'tr' ? 'tr-TR' : 'en-US';
+  const naturalRelativeTime = new Intl.RelativeTimeFormat(localeTag, { numeric: 'auto' });
+  const numericRelativeTime = new Intl.RelativeTimeFormat(localeTag, { numeric: 'always' });
+  if (days <= 0) return naturalRelativeTime.format(0, 'day');
+  if (days === 1) return naturalRelativeTime.format(-1, 'day');
+  if (days < 7) return numericRelativeTime.format(-days, 'day');
   const weeks = Math.floor(days / 7);
-  if (weeks < 5) return `${weeks} week${weeks === 1 ? '' : 's'} ago`;
-  return `${Math.floor(days / 30)} month${Math.floor(days / 30) === 1 ? '' : 's'} ago`;
+  if (weeks < 5) return numericRelativeTime.format(-weeks, 'week');
+  return numericRelativeTime.format(-Math.floor(days / 30), 'month');
 }
 
 // ── People suggestions ───────────────────────────────────────────────────────

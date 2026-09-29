@@ -8,6 +8,7 @@ import { Sticker } from '@/components/ui/sticker';
 import { StateArt } from '@/components/ui/state-art';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { useLocale, useTranslations } from '@/lib/i18n';
 
 /**
  * Pending half-cards — vouches you minted that NOBODY claimed yet. The re-engagement
@@ -15,6 +16,9 @@ import { cn } from '@/lib/utils';
  * Shows a friendly empty state when there's nothing pending.
  */
 export function PendingHalfCards() {
+  const t = useTranslations();
+  const { locale } = useLocale();
+  const numberFormat = new Intl.NumberFormat(locale === 'tr' ? 'tr-TR' : 'en-US');
   const [items, setItems] = useState<PendingVouch[] | null>(null);
   const [copied, setCopied] = useState<number | null>(null);
 
@@ -36,7 +40,7 @@ export function PendingHalfCards() {
 
   if (items === null) {
     return (
-      <Frame label="pending // awaiting_claim" index="00" accent="tertiary" tape="tr">
+      <Frame label={t('pendingHalfCards.frame')} index="00" accent="tertiary" tape="tr">
         <div className="space-y-2 p-4">
           <div className="h-3 w-24 animate-pulse rounded bg-muted/40" />
           <div className="h-10 animate-pulse rounded-xl bg-muted/30" />
@@ -47,13 +51,13 @@ export function PendingHalfCards() {
 
   if (items.length === 0) {
     return (
-      <Frame label="pending // awaiting_claim" index="00" accent="tertiary" tape="tr">
+      <Frame label={t('pendingHalfCards.frame')} index="00" accent="tertiary" tape="tr">
         <div className="flex flex-col items-center gap-3 px-6 py-8 text-center">
           <StateArt kind="vouch-sent" size={140} />
           <div>
-            <p className="font-display text-lg text-foreground">No half-cards waiting</p>
+            <p className="font-display text-lg text-foreground">{t('pendingHalfCards.empty.title')}</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              When you mint a vouch that nobody claims yet, this panel becomes your friendly reminder to share it again.
+              {t('pendingHalfCards.empty.body')}
             </p>
           </div>
         </div>
@@ -62,7 +66,7 @@ export function PendingHalfCards() {
   }
 
   return (
-    <Frame label="pending // awaiting_claim" index={String(items.length).padStart(2, '0')} accent="tertiary" tape="tr">
+    <Frame label={t('pendingHalfCards.frame')} index={String(items.length).padStart(2, '0')} accent="tertiary" tape="tr">
       <Sticker name="stamp-ticket" size={60} rotate={-6} className="absolute -bottom-2 right-3 z-10 opacity-90" />
       <ul className="divide-y divide-border/50">
         {items.map((v) => (
@@ -76,7 +80,9 @@ export function PendingHalfCards() {
                   : 'border-tertiary/50 text-tertiary',
               )}
             >
-              <span className="font-mono text-[10px]">{v.daysLeft <= 0 ? 'now' : `${v.daysLeft}d`}</span>
+              <span className="font-mono text-[10px]">
+                {v.daysLeft <= 0 ? t('pendingHalfCards.now') : t('pendingHalfCards.days', { count: numberFormat.format(v.daysLeft) })}
+              </span>
             </div>
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm italic text-foreground/85">&ldquo;{v.note}&rdquo;</p>
@@ -86,7 +92,7 @@ export function PendingHalfCards() {
                   v.daysLeft <= 1 ? 'text-destructive' : 'text-muted-foreground',
                 )}
               >
-                {v.daysLeft <= 1 ? 'slashes today · re-share now' : "stake at risk · re-share before it's slashed"}
+                {v.daysLeft <= 1 ? t('pendingHalfCards.urgent') : t('pendingHalfCards.atRisk')}
               </p>
             </div>
             <button
@@ -94,7 +100,7 @@ export function PendingHalfCards() {
               className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'glass shrink-0 font-mono')}
             >
               {copied === v.id ? <Check className="size-4" /> : <Copy className="size-4" />}
-              {copied === v.id ? 'copied' : 'copy_link'}
+              {copied === v.id ? t('pendingHalfCards.copied') : t('pendingHalfCards.copyLink')}
             </button>
           </li>
         ))}

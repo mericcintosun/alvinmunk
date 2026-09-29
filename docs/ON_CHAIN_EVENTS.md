@@ -438,13 +438,41 @@ Index 2 was appended when handle cooldowns landed; readers that only look at
 indexes 0–1 are unaffected. A registry deployed before then emits two fields and
 has no cooldown.
 
-An indexer keyed by handle stays in sync by applying both sub-types in event
-order: `claimed` sets `handle → caller` (ending any cooldown on it), `released`
-deletes `handle` and marks it reserved for `caller` until `until`. The one gap
-is `admin_release()` (see the note below); the `cooldown` read view is always
-current.
+### `handle` / `moved`
 
-**Contract source**: `registry/src/lib.rs` → `fn claim()` / `fn release()`
+A handle moves from one wallet to another in a single call (`transfer_handle()`),
+signed by both. It is never free in between, so no `released` or `claimed` is
+emitted for it and it starts no cooldown. When `from` had a profile, `meta` / `cleared` for `from` and
+`meta` / `set` for `to` follow in the same transaction: the profile moves with
+the handle.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol("handle")` | Event discriminator |
+| **topics[1]** | `Symbol("moved")` | Sub-type |
+
+**Data tuple**:
+
+| Index | Type | Description |
+|-------|------|-------------|
+| 0 | `Address` | `from` — the wallet that held the handle (now holds none) |
+| 1 | `Address` | `to` — the wallet that holds it now |
+| 2 | `Symbol` | `handle` — the moved handle |
+
+`transfer_handle(from, to)` needs `from`'s and `to`'s authorization for that exact
+call, so a handle can't be pushed onto an address that didn't accept it. It
+reverts with `NoHandle` (#4) when `from` holds no handle and `AlreadyHasHandle`
+(#10) when `to` already holds one (`to == from` included). Social and Earned XP
+stay with `from`: they live in the Reputation contract, keyed by address.
+
+An indexer keyed by handle stays in sync by applying all three sub-types in event
+order: `claimed` sets `handle → caller` (ending any cooldown on it), `released`
+deletes `handle` and marks it reserved for `caller` until `until`, `moved` sets
+`handle → to`. One keyed by address maps `to → handle` and drops `from` on
+`moved`. The one gap is `admin_release()` (see the note below); the `cooldown`
+read view is always current.
+
+**Contract source**: `registry/src/lib.rs` → `fn claim()` / `fn release()` / `fn transfer_handle()`
 
 ```rust
 // Rename (inside claim, before the claimed event):
@@ -461,6 +489,11 @@ env.events().publish(
 env.events().publish(
     (symbol_short!("handle"), symbol_short!("released")),
     (caller.clone(), handle, until));
+
+// Transfer:
+env.events().publish(
+    (symbol_short!("handle"), symbol_short!("moved")),
+    (from.clone(), to.clone(), handle));
 ```
 
 > **Note**: `admin_release()` does **not** emit a `handle` event (admin-only
@@ -472,7 +505,9 @@ env.events().publish(
 
 A handle holder publishes its profile face and bio (`set_meta()`), replacing any
 earlier ones. Only an address that holds a handle can set one; a rename keeps it.
-The stored shape is [`ProfileMeta`](#profilemeta-get_meta).
+Also emitted for `to` by `transfer_handle()` when the profile moves with the
+handle (right after `meta` / `cleared` for `from`). The stored shape is
+[`ProfileMeta`](#profilemeta-get_meta).
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -483,16 +518,17 @@ The stored shape is [`ProfileMeta`](#profilemeta-get_meta).
 
 | Index | Type | Description |
 |-------|------|-------------|
-| 0 | `Address` | `caller` — the handle holder |
+| 0 | `Address` | `caller` — the handle holder (`to` for a transfer) |
 | 1 | `u64` | `avatar` — the packed face (layout under `ProfileMeta`) |
 | 2 | `String` | `bio` — plain text, may be empty |
 
 ### `meta` / `cleared`
 
 An address's profile is deleted because it gave up its handle: `release()`
-(right after `handle` / `released`) or `admin_release()`. Emitted only when there
-was a profile to delete. Meta is keyed by address, so whoever claims the freed
-handle next starts with none.
+(right after `handle` / `released`), `admin_release()`, or `transfer_handle()`
+(right after `handle` / `moved`, followed by `meta` / `set` for the new wallet).
+Emitted only when there was a profile to delete. Meta is keyed by address, so
+whoever claims a freed handle next starts with none.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -516,9 +552,14 @@ env.events().publish(
     (symbol_short!("meta"), symbol_short!("set")),
     (caller, avatar, bio));
 
-// Cleared (from release / admin_release):
+// Cleared (from release / admin_release / transfer_handle):
 env.events().publish(
     (symbol_short!("meta"), symbol_short!("cleared")), addr);
+
+// Moved with a transfer (after cleared for `from`):
+env.events().publish(
+    (symbol_short!("meta"), symbol_short!("set")),
+    (to, meta.avatar, meta.bio));
 ```
 
 ---
@@ -717,7 +758,7 @@ Quick-reference table of all event discriminators and their sub-types.
 | `quest` | `created`, `awarded`, `att_bind`, `att_clear` | QuestRegistry | [↑](#2-questregistry-contract) |
 | `streak` | *(none)* | QuestRegistry | [↑](#streak-weekly-retention) |
 | `att_key` | `budget`, `near_cap` | QuestRegistry | [↑](#att_key--budget-attester-budget-set) |
-| `handle` | `claimed`, `released` | Registry | [↑](#3-registry-contract-handles) |
+| `handle` | `claimed`, `released`, `moved` | Registry | [↑](#3-registry-contract-handles) |
 | `meta` | `set`, `cleared` | Registry | [↑](#meta--set) |
 | `gate` | `created` | Gate | [↑](#4-gate-contract) |
 | `unlocked` | *(none)* | Gate | [↑](#unlocked) |
@@ -970,9 +1011,10 @@ failed call as "no cooldown".
 ### `ProfileMeta` (`get_meta`)
 
 `get_meta(addr) -> Option<ProfileMeta>` returns the profile `addr` published with
-`set_meta` (`DataKey::Meta(addr)`), or `None` if it never set one or has since given
-up its handle. A registry deployed before `set_meta` has no `get_meta`, so treat a
-failed call as "no profile" and show the default face.
+`set_meta` or received along with a handle from `transfer_handle`
+(`DataKey::Meta(addr)`), or `None` if it has none or has since given up its handle.
+A registry deployed before `set_meta` has no `get_meta`, so treat a failed call as
+"no profile" and show the default face.
 
 ```rust
 pub struct ProfileMeta {

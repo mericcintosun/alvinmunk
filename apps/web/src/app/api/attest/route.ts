@@ -79,7 +79,8 @@ const QUEST_ID = config.contracts.questRegistry;
 const REP_ID = config.contracts.reputation;
 const REGISTRY_ID = config.contracts.registry;
 const REPO_ALLOWLIST = parseRepoAllowlist(process.env.QUEST_GITHUB_REPOS);
-const EVENT_WINDOW = 9000; // ledgers back to scan for vouch events (testnet RPC retention)
+/** Safety cap on cursor-pagination pages for the vouch/claimed scan (1 000 events/page). */
+const VOUCH_CLAIMED_MAX_PAGES = 50;
 
 // questId → the one evidence type that may claim it (lib/attest.ts buildQuestEvidenceMap).
 const QUEST_EVIDENCE = buildQuestEvidenceMap(process.env);
@@ -168,23 +169,28 @@ async function verifyEvidence(
       const score = await readU64(REP_ID, 'get_score', ev.ref);
       return score > 0n
         ? { ok: true }
-        : { ok: false, reason: 'that wallet hasn’t been vouched for yet — invite them to claim a vouch first' };
+        : { ok: false, reason: "that wallet hasn't been vouched for yet — invite them to claim a vouch first" };
     } catch {
-      return { ok: false, reason: 'couldn’t read the invited wallet’s reputation' };
+      return { ok: false, reason: "couldn't read the invited wallet's reputation" };
     }
   }
 
-  // Vouch-back (retention quest): you've vouched for ≥ VOUCH_BACK_MIN distinct people. Counted
-  // from on-chain `vouch/minted` events (best-effort within the RPC retention window).
+  // Vouch-back (retention quest): you have vouched for >= VOUCH_BACK_MIN distinct people.
+  //
+  // Fix (#165): count distinct CLAIMERS from `vouch/claimed` events where `from` is the
+  // recipient — not minted IDs from `vouch/minted`. A minted vouch is only a bearer link
+  // that may never be redeemed; the quest promises "vouch for 3 people", which requires a
+  // claim. Scan from the RPC's actual oldestLedger so vouches made earlier in the week are
+  // not invisible, and follow the cursor until exhausted.
   if (ev.type === 'vouch_back') {
     if (!REP_ID) return { ok: false, reason: 'reputation contract not configured' };
     try {
-      const n = await countVouchesMintedBy(REP_ID, recipient);
+      const n = await countVouchesClaimedBy(REP_ID, recipient);
       return n >= VOUCH_BACK_MIN
         ? { ok: true }
-        : { ok: false, reason: `vouch for ${VOUCH_BACK_MIN} people first (you've vouched for ${n})` };
+        : { ok: false, reason: `vouch for ${VOUCH_BACK_MIN} people first (${n} claimed so far)` };
     } catch {
-      return { ok: false, reason: 'couldn’t read your vouch history right now — try again' };
+      return { ok: false, reason: "couldn't read your vouch history right now — try again" };
     }
   }
 
@@ -281,28 +287,82 @@ async function readReferralMarker(ref: string): Promise<string | null | undefine
 }
 
 /**
- * Count DISTINCT vouches minted by `from`, from `vouch/minted` events in the RPC retention
- * window. Best-effort (the window can't see very old vouches) — fine for a retention quest.
+ * A decoded `vouch/claimed` event value: (vouch_id, from, claimer).
+ * Mirrors contracts/reputation/src/lib.rs claim_vouch emit at line ~293.
  */
-async function countVouchesMintedBy(repId: string, from: string): Promise<number> {
-  const server = new rpc.Server(RPC_URL, { allowHttp: RPC_URL.startsWith('http://') });
-  const latest = await server.getLatestLedger();
-  const startLedger = Math.max(1, latest.sequence - EVENT_WINDOW);
-  // Topic filter → only the mint events (topics: [symbol 'vouch', symbol 'minted']).
-  const t0 = nativeToScVal('vouch', { type: 'symbol' }).toXDR('base64');
-  const t1 = nativeToScVal('minted', { type: 'symbol' }).toXDR('base64');
-  const res = await server.getEvents({
-    startLedger,
-    filters: [{ type: 'contract', contractIds: [repId], topics: [[t0, t1]] }],
-    limit: 1000,
-  });
-  const ids = new Set<string>();
-  for (const e of res.events) {
-    // data is the event value: (id: u64, from: Address)
-    const data = scValToNative(e.value) as [number | bigint, string];
-    if (Array.isArray(data) && data[1] === from) ids.add(String(data[0]));
+export interface VouchClaimedEvent {
+  vouchId: string; // stringified u64
+  from: string;    // G/C address — the voucher
+  claimer: string; // G/C address — the person who claimed
+}
+
+/**
+ * Decode one raw `vouch/claimed` event value (a 3-tuple ScVal) into a typed record.
+ * Returns null for any event that cannot be decoded — callers skip those silently.
+ * Exported so it can be unit-tested independently of the RPC layer.
+ */
+export function decodeVouchClaimedEvent(
+  raw: unknown, // scValToNative output for one event's value
+): VouchClaimedEvent | null {
+  if (!Array.isArray(raw) || raw.length !== 3) return null;
+  const [id, from, claimer] = raw;
+  if (
+    (typeof id !== 'number' && typeof id !== 'bigint') ||
+    typeof from !== 'string' ||
+    typeof claimer !== 'string'
+  ) {
+    return null;
   }
-  return ids.size;
+  return { vouchId: String(id), from, claimer };
+}
+
+/**
+ * Count distinct people `from` has successfully vouched for by scanning `vouch/claimed`
+ * events across the RPC's full retention window (from `getHealth().oldestLedger`),
+ * following the cursor until exhausted so no page is dropped.
+ *
+ * Fix for #165:
+ *  - Uses `vouch/claimed` (not `vouch/minted`) — only redeemed vouches count.
+ *  - Starts from `oldestLedger` (not `latestLedger - 9000`) for full history.
+ *  - Paginates with cursor until the RPC signals the scan is complete.
+ *  - Pure counting logic lives in `decodeVouchClaimedEvent` and is unit-tested separately.
+ */
+async function countVouchesClaimedBy(repId: string, from: string): Promise<number> {
+  const server = new rpc.Server(RPC_URL, { allowHttp: RPC_URL.startsWith('http://') });
+
+  // Start from the oldest ledger the RPC has retained — covers the full history.
+  const health = await server.getHealth();
+  const startLedger = health.oldestLedger ?? 1;
+
+  // Topic filter: (`vouch`, `claimed`) — only claimed vouches, not mints or slashes.
+  const t0 = nativeToScVal('vouch',   { type: 'symbol' }).toXDR('base64');
+  const t1 = nativeToScVal('claimed', { type: 'symbol' }).toXDR('base64');
+  const filters = [{ type: 'contract' as const, contractIds: [repId], topics: [[t0, t1]] }];
+
+  const claimers = new Set<string>();
+  let cursor: string | undefined;
+
+  for (let page = 0; page < VOUCH_CLAIMED_MAX_PAGES; page++) {
+    const res = await server.getEvents(
+      cursor
+        ? { filters, cursor, limit: 1000 }
+        : { filters, startLedger, limit: 1000 },
+    );
+
+    for (const e of res.events) {
+      const decoded = decodeVouchClaimedEvent(scValToNative(e.value));
+      // Count each distinct claimer once — a re-claim of the same vouch (impossible
+      // on-chain but defensive) would still be a unique claimer address.
+      if (decoded && decoded.from === from) {
+        claimers.add(decoded.claimer);
+      }
+    }
+
+    cursor = res.cursor;
+    if (!cursor) break; // RPC signals the scan is complete
+  }
+
+  return claimers.size;
 }
 
 /**

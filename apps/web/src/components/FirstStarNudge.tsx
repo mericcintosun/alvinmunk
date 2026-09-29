@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { ArrowDown } from 'lucide-react';
 import { getMyVouches } from '@/lib/myvouches';
+import { useTranslations } from '@/lib/i18n';
 import { getItem, setItem } from '@/lib/storage';
 
 /**
@@ -14,6 +15,7 @@ import { getItem, setItem } from '@/lib/storage';
 const DISMISS_KEY = 'alvinmunk.firstStar.dismissed';
 
 export function FirstStarNudge() {
+  const t = useTranslations();
   const [show, setShow] = useState(false);
 
   useEffect(() => {
@@ -25,14 +27,13 @@ export function FirstStarNudge() {
 
   return (
     <div className="rounded-2xl border border-secondary/40 bg-secondary/10 p-5 text-center">
-      <p className="text-base font-semibold">Your sky starts with one star ✦</p>
+      <p className="text-base font-semibold">{t('firstStarNudge.title')}</p>
       <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground text-balance">
-        alvinmunk begins by backing someone. Vouch for one person you trust below — they don&apos;t
-        even need an account yet. Their star ignites when they claim it.
+        {t('firstStarNudge.body')}
       </p>
       <div className="mt-3 flex items-center justify-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-secondary">
         <ArrowDown className="size-3.5 motion-safe:animate-bounce" />
-        light your first star
+        {t('firstStarNudge.action')}
         <button
           onClick={() => {
             setItem(DISMISS_KEY, '1');
@@ -40,7 +41,7 @@ export function FirstStarNudge() {
           }}
           className="ml-3 text-muted-foreground/60 underline hover:text-foreground"
         >
-          dismiss
+          {t('firstStarNudge.dismiss')}
         </button>
       </div>
     </div>
