@@ -14,7 +14,7 @@ const {
   setProfileMock,
   restoreProfileMock,
   claimHandleMock,
-  isHandleAvailableMock,
+  handleAvailabilityMock,
   recordGenesisMock,
   trackErrorMock,
   toastMock,
@@ -23,7 +23,7 @@ const {
   setProfileMock: vi.fn(),
   restoreProfileMock: vi.fn(),
   claimHandleMock: vi.fn(),
-  isHandleAvailableMock: vi.fn(),
+  handleAvailabilityMock: vi.fn(),
   recordGenesisMock: vi.fn(),
   trackErrorMock: vi.fn(),
   toastMock: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }),
@@ -38,7 +38,7 @@ vi.mock('@/lib/wallet', () => ({
 vi.mock('@/lib/genesis', () => ({ recordGenesis: recordGenesisMock }));
 vi.mock('@/lib/registry', () => ({
   claimHandle: claimHandleMock,
-  isHandleAvailable: isHandleAvailableMock,
+  handleAvailability: handleAvailabilityMock,
 }));
 vi.mock('@/lib/track', () => ({ track: vi.fn(), identify: vi.fn(), trackError: trackErrorMock }));
 vi.mock('sonner', () => ({ toast: toastMock }));
@@ -63,7 +63,7 @@ describe('Onboarding — returning users (#278)', () => {
     connectMock.mockResolvedValue(WALLET);
     restoreProfileMock.mockResolvedValue(null);
     claimHandleMock.mockReset().mockResolvedValue(undefined);
-    isHandleAvailableMock.mockReset().mockResolvedValue(true);
+    handleAvailabilityMock.mockReset().mockResolvedValue({ status: 'free' });
     recordGenesisMock.mockReset().mockResolvedValue('TX');
     vi.spyOn(console, 'error').mockImplementation(() => {}); // the component logs each failure
     container = document.createElement('div');

@@ -30,7 +30,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push: pushMock }) }));
 vi.mock('@/lib/genesis', () => ({ recordGenesis: vi.fn(async () => 'TX') }));
 vi.mock('@/lib/registry', () => ({
   claimHandle: claimHandleMock,
-  isHandleAvailable: vi.fn(async () => true),
+  handleAvailability: vi.fn(async () => ({ status: 'free' })),
 }));
 vi.mock('@/lib/track', () => ({ track: vi.fn(), identify: vi.fn(), trackError: vi.fn() }));
 vi.mock('sonner', () => ({ toast: toastMock }));
