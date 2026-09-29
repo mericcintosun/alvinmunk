@@ -124,7 +124,7 @@ Needs `stellar` (with `strkey decode`), `jq` and `git`. Offline tests for the ga
 - [ ] Redeploy and smoke-test onboarding + one vouch on the live mainnet app.
 
 **Monitoring**
-- [x] Product analytics + error tracking already wired (Vercel Analytics + Speed Insights + PostHog). Add PostHog alerts on error-rate spikes.
+- [x] Product analytics + error tracking already wired (Vercel Analytics + Speed Insights; `lib/track.ts` custom events require a Pro plan and are no-ops on Hobby). Add Vercel alerts on error-rate spikes; per-user funnel/retention analytics needs a dedicated product-analytics tool (e.g. PostHog — a separate future feature).
 - [ ] Add contract-event monitoring (RPC `getEvents` cron, or Mercury/Subquery) alerting on: admin ops, `set_paused`, large `reward`/`tipped` amounts.
 - [ ] A simple metrics page (TVL paid, users, vouch loops/week) — even a Notion/Streamlit board.
 

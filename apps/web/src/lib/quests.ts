@@ -8,7 +8,17 @@
  * Ownership is thus proven ON-CHAIN — no off-chain ownership signature, and it works for
  * passkey smart accounts (C…) as well as classic (G…) wallets.
  */
-import { invokeAndWait, readContract, readPublic, args, questId as questRegistryId } from './contracts';
+import { scValToNative } from '@stellar/stellar-sdk';
+import {
+  enumKey,
+  invokeAndWait,
+  invokeAndWaitHash,
+  readContract,
+  readLedgerData,
+  readPublic,
+  args,
+  questId as questRegistryId,
+} from './contracts';
 import { humanizeError } from './utils';
 import type { EvidenceType } from './attest';
 import type { Wallet } from './wallet';
@@ -25,6 +35,57 @@ export interface QuestResult {
   ok: boolean;
   hash?: string;
   error?: string;
+}
+
+// --- Admin content management. Every write is `admin.require_auth()`-gated on-chain. ---
+
+/** A quest's on-chain config (contracts/quest_registry `QuestConfig`). */
+export interface QuestConfig {
+  id: number;
+  schemaId: number;
+  xp: bigint;
+  active: boolean;
+}
+
+/**
+ * Look up quest `id` by reading its stored `DataKey::Quest(id)` entry straight from the
+ * ledger: the registry has no quest getter yet (#114), so the admin view works from a typed
+ * id. `null` when no such quest exists. Throws on RPC failure.
+ */
+export async function readQuest(id: number): Promise<QuestConfig | null> {
+  const [v] = await readLedgerData(questRegistryId(), [enumKey('Quest', args.u32(id))]);
+  if (!v) return null;
+  const raw = scValToNative(v) as { id: number; schema_id: number; xp: bigint; active: boolean };
+  return {
+    id: Number(raw.id),
+    schemaId: Number(raw.schema_id),
+    xp: BigInt(raw.xp),
+    active: Boolean(raw.active),
+  };
+}
+
+/** Define or replace quest `id` (always saved ACTIVE). Resolves the confirmed tx hash. */
+export async function createQuest(
+  wallet: Wallet,
+  id: number,
+  schemaId: number,
+  xp: bigint,
+): Promise<string> {
+  return invokeAndWaitHash(
+    questRegistryId(),
+    'create_quest',
+    [args.u32(id), args.u32(schemaId), args.u64(xp)],
+    wallet,
+  );
+}
+
+export async function setQuestActive(wallet: Wallet, id: number, active: boolean): Promise<string> {
+  return invokeAndWaitHash(
+    questRegistryId(),
+    'set_quest_active',
+    [args.u32(id), args.bool(active)],
+    wallet,
+  );
 }
 
 /** Weekly retention streak (Green belt) — consecutive weeks with a completed quest. */
