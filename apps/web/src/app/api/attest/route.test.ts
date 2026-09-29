@@ -1,9 +1,20 @@
 // @vitest-environment node
+/**
+ * Tests for the /api/attest route handler.
+ *
+ * Three suites:
+ *   - "quest ↔ evidence binding" (issue #359): the handler must refuse to sign a quest id
+ *     for any evidence type other than the one bound to it, before verifying anything over
+ *     the network.
+ *   - "referral_tx via the registry invite binding" (#367): registry `invited_by` decides
+ *     first when set; only a wallet with no binding falls back to the classic manageData
+ *     marker (judgeReferral, lib/attest.ts).
+ *   - "status codes" (issue #180): every status-code branch of the handler itself — config,
+ *     body size, rate limit, input validation, evidence shape/verification, signing, and the
+ *     happy path (signature verified cryptographically).
+ */
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { Address, Keypair, StrKey, nativeToScVal, rpc } from '@stellar/stellar-sdk';
-
-// POST /api/attest must refuse to sign a quest id for any evidence type other than the one
-// bound to it, and must do so before verifying anything over the network.
 
 const RECIPIENT = Keypair.random().publicKey();
 const REFERRED = Keypair.random().publicKey();
@@ -207,5 +218,319 @@ describe('POST /api/attest referral_tx via the registry invite binding', () => {
     expect(await res.json()).toEqual({
       error: 'couldn’t read who invited that wallet right now — try again',
     });
+  });
+
+  // ── issue #180 additions: judgeReferral's manageData-marker branches, once the
+  // registry has no binding for the referred wallet ──────────────────────────
+
+  it('rejects a manageData marker that is a self-referral on the referred account', async () => {
+    // marker stores REFERRED's own address (stored === ev.ref) — self-referral branch.
+    const marker = Buffer.from(REFERRED, 'utf8').toString('base64');
+    fetchSpy.mockResolvedValue(new Response(JSON.stringify({ data: { referral: marker } })));
+    // No registry binding for REFERRED (invited_by resolves to null) — falls back to
+    // the manageData marker.
+    simulateSpy.mockResolvedValueOnce(score(5)).mockResolvedValueOnce(sim(null));
+    const res = await attest({ questId: 2, evidence: { type: 'referral_tx', ref: REFERRED } });
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({
+      error: 'referral marker is a self-referral on the referred account',
+    });
+  });
+
+  it('rejects a manageData marker pointing to a different referrer', async () => {
+    const someoneElse = Keypair.random().publicKey();
+    const marker = Buffer.from(someoneElse, 'utf8').toString('base64');
+    fetchSpy.mockResolvedValue(new Response(JSON.stringify({ data: { referral: marker } })));
+    simulateSpy.mockResolvedValueOnce(score(5)).mockResolvedValueOnce(sim(null));
+    const res = await attest({ questId: 2, evidence: { type: 'referral_tx', ref: REFERRED } });
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({
+      error: 'referral marker points to a different referrer — cannot reuse this marker',
+    });
+  });
+
+  it('reports a Horizon read failure distinctly from having no binding at all', async () => {
+    // invited_by resolves to null (no registry binding); the manageData fallback then
+    // hits Horizon, which returns a non-404 error — that must read as "couldn't read",
+    // not be folded into "no referral binding found".
+    fetchSpy.mockResolvedValue(new Response('rate limited', { status: 503 }));
+    simulateSpy.mockResolvedValueOnce(score(5)).mockResolvedValueOnce(sim(null));
+    const res = await attest({ questId: 2, evidence: { type: 'referral_tx', ref: REFERRED } });
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({
+      error: 'couldn’t read the referred account right now — try again',
+    });
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// Suite — status codes (issue #180)
+// ══════════════════════════════════════════════════════════════════════════
+// Every branch of the handler that the two suites above don't already cover: config,
+// body size, rate limit, input validation, evidence shape, github_pr verification and
+// signing, and the happy path with a cryptographically-verified signature. referral_tx's
+// own 422 branches (judgeReferral) are covered above instead of duplicated here.
+
+describe('POST /api/attest — status codes (issue #180)', () => {
+  /** A raw Request, for the cases attest()'s fixed IP / fixed recipient don't fit. */
+  function rawRequest(
+    body: unknown,
+    opts: { ip?: string; contentLength?: number | null; rawBody?: string } = {},
+  ): Request {
+    const raw = opts.rawBody ?? JSON.stringify(body);
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    if (opts.ip) headers['x-forwarded-for'] = opts.ip;
+    if (opts.contentLength !== undefined && opts.contentLength !== null) {
+      headers['content-length'] = String(opts.contentLength);
+    }
+    return new Request('http://localhost/api/attest', { method: 'POST', headers, body: raw });
+  }
+
+  // ── 500: attester not configured ─────────────────────────────────────────
+
+  it('500 when ATTESTER_SECRET_KEY is missing', async () => {
+    vi.resetModules();
+    vi.stubEnv('ATTESTER_SECRET_KEY', '');
+    ({ POST } = (await import('./route')) as { POST: Post });
+    const res = await attest({ questId: 1 });
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/not configured/i);
+  });
+
+  it('500 when quest registry contract id is missing', async () => {
+    vi.resetModules();
+    vi.stubEnv('NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID', '');
+    ({ POST } = (await import('./route')) as { POST: Post });
+    const res = await attest({ questId: 1 });
+    expect(res.status).toBe(500);
+  });
+
+  // ── 413: body size ────────────────────────────────────────────────────────
+
+  it('413 when content-length header exceeds MAX_BODY_BYTES', async () => {
+    const res = await POST(rawRequest({}, { contentLength: 5_000 }));
+    expect(res.status).toBe(413);
+  });
+
+  it('413 when chunked body (no content-length) exceeds MAX_BODY_BYTES', async () => {
+    const res = await POST(rawRequest(undefined, { ip: '1.2.3.4', rawBody: 'x'.repeat(5_000) }));
+    expect(res.status).toBe(413);
+  });
+
+  // ── 429: rate limit ───────────────────────────────────────────────────────
+
+  it('429 on the 7th request from the same IP within 60 s', async () => {
+    for (let i = 0; i < 6; i++) {
+      const res = await POST(rawRequest({ questId: 1, recipient: RECIPIENT }, { ip: '5.5.5.5' }));
+      expect(res.status).not.toBe(429);
+    }
+    const res = await POST(rawRequest({ questId: 1, recipient: RECIPIENT }, { ip: '5.5.5.5' }));
+    expect(res.status).toBe(429);
+  });
+
+  it('rate-limit is per-IP — a different IP is not affected', async () => {
+    for (let i = 0; i < 7; i++) {
+      await POST(rawRequest({ questId: 1, recipient: RECIPIENT }, { ip: '6.6.6.6' }));
+    }
+    const res = await POST(rawRequest({ questId: 1, recipient: RECIPIENT }, { ip: '7.7.7.7' }));
+    expect(res.status).not.toBe(429);
+  });
+
+  // ── 400: invalid JSON / bad questId / bad recipient ───────────────────────
+
+  it('400 on invalid JSON body', async () => {
+    const res = await POST(rawRequest(undefined, { ip: '1.2.3.4', rawBody: '{not valid json' }));
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/json/i);
+  });
+
+  it('400 when questId is missing', async () => {
+    const res = await POST(rawRequest({ recipient: RECIPIENT }, { ip: '1.2.3.4' }));
+    expect(res.status).toBe(400);
+  });
+
+  it('400 when questId is a float', async () => {
+    const res = await POST(rawRequest({ questId: 1.5, recipient: RECIPIENT }, { ip: '1.2.3.4' }));
+    expect(res.status).toBe(400);
+  });
+
+  it('400 when questId is negative', async () => {
+    const res = await POST(rawRequest({ questId: -1, recipient: RECIPIENT }, { ip: '1.2.3.4' }));
+    expect(res.status).toBe(400);
+  });
+
+  it('400 when recipient is not a G/C address', async () => {
+    const res = await POST(rawRequest({ questId: 1, recipient: 'notanaddress' }, { ip: '1.2.3.4' }));
+    expect(res.status).toBe(400);
+  });
+
+  it('400 when recipient is missing', async () => {
+    const res = await POST(rawRequest({ questId: 1 }, { ip: '1.2.3.4' }));
+    expect(res.status).toBe(400);
+  });
+
+  // ── 422: evidence shape ───────────────────────────────────────────────────
+
+  it('422 when evidence type is unknown', async () => {
+    const res = await attest({ questId: 1, evidence: { type: 'nope', ref: 'x' } });
+    expect(res.status).toBe(422);
+  });
+
+  it('422 when github_pr ref format is wrong', async () => {
+    const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'not-a-pr-ref' } });
+    expect(res.status).toBe(422);
+  });
+
+  it('422 when referral_tx ref is not a G or C address', async () => {
+    const res = await attest({ questId: 2, evidence: { type: 'referral_tx', ref: 'NOTANADDRESS' } });
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({ error: 'ref must be a G or C address' });
+  });
+
+  it('422 when referral_tx is a self-referral', async () => {
+    const res = await attest({ questId: 2, evidence: { type: 'referral_tx', ref: RECIPIENT } });
+    expect(res.status).toBe(422);
+  });
+
+  // ── 422: evidence verification — github_pr ────────────────────────────────
+  // github_pr has no DEFAULT_QUEST_IDS entry (lib/attest.ts), so these bind it to
+  // quest 1 via QUEST_GITHUB_ID before loading the route — otherwise the quest ↔
+  // evidence binding check (#359) would reject at 422 before ever reaching verifyEvidence.
+
+  it('422 when github repo is not on the allowlist', async () => {
+    vi.resetModules();
+    vi.stubEnv('QUEST_GITHUB_ID', '1');
+    vi.stubEnv('QUEST_GITHUB_REPOS', 'allowed/repo');
+    ({ POST } = (await import('./route')) as { POST: Post });
+    const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'evil/repo#1' } });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/not eligible/i);
+  });
+
+  it('422 when PR is not merged', async () => {
+    vi.resetModules();
+    vi.stubEnv('QUEST_GITHUB_ID', '1');
+    ({ POST } = (await import('./route')) as { POST: Post });
+    fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ merged: false }), { status: 200 }));
+    const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#42' } });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/not merged/i);
+  });
+
+  it('422 when GitHub API returns non-200', async () => {
+    vi.resetModules();
+    vi.stubEnv('QUEST_GITHUB_ID', '1');
+    ({ POST } = (await import('./route')) as { POST: Post });
+    fetchSpy.mockResolvedValueOnce(new Response('', { status: 404 }));
+    const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#99' } });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/github 404/i);
+  });
+
+  // ── 502: signing failure ──────────────────────────────────────────────────
+
+  it('502 when simulateTransaction returns a simulation error', async () => {
+    vi.resetModules();
+    vi.stubEnv('QUEST_GITHUB_ID', '1');
+    ({ POST } = (await import('./route')) as { POST: Post });
+    fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ merged: true }), { status: 200 }));
+    simulateSpy.mockResolvedValueOnce(simError('contract panic'));
+    const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#1' } });
+    expect(res.status).toBe(502);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/payload read failed/i);
+  });
+
+  it('502 when simulateTransaction throws', async () => {
+    vi.resetModules();
+    vi.stubEnv('QUEST_GITHUB_ID', '1');
+    ({ POST } = (await import('./route')) as { POST: Post });
+    fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ merged: true }), { status: 200 }));
+    simulateSpy.mockRejectedValueOnce(new Error('rpc timeout'));
+    const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#1' } });
+    expect(res.status).toBe(502);
+  });
+
+  // ── 200: happy path — github_pr, signature verified cryptographically ─────
+
+  it('200 with valid github_pr evidence — returned sig verifies over the mocked payload', async () => {
+    const attesterKp = Keypair.random();
+    vi.resetModules();
+    vi.stubEnv('ATTESTER_SECRET_KEY', attesterKp.secret());
+    vi.stubEnv('QUEST_GITHUB_ID', '5');
+    ({ POST } = (await import('./route')) as { POST: Post });
+    fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ merged: true }), { status: 200 }));
+    simulateSpy.mockResolvedValueOnce(payload());
+
+    const res = await attest({
+      questId: 5,
+      evidence: { type: 'github_pr', ref: 'owner/repo#7' },
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      ok: boolean;
+      attester: string;
+      sig: string;
+      recipient: string;
+      questId: number;
+    };
+    expect(body.ok).toBe(true);
+    expect(body.recipient).toBe(RECIPIENT);
+    expect(body.questId).toBe(5);
+
+    // Cryptographic verification: rebuild the keypair from the returned public key and
+    // verify the sig over the known fake payload (payload() encodes Buffer.from('payload')).
+    expect(attesterKp.rawPublicKey().toString('hex')).toBe(body.attester);
+    const sigBytes = Buffer.from(body.sig, 'base64');
+    const fakePayload = Buffer.from('payload');
+    expect(attesterKp.verify(fakePayload, sigBytes)).toBe(true);
+    const tampered = Buffer.from(fakePayload);
+    tampered[0] ^= 0xff;
+    expect(attesterKp.verify(tampered, sigBytes)).toBe(false);
+  });
+
+  // ── 200: happy path — referral_tx, C-address recipient ────────────────────
+
+  it('200 with valid referral_tx evidence and a C-address recipient', async () => {
+    const marker = Buffer.from(PASSKEY_REFERRED, 'utf8').toString('base64');
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ data: { referral: marker } }), { status: 200 }),
+    );
+    simulateSpy.mockResolvedValueOnce(score(5)).mockResolvedValueOnce(payload());
+
+    const res = await attest({
+      questId: 2,
+      recipient: PASSKEY_REFERRED,
+      evidence: { type: 'referral_tx', ref: REFERRED },
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; recipient: string };
+    expect(body.ok).toBe(true);
+    expect(body.recipient).toBe(PASSKEY_REFERRED);
+  });
+
+  // ── rate-limit sweep (hits.size > 500) ─────────────────────────────────────
+
+  it('sweep runs without crashing when the hits map exceeds 500 entries', async () => {
+    const promises: Promise<Response>[] = [];
+    for (let i = 0; i < 501; i++) {
+      promises.push(
+        POST(
+          rawRequest(
+            { questId: 1, recipient: RECIPIENT },
+            { ip: `10.0.${Math.floor(i / 256)}.${i % 256}` },
+          ),
+        ),
+      );
+    }
+    const responses = await Promise.all(promises);
+    for (const r of responses) expect(r.status).not.toBe(429);
   });
 });
