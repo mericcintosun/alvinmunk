@@ -103,7 +103,13 @@ pub struct Vouch {
     pub slashed: bool,
 }
 
-fn claim_deadline(v: &Vouch) -> u64 { v.created.saturating_add(VOUCH_TTL_SECS) }
+/// The last timestamp at which `v` still counts as claimed on time: a claim at or before it
+/// refunds the stake, and `expire_vouch` can slash only after it. The one place both read the
+/// deadline from, so they cannot drift apart. Saturating: a `created` within
+/// `VOUCH_TTL_SECS` of `u64::MAX` pins the deadline at `u64::MAX` instead of overflowing.
+fn claim_deadline(v: &Vouch) -> u64 {
+    v.created.saturating_add(VOUCH_TTL_SECS)
+}
 
 /// A voucher's 2nd-order bonus, owed once the claimer performs a verified action.
 #[contracttype]
