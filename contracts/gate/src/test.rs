@@ -3,7 +3,7 @@
 use super::*;
 use alvinmunk_reputation::{ReputationContract, ReputationContractClient};
 use soroban_sdk::{
-    testutils::{storage::Persistent as _, Address as _, Ledger as _},
+    testutils::{storage::Persistent as _, Address as _, Events as _, Ledger as _},
     Address, Bytes, Env, String,
 };
 
@@ -237,4 +237,421 @@ fn writes_extend_gate_entries_to_bump_extend() {
         f.gate.set_gate_active(&1u32, &false);
         assert_eq!(ttl(&f, &DataKey::Gate(1)), BUMP_EXTEND);
     }
+}
+
+// --- Composite gates ---
+
+fn rule(track: u32, min: u64) -> Rule {
+    Rule { track, min }
+}
+
+fn rule_set(f: &Fixture, rules: &[Rule]) -> Vec<Rule> {
+    let mut out = Vec::new(&f.env);
+    for r in rules {
+        out.push_back(r.clone());
+    }
+    out
+}
+
+/// Gate `id` = `rules` combined by `mode`.
+fn composite(f: &Fixture, id: u32, rules: &[Rule], mode: RuleMode, label: &str) {
+    f.gate.create_gate_rules(
+        &id,
+        &rule_set(f, rules),
+        &mode,
+        &String::from_str(&f.env, label),
+    );
+}
+
+/// `user` claims one vouch from each of `n` fresh vouchers: Social = 20 starter + 10 per
+/// claim. `award_xp` only ever credits Earned, so this is the way to raise Social.
+fn earn_social(f: &Fixture, user: &Address, n: u8) {
+    for i in 0..n {
+        let voucher = Address::generate(&f.env);
+        let secret = Bytes::from_array(&f.env, &[i; 32]);
+        let hash = f.env.crypto().sha256(&secret).to_bytes();
+        let id = f
+            .rep
+            .mint_vouch(&voucher, &hash, &String::from_str(&f.env, "ty"));
+        f.rep.claim_vouch(user, &id, &secret);
+    }
+}
+
+fn earn(f: &Fixture, user: &Address, amount: u64) {
+    f.rep.award_xp(&f.attester, user, &2u32, &amount);
+}
+
+/// The bounty-board rule from the issue: Social ≥ 20 AND Earned ≥ 30.
+#[test]
+fn all_of_needs_every_rule() {
+    let f = setup();
+    composite(
+        &f,
+        10,
+        &[rule(TRACK_SOCIAL, 20), rule(TRACK_EARNED, 30)],
+        RuleMode::AllOf,
+        "Bounty board",
+    );
+    let social_only = Address::generate(&f.env);
+    let earned_only = Address::generate(&f.env);
+    let both = Address::generate(&f.env);
+    earn_social(&f, &social_only, 1); // Social 30, Earned 0
+    earn(&f, &earned_only, 30); // Social 0, Earned 30
+    earn_social(&f, &both, 1);
+    earn(&f, &both, 30);
+    assert_eq!(f.rep.get_score(&social_only), 30);
+    assert_eq!(f.rep.get_earned(&earned_only), 30);
+
+    assert!(!f.gate.check(&Address::generate(&f.env), &10u32));
+    assert!(!f.gate.check(&social_only, &10u32));
+    assert!(!f.gate.check(&earned_only, &10u32));
+    assert!(f.gate.check(&both, &10u32));
+
+    for user in [&social_only, &earned_only] {
+        assert_eq!(
+            f.gate.try_unlock(user, &10u32),
+            Err(Ok(Error::BelowThreshold.into()))
+        );
+        assert!(!f.gate.is_unlocked(user, &10u32));
+    }
+    f.gate.unlock(&both, &10u32);
+    assert!(f.gate.is_unlocked(&both, &10u32));
+}
+
+#[test]
+fn any_of_needs_one_rule() {
+    let f = setup();
+    composite(
+        &f,
+        20,
+        &[rule(TRACK_SOCIAL, 50), rule(TRACK_EARNED, 10)],
+        RuleMode::AnyOf,
+        "Perk",
+    );
+    let nobody = Address::generate(&f.env);
+    let low_social = Address::generate(&f.env);
+    let social = Address::generate(&f.env);
+    let earned = Address::generate(&f.env);
+    earn_social(&f, &low_social, 1); // 30 < 50
+    earn(&f, &low_social, 9); // 9 < 10
+    earn_social(&f, &social, 3); // 50
+    earn(&f, &earned, 10);
+
+    assert!(!f.gate.check(&nobody, &20u32));
+    assert!(!f.gate.check(&low_social, &20u32));
+    assert!(f.gate.check(&social, &20u32));
+    assert!(f.gate.check(&earned, &20u32));
+
+    assert_eq!(
+        f.gate.try_unlock(&low_social, &20u32),
+        Err(Ok(Error::BelowThreshold.into()))
+    );
+    f.gate.unlock(&social, &20u32);
+    f.gate.unlock(&earned, &20u32);
+    assert!(f.gate.is_unlocked(&social, &20u32));
+    assert!(f.gate.is_unlocked(&earned, &20u32));
+}
+
+#[test]
+fn all_of_rules_on_one_track_all_apply() {
+    let f = setup();
+    composite(
+        &f,
+        1,
+        &[rule(TRACK_EARNED, 10), rule(TRACK_EARNED, 40)],
+        RuleMode::AllOf,
+        "x",
+    );
+    let user = Address::generate(&f.env);
+    earn(&f, &user, 30);
+    assert!(!f.gate.check(&user, &1u32)); // 30 passes the first rule, not the second
+    earn(&f, &user, 10);
+    assert!(f.gate.check(&user, &1u32));
+}
+
+#[test]
+fn single_rule_shorthand_stores_no_rule_set() {
+    let f = setup();
+    f.gate.create_gate(
+        &30u32,
+        &TRACK_EARNED,
+        &20u64,
+        &String::from_str(&f.env, "Shorthand"),
+    );
+    // Same storage as before composite gates existed: only the `Gate`.
+    let stored = f.env.as_contract(&f.gate.address, || {
+        f.env.storage().persistent().has(&DataKey::GateRules(30))
+    });
+    assert!(!stored);
+    assert_eq!(
+        f.gate.get_gate_rules(&30u32),
+        Some(GateRules {
+            rules: rule_set(&f, &[rule(TRACK_EARNED, 20)]),
+            mode: RuleMode::AllOf,
+        })
+    );
+
+    let user = Address::generate(&f.env);
+    earn(&f, &user, 19);
+    assert!(!f.gate.check(&user, &30u32));
+    earn(&f, &user, 1);
+    assert!(f.gate.check(&user, &30u32));
+}
+
+#[test]
+fn composite_gate_reads_back_whole_rule_set() {
+    let f = setup();
+    let rules = [rule(TRACK_SOCIAL, 20), rule(TRACK_EARNED, 30)];
+    composite(&f, 40, &rules, RuleMode::AnyOf, "Read back");
+    assert_eq!(
+        f.gate.get_gate_rules(&40u32),
+        Some(GateRules {
+            rules: rule_set(&f, &rules),
+            mode: RuleMode::AnyOf,
+        })
+    );
+    // `Gate` keeps its shape: the first rule stands in for `track`/`min`.
+    let g = f.gate.get_gate(&40u32).unwrap();
+    assert_eq!(
+        (g.id, g.track, g.min, g.active),
+        (40, TRACK_SOCIAL, 20, true)
+    );
+    assert_eq!(g.label, String::from_str(&f.env, "Read back"));
+    assert_eq!(f.gate.get_gates().len(), 1);
+    assert_eq!(f.gate.get_gate_rules(&99u32), None);
+}
+
+#[test]
+fn create_gate_rules_announces_the_gate() {
+    let f = setup();
+    composite(&f, 7, &[rule(TRACK_SOCIAL, 1)], RuleMode::AllOf, "x");
+    assert_eq!(
+        f.env.events().all(),
+        soroban_sdk::vec![
+            &f.env,
+            (
+                f.gate.address.clone(),
+                (symbol_short!("gate"), symbol_short!("created")).into_val(&f.env),
+                7u32.into_val(&f.env),
+            )
+        ]
+    );
+}
+
+#[test]
+fn create_gate_rules_bounds_and_validates_the_set() {
+    let f = setup();
+    let label = String::from_str(&f.env, "x");
+    let mode = RuleMode::AllOf;
+    let try_create = |rules: &[Rule]| {
+        f.gate
+            .try_create_gate_rules(&1u32, &rule_set(&f, rules), &mode, &label)
+    };
+
+    assert_eq!(try_create(&[]), Err(Ok(Error::EmptyRules.into())));
+    let five = [
+        rule(TRACK_SOCIAL, 1),
+        rule(TRACK_EARNED, 1),
+        rule(TRACK_SOCIAL, 2),
+        rule(TRACK_EARNED, 2),
+        rule(TRACK_SOCIAL, 3),
+    ];
+    assert_eq!(try_create(&five), Err(Ok(Error::TooManyRules.into())));
+    assert_eq!(
+        try_create(&[rule(TRACK_SOCIAL, 1), rule(2, 1)]),
+        Err(Ok(Error::BadTrack.into()))
+    );
+    // Nothing is stored by a rejected call.
+    assert!(f.gate.get_gate(&1u32).is_none());
+    assert_eq!(f.gate.get_gates().len(), 0);
+
+    // MAX_RULES itself is allowed.
+    assert_eq!(five.len() as u32, MAX_RULES + 1);
+    try_create(&five[..MAX_RULES as usize]).unwrap().unwrap();
+    assert_eq!(f.gate.get_gate_rules(&1u32).unwrap().rules.len(), MAX_RULES);
+}
+
+#[test]
+fn replacing_a_gate_switches_between_single_and_composite() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    earn_social(&f, &user, 1); // Social 30, Earned 0
+    f.gate.create_gate(
+        &60u32,
+        &TRACK_SOCIAL,
+        &5u64,
+        &String::from_str(&f.env, "Before"),
+    );
+    assert!(f.gate.check(&user, &60u32));
+    f.gate.unlock(&user, &60u32);
+
+    // Single → composite: a stricter Earned rule now also applies.
+    composite(
+        &f,
+        60,
+        &[rule(TRACK_SOCIAL, 5), rule(TRACK_EARNED, 50)],
+        RuleMode::AllOf,
+        "After",
+    );
+    assert!(!f.gate.check(&user, &60u32));
+    assert!(f.gate.is_unlocked(&user, &60u32)); // existing unlocks are kept
+    assert_eq!(f.gate.get_gates().len(), 1); // same id, listed once
+    assert_eq!(
+        f.gate.get_gate(&60u32).unwrap().label,
+        String::from_str(&f.env, "After")
+    );
+
+    // Composite → single: the old rule set is dropped, not left to override the gate.
+    f.gate.create_gate(
+        &60u32,
+        &TRACK_SOCIAL,
+        &25u64,
+        &String::from_str(&f.env, "Again"),
+    );
+    assert!(f.gate.check(&user, &60u32));
+    assert_eq!(
+        f.gate.get_gate_rules(&60u32).unwrap().rules,
+        rule_set(&f, &[rule(TRACK_SOCIAL, 25)])
+    );
+    assert_eq!(f.gate.get_gates().len(), 1);
+}
+
+#[test]
+fn inactive_composite_gate_is_closed() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    earn(&f, &user, 10);
+    composite(
+        &f,
+        3,
+        &[rule(TRACK_SOCIAL, 50), rule(TRACK_EARNED, 10)],
+        RuleMode::AnyOf,
+        "x",
+    );
+    f.gate.set_gate_active(&3u32, &false);
+    assert!(!f.gate.check(&user, &3u32));
+    assert_eq!(
+        f.gate.try_unlock(&user, &3u32),
+        Err(Ok(Error::GateInactive.into()))
+    );
+
+    // Re-enabling keeps the composite rules.
+    f.gate.set_gate_active(&3u32, &true);
+    assert!(f.gate.check(&user, &3u32));
+    assert_eq!(f.gate.get_gate_rules(&3u32).unwrap().mode, RuleMode::AnyOf);
+}
+
+/// Stand-in for Reputation that counts the score reads the gate makes.
+mod counting_rep {
+    use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env};
+
+    #[contract]
+    pub struct CountingRep;
+
+    #[contractimpl]
+    impl CountingRep {
+        pub fn get_score(env: Env, _addr: Address) -> u64 {
+            Self::count(&env);
+            100
+        }
+        pub fn get_earned(env: Env, _addr: Address) -> u64 {
+            Self::count(&env);
+            100
+        }
+        pub fn reads(env: Env) -> u32 {
+            env.storage()
+                .instance()
+                .get(&symbol_short!("reads"))
+                .unwrap_or(0)
+        }
+    }
+
+    impl CountingRep {
+        fn count(env: &Env) {
+            let n = Self::reads(env.clone()) + 1;
+            env.storage().instance().set(&symbol_short!("reads"), &n);
+        }
+    }
+}
+
+#[test]
+fn check_reads_each_track_once() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let rep_id = env.register(counting_rep::CountingRep, ());
+    let rep = counting_rep::CountingRepClient::new(&env, &rep_id);
+    let gate = GateContractClient::new(&env, &env.register(GateContract, ()));
+    gate.init(&Address::generate(&env), &rep_id);
+    let mut rules = Vec::new(&env);
+    for r in [
+        rule(TRACK_SOCIAL, 10),
+        rule(TRACK_EARNED, 10),
+        rule(TRACK_SOCIAL, 20),
+        rule(TRACK_EARNED, 20),
+    ] {
+        rules.push_back(r);
+    }
+    gate.create_gate_rules(
+        &1u32,
+        &rules,
+        &RuleMode::AllOf,
+        &String::from_str(&env, "x"),
+    );
+
+    let user = Address::generate(&env);
+    assert!(gate.check(&user, &1u32));
+    assert_eq!(rep.reads(), 2); // four rules, two tracks
+    gate.unlock(&user, &1u32);
+    assert_eq!(rep.reads(), 4);
+}
+
+#[test]
+fn writes_extend_composite_rules_to_bump_extend() {
+    for ttls in [TESTNET_TTLS, MAINNET_TTLS] {
+        let f = setup_with_ttls(ttls);
+        composite(
+            &f,
+            1,
+            &[rule(TRACK_SOCIAL, 1), rule(TRACK_EARNED, 1)],
+            RuleMode::AnyOf,
+            "a",
+        );
+        for key in [DataKey::Gate(1), DataKey::GateRules(1), DataKey::GateIds] {
+            assert_eq!(ttl(&f, &key), BUMP_EXTEND);
+        }
+
+        // Days later, toggling the gate tops its rules up with it.
+        f.env
+            .ledger()
+            .with_mut(|l| l.sequence_number += DAY_LEDGERS * 3);
+        f.gate.set_gate_active(&1u32, &false);
+        assert_eq!(ttl(&f, &DataKey::Gate(1)), BUMP_EXTEND);
+        assert_eq!(ttl(&f, &DataKey::GateRules(1)), BUMP_EXTEND);
+    }
+}
+
+#[test]
+fn upgrade_to_identical_wasm_preserves_composite_gates() {
+    let f = setup();
+    let rules = [rule(TRACK_SOCIAL, 20), rule(TRACK_EARNED, 30)];
+    composite(&f, 1, &rules, RuleMode::AllOf, "a");
+    f.gate
+        .create_gate(&2u32, &TRACK_EARNED, &30u64, &String::from_str(&f.env, "b"));
+    let user = Address::generate(&f.env);
+    earn(&f, &user, 30);
+
+    let hash = f.env.deployer().upload_contract_wasm(GATE_WASM);
+    f.gate.upgrade(&hash);
+
+    assert_eq!(
+        f.gate.get_gate_rules(&1u32),
+        Some(GateRules {
+            rules: rule_set(&f, &rules),
+            mode: RuleMode::AllOf,
+        })
+    );
+    assert!(!f.gate.check(&user, &1u32)); // Social 0 < 20
+    assert!(f.gate.check(&user, &2u32));
+    earn_social(&f, &user, 1);
+    assert!(f.gate.check(&user, &1u32));
 }

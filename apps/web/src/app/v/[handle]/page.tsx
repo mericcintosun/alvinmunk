@@ -12,7 +12,8 @@ import { Stamp } from '@/components/fx/stamp';
 import { BorderBeam } from '@/components/fx/border-beam';
 import { AuroraText } from '@/components/fx/shiny-text';
 import { buttonVariants } from '@/components/ui/button';
-import { cn, shortAddress } from '@/lib/utils';
+import { shortAddr } from '@alvinmunk/shared';
+import { cn } from '@/lib/utils';
 import type { AvatarConfig } from '@/lib/avatar';
 
 /**
@@ -75,7 +76,7 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
           <div className="min-w-0">
             <div className="font-display text-2xl font-semibold">@{handle}</div>
             <p className="mt-1 font-mono text-xs text-muted-foreground">
-              {address ? shortAddress(address) : 'new to the sky'}
+              {address ? shortAddr(address) : 'new to the sky'}
             </p>
             <div className="mt-2">
               <Stamp accent="secondary">

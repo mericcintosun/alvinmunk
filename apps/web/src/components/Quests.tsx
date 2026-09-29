@@ -17,7 +17,8 @@ import { StateArt } from '@/components/ui/state-art';
 import { Sticker } from '@/components/ui/sticker';
 import { Avatar } from '@/components/Avatar';
 import { WeekReset } from '@/components/WeekReset';
-import { cn, humanizeError, shortAddress } from '@/lib/utils';
+import { isStellarAddress, shortAddr } from '@alvinmunk/shared';
+import { cn, humanizeError } from '@/lib/utils';
 import { toast } from '@/components/ui/toaster';
 
 // Quest ids are admin-created on the QuestRegistry; env-configurable so they can change per
@@ -38,8 +39,6 @@ type Evidence =
   | { type: 'referral_tx'; ref: string }
   | { type: 'invite_converts'; ref: string }
   | { type: 'vouch_back'; ref: string };
-
-const RAW_ADDR = /^[GC][A-Z2-7]{55}$/;
 
 /**
  * Verified quests (Earned XP — the cashable track). The wallet owner proves ownership,
@@ -62,11 +61,11 @@ export function Quests({ address }: { address: string }) {
 
   const refTrim = ref.trim();
   const inviteTrim = invite.trim();
-  const validRef = resolvedRef && RAW_ADDR.test(resolvedRef) && resolvedRef !== address;
-  const validInvite = resolvedInvite && RAW_ADDR.test(resolvedInvite) && resolvedInvite !== address;
+  const validRef = resolvedRef && isStellarAddress(resolvedRef) && resolvedRef !== address;
+  const validInvite = resolvedInvite && isStellarAddress(resolvedInvite) && resolvedInvite !== address;
 
   useEffect(() => {
-    if (RAW_ADDR.test(refTrim)) {
+    if (isStellarAddress(refTrim)) {
       setResolvedRef(refTrim);
       setResolvingRef(false);
       return;
@@ -96,7 +95,7 @@ export function Quests({ address }: { address: string }) {
   }, [refTrim]);
 
   useEffect(() => {
-    if (RAW_ADDR.test(inviteTrim)) {
+    if (isStellarAddress(inviteTrim)) {
       setResolvedInvite(inviteTrim);
       setResolvingInvite(false);
       return;
@@ -220,14 +219,14 @@ export function Quests({ address }: { address: string }) {
             className="mt-1.5 font-mono text-xs"
             aria-describedby="quest-ref-hint"
           />
-          {!RAW_ADDR.test(refTrim) && refTrim.length > 0 && (
+          {!isStellarAddress(refTrim) && refTrim.length > 0 && (
             <div className="mt-1 flex items-center text-xs text-muted-foreground">
               {resolvingRef ? (
                 'Looking up handle…'
               ) : resolvedRef ? (
                 <span className="flex items-center text-secondary">
                   → <Avatar address={resolvedRef} size={16} ring={false} className="mx-1.5" />
-                  {shortAddress(resolvedRef, 6, 6)}
+                  {shortAddr(resolvedRef, 6, 6)}
                 </span>
               ) : (
                 <span className="text-destructive">No wallet found for that handle</span>
@@ -264,14 +263,14 @@ export function Quests({ address }: { address: string }) {
             className="mt-1.5 font-mono text-xs"
             aria-describedby="quest-invite-hint"
           />
-          {!RAW_ADDR.test(inviteTrim) && inviteTrim.length > 0 && (
+          {!isStellarAddress(inviteTrim) && inviteTrim.length > 0 && (
             <div className="mt-1 flex items-center text-xs text-muted-foreground">
               {resolvingInvite ? (
                 'Looking up handle…'
               ) : resolvedInvite ? (
                 <span className="flex items-center text-secondary">
                   → <Avatar address={resolvedInvite} size={16} ring={false} className="mx-1.5" />
-                  {shortAddress(resolvedInvite, 6, 6)}
+                  {shortAddr(resolvedInvite, 6, 6)}
                 </span>
               ) : (
                 <span className="text-destructive">No wallet found for that handle</span>

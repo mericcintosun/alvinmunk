@@ -31,7 +31,15 @@ import {
   signMessage as freighterSignMessage,
 
 } from '@stellar/freighter-api';
-import { assertNetworkConfig, config, networkPassphrase, waitForAccountReady, server } from './stellar';
+import {
+  accountExists,
+  assertNetworkConfig,
+  config,
+  networkPassphrase,
+  waitForAccountReady,
+  server,
+} from './stellar';
+import { getItem, setItem, remove } from './storage';
 
 export type WalletKind = 'passkey' | 'dev' | 'freighter' | 'albedo' | 'kit';
 
@@ -148,8 +156,11 @@ export async function getDevWallet(): Promise<Wallet> {
   const existing = safeLocalGet(DEV_SECRET_KEY);
   const kp = existing ? Keypair.fromSecret(existing) : Keypair.random();
 
-  if (!existing) {
-    safeLocalSet(DEV_SECRET_KEY, kp.secret());
+  // Persist the key before funding so every retry reuses one address, and decide whether
+  // to fund from on-chain state: a key saved before a failed Friendbot call (or wiped by a
+  // testnet reset) must still get funded on the next try. A fresh key is never funded yet.
+  if (!existing) safeLocalSet(DEV_SECRET_KEY, kp.secret());
+  if (!existing || !(await accountExists(kp.publicKey()))) {
     await fundWithFriendbot(kp.publicKey());
     // Friendbot may return before the RPC sees the new account; wait so the first
     // getAccount in the onboarding flow doesn't 404.
@@ -703,11 +714,11 @@ export async function connectPasskey(mode: ConnectMode = 'create'): Promise<Wall
 // ── helpers ──
 
 function safeLocalGet(k: string): string | null {
-  return typeof localStorage !== 'undefined' ? localStorage.getItem(k) : null;
+  return getItem(k);
 }
 function safeLocalSet(k: string, v: string): void {
-  if (typeof localStorage !== 'undefined') localStorage.setItem(k, v);
+  setItem(k, v);
 }
 function safeLocalRemove(k: string): void {
-  if (typeof localStorage !== 'undefined') localStorage.removeItem(k);
+  remove(k);
 }

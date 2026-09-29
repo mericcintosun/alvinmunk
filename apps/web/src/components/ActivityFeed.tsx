@@ -2,18 +2,19 @@
 
 import React, { useEffect, useState } from 'react';
 import { shortAddr } from '@alvinmunk/shared';
-import { Sparkles } from 'lucide-react';
 import { fetchActivity, type FeedItem } from '@/lib/feed';
 import { reverseHandles } from '@/lib/registry';
 import { Frame } from '@/components/fx/frame';
 import { Avatar } from '@/components/Avatar';
 import { StateArt } from '@/components/ui/state-art';
+import { useTranslations } from '@/lib/i18n';
 
 /**
  * Activity feed — "the sky is moving". Recent vouch claims from chain, labelled with
  * @handles where claimed. Social proof of life on the dashboard.
  */
 export function ActivityFeed() {
+  const t = useTranslations();
   const [items, setItems] = useState<FeedItem[] | null>(null);
   const [handles, setHandles] = useState<Record<string, string | null>>({});
 
@@ -37,7 +38,7 @@ export function ActivityFeed() {
   const name = (a: string) => (handles[a] ? `@${handles[a]}` : shortAddr(a));
 
   return (
-    <Frame label="log // recent_activity" index="LIVE">
+    <Frame label={t('activityFeed.frame')} index={t('activityFeed.live')}>
       {items === null ? (
         <div className="space-y-2 p-4">
           {Array.from({ length: 3 }).map((_, i) => (
@@ -51,9 +52,9 @@ export function ActivityFeed() {
         <div className="flex flex-col items-center gap-3 px-6 py-8 text-center">
           <StateArt kind="vouch-sent" size={140} />
           <div>
-            <p className="font-display text-lg text-foreground">No activity yet</p>
+            <p className="font-display text-lg text-foreground">{t('activityFeed.empty.title')}</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              The first vouch turns this feed into a living trail of human proof.
+              {t('activityFeed.empty.body')}
             </p>
           </div>
         </div>
@@ -63,7 +64,7 @@ export function ActivityFeed() {
             <li key={i} className="flex items-center gap-2 px-4 py-2.5">
               <Avatar address={it.from} size={22} ring={false} />
               <span className="truncate text-foreground">{name(it.from)}</span>
-              <span className="shrink-0 text-muted-foreground">→ vouched →</span>
+              <span className="shrink-0 text-muted-foreground">{t('activityFeed.vouched')}</span>
               <Avatar address={it.to} size={22} ring={false} />
               <span className="truncate text-foreground">{name(it.to)}</span>
             </li>

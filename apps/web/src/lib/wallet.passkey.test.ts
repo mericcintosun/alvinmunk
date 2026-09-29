@@ -39,6 +39,7 @@ const mocks = vi.hoisted(() => ({
   kitSign: vi.fn(),
   prepareTransaction: vi.fn(),
   getLatestLedger: vi.fn(),
+  accountExists: vi.fn(),
 }));
 
 vi.mock('passkey-kit', () => ({
@@ -56,6 +57,7 @@ vi.mock('passkey-kit', () => ({
 }));
 
 vi.mock('./stellar', () => ({
+  accountExists: (...args: unknown[]) => mocks.accountExists(...args),
   assertNetworkConfig: () => {},
   config: { rpcUrl: 'https://rpc.test', network: 'testnet' },
   networkPassphrase: 'Test SDF Network ; September 2015',
@@ -595,6 +597,7 @@ describe('connectPasskey — recover an existing account (#278)', () => {
 describe('getWallet — recover with the dev wallet', () => {
   beforeEach(() => {
     delete process.env.NEXT_PUBLIC_PASSKEY_WALLET_WASM_HASH;
+    mocks.accountExists.mockReset().mockResolvedValue(true); // the stored key is funded
   });
 
   it('never mints (and funds) a fresh dev wallet when there is none to restore', async () => {
@@ -611,6 +614,7 @@ describe('getWallet — recover with the dev wallet', () => {
 
     expect(wallet.kind).toBe('dev');
     expect(wallet.address).toBe(kp.publicKey());
+    expect(mocks.accountExists).toHaveBeenCalledWith(kp.publicKey());
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

@@ -239,6 +239,24 @@ describe('readBadgeSnapshot', () => {
     localStorage.setItem('alvinmunk.badges.ME', JSON.stringify({ backedBy: 3, vouchedFor: 1 }));
     expect(readBadgeSnapshot('ME')).toBeNull();
   });
+
+  it('returns null when localStorage getter throws', () => {
+    const original = Object.getOwnPropertyDescriptor(window, 'localStorage');
+    Object.defineProperty(window, 'localStorage', {
+      get() {
+        throw new DOMException('SecurityError', 'SecurityError');
+      },
+      configurable: true,
+    });
+
+    try {
+      expect(readBadgeSnapshot('ME')).toBeNull();
+    } finally {
+      if (original) {
+        Object.defineProperty(window, 'localStorage', original);
+      }
+    }
+  });
 });
 
 // ── getBadges end-to-end (mocked reads) ───────────────────────────────────────
