@@ -134,6 +134,13 @@ export function Quests({ address }: { address: string }) {
       });
   }
 
+  function refreshScores() {
+    getEarnedScore(address, address).then(setEarned).catch(() => {});
+    getStreak(address, address)
+      .then((s) => setStreak({ weeks: s.weeks, best: s.best }))
+      .catch(() => {});
+  }
+
   async function run(kind: 'referral' | 'invite' | 'vouchback', questId: number, evidence: Evidence) {
     setBusy(kind);
     setError(null);
@@ -144,9 +151,7 @@ export function Quests({ address }: { address: string }) {
       if (!r.ok) throw new Error(r.error);
       setDone(true);
       toast.success('Quest verified — Earned XP added 🎉');
-      setEarned(await getEarnedScore(address, address));
-      const s = await getStreak(address, address);
-      setStreak({ weeks: s.weeks, best: s.best });
+      refreshScores();
     } catch (e) {
       const msg = humanizeError(e);
       setError(msg);
