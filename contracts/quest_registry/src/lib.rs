@@ -224,6 +224,28 @@ impl QuestRegistryContract {
         );
     }
 
+    /// Whether `who` has already completed `quest_id`. Read-only replay guard inspection.
+    pub fn is_completed(env: Env, quest_id: u32, who: Address) -> bool {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Claimed(quest_id, who))
+            .unwrap_or(false)
+    }
+
+    /// Batch read for multiple quest completions for `who`.
+    pub fn get_completed(env: Env, who: Address, ids: Vec<u32>) -> Vec<bool> {
+        let mut results = Vec::new(&env);
+        for id in ids.iter() {
+            let done = env
+                .storage()
+                .persistent()
+                .get(&DataKey::Claimed(id, who.clone()))
+                .unwrap_or(false);
+            results.push_back(done);
+        }
+        results
+    }
+
     /// The current weekly epoch (timestamp / WEEK_SECS) — the UI's "this week". Weeks run
     /// Thursday 00:00:00 to Wednesday 23:59:59 UTC; `get_week_bounds` gives the timestamps.
     pub fn get_week(env: Env) -> u64 {

@@ -11,9 +11,13 @@ vi.mock('./contracts', async (importOriginal) => ({
   readPublic: readPublicMock,
   readContract: readContractMock,
 }));
-
-import { completeQuest, getStreak, getWeekBounds, timeUntilReset } from './quests';
+import { completeQuest, getStreak, getWeekBounds, timeUntilReset, isCompleted, getCompleted } from './quests';
 import type { Wallet } from './wallet';
+
+beforeEach(() => {
+  readPublicMock.mockReset();
+  readContractMock.mockReset();
+});
 
 describe('completeQuest', () => {
   it('hits the attester and surfaces its error (no on-chain submit)', async () => {
@@ -40,6 +44,40 @@ describe('completeQuest', () => {
     expect(fetchSpy).toHaveBeenCalledOnce();
 
     vi.unstubAllGlobals();
+  });
+});
+
+describe('isCompleted', () => {
+  const OWNER = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
+
+  it('reads wallet-free when no source is given', async () => {
+    readPublicMock.mockResolvedValueOnce(true);
+    await expect(isCompleted(1, OWNER)).resolves.toBe(true);
+    expect(readPublicMock).toHaveBeenCalledWith('CQUEST', 'is_completed', expect.any(Array));
+    expect(readContractMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps the source-account read when a source is given', async () => {
+    readContractMock.mockResolvedValueOnce(false);
+    await expect(isCompleted(1, OWNER, OWNER)).resolves.toBe(false);
+    expect(readContractMock).toHaveBeenCalledWith('CQUEST', 'is_completed', expect.any(Array), OWNER);
+  });
+});
+
+describe('getCompleted', () => {
+  const OWNER = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
+
+  it('reads wallet-free when no source is given', async () => {
+    readPublicMock.mockResolvedValueOnce([true, false, true]);
+    await expect(getCompleted(OWNER, [1, 2, 3])).resolves.toEqual([true, false, true]);
+    expect(readPublicMock).toHaveBeenCalledWith('CQUEST', 'get_completed', expect.any(Array));
+    expect(readContractMock).not.toHaveBeenCalled();
+  });
+
+  it('handles non-array response gracefully', async () => {
+    readContractMock.mockResolvedValueOnce(undefined);
+    await expect(getCompleted(OWNER, [1], OWNER)).resolves.toEqual([]);
+    expect(readContractMock).toHaveBeenCalledWith('CQUEST', 'get_completed', expect.any(Array), OWNER);
   });
 });
 

@@ -49,6 +49,24 @@ export async function getStreak(addr: string, source?: string): Promise<Streak> 
   };
 }
 
+/** Has this wallet already completed `questId`? */
+export async function isCompleted(questId: number, who: string, source?: string): Promise<boolean> {
+  const call = [args.u32(questId), args.addr(who)];
+  const v = source
+    ? await readContract<boolean>(questRegistryId(), 'is_completed', call, source)
+    : await readPublic<boolean>(questRegistryId(), 'is_completed', call);
+  return Boolean(v);
+}
+
+/** Batch read for multiple quest completions for `who`. */
+export async function getCompleted(who: string, questIds: number[], source?: string): Promise<boolean[]> {
+  const call = [args.addr(who), args.u32s(questIds)];
+  const v = source
+    ? await readContract<boolean[]>(questRegistryId(), 'get_completed', call, source)
+    : await readPublic<boolean[]>(questRegistryId(), 'get_completed', call);
+  return Array.isArray(v) ? v : [];
+}
+
 /** The current streak week in UTC unix seconds: `start` is its first second and `end` its
  *  last (inclusive), so the week resets at `end + 1`. Weeks are aligned on the Unix epoch
  *  and run Thursday 00:00 to Wednesday 23:59:59 UTC. */

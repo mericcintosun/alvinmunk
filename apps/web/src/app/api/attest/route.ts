@@ -112,11 +112,21 @@ export async function POST(req: Request): Promise<Response> {
   const shape = validateEvidence(body.evidence, body.recipient);
   if (!shape.ok) return json({ error: shape.reason }, 422);
 
-  // 2) Verify the real-world action (network).
+  // 2) Replay check: reject already-completed quests before verifying evidence (saves quota/rate-limits).
+  try {
+    const alreadyDone = await isQuestCompleted(body.questId, body.recipient);
+    if (alreadyDone) {
+      return json({ error: 'You’ve already completed this quest' }, 409);
+    }
+  } catch {
+    // Non-fatal if simulation fails (e.g. mock test environment)
+  }
+
+  // 3) Verify the real-world action (network).
   const verified = await verifyEvidence(body.evidence as AttestEvidence, body.recipient);
   if (!verified.ok) return json({ error: verified.reason }, 422);
 
-  // 3) Sign the contract's canonical payload — the recipient redeems it on-chain.
+  // 4) Sign the contract's canonical payload — the recipient redeems it on-chain.
   try {
     const signed = await signQuestPayload(secret, body.questId, body.recipient);
     logEvent({ route: 'attest', outcome: 'ok', questId: body.questId, ms: Date.now() - now });
@@ -291,6 +301,27 @@ async function signQuestPayload(
   const payload = scValToNative(retval) as Uint8Array;
   const sig = kp.sign(Buffer.from(payload));
   return { attester: kp.rawPublicKey().toString('hex'), sig: sig.toString('base64') };
+}
+
+/** Read is_completed via simulation — no fee, no signature. */
+async function isQuestCompleted(questId: number, addr: string): Promise<boolean> {
+  if (!QUEST_ID) return false;
+  const server = new rpc.Server(RPC_URL, { allowHttp: RPC_URL.startsWith('http://') });
+  const source = new Account(Keypair.random().publicKey(), '0');
+  const tx = new TransactionBuilder(source, { fee: '100', networkPassphrase: PASSPHRASE })
+    .addOperation(
+      new Contract(QUEST_ID).call(
+        'is_completed',
+        nativeToScVal(questId, { type: 'u32' }),
+        new Address(addr).toScVal(),
+      ),
+    )
+    .setTimeout(30)
+    .build();
+  const sim = await server.simulateTransaction(tx);
+  if (rpc.Api.isSimulationError(sim)) return false;
+  const v = sim.result?.retval;
+  return v ? Boolean(scValToNative(v)) : false;
 }
 
 function json(data: unknown, status = 200): Response {

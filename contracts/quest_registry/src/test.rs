@@ -92,6 +92,55 @@ fn award_quest_cross_calls_reputation_and_credits_earned() {
     assert_eq!(f.rep.get_earned(&user), 50);
     assert_eq!(f.rep.get_score(&user), 0);
     assert!(f.rep.get_attestation(&user, &2).is_some());
+
+    // is_completed and get_completed reflect the awarded state
+    assert_eq!(f.quest.is_completed(&1u32, &user), true);
+    let ids = soroban_sdk::vec![&f.env, 1u32, 2u32];
+    assert_eq!(
+        f.quest.get_completed(&user, &ids),
+        soroban_sdk::vec![&f.env, true, false]
+    );
+}
+
+#[test]
+fn is_completed_and_get_completed_view_state() {
+    let f = setup();
+    let user1 = Address::generate(&f.env);
+    let user2 = Address::generate(&f.env);
+
+    f.quest.create_quest(&1u32, &10u32, &50u64);
+    f.quest.create_quest(&2u32, &11u32, &100u64);
+    f.quest.create_quest(&3u32, &12u32, &150u64);
+
+    // Initially none completed
+    assert_eq!(f.quest.is_completed(&1u32, &user1), false);
+    assert_eq!(f.quest.is_completed(&2u32, &user1), false);
+
+    let ids = soroban_sdk::vec![&f.env, 1u32, 2u32, 3u32];
+    assert_eq!(
+        f.quest.get_completed(&user1, &ids),
+        soroban_sdk::vec![&f.env, false, false, false]
+    );
+
+    // User1 completes quest 1 and 3
+    award(&f, &f.attester_sk, 1, &user1);
+    award(&f, &f.attester_sk, 3, &user1);
+
+    assert_eq!(f.quest.is_completed(&1u32, &user1), true);
+    assert_eq!(f.quest.is_completed(&2u32, &user1), false);
+    assert_eq!(f.quest.is_completed(&3u32, &user1), true);
+
+    assert_eq!(
+        f.quest.get_completed(&user1, &ids),
+        soroban_sdk::vec![&f.env, true, false, true]
+    );
+
+    // User2 is unaffected
+    assert_eq!(f.quest.is_completed(&1u32, &user2), false);
+    assert_eq!(
+        f.quest.get_completed(&user2, &ids),
+        soroban_sdk::vec![&f.env, false, false, false]
+    );
 }
 
 #[test]

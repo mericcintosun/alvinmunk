@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Flame } from 'lucide-react';
 import { getWallet } from '@/lib/wallet';
-import { completeQuest, getStreak } from '@/lib/quests';
+import { completeQuest, getCompleted, getStreak } from '@/lib/quests';
 import { getEarnedScore } from '@/lib/reputation';
 import { resolveHandle } from '@/lib/registry';
 import { normalizeHandle } from '@/lib/profile';
@@ -43,6 +43,7 @@ const RAW_G_ADDR = /^G[A-Z2-7]{55}$/;
 export function Quests({ address }: { address: string }) {
   const [earned, setEarned] = useState<number | null>(null);
   const [streak, setStreak] = useState<{ weeks: number; best: number } | null>(null);
+  const [completed, setCompleted] = useState<Record<number, boolean>>({});
   const [busy, setBusy] = useState<null | 'referral' | 'invite' | 'vouchback'>(null);
   const [ref, setRef] = useState('');
   const [resolvedRef, setResolvedRef] = useState<string | null>(null);
@@ -123,6 +124,18 @@ export function Quests({ address }: { address: string }) {
     getStreak(address, address)
       .then((s) => setStreak({ weeks: s.weeks, best: s.best }))
       .catch(() => setStreak({ weeks: 0, best: 0 }));
+
+    getCompleted(address, [REFERRAL_QUEST_ID, INVITE_QUEST_ID, VOUCHBACK_QUEST_ID], address)
+      .then((res) => {
+        setCompleted({
+          [REFERRAL_QUEST_ID]: Boolean(res[0]),
+          [INVITE_QUEST_ID]: Boolean(res[1]),
+          [VOUCHBACK_QUEST_ID]: Boolean(res[2]),
+        });
+      })
+      .catch(() => {
+        /* keep existing state on read failure */
+      });
   }, [address]);
 
   // A run can lapse when the week rolls over, so the countdown re-reads the streak then.
@@ -143,6 +156,7 @@ export function Quests({ address }: { address: string }) {
       const r = await completeQuest(wallet, questId, evidence);
       if (!r.ok) throw new Error(r.error);
       setDone(true);
+      setCompleted((prev) => ({ ...prev, [questId]: true }));
       toast.success('Quest verified — Earned XP added 🎉');
       setEarned(await getEarnedScore(address, address));
       const s = await getStreak(address, address);
@@ -235,12 +249,16 @@ export function Quests({ address }: { address: string }) {
                 : 'A friend who’s already active on Stellar. Earns Earned XP (cashable).'}
           </p>
           <Button
-            variant="onchain"
+            variant={completed[REFERRAL_QUEST_ID] ? 'secondary' : 'onchain'}
             onClick={() => run('referral', REFERRAL_QUEST_ID, { type: 'referral_tx', ref: resolvedRef! })}
-            disabled={busy !== null || !validRef || resolvingRef}
+            disabled={busy !== null || completed[REFERRAL_QUEST_ID] || !validRef || resolvingRef}
             className="mt-2 w-full"
           >
-            {busy === 'referral' ? 'Verifying…' : 'Verify a quest'}
+            {completed[REFERRAL_QUEST_ID]
+              ? 'Completed'
+              : busy === 'referral'
+                ? 'Verifying…'
+                : 'Verify a quest'}
           </Button>
         </div>
 
@@ -279,12 +297,16 @@ export function Quests({ address }: { address: string }) {
                 : 'Someone you brought in — earns once they’ve been vouched for. The growth loop.'}
           </p>
           <Button
-            variant="onchain"
+            variant={completed[INVITE_QUEST_ID] ? 'secondary' : 'onchain'}
             onClick={() => run('invite', INVITE_QUEST_ID, { type: 'invite_converts', ref: resolvedInvite! })}
-            disabled={busy !== null || !validInvite || resolvingInvite}
+            disabled={busy !== null || completed[INVITE_QUEST_ID] || !validInvite || resolvingInvite}
             className="mt-2 w-full"
           >
-            {busy === 'invite' ? 'Verifying…' : 'Claim invite reward'}
+            {completed[INVITE_QUEST_ID]
+              ? 'Completed'
+              : busy === 'invite'
+                ? 'Verifying…'
+                : 'Claim invite reward'}
           </Button>
         </div>
 
@@ -297,12 +319,16 @@ export function Quests({ address }: { address: string }) {
             Vouch for {VOUCH_BACK_MIN} people, then claim — rewards backing others, not just being backed.
           </p>
           <Button
-            variant="onchain"
+            variant={completed[VOUCHBACK_QUEST_ID] ? 'secondary' : 'onchain'}
             onClick={() => run('vouchback', VOUCHBACK_QUEST_ID, { type: 'vouch_back', ref: '' })}
-            disabled={busy !== null}
+            disabled={busy !== null || completed[VOUCHBACK_QUEST_ID]}
             className="mt-2 w-full"
           >
-            {busy === 'vouchback' ? 'Verifying…' : `Claim vouch-back (${VOUCH_BACK_MIN}+ vouches)`}
+            {completed[VOUCHBACK_QUEST_ID]
+              ? 'Completed'
+              : busy === 'vouchback'
+                ? 'Verifying…'
+                : `Claim vouch-back (${VOUCH_BACK_MIN}+ vouches)`}
           </Button>
         </div>
 
