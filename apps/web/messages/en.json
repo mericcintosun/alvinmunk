@@ -78,6 +78,7 @@
   "onboard.landing.errShort": "Pick a handle — 3+ letters or numbers.",
   "onboard.landing.errTaken": "@{handle} is taken — pick another.",
   "onboard.landing.success": "You're in — @{handle} stamped on-chain.",
+  "onboard.landing.restored": "Welcome back — @{handle} restored.",
 
   "onboard.app.eyebrow": "Step 1 of 1",
   "onboard.app.title": "Create your profile",
@@ -94,10 +95,17 @@
   "onboard.app.errShort": "Pick a handle — 3+ letters or numbers.",
   "onboard.app.errTaken": "@{handle} is taken — pick another.",
   "onboard.app.success": "Your profile is live — @{handle} stamped on-chain.",
+  "onboard.app.or": "or",
+  "onboard.app.restore": "I already have an account",
+  "onboard.app.restoring": "Looking for your account…",
+  "onboard.app.restoreNotFound": "No account found for that passkey — create a new one, or use the device where you first signed up.",
+  "onboard.app.restoreNoHandle": "Found your account — it has no handle yet. Pick one above to finish.",
+  "onboard.app.restored": "Welcome back — @{handle} restored.",
 
   "onboard.claim.errShort": "Pick a handle — 3+ letters or numbers.",
   "onboard.claim.errTaken": "@{handle} is taken — pick another.",
   "onboard.claim.success": "You're in — @{handle} stamped on-chain.",
+  "onboard.claim.restored": "Welcome back — @{handle} restored.",
 
   "claim.handle.title": "Pick your handle",
   "claim.handle.subtitle": "So people can find you — and vouch you back by name.",

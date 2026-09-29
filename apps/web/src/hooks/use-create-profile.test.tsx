@@ -16,6 +16,7 @@ const {
   store,
   connectMock,
   setProfileMock,
+  restoreProfileMock,
   isHandleAvailableMock,
   claimHandleMock,
   recordGenesisMock,
@@ -27,6 +28,7 @@ const {
   store: { wallet: null as Wallet | null },
   connectMock: vi.fn(),
   setProfileMock: vi.fn(),
+  restoreProfileMock: vi.fn(),
   isHandleAvailableMock: vi.fn(),
   claimHandleMock: vi.fn(),
   recordGenesisMock: vi.fn(),
@@ -37,7 +39,12 @@ const {
 }));
 
 vi.mock('@/components/wallet/wallet-provider', () => ({
-  useWallet: () => ({ wallet: store.wallet, connect: connectMock, setProfile: setProfileMock }),
+  useWallet: () => ({
+    wallet: store.wallet,
+    connect: connectMock,
+    setProfile: setProfileMock,
+    restoreProfile: restoreProfileMock,
+  }),
 }));
 vi.mock('@/lib/registry', () => ({
   isHandleAvailable: isHandleAvailableMock,
@@ -79,6 +86,7 @@ describe('useCreateProfile', () => {
     store.wallet = null;
     connectMock.mockReset().mockResolvedValue(DEV_WALLET);
     setProfileMock.mockReset();
+    restoreProfileMock.mockReset().mockResolvedValue(null);
     isHandleAvailableMock.mockReset().mockResolvedValue(true);
     claimHandleMock.mockReset().mockResolvedValue(undefined);
     recordGenesisMock.mockReset().mockResolvedValue('genesis-tx-hash');
@@ -212,5 +220,64 @@ describe('useCreateProfile', () => {
     expect(claimHandleMock).not.toHaveBeenCalled();
     expect(toastMock.error).toHaveBeenCalledWith('@raceduser is taken — pick another.');
     expect(latest.avail).toBe('taken');
+  });
+
+  describe('an address that already holds a handle (#278)', () => {
+    const HELD: Profile = { handle: 'alvin', address: 'CPASSKEY', createdAt: 1 };
+
+    it.each(['app', 'landing', 'claim'] as const)(
+      'keeps it instead of claiming (renaming) it, from %s',
+      async (from) => {
+        store.wallet = PASSKEY_WALLET;
+        restoreProfileMock.mockResolvedValue(HELD);
+        const done: Profile[] = [];
+        await mount(from, (p) => done.push(p));
+        await setHandle('newname');
+
+        await act(async () => {
+          await latest.createProfile();
+        });
+
+        expect(restoreProfileMock).toHaveBeenCalledWith(PASSKEY_WALLET);
+        expect(claimHandleMock).not.toHaveBeenCalled();
+        expect(recordGenesisMock).not.toHaveBeenCalled();
+        expect(setProfileMock).not.toHaveBeenCalled();
+        expect(trackMock).toHaveBeenCalledWith('profile_restored', { walletKind: 'passkey', from });
+        expect(toastMock.success).toHaveBeenCalledWith('Welcome back — @alvin restored.');
+        expect(done).toEqual([HELD]); // landing still moves on into /app
+      },
+    );
+
+    it('does not claim when it cannot tell whether the address holds one', async () => {
+      restoreProfileMock.mockRejectedValue(new Error("Couldn't look up your handle — try again in a moment."));
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      await mount('app');
+      await setHandle('newname');
+
+      await act(async () => {
+        await latest.createProfile();
+      });
+
+      expect(claimHandleMock).not.toHaveBeenCalled();
+      expect(toastMock.error).toHaveBeenCalledWith("Couldn't look up your handle — try again in a moment.");
+      vi.mocked(console.error).mockRestore();
+    });
+
+    it('restoreAccount connects in recover mode, even with a wallet already connected', async () => {
+      store.wallet = DEV_WALLET;
+      connectMock.mockResolvedValue(PASSKEY_WALLET);
+      restoreProfileMock.mockResolvedValue(HELD);
+      await mount('app');
+
+      await act(async () => {
+        await latest.restoreAccount();
+      });
+
+      expect(connectMock).toHaveBeenCalledWith('recover');
+      expect(restoreProfileMock).toHaveBeenCalledWith(PASSKEY_WALLET);
+      expect(toastMock.success).toHaveBeenCalledWith('Welcome back — @alvin restored.');
+      expect(claimHandleMock).not.toHaveBeenCalled();
+      expect(latest.restoring).toBe(false);
+    });
   });
 });

@@ -17,7 +17,14 @@ vi.mock('./contracts', () => ({
   },
 }));
 
-import { getMeta, setMeta, clearMetaCache, isMetaUnsupported, reverseHandles } from './registry';
+import {
+  getMeta,
+  setMeta,
+  clearMetaCache,
+  isMetaUnsupported,
+  reverseHandle,
+  reverseHandles,
+} from './registry';
 import type { Wallet } from './wallet';
 
 const G = 'G'.padEnd(56, 'A');
@@ -154,6 +161,33 @@ describe('isMetaUnsupported', () => {
     expect(isMetaUnsupported(new Error('HostError: Error(Contract, #4)'))).toBe(false);
     expect(isMetaUnsupported(new Error('Error(Storage, MissingValue)'))).toBe(false);
     expect(isMetaUnsupported(new Error('fetch failed'))).toBe(false);
+  });
+});
+
+describe('reverseHandle', () => {
+  beforeEach(() => {
+    readPublicMock.mockReset();
+    registry = 'CREGISTRY';
+  });
+
+  it("reads the address's handle, null when it holds none", async () => {
+    readPublicMock.mockResolvedValueOnce('alvin').mockResolvedValueOnce(null);
+    await expect(reverseHandle(G)).resolves.toBe('alvin');
+    await expect(reverseHandle(G, { strict: true })).resolves.toBeNull();
+    expect(readPublicMock).toHaveBeenCalledWith('CREGISTRY', 'reverse', [{ __addr: G }]);
+  });
+
+  it('answers null for a failed read — unless strict, which throws it', async () => {
+    const down = new Error('fetch failed');
+    readPublicMock.mockRejectedValue(down);
+    await expect(reverseHandle(G)).resolves.toBeNull();
+    await expect(reverseHandle(G, { strict: true })).rejects.toBe(down);
+  });
+
+  it('is null without a configured registry, strict or not, and never calls the RPC', async () => {
+    registry = '';
+    await expect(reverseHandle(G, { strict: true })).resolves.toBeNull();
+    expect(readPublicMock).not.toHaveBeenCalled();
   });
 });
 

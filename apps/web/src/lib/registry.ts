@@ -18,12 +18,18 @@ export async function resolveHandle(handle: string): Promise<string | null> {
   return v ?? null;
 }
 
-/** Reverse address → `@handle`. null if the address hasn't claimed one. */
-export async function reverseHandle(address: string): Promise<string | null> {
+/**
+ * Reverse address → `@handle`. null if the address hasn't claimed one — or, unless `strict`,
+ * if the registry couldn't be read. A caller about to CLAIM passes `strict` so a failed read
+ * throws instead: claiming renames the address's existing handle.
+ */
+export async function reverseHandle(
+  address: string,
+  { strict = false }: { strict?: boolean } = {},
+): Promise<string | null> {
   if (!registryId() || !address) return null;
-  const v = await readPublic<string | null>(registryId(), 'reverse', [args.addr(address)]).catch(
-    () => null,
-  );
+  const read = readPublic<string | null>(registryId(), 'reverse', [args.addr(address)]);
+  const v = await (strict ? read : read.catch(() => null));
   return v ?? null;
 }
 
