@@ -160,6 +160,9 @@
   "leaderboard.title": "En çok bağlantılı olanlar",
   "leaderboard.syncDelayed": "senkronizasyon gecikti",
   "leaderboard.live": "canlı",
+  "leaderboard.syncFailed": "Senkronizasyon Başarısız",
+  "leaderboard.syncFailedBody": "Ağ şu anda kullanılamıyor.",
+  "leaderboard.retry": "Yeniden dene",
   "leaderboard.syncTitle.stale": "Zincirden yenileme yapılamadı — puanlar geride olabilir.",
   "leaderboard.syncTitle.live": "Zincirden canlı.",
   "leaderboard.meta": "sosyal_puan · itibar_değil_nakit · poll=5s",
@@ -204,7 +207,7 @@
   "howItWorks.lim06.t": "Finansman kanıtı",
   "howItWorks.lim06.d": "Ana ağda, nakde çekmeden önce bir cüzdanın harici değer almış olması gerekir.",
   "howItWorks.devs.title": "Geliştiriciler için",
-  "howItWorks.devs.body": "alvinmunk kanonik bir onay ilkesi yayar. Herhangi bir uygulama tek bir çağrıyla cüzdanın itibarını okuyabilir.",
+  "howItWorks.devs.body": "alvinmunk kanonik bir onay ilkesi yayar. Herhangi bir uygulama, API anahtarı ya da sunucu olmadan cüzdanın itibarını doğrudan kontrattan okuyabilir.",
   "howItWorks.devs.openApp": "Uygulamayı aç",
 
   "badges.frame": "rozetler // kilometre_taşları",
