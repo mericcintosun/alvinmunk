@@ -24,13 +24,14 @@ export interface AttestEvidence {
 }
 
 /**
- * The manageData entry name the REFERRED account must set on-chain to bind the referral.
- * Value must be the REFERRER's G-address encoded as UTF-8 bytes (Horizon stores it
- * base64-encoded; the attester decodes it and compares to `recipient`).
+ * The manageData entry name a classic REFERRED account can set on-chain to bind the
+ * referral. Value must be the REFERRER's address encoded as UTF-8 bytes (Horizon stores it
+ * base64-encoded; the attester decodes it and compares to `recipient`). Verifiable via
+ * GET /accounts/{referred} → .data["referral"].
  *
- * Onboarding flow: when a new user is invited, they include a `manageData` operation in
- * their account-creation (or first) transaction that sets this key to the inviter's address.
- * This is verifiable on-chain via GET /accounts/{referred} → .data["referral"].
+ * Passkey smart accounts (C…) can't hold manageData; any wallet can instead bind its
+ * inviter once in the registry (`set_inviter`, read back with `invited_by(addr)`), which
+ * the attester checks first — see `judgeReferral`.
  */
 export const REFERRAL_MARKER_KEY = 'referral';
 
@@ -119,7 +120,8 @@ export function validateEvidence(
     return { ok: false, reason: 'ref must be owner/repo#number' };
   }
   if (ev.type === 'referral_tx') {
-    if (!isGAddress(ev.ref)) return { ok: false, reason: 'ref must be a G address' };
+    // a passkey smart account (C…) is referred through its registry invite binding
+    if (!isStellarAddress(ev.ref)) return { ok: false, reason: 'ref must be a G or C address' };
     if (ev.ref === recipient) return { ok: false, reason: 'cannot refer yourself' };
   }
   if (ev.type === 'invite_converts') {
@@ -127,6 +129,65 @@ export function validateEvidence(
     if (ev.ref === recipient) return { ok: false, reason: 'cannot invite yourself' };
   }
   return { ok: true };
+}
+
+/**
+ * What the attester read about a `referral_tx` ref. For both lookups `null` means "none"
+ * and `undefined` means "couldn't be read right now".
+ */
+export interface ReferralFacts {
+  /** The referred wallet's Social score (`reputation.get_score`). */
+  score: bigint;
+  /**
+   * Its registry invite binding (`registry.invited_by`): the inviter's address; null when
+   * unbound, or when the registry isn't configured or predates invite bindings.
+   */
+  invitedBy: string | null | undefined;
+  /** Its decoded `referral` manageData entry; null when absent (always, for a C… account). */
+  marker: string | null | undefined;
+}
+
+/**
+ * Did `recipient` refer `ref`? The referred wallet must have done something real (a
+ * Social score above zero), so an empty account bound to you earns nothing. Its registry
+ * binding decides whenever there is one — it is write-once and signed by the referred
+ * wallet — and only a wallet with no binding falls back to the classic manageData marker.
+ */
+export function judgeReferral(
+  facts: ReferralFacts,
+  ref: string,
+  recipient: string,
+): { ok: true } | { ok: false; reason: string } {
+  if (facts.score <= 0n) {
+    return { ok: false, reason: 'that wallet hasn’t done anything here yet — no referral credit' };
+  }
+  if (facts.invitedBy === undefined) {
+    return { ok: false, reason: 'couldn’t read who invited that wallet right now — try again' };
+  }
+  if (facts.invitedBy !== null) {
+    return facts.invitedBy === recipient
+      ? { ok: true }
+      : { ok: false, reason: 'that wallet was invited by a different account' };
+  }
+  if (facts.marker === undefined) {
+    return { ok: false, reason: 'couldn’t read the referred account right now — try again' };
+  }
+  if (facts.marker !== null) {
+    if (facts.marker === recipient) return { ok: true };
+    return {
+      ok: false,
+      reason:
+        facts.marker === ref
+          ? 'referral marker is a self-referral on the referred account'
+          : 'referral marker points to a different referrer — cannot reuse this marker',
+    };
+  }
+  return {
+    ok: false,
+    reason:
+      'no referral binding found — ask them to join through your invite link ' +
+      `(or set the "${REFERRAL_MARKER_KEY}" data entry to your address)`,
+  };
 }
 
 /**

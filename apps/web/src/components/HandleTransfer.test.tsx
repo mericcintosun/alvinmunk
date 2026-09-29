@@ -16,7 +16,7 @@ vi.mock('@/lib/wallet', () => ({ storedDevWallet: storedDevWalletMock }));
 vi.mock('@/lib/registry', () => ({
   reverseHandle: reverseHandleMock,
   transferHandle: transferHandleMock,
-  TRANSFER_ERRORS: { NoHandle: 4, AlreadyHasHandle: 9 },
+  TRANSFER_ERRORS: { NoHandle: 4, AlreadyHasHandle: 10 },
 }));
 vi.mock('@/lib/stellar', () => ({ txExplorerUrl: (h: string) => `https://explorer/tx/${h}` }));
 
@@ -76,7 +76,7 @@ describe('HandleTransfer', () => {
   });
 
   it('explains a registry revert instead of the raw error', async () => {
-    transferHandleMock.mockRejectedValue(new Error('HostError: Error(Contract, #9)'));
+    transferHandleMock.mockRejectedValue(new Error('HostError: Error(Contract, #10)'));
     await render();
     await act(async () => {
       button()?.click();

@@ -1,17 +1,19 @@
 /**
- * My minted vouches — kept locally (the claim-secret only ever exists client-side) so
+ * My minted vouches — kept locally (the claim code only ever exists client-side) so
  * the dashboard can resurface UNCLAIMED half-cards: the re-engagement hook (your stake
  * gets slashed if nobody claims within the window — re-share the link). The claimed ones
  * also surface the voucher bonus still waiting on each claimer (`getOwedBonuses`).
  */
-import { buildClaimUrl } from '@alvinmunk/shared';
-import { getPending, getVouch, VOUCH_TTL_SECS } from './reputation';
+import { claimLink, getPending, getVouch, VOUCH_TTL_SECS, type ClaimCode } from './reputation';
 import { reverseHandle } from './registry';
 import { subscribeToPush } from './push';
 
 export interface MyVouch {
   id: number;
-  secret: string;
+  /** The card's claim-key seed (hex) — set for cards minted with `mint_vouch_signed`. */
+  seed?: string;
+  /** The legacy claim secret (hex) — set on cards stored before the claim key existed. */
+  secret?: string;
   note: string;
   created: number; // unix seconds
   /** Stellar address of the voucher — stored so we can look up push subscriptions
@@ -36,9 +38,34 @@ export function addMyVouch(v: MyVouch): void {
   localStorage.setItem(KEY, JSON.stringify(list));
 }
 
+/**
+ * Vouch IDs this device still wants notifications for (pending, unclaimed, in-window).
+ * Used when a rotated push subscription must be re-registered after the server already
+ * pruned the old record (#169) — the server's vouchIds set is rebuilt from this list.
+ */
+export async function getPendingVouchIds(): Promise<number[]> {
+  const mine = getMyVouches();
+  if (mine.length === 0) return [];
+  const now = Math.floor(Date.now() / 1000);
+  const ids = await Promise.all(
+    mine.map(async (m) => {
+      const v = await getVouch(m.id).catch(() => null);
+      if (!v || v.claimed || v.slashed) return null;
+      if (now >= v.created + VOUCH_TTL_SECS) return null;
+      return m.id;
+    }),
+  );
+  return ids.filter((id): id is number => id !== null);
+}
+
 export interface PendingVouch extends MyVouch {
   claimUrl: string;
   daysLeft: number;
+}
+
+/** The code a stored card's link carries: its claim-key seed, or an older card's secret. */
+function claimCodeOf(m: MyVouch): ClaimCode {
+  return m.seed ? { kind: 'key', code: m.seed } : { kind: 'secret', code: m.secret ?? '' };
 }
 
 /** Minted vouches still awaiting a claim (not claimed, not slashed, in-window). */
@@ -54,7 +81,7 @@ export async function getPendingVouches(origin: string): Promise<PendingVouch[]>
       if (now >= deadline) return; // window closed — stake already slashable
       out.push({
         ...m,
-        claimUrl: `${buildClaimUrl(origin, m.id)}?s=${m.secret}`,
+        claimUrl: claimLink(origin, m.id, claimCodeOf(m)),
         daysLeft: Math.max(0, Math.ceil((deadline - now) / 86_400)),
       });
     }),

@@ -11,7 +11,8 @@ const { getVouchMock, getPendingMock, reverseHandleMock } = vi.hoisted(() => ({
   reverseHandleMock: vi.fn(),
 }));
 
-vi.mock('./reputation', () => ({
+vi.mock('./reputation', async (importOriginal) => ({
+  claimLink: (await importOriginal<typeof import('./reputation')>()).claimLink,
   getVouch: getVouchMock,
   getPending: getPendingMock,
   VOUCH_TTL_SECS: 604_800,
@@ -19,7 +20,7 @@ vi.mock('./reputation', () => ({
 vi.mock('./registry', () => ({ reverseHandle: reverseHandleMock }));
 vi.mock('./push', () => ({ subscribeToPush: vi.fn() }));
 
-import { addMyVouch, getOwedBonuses } from './myvouches';
+import { addMyVouch, getOwedBonuses, getPendingVouches } from './myvouches';
 
 const ME = 'GME';
 const OTHER_WALLET = 'GOTHER';
@@ -157,5 +158,28 @@ describe('getOwedBonuses', () => {
     pending.set(BOB, [{ voucher: ME, amount: 5 }]);
     reverseHandleMock.mockRejectedValue(new Error('registry down'));
     expect(await getOwedBonuses(ME)).toMatchObject([{ claimer: BOB, handle: null }]);
+  });
+});
+
+describe('getPendingVouches', () => {
+  it("re-shares each open card with its own claim code, in the fragment only", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const open = (id: number): VouchView => ({
+      id,
+      from: ME,
+      note: 'n',
+      claimed: false,
+      claimer: null,
+      created: now,
+      stake: 5,
+      slashed: false,
+    });
+    addMyVouch({ id: 1, seed: 'aa', note: 'new', created: now });
+    addMyVouch({ id: 2, secret: 'bb', note: 'old', created: now }); // stored before claim keys
+    vouches.set(1, open(1));
+    vouches.set(2, open(2));
+
+    const urls = (await getPendingVouches('https://alvinmunk.app')).map((v) => v.claimUrl).sort();
+    expect(urls).toEqual(['https://alvinmunk.app/claim/1#k=aa', 'https://alvinmunk.app/claim/2#s=bb']);
   });
 });

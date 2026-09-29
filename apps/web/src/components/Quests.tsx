@@ -40,7 +40,6 @@ type Evidence =
   | { type: 'vouch_back'; ref: string };
 
 const RAW_ADDR = /^[GC][A-Z2-7]{55}$/;
-const RAW_G_ADDR = /^G[A-Z2-7]{55}$/;
 
 /**
  * Verified quests (Earned XP — the cashable track). The wallet owner proves ownership,
@@ -63,7 +62,7 @@ export function Quests({ address }: { address: string }) {
 
   const refTrim = ref.trim();
   const inviteTrim = invite.trim();
-  const validRef = resolvedRef && RAW_G_ADDR.test(resolvedRef) && resolvedRef !== address;
+  const validRef = resolvedRef && RAW_ADDR.test(resolvedRef) && resolvedRef !== address;
   const validInvite = resolvedInvite && RAW_ADDR.test(resolvedInvite) && resolvedInvite !== address;
 
   useEffect(() => {
@@ -217,7 +216,7 @@ export function Quests({ address }: { address: string }) {
             id="quest-ref"
             value={ref}
             onChange={(e) => setRef(e.target.value)}
-            placeholder="@handle or address (G…)"
+            placeholder="@handle or address (G… or C…)"
             className="mt-1.5 font-mono text-xs"
             aria-describedby="quest-ref-hint"
           />
@@ -239,8 +238,8 @@ export function Quests({ address }: { address: string }) {
             {resolvedRef && resolvedRef === address
               ? 'You can’t refer yourself — paste a different wallet.'
               : refTrim && !resolvingRef && !validRef
-                ? 'That doesn’t look like a Stellar address (G…) or handle.'
-                : 'A friend who’s already active on Stellar. Earns Earned XP (cashable).'}
+                ? 'That doesn’t look like a Stellar address (G… or C…) or handle.'
+                : 'A friend who joined through your invite link and has been active since. Earns Earned XP (cashable).'}
           </p>
           <Button
             variant="onchain"

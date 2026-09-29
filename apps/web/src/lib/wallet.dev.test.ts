@@ -2,8 +2,12 @@
 import { Address, Keypair, Networks, authorizeEntry, xdr } from '@stellar/stellar-sdk';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { config } = vi.hoisted(() => ({ config: { network: 'testnet' } }));
+const { config, assertNetworkConfig } = vi.hoisted(() => ({
+  config: { network: 'testnet' },
+  assertNetworkConfig: vi.fn(),
+}));
 vi.mock('./stellar', () => ({
+  assertNetworkConfig,
   config,
   networkPassphrase: Networks.TESTNET,
   server: {},
@@ -68,6 +72,14 @@ describe('storedDevWallet', () => {
     store.set(DEV_SECRET_KEY, Keypair.random().secret());
     config.network = 'mainnet';
     expect(storedDevWallet()).toBeNull();
+  });
+
+  it('refuses, like every wallet handout, on an inconsistent network config', () => {
+    store.set(DEV_SECRET_KEY, Keypair.random().secret());
+    assertNetworkConfig.mockImplementationOnce(() => {
+      throw new Error('This deployment is misconfigured');
+    });
+    expect(() => storedDevWallet()).toThrow('misconfigured');
   });
 
   it('is null for a stored secret that is not a key', () => {
