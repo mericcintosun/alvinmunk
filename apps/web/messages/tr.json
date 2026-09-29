@@ -245,6 +245,7 @@
   "quests.vouchBackLabel": "geri destek serisi",
   "quests.vouchBackHint": "{min} kişiyi destekle, sonra talep et — sadece desteklenmek değil, başkalarını desteklemek de kazandırır.",
   "quests.claimVouchBack": "Geri desteği al ({min}+ destek)",
+  "quests.completed": "Tamamlandı",
   "quests.toast.success": "Görev doğrulandı — Kazanılan XP eklendi 🎉",
   "quests.done": "zincirde doğrulandı → Kazanılan XP eklendi",
 
