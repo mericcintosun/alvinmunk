@@ -135,7 +135,7 @@ These are **server-only**. Leave them unset for a minimal read/write demo; set t
 
 Minimal “it runs” config = network vars + the three contract ids + USDC SAC. Everything else is progressive enhancement.
 
-Quick sanity check after the app is up: `GET /api/health` reports `attesterConfigured` / `faucetConfigured` (booleans only — never the secrets) and whether RPC + rewards id look healthy.
+Quick sanity check after the app is up: `GET /api/health` reports `attesterConfigured` / `faucetConfigured` (booleans only — never the secrets), whether RPC + rewards id look healthy, and `configErrors` — every inconsistency in the network settings (a passphrase, RPC or Horizon URL for the other network, a mainnet contract id left unset), each naming its env var. Any entry fails the probe.
 
 ---
 

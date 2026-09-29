@@ -8,8 +8,11 @@ use alvinmunk_reputation::{ReputationContract, ReputationContractClient};
 use ed25519_dalek::{Signer, SigningKey};
 use proptest::prelude::*;
 use soroban_sdk::{
-    testutils::{storage::Persistent as _, Address as _, Events as _, Ledger as _},
-    vec, BytesN, Env,
+    testutils::{
+        storage::{Persistent as _, Temporary as _},
+        Address as _, Events as _, Ledger as _,
+    },
+    vec, BytesN, Env, TryFromVal,
 };
 
 struct Fixture<'a> {
@@ -429,17 +432,27 @@ const QUEST_WASM: &[u8] = include_bytes!("../testdata/alvinmunk_quest_registry.w
 #[test]
 fn upgrade_to_identical_wasm_preserves_quests_and_attester_keys() {
     let f = setup();
-    f.quest.create_quest(&1u32, &2u32, &50u64);
-    f.quest.create_quest(&2u32, &2u32, &50u64);
+    for id in 1..=3u32 {
+        f.quest.create_quest(&id, &2u32, &50u64);
+    }
     let partner = signing_key(42);
     f.quest.set_quest_attester(&2u32, &pub_key(&f, &partner));
+    f.quest.set_attester_budget(&f.attester_pub, &60u64);
+    award(&f, &f.attester_sk, 3, &Address::generate(&f.env));
 
     let hash = f.env.deployer().upload_contract_wasm(QUEST_WASM);
     f.quest.upgrade(&hash);
 
+    // The budget and today's usage survived: 50 of 60 is spent, so a 50 XP award reverts.
+    let user = Address::generate(&f.env);
+    assert_eq!(f.quest.get_attester_usage(&f.attester_pub).used, 50);
+    assert_eq!(
+        try_award(&f, &f.attester_sk, 1, &user),
+        Err(Error::AttesterBudgetExceeded)
+    );
     // The quest config and the allowlisted attester key survived: the upgraded contract
     // still verifies the signed payload and credits Earned XP through Reputation.
-    let user = Address::generate(&f.env);
+    f.quest.set_attester_budget(&f.attester_pub, &0u64);
     award(&f, &f.attester_sk, 1, &user);
     assert_eq!(f.rep.get_earned(&user), 50);
     // So did the quest binding: quest 2 still takes only the partner key.
@@ -510,6 +523,12 @@ fn writes_extend_quest_entries_to_bump_extend() {
         f.quest
             .set_quest_attester(&9u32, &pub_key(&f, &signing_key(42)));
         assert_eq!(ttl(&f, &DataKey::QuestAttester(9)), BUMP_EXTEND);
+
+        f.quest.set_attester_budget(&f.attester_pub, &1_000u64);
+        assert_eq!(
+            ttl(&f, &DataKey::AttesterBudget(f.attester_pub.clone())),
+            BUMP_EXTEND
+        );
 
         // Days later, toggling the quest and a second award top their entries back up.
         f.env.ledger().with_mut(|l| {
@@ -713,4 +732,355 @@ fn non_admin_clear_quest_attester_reverts() {
     let client = QuestRegistryContractClient::new(&env, &id);
     client.init(&Address::generate(&env), &Address::generate(&env));
     client.clear_quest_attester(&1u32);
+}
+
+// --- Daily attester budget ---
+
+const DAY: u64 = 86_400;
+
+/// Quests 1-6 worth `xps[i]` XP each, and the in-house key capped at `budget` a day.
+fn setup_budget(budget: u64, xps: &[u64]) -> Fixture<'static> {
+    let f = setup();
+    for (i, xp) in xps.iter().enumerate() {
+        f.quest.create_quest(&(i as u32 + 1), &2u32, xp);
+    }
+    f.quest.set_attester_budget(&f.attester_pub, &budget);
+    f
+}
+
+/// The `att_key/<kind>` events the last invocation emitted, as (key, a, b).
+fn att_key_events(f: &Fixture, kind: &str) -> std::vec::Vec<(BytesN<32>, u64, u64)> {
+    let env = &f.env;
+    let want = soroban_sdk::vec![
+        env,
+        symbol_short!("att_key").into_val(env),
+        Symbol::new(env, kind).into_val(env),
+    ];
+    let mut out = std::vec::Vec::new();
+    for (contract, topics, data) in env.events().all().iter() {
+        if contract != f.quest.address || topics != want {
+            continue;
+        }
+        if kind == "budget" {
+            let (key, budget) = <(BytesN<32>, u64)>::try_from_val(env, &data).unwrap();
+            out.push((key, budget, 0));
+        } else {
+            out.push(<(BytesN<32>, u64, u64)>::try_from_val(env, &data).unwrap());
+        }
+    }
+    out
+}
+
+fn usage_entry(f: &Fixture, day: u64) -> Option<u64> {
+    f.env.as_contract(&f.quest.address, || {
+        f.env
+            .storage()
+            .temporary()
+            .get(&DataKey::AttesterUsed(f.attester_pub.clone(), day))
+    })
+}
+
+#[test]
+fn error_codes_are_append_only() {
+    assert_eq!(Error::NotInitialized as u32, 1);
+    assert_eq!(Error::AlreadyInitialized as u32, 2);
+    assert_eq!(Error::NotAuthorized as u32, 3);
+    assert_eq!(Error::QuestNotFound as u32, 4);
+    assert_eq!(Error::AlreadyClaimed as u32, 5);
+    assert_eq!(Error::QuestInactive as u32, 6);
+    assert_eq!(Error::AttesterBudgetExceeded as u32, 7);
+}
+
+#[test]
+fn unbudgeted_key_is_unlimited_and_untracked() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    for id in 1..=5u32 {
+        f.quest.create_quest(&id, &2u32, &1_000_000u64);
+        award(&f, &f.attester_sk, id, &user);
+        assert!(att_key_events(&f, "near_cap").is_empty());
+    }
+    assert_eq!(f.rep.get_earned(&user), 5_000_000);
+    assert_eq!(
+        f.quest.get_attester_usage(&f.attester_pub),
+        AttesterUsage {
+            budget: 0,
+            used: 0,
+            day: 0
+        }
+    );
+    // No usage counter is written for a key without a budget.
+    assert_eq!(usage_entry(&f, 0), None);
+}
+
+#[test]
+fn awards_within_budget_then_reject_past_it() {
+    let f = setup_budget(100, &[30, 50, 20, 10, 1]);
+    let (a, b) = (Address::generate(&f.env), Address::generate(&f.env));
+    award(&f, &f.attester_sk, 1, &a);
+    award(&f, &f.attester_sk, 2, &a);
+    award(&f, &f.attester_sk, 3, &b); // exactly the budget
+    assert_eq!(f.quest.get_attester_usage(&f.attester_pub).used, 100);
+
+    assert_eq!(
+        try_award(&f, &f.attester_sk, 4, &a),
+        Err(Error::AttesterBudgetExceeded)
+    );
+    assert_eq!(
+        try_award(&f, &f.attester_sk, 5, &b),
+        Err(Error::AttesterBudgetExceeded)
+    );
+    assert_eq!(f.rep.get_earned(&a), 80);
+    assert_eq!(f.rep.get_earned(&b), 20);
+    assert_eq!(
+        f.quest.get_attester_usage(&f.attester_pub),
+        AttesterUsage {
+            budget: 100,
+            used: 100,
+            day: 0
+        }
+    );
+}
+
+#[test]
+fn a_single_award_larger_than_the_budget_reverts() {
+    let f = setup_budget(40, &[50]);
+    let user = Address::generate(&f.env);
+    assert_eq!(
+        try_award(&f, &f.attester_sk, 1, &user),
+        Err(Error::AttesterBudgetExceeded)
+    );
+    assert_eq!(f.rep.get_earned(&user), 0);
+    assert_eq!(f.quest.get_attester_usage(&f.attester_pub).used, 0);
+}
+
+#[test]
+fn budget_resets_at_utc_midnight() {
+    let f = setup_budget(100, &[100, 50, 50]);
+    let (a, b) = (Address::generate(&f.env), Address::generate(&f.env));
+    let day = 20_000u64; // 2024-10-04
+    set_time(&f, day * DAY);
+    award(&f, &f.attester_sk, 1, &a);
+
+    // Still the same day at 23:59:59 — the budget is spent.
+    set_time(&f, day * DAY + DAY - 1);
+    assert_eq!(
+        try_award(&f, &f.attester_sk, 2, &b),
+        Err(Error::AttesterBudgetExceeded)
+    );
+
+    // 00:00:00 the next day: a fresh budget, counted under the new day.
+    set_time(&f, (day + 1) * DAY);
+    award(&f, &f.attester_sk, 2, &b);
+    assert_eq!(
+        f.quest.get_attester_usage(&f.attester_pub),
+        AttesterUsage {
+            budget: 100,
+            used: 50,
+            day: day + 1
+        }
+    );
+    // The rejected award claimed nothing, so it went through today.
+    assert_eq!(f.rep.get_earned(&b), 50);
+    award(&f, &f.attester_sk, 3, &a);
+    assert_eq!(f.quest.get_attester_usage(&f.attester_pub).used, 100);
+    assert_eq!(usage_entry(&f, day), Some(100));
+}
+
+#[test]
+fn near_cap_fires_once_when_usage_reaches_80_percent() {
+    let f = setup_budget(100, &[40, 39, 1, 10, 10]);
+    let user = Address::generate(&f.env);
+    let key = f.attester_pub.clone();
+
+    award(&f, &f.attester_sk, 1, &user); // 40%
+    assert!(att_key_events(&f, "near_cap").is_empty());
+    award(&f, &f.attester_sk, 2, &user); // 79%
+    assert!(att_key_events(&f, "near_cap").is_empty());
+    award(&f, &f.attester_sk, 3, &user); // 80%: crosses
+    assert_eq!(att_key_events(&f, "near_cap"), [(key.clone(), 80, 100)]);
+    award(&f, &f.attester_sk, 4, &user); // 90%: already past
+    assert!(att_key_events(&f, "near_cap").is_empty());
+
+    // A new day starts below the threshold again.
+    set_time(&f, DAY);
+    f.quest.create_quest(&7u32, &2u32, &85u64);
+    award(&f, &f.attester_sk, 7, &user);
+    assert_eq!(att_key_events(&f, "near_cap"), [(key, 85, 100)]);
+}
+
+#[test]
+fn set_attester_budget_announces_and_zero_removes_the_cap() {
+    let f = setup_budget(10, &[50]);
+    assert_eq!(
+        att_key_events(&f, "budget"),
+        [(f.attester_pub.clone(), 10, 0)]
+    );
+    let user = Address::generate(&f.env);
+    assert_eq!(
+        try_award(&f, &f.attester_sk, 1, &user),
+        Err(Error::AttesterBudgetExceeded)
+    );
+
+    f.quest.set_attester_budget(&f.attester_pub, &0u64);
+    assert_eq!(
+        att_key_events(&f, "budget"),
+        [(f.attester_pub.clone(), 0, 0)]
+    );
+    assert_eq!(f.quest.get_attester_usage(&f.attester_pub).budget, 0);
+    f.env.as_contract(&f.quest.address, || {
+        assert!(!f
+            .env
+            .storage()
+            .persistent()
+            .has(&DataKey::AttesterBudget(f.attester_pub.clone())));
+    });
+    award(&f, &f.attester_sk, 1, &user);
+    assert_eq!(f.rep.get_earned(&user), 50);
+}
+
+#[test]
+fn budgets_are_per_key() {
+    let f = setup_budget(50, &[50, 50]);
+    let second = signing_key(8);
+    f.quest.add_attester_key(&pub_key(&f, &second));
+    let (a, b) = (Address::generate(&f.env), Address::generate(&f.env));
+    award(&f, &f.attester_sk, 1, &a);
+    assert_eq!(
+        try_award(&f, &f.attester_sk, 2, &a),
+        Err(Error::AttesterBudgetExceeded)
+    );
+    // The unbudgeted second key is unaffected by the first key's exhausted budget.
+    award(&f, &second, 1, &b);
+    award(&f, &second, 2, &b);
+    assert_eq!(f.rep.get_earned(&b), 100);
+    assert_eq!(f.quest.get_attester_usage(&pub_key(&f, &second)).used, 0);
+}
+
+#[test]
+fn existing_errors_keep_precedence_over_the_budget() {
+    let f = setup_budget(50, &[50, 10]);
+    let user = Address::generate(&f.env);
+    award(&f, &f.attester_sk, 1, &user);
+    // An exhausted key replaying a claim still gets AlreadyClaimed (#5).
+    assert_eq!(
+        try_award(&f, &f.attester_sk, 1, &user),
+        Err(Error::AlreadyClaimed)
+    );
+    f.quest.set_quest_active(&2u32, &false);
+    assert_eq!(
+        try_award(&f, &f.attester_sk, 2, &user),
+        Err(Error::QuestInactive)
+    );
+
+    // A budget alone authorizes nothing: an un-allowlisted key is still NotAuthorized (#3),
+    // and a removed key's budget comes back with it.
+    let outsider = signing_key(9);
+    f.quest
+        .set_attester_budget(&pub_key(&f, &outsider), &1_000u64);
+    assert_eq!(
+        try_award(&f, &outsider, 1, &Address::generate(&f.env)),
+        Err(Error::NotAuthorized)
+    );
+    f.quest.remove_attester_key(&f.attester_pub);
+    f.quest.add_attester_key(&f.attester_pub);
+    f.quest.set_quest_active(&2u32, &true);
+    assert_eq!(
+        try_award(&f, &f.attester_sk, 2, &user),
+        Err(Error::AttesterBudgetExceeded)
+    );
+}
+
+#[test]
+fn usage_outlives_testnets_short_temporary_ttl() {
+    let f = setup_with_ttls(TESTNET_TTLS);
+    f.quest.create_quest(&1u32, &2u32, &60u64);
+    f.quest.create_quest(&2u32, &2u32, &60u64);
+    f.quest.set_attester_budget(&f.attester_pub, &100u64);
+    let day = f.env.ledger().timestamp() / DAY;
+    award(&f, &f.attester_sk, 1, &Address::generate(&f.env));
+    let used_key = DataKey::AttesterUsed(f.attester_pub.clone(), day);
+    let entry_ttl = f.env.as_contract(&f.quest.address, || {
+        f.env.storage().temporary().get_ttl(&used_key)
+    });
+    assert_eq!(entry_ttl, USAGE_TTL);
+
+    // ~23h later (well past the 720-ledger minimum), the day's usage still counts.
+    f.env.ledger().with_mut(|l| {
+        l.sequence_number += DAY_LEDGERS - 720;
+        l.timestamp += DAY - 3_600;
+    });
+    assert_eq!(
+        try_award(&f, &f.attester_sk, 2, &Address::generate(&f.env)),
+        Err(Error::AttesterBudgetExceeded)
+    );
+}
+
+#[test]
+fn a_quest_bound_key_is_budgeted_too() {
+    let f = setup_budget(0, &[50, 50]);
+    let partner = signing_key(42);
+    f.quest.set_quest_attester(&1u32, &pub_key(&f, &partner));
+    f.quest.set_quest_attester(&2u32, &pub_key(&f, &partner));
+    f.quest.set_attester_budget(&pub_key(&f, &partner), &50u64);
+    let user = Address::generate(&f.env);
+    award(&f, &partner, 1, &user);
+    // The partner's budget is spent, and the scope still keeps the global key out.
+    assert_eq!(
+        try_award(&f, &partner, 2, &user),
+        Err(Error::AttesterBudgetExceeded)
+    );
+    assert_eq!(
+        try_award(&f, &f.attester_sk, 2, &user),
+        Err(Error::NotAuthorized)
+    );
+    assert_eq!(
+        f.quest.get_attester_usage(&pub_key(&f, &partner)),
+        AttesterUsage {
+            budget: 50,
+            used: 50,
+            day: 0
+        }
+    );
+    // The global key's own (unset) budget is untouched.
+    assert_eq!(f.quest.get_attester_usage(&f.attester_pub).used, 0);
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn non_admin_set_attester_budget_reverts() {
+    let env = Env::default();
+    let id = env.register(QuestRegistryContract, ());
+    let client = QuestRegistryContractClient::new(&env, &id);
+    client.init(&Address::generate(&env), &Address::generate(&env));
+    client.set_attester_budget(&BytesN::from_array(&env, &[1; 32]), &100u64);
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(24))]
+
+    /// Invariant: within one day, an award goes through exactly when it fits in what is
+    /// left of the budget, so the XP a key mints never exceeds it.
+    #[test]
+    fn budget_never_overspends(budget in 1u64..500, xps in prop::collection::vec(0u64..200, 1..12)) {
+        let f = setup();
+        f.quest.set_attester_budget(&f.attester_pub, &budget);
+        let user = Address::generate(&f.env);
+        let mut used = 0u64;
+        for (i, &xp) in xps.iter().enumerate() {
+            let quest_id = i as u32 + 1;
+            f.quest.create_quest(&quest_id, &2u32, &xp);
+            let fits = used + xp <= budget;
+            let res = try_award(&f, &f.attester_sk, quest_id, &user);
+            if fits {
+                prop_assert_eq!(res, Ok(()));
+                used += xp;
+            } else {
+                prop_assert_eq!(res, Err(Error::AttesterBudgetExceeded));
+            }
+        }
+        prop_assert_eq!(f.quest.get_attester_usage(&f.attester_pub).used, used);
+        prop_assert_eq!(f.rep.get_earned(&user), used);
+        prop_assert!(used <= budget);
+    }
 }
