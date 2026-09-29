@@ -309,6 +309,7 @@
   "activityFeed.empty.title": "No activity yet",
   "activityFeed.empty.body": "The first vouch turns this feed into a living trail of human proof.",
   "activityFeed.vouched": "→ vouched →",
+  "activityFeed.tipped": "→ tipped →",
   "shareRow.tweet": "tweet",
   "shareRow.copied": "copied",
   "shareRow.copyLink": "copy_link",

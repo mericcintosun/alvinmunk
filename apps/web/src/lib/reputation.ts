@@ -15,6 +15,7 @@ import { invokeAndWait, readContract, readPublic, args, repId, questId } from '.
 import { networkPassphrase } from './stellar';
 import { shareInFlight } from './utils';
 import type { Wallet } from './wallet';
+import { SCHEMA, type Attestation } from '@alvinmunk/shared';
 
 /** Vouch TTL — claim within this window to refund the voucher's stake (mirrors the
  *  contract's VOUCH_TTL_SECS). After it, the stake is slashed but the card still claims. */
@@ -326,12 +327,19 @@ export async function getEarnedScore(addr: string, source: string): Promise<numb
   return Number(v ?? 0);
 }
 
-/** `get_attestation(addr)` — Read completed quest attestations for an address. */
-export async function getAttestation(addr: string): Promise<number> {
-  try {
-    const v = await readPublic<bigint>(questId(), 'get_completed', [args.addr(addr)]);
-    return Number(v ?? 0);
-  } catch {
-    return 0;
-  }
+/**
+ * `get_attestation(addr, SCHEMA.QUEST)` on the reputation contract — the quest record every
+ * award rewrites: `value` is the running XP total across all verified quests and `timestamp`
+ * the ledger time of the latest one (there is no on-chain count). `null` means no quest yet;
+ * a failed read throws instead of looking like "no quests".
+ */
+export async function getQuestAttestation(addr: string): Promise<Attestation | null> {
+  const a = await readPublic<{ issuer: string; value: bigint | number; timestamp: bigint | number; revoked: boolean }>(
+    repId(),
+    'get_attestation',
+    [args.addr(addr), args.u32(SCHEMA.QUEST)],
+  );
+  if (!a) return null;
+  // i128 / u64 decode to bigint; normalise to the shared shape (timestamp in unix seconds).
+  return { issuer: a.issuer, value: BigInt(a.value), timestamp: Number(a.timestamp), revoked: a.revoked };
 }
