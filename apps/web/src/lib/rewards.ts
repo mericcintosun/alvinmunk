@@ -20,6 +20,7 @@ import {
   rewardsId,
 } from './contracts';
 import { server, horizon, networkPassphrase, config } from './stellar';
+import { submitSigned } from './submit';
 import type { Wallet } from './wallet';
 
 const usdcSacId = () => config.contracts.usdcSac;
@@ -124,12 +125,9 @@ export async function enableUsdc(wallet: Wallet): Promise<string> {
     .setTimeout(60)
     .build();
   const signed = TransactionBuilder.fromXDR(await wallet.sign(tx.toXDR()), networkPassphrase);
-  const sent = await server.sendTransaction(signed);
-  if (sent.status === 'ERROR') {
-    throw new Error(`trustline rejected: ${JSON.stringify(sent.errorResult)}`);
-  }
-  await waitConfirmed(sent.hash);
-  return sent.hash;
+  const hash = await submitSigned(signed, 'trustline');
+  await waitConfirmed(hash);
+  return hash;
 }
 
 /** Request test USDC from the serverless faucet (testnet only; trustline required first). */

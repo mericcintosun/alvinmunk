@@ -1,7 +1,9 @@
+import { isStellarAddress } from '@alvinmunk/shared';
 import { NextResponse } from 'next/server';
 import { rpc, scValToNative, xdr } from '@stellar/stellar-sdk';
 import roster from '@/data/onboarded-wallets.json';
 import { aggregateVouchFunnel, readVouchRecords, type VouchFunnel } from '@/lib/vouch-funnel';
+import { withRoute } from '@/lib/api-route';
 
 /**
  * Network stats — unique wallets that have interacted with the app's contracts, per network.
@@ -28,8 +30,6 @@ export const revalidate = 0;
 // history; this only needs to see the last day or so of fresh onboarding.
 const LIVE_WINDOW = 17_280; // ~1 day of ledgers
 const MAX_PAGES = 25;
-const ADDR = /^[GC][A-Z2-7]{55}$/;
-
 type NetKey = 'testnet' | 'mainnet';
 
 const NETWORKS: Record<
@@ -71,7 +71,7 @@ const TARGET: Record<NetKey, number> = { testnet: 50, mainnet: 20 };
 
 function collectAddrs(v: unknown, out: Set<string>): void {
   if (typeof v === 'string') {
-    if (ADDR.test(v)) out.add(v);
+    if (isStellarAddress(v)) out.add(v);
   } else if (Array.isArray(v)) {
     for (const x of v) collectAddrs(x, out);
   } else if (v && typeof v === 'object') {
@@ -126,7 +126,7 @@ async function liveScan(cfg: (typeof NETWORKS)[NetKey]): Promise<{ seen: Set<str
 
 async function statsFor(net: NetKey) {
   const cfg = NETWORKS[net];
-  const rosterList = ((roster as Record<string, string[]>)[net] ?? []).filter((a) => ADDR.test(a));
+  const rosterList = ((roster as Record<string, string[]>)[net] ?? []).filter((a) => isStellarAddress(a));
   const configured = Boolean(cfg.rep || cfg.registry) || rosterList.length > 0;
 
   // Read alongside the live scan; it does not depend on it.
@@ -200,11 +200,11 @@ async function readFunnel(cfg: (typeof NETWORKS)[NetKey]): Promise<FunnelResult>
   }
 }
 
-export async function GET(req: Request) {
+export const GET = withRoute('GET /api/stats', async (req: Request) => {
   const net = (new URL(req.url).searchParams.get('network') || 'testnet') as NetKey;
   if (net !== 'testnet' && net !== 'mainnet') {
     return NextResponse.json({ error: 'bad network' }, { status: 400 });
   }
   const data = await statsFor(net);
   return NextResponse.json(data, { headers: { 'cache-control': 'no-store' } });
-}
+});

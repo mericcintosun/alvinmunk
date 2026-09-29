@@ -9,7 +9,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { getBadges, visibleBadges, type Badge, type BadgePerson } from '@/lib/badges';
 import { FOCUS_MODE } from '@/lib/focus';
 import { useTranslations, type TFn } from '@/lib/i18n';
-import { cn, shortAddress } from '@/lib/utils';
+import { cn } from '@/lib/utils';
+import { shortAddr } from '@alvinmunk/shared';
 
 type State = { status: 'loading' } | { status: 'error' } | { status: 'ready'; badges: Badge[] };
 
@@ -129,7 +130,7 @@ function BadgeDetail({ badge, t }: { badge: Badge; t: TFn }) {
 }
 
 function PersonName({ person }: { person: BadgePerson }) {
-  if (!person.handle) return <span className="normal-case">{shortAddress(person.address)}</span>;
+  if (!person.handle) return <span className="normal-case">{shortAddr(person.address)}</span>;
   return (
     <Link
       href={`/u/${person.handle}`}

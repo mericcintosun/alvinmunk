@@ -13,6 +13,7 @@ import {
   getPushAvailabilityHint,
   syncPushSubscription,
 } from '@/lib/push';
+import { useLocale, useTranslations } from '@/lib/i18n';
 
 /**
  * Give the service worker the owning wallet address so its pushsubscriptionchange handler
@@ -46,6 +47,8 @@ async function shareWalletWithServiceWorker(walletAddress: string): Promise<void
  *    and we never re-surface it for this session.
  */
 export function VouchClaimedNotice() {
+  const t = useTranslations();
+  const { locale } = useLocale();
   // ─── 1. In-session poll ────────────────────────────────────────────────────
   useEffect(() => {
     let alive = true;
@@ -53,16 +56,18 @@ export function VouchClaimedNotice() {
       .then((claimed) => {
         if (!alive || claimed.length === 0) return;
         if (claimed.length === 1) {
-          toast.success(`🌟 Your vouch ignited — "${claimed[0].note}" was claimed.`);
+          toast.success(t('vouchNotice.claimed.one', { note: claimed[0].note }));
         } else {
-          toast.success(`🌟 ${claimed.length} of your vouches were claimed — your sky grew.`);
+          toast.success(t('vouchNotice.claimed.many', {
+            count: new Intl.NumberFormat(locale === 'tr' ? 'tr-TR' : 'en-US').format(claimed.length),
+          }));
         }
       })
       .catch(() => {});
     return () => {
       alive = false;
     };
-  }, []);
+  }, [locale, t]);
 
   // ─── 1b. Rotation re-sync (#169) ──────────────────────────────────────────
   // Push services rotate endpoints; a rotated subscription used to never reach the
@@ -131,7 +136,7 @@ export function VouchClaimedNotice() {
         // The actual per-vouch subscription is created when the next mint happens
         // (subscribeToVouchPush in VouchCompose). Here we just register the SW so
         // future subscriptions can be taken out immediately.
-        toast.success("🔔 Push notifications enabled — we'll tell you when your star is claimed.");
+        toast.success(t('vouchNotice.push.enabled'));
       }
     } catch {
       // Ignore — user may have blocked the prompt
@@ -151,7 +156,7 @@ export function VouchClaimedNotice() {
     >
       <Bell className="size-4 shrink-0 text-primary" aria-hidden />
       <p className="text-sm text-foreground">
-        {pushAvailabilityHint ?? 'Get notified when someone claims your vouch.'}
+        {pushAvailabilityHint ? t('vouchNotice.push.installHint') : t('vouchNotice.push.prompt')}
       </p>
       {!pushAvailabilityHint && (
         <button
@@ -159,12 +164,12 @@ export function VouchClaimedNotice() {
           disabled={requesting}
           className="ml-1 shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-80 disabled:opacity-50"
         >
-          {requesting ? 'Enabling…' : 'Enable'}
+          {requesting ? t('vouchNotice.push.enabling') : t('vouchNotice.push.enable')}
         </button>
       )}
       <button
         onClick={() => setShowBanner(false)}
-        aria-label="Dismiss push notification prompt"
+        aria-label={t('vouchNotice.push.dismiss')}
         className="ml-1 shrink-0 rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
       >
         ✕
