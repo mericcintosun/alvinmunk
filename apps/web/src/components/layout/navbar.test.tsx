@@ -217,4 +217,26 @@ describe('Navbar', () => {
     expect(panel()).toBeNull();
     expect(menuButton().getAttribute('aria-expanded')).toBe('false');
   });
+
+  it('shows a Dashboard link in the navbar when the user has a profile', async () => {
+    wallet.profile = { handle: 'damian', address: 'G'.padEnd(56, 'A'), createdAt: 0 };
+    nav.pathname = '/app';
+    await mount();
+    const dashboardLinks = Array.from(container.querySelectorAll<HTMLAnchorElement>('a[href="/app"]'));
+    expect(dashboardLinks.length).toBeGreaterThan(0);
+    // The active dashboard link should be aria-current="page"
+    expect(dashboardLinks.some((a) => a.getAttribute('aria-current') === 'page')).toBe(true);
+  });
+
+  it('hides the Dashboard link when the user has no profile', async () => {
+    wallet.profile = null;
+    await mount();
+    // Without a profile, there is no Dashboard link in the LINKS list.
+    // The ConnectButton's "Open app" link also points to /app, but it never
+    // carries aria-current — only LINKS entries do.
+    const dashboardNavLinks = Array.from(
+      container.querySelectorAll<HTMLAnchorElement>('a[href="/app"]'),
+    ).filter((a) => a.textContent?.trim() === 'Dashboard');
+    expect(dashboardNavLinks.length).toBe(0);
+  });
 });

@@ -9,6 +9,7 @@ import { ConnectButton } from '@/components/wallet/connect-button';
 import { NetworkBadge } from '@/components/layout/network-badge';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { useTranslations } from '@/lib/i18n';
+import { useWallet } from '@/components/wallet/wallet-provider';
 import { cn } from '@/lib/utils';
 import { isReadOnlyView } from '@/lib/read-network';
 
@@ -32,6 +33,7 @@ function WalletButtonUnlessReadOnly(props: { onNavigate?: () => void }) {
 export function Navbar() {
   const t = useTranslations();
   const pathname = usePathname();
+  const { profile } = useWallet();
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
@@ -40,6 +42,7 @@ export function Navbar() {
     { href: '/leaderboard', label: t('nav.leaderboard') },
     { href: '/stats', label: t('nav.stats') },
     { href: '/wallet', label: t('nav.wallet') },
+    ...(profile ? [{ href: '/app', label: t('nav.dashboard') }] : []),
   ];
 
   useEffect(() => {
