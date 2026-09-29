@@ -13,6 +13,7 @@ import {
   Contract,
   Horizon,
   Keypair,
+  NotFoundError,
   Operation,
   TransactionBuilder,
   nativeToScVal,
@@ -128,7 +129,7 @@ export const POST = withRoute('POST /api/faucet', async (req: Request): Promise<
     // Only 404 when Horizon confirmed the account truly doesn't exist.
     // Any other failure (5xx, network error) is a transient Horizon problem, not a
     // missing account — reporting it as 404 would confuse the user and block retries.
-    if (e instanceof Horizon.NotFoundError) {
+    if (e instanceof NotFoundError) {
       return json({ error: 'recipient account not found on testnet' }, 404);
     }
     return json({ error: 'could not reach Horizon, try again later' }, 502);

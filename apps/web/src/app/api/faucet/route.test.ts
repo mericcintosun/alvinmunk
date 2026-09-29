@@ -34,7 +34,7 @@ const ISSUER_PUBLIC = 'GBBXXXOQA3CDJHCSGR4HGCKMRUH5Q5ESRLLYQOT43IGPKBA5TZ2NTO5H'
 // vi.hoisted runs before any import, so these objects are available in the
 // vi.mock factories below without circular-ref issues.
 const { state, rpcMocks, horizonMocks, NotFoundError } = vi.hoisted(() => {
-  /** Fake Horizon NotFoundError — satisfies `instanceof Horizon.NotFoundError`. */
+  /** Fake Horizon NotFoundError — satisfies `instanceof NotFoundError`. */
   class FakeNotFoundError extends Error {
     name = 'NotFoundError';
     constructor() { super('not found'); }
@@ -103,8 +103,9 @@ vi.mock('@stellar/stellar-sdk', () => {
     },
     Horizon: {
       Server:        vi.fn().mockImplementation(() => horizonMocks),
-      NotFoundError: NotFoundError,
     },
+    // The SDK exports Horizon's NotFoundError at the top level (there is no Horizon.NotFoundError).
+    NotFoundError: NotFoundError,
   };
 });
 
