@@ -12,8 +12,9 @@ import { useLocale, useTranslations } from '@/lib/i18n';
  * Dashboard stat strip — the at-a-glance reputation summary that anchors the app shell.
  * Reads both XP tracks for the signed-in address plus how many people vouched for it —
  * the durable on-chain count (see getPeopleCounts), not a Social XP roll-up and not just
- * the recent event window. Refreshes on mount and on a slow interval so the numbers
- * catch up after a vouch / claim / quest without a full reload.
+ * the recent event window. Refreshes on mount and on a slow interval (paused while the tab
+ * is hidden) so the numbers catch up after a vouch / claim / quest without a full reload.
+ * Skeletons show only until the first read lands; a refresh keeps the last numbers up.
  */
 const REFRESH_MS = 15_000;
 /** People counts also scan the RPC event window (see getPeopleCounts), so they poll slower. */
@@ -31,37 +32,54 @@ const TILES: Tile[] = [
   { key: 'earned', icon: ShieldCheck, tint: 'text-secondary' },
 ];
 
+/**
+ * Runs `load` now and every `ms` while the tab is visible. A hidden tab stops the interval;
+ * coming back refreshes once and restarts it. Returns the cleanup.
+ */
+function pollWhileVisible(load: () => void, ms: number): () => void {
+  let timer: ReturnType<typeof setInterval> | null = null;
+  const stop = () => {
+    if (timer !== null) clearInterval(timer);
+    timer = null;
+  };
+  const onVisibility = () => {
+    stop();
+    if (document.hidden) return;
+    load();
+    timer = setInterval(load, ms);
+  };
+  load();
+  if (!document.hidden) timer = setInterval(load, ms);
+  document.addEventListener('visibilitychange', onVisibility);
+  return () => {
+    stop();
+    document.removeEventListener('visibilitychange', onVisibility);
+  };
+}
+
 export function StatStrip({ address }: { address: string }) {
   const t = useTranslations();
   const { locale } = useLocale();
   const numberFormat = new Intl.NumberFormat(locale === 'tr' ? 'tr-TR' : 'en-US');
   const [scores, setScores] = useState<{ social: number; earned: number } | null>(null);
   const [people, setPeople] = useState<PeopleCounts | null>(null);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let alive = true;
+    setScores(null);
     const load = () => {
-      setLoading(true);
       getScores(address)
         .then((s) => {
-          if (alive) {
-            setScores(s);
-            setLoading(false);
-          }
+          if (alive) setScores(s);
         })
         .catch(() => {
-          if (alive) {
-            setScores({ social: 0, earned: 0 });
-            setLoading(false);
-          }
+          if (alive) setScores({ social: 0, earned: 0 });
         });
     };
-    load();
-    const t = setInterval(load, REFRESH_MS);
+    const stopPolling = pollWhileVisible(load, REFRESH_MS);
     return () => {
       alive = false;
-      clearInterval(t);
+      stopPolling();
     };
   }, [address]);
 
@@ -77,15 +95,14 @@ export function StatStrip({ address }: { address: string }) {
           if (alive) setPeople({ vouchedBy: 0, backed: 0 });
         });
     };
-    load();
-    const t = setInterval(load, PEOPLE_REFRESH_MS);
+    const stopPolling = pollWhileVisible(load, PEOPLE_REFRESH_MS);
     return () => {
       alive = false;
-      clearInterval(t);
+      stopPolling();
     };
   }, [address]);
 
-  const busy = loading || people === null;
+  const busy = scores === null || people === null;
   const value = (k: Tile['key']) =>
     k === 'vouchedBy'
       ? (people?.vouchedBy ?? 0)
@@ -126,7 +143,7 @@ export function StatStrip({ address }: { address: string }) {
                   <div className="font-display text-3xl font-semibold tabular-nums">
                     {numberFormat.format(value(tile.key))}
                   </div>
-                  <p className="mt-1 hidden text-[11px] text-muted-foreground/70 sm:block">{t(`statStrip.${tile.key}.hint`)}</p>
+                  <p className="mt-1 hidden text-[11px] text-muted-foreground sm:block">{t(`statStrip.${tile.key}.hint`)}</p>
                 </div>
               );
             })}
