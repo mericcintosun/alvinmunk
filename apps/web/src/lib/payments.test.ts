@@ -114,4 +114,16 @@ describe('sendXlm status mapping', () => {
     await expect(promise).resolves.toEqual({ hash: 'HASH3', status: 'PENDING' });
     expect(getTransactionMock).toHaveBeenCalledTimes(15);
   });
+
+  it('keeps polling on transient getTransaction error, then resolves SUCCESS', async () => {
+    sendTransactionMock.mockResolvedValue({ status: 'PENDING', hash: 'HASH6' });
+    getTransactionMock
+      .mockRejectedValueOnce(new Error('RPC 429'))
+      .mockResolvedValueOnce({ status: 'SUCCESS' });
+
+    const promise = sendXlm(makeWallet(), 'GB72PZXNOU6DJ2BXZDITS24A5JCN3CEUNTKIX5ESZDXAY2R5HO7YZ3H3', '10');
+    await vi.runAllTimersAsync();
+    await expect(promise).resolves.toEqual({ hash: 'HASH6', status: 'SUCCESS' });
+    expect(getTransactionMock).toHaveBeenCalledTimes(2);
+  });
 });

@@ -60,4 +60,26 @@ describe('enableUsdc submit', () => {
     await settled;
     expect(server.getTransaction).not.toHaveBeenCalled();
   });
+
+  it('keeps confirming through a transient status-read error (#193)', async () => {
+    server.sendTransaction.mockResolvedValue({ status: 'PENDING', hash: 'T3' });
+    server.getTransaction
+      .mockRejectedValueOnce(new Error('RPC 429'))
+      .mockResolvedValueOnce({ status: 'SUCCESS' });
+
+    const p = enableUsdc(wallet());
+    await vi.runAllTimersAsync();
+    await expect(p).resolves.toBe('T3');
+    expect(server.getTransaction).toHaveBeenCalledTimes(2);
+  });
+
+  it('still rejects a trustline that failed on-chain', async () => {
+    server.sendTransaction.mockResolvedValue({ status: 'PENDING', hash: 'T4' });
+    server.getTransaction.mockResolvedValue({ status: 'FAILED' });
+
+    const p = enableUsdc(wallet());
+    const settled = expect(p).rejects.toThrow(/failed on-chain/);
+    await vi.runAllTimersAsync();
+    await settled;
+  });
 });
