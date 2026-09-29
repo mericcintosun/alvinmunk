@@ -627,7 +627,7 @@ pub struct Vouch {
     pub id: u64,
     pub from: Address,
     pub claim_hash: BytesN<32>,  // sha256 of the claim secret
-    pub note: String,            // free-text note from the voucher
+    pub note: String,            // free-text note from the voucher, <= 240 BYTES of UTF-8
     pub claimed: bool,
     pub claimer: Option<Address>,
     pub created: u64,            // ledger timestamp
@@ -635,6 +635,21 @@ pub struct Vouch {
     pub slashed: bool,
 }
 ```
+
+`mint_vouch(from, claim_hash, note)` reverts with `NoteTooLong` (#12) when `note` is
+over 240 bytes (not characters: `ş` is 2 bytes, most emoji 4). That is the web app's
+60-character limit at UTF-8's worst case, so a note typed there always fits. Vouches
+minted before the cap keep their note as stored.
+
+**Enumerating every vouch** (no events needed). Ids are sequential from `1` and never
+reused; the highest minted id is `DataKey::VouchSeq` (a `u64` in instance storage, absent
+until the first mint), and each half-card is the persistent entry `DataKey::Vouch(id)`.
+Read one with `get_vouch(id)`, or read many straight from storage with RPC
+`getLedgerEntries` (keys `Vec[Symbol("VouchSeq")]` in the contract instance and
+`Vec[Symbol("Vouch"), U64(id)]`) — the `/stats` claim funnel does this
+(`apps/web/src/lib/vouch-funnel.ts`), so these two keys are part of the read surface. A
+`Vouch` entry's TTL is extended only at mint (to ~150 days), so an old one can be archived
+and missing from `getLedgerEntries`; count it as unread, not as absent.
 
 ### `Profile` (`get_profile`)
 
@@ -698,6 +713,25 @@ address with nothing queued. Bonuses for an already-verified claimer are paid at
 time and never queued. At most `MAX_PENDING` (64) entries; bonuses past the cap are
 dropped. Keyed by claimer only: "what am I owed" means reading `get_pending` for each
 person you vouched and keeping the entries whose `voucher` is you.
+
+### Handle lookups (`resolve` / `reverse` / `reverse_many`)
+
+`resolve(handle) -> Option<Address>` and `reverse(addr) -> Option<Symbol>` read the two
+directions of the handle map (`DataKey::Fwd(handle)` / `DataKey::Rev(addr)`), `None`
+when the handle is free or the address holds none.
+
+`reverse_many(addrs: Vec<Address>) -> Vec<Option<Symbol>>` is `reverse` for a whole list
+in one call, so a leaderboard or feed labels N rows in one read: one entry per input
+address, in input order (a repeated address repeats its answer), `None` where an address
+holds no handle. It takes at most 50 addresses (`REVERSE_MANY_CAP`) and reverts with
+`TooMany` (#8) past that. A full batch reads 52 ledger entries (50 `Rev` keys, the
+instance and the code), far inside the per-transaction limits (400 footprint entries and
+200 disk reads on testnet and mainnet, checked 2026-09-29) even when every entry is
+archived. Callers chunk longer lists (`reverseHandles` in `apps/web/src/lib/registry.ts`).
+
+All three are pure reads: any caller, no auth, no writes, no TTL extension. A registry
+deployed before `reverse_many` has no such function (`Error(WasmVm, MissingValue)`,
+"non-existent contract function"), so fall back to one `reverse` per address.
 
 ### `ProfileMeta` (`get_meta`)
 
