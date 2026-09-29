@@ -47,6 +47,7 @@ const XP_CLAIMER: u64 = 10; // claimer's Social XP on a fresh (first-pair) claim
 const BONUS_VOUCHER: u64 = 5; // voucher's 2nd-order bonus, released once the claimer verifies
 const VOUCH_TTL_SECS: u64 = 604_800; // 7 days — claim within this window to refund the stake
 const MAX_PENDING: u32 = 64; // cap on pending 2nd-order bonuses per claimer (bounds the flush loop)
+const MAX_BATCH_VOUCH: u32 = 10; // cap on half-cards minted in one `mint_vouches` call
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -64,6 +65,7 @@ pub enum Error {
     NotExpired = 10,
     InsufficientStake = 11,
     NoteTooLong = 12,
+    LengthMismatch = 13,
 }
 
 #[contracttype]
@@ -204,6 +206,40 @@ impl ReputationContract {
     /// Returns the vouch id.
     pub fn mint_vouch(env: Env, from: Address, claim_hash: BytesN<32>, note: String) -> u64 {
         from.require_auth();
+        Self::mint_one(&env, &from, claim_hash, note)
+    }
+
+    /// Batch-mint several half-cards in one transaction (one `from.require_auth()`).
+    /// `claim_hashes` and `notes` must have equal length and at most `MAX_BATCH_VOUCH`
+    /// entries, else `LengthMismatch`. Each card counts against `MAX_VOUCH_PER_DAY`,
+    /// escrows `VOUCH_STAKE`, and emits its own `("vouch","minted")` event — so indexers
+    /// and the feed see exactly what a sequence of `mint_vouch` calls would produce.
+    /// Any failure (cap, stake, note length) reverts the whole batch. Returns the ids.
+    pub fn mint_vouches(
+        env: Env,
+        from: Address,
+        claim_hashes: Vec<BytesN<32>>,
+        notes: Vec<String>,
+    ) -> Vec<u64> {
+        from.require_auth();
+        if claim_hashes.len() != notes.len() || claim_hashes.len() > MAX_BATCH_VOUCH {
+            panic_with_error!(&env, Error::LengthMismatch);
+        }
+        let mut ids: Vec<u64> = Vec::new(&env);
+        for i in 0..claim_hashes.len() {
+            let id = Self::mint_one(
+                &env,
+                &from,
+                claim_hashes.get(i).unwrap(),
+                notes.get(i).unwrap(),
+            );
+            ids.push_back(id);
+        }
+        ids
+    }
+
+    /// Shared body of `mint_vouch`/`mint_vouches`: cap, stake escrow, store, event.
+    fn mint_one(env: &Env, from: &Address, claim_hash: BytesN<32>, note: String) -> u64 {
         if note.len() > MAX_NOTE_BYTES {
             panic_with_error!(&env, Error::NoteTooLong);
         }
@@ -225,7 +261,7 @@ impl ReputationContract {
             .extend_ttl(&dkey, DAY_LEDGERS, DAY_LEDGERS * 2);
 
         // Starter Social XP (once), then escrow the stake.
-        Self::grant_starter(&env, &from);
+        Self::grant_starter(env, from);
         let bal: u64 = env
             .storage()
             .persistent()
@@ -234,7 +270,7 @@ impl ReputationContract {
         if bal < VOUCH_STAKE {
             panic_with_error!(&env, Error::InsufficientStake);
         }
-        Self::sub_social(&env, &from, VOUCH_STAKE);
+        Self::sub_social(env, from, VOUCH_STAKE);
 
         let id: u64 = env
             .storage()
@@ -262,7 +298,7 @@ impl ReputationContract {
 
         env.events().publish(
             (symbol_short!("vouch"), symbol_short!("minted")),
-            (id, from),
+            (id, from.clone()),
         );
         id
     }

@@ -9,6 +9,7 @@ use soroban_sdk::{
     },
     Bytes, BytesN, Env, String,
 };
+use soroban_sdk::vec;
 
 fn setup() -> (Env, ReputationContractClient<'static>, Address) {
     let env = Env::default();
@@ -27,6 +28,18 @@ fn secret_and_hash(env: &Env, fill: u8) -> (Bytes, BytesN<32>) {
     (secret, hash)
 }
 
+/// A batch of `n` distinct secrets and their sha256 hashes, starting at `fill`.
+fn secrets_and_hashes(env: &Env, n: u32, fill: u8) -> (Vec<Bytes>, Vec<BytesN<32>>) {
+    let mut secrets = Vec::new(env);
+    let mut hashes = Vec::new(env);
+    for i in 0..n {
+        let (s, h) = secret_and_hash(env, fill.wrapping_add(i as u8));
+        secrets.push_back(s);
+        hashes.push_back(h);
+    }
+    (secrets, hashes)
+}
+
 /// Notes of exactly `MAX_NOTE_BYTES` UTF-8 bytes: ASCII, then 2-, 3- and 4-byte characters.
 fn notes_at_cap() -> [std::string::String; 4] {
     [
@@ -42,6 +55,212 @@ fn note_too_long_keeps_error_code_12() {
     // The web app maps #12 to its "note too long" copy; a renumber would break it.
     assert_eq!(Error::NoteTooLong as u32, 12);
     assert_eq!(MAX_NOTE_BYTES, 240);
+}
+
+// --- Batch vouch (issue #274) ---
+
+/// One signature mints N half-cards, each independently claimable by its own secret.
+#[test]
+fn mint_vouches_mints_n_independently_claimable_cards() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let (secrets, hashes) = secrets_and_hashes(&env, 3, 1);
+    let notes = vec![
+        &env,
+        String::from_str(&env, "one"),
+        String::from_str(&env, "two"),
+        String::from_str(&env, "three"),
+    ];
+
+    let ids = client.mint_vouches(&alice, &hashes, &notes);
+    assert_eq!(ids.len(), 3);
+    assert_eq!(ids.get(0).unwrap(), 1);
+    assert_eq!(ids.get(1).unwrap(), 2);
+    assert_eq!(ids.get(2).unwrap(), 3);
+
+    // Each card stores its own note and is unclaimed.
+    for (i, id) in ids.iter().enumerate() {
+        let v = client.get_vouch(&id).unwrap();
+        assert!(!v.claimed);
+        assert_eq!(v.note, notes.get(i as u32).unwrap());
+    }
+
+    // Each card is independently claimable by a distinct claimer.
+    let bob = Address::generate(&env);
+    let carol = Address::generate(&env);
+    let dave = Address::generate(&env);
+    client.claim_vouch(&bob, &ids.get(0).unwrap(), &secrets.get(0).unwrap());
+    client.claim_vouch(&carol, &ids.get(1).unwrap(), &secrets.get(1).unwrap());
+    client.claim_vouch(&dave, &ids.get(2).unwrap(), &secrets.get(2).unwrap());
+    assert!(client.get_vouch(&ids.get(0).unwrap()).unwrap().claimed);
+    assert!(client.get_vouch(&ids.get(1).unwrap()).unwrap().claimed);
+    assert!(client.get_vouch(&ids.get(2).unwrap()).unwrap().claimed);
+}
+
+/// The whole batch shares one `require_auth` and one stake debit per card.
+#[test]
+fn mint_vouches_escrows_stake_per_card() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let (_secrets, hashes) = secrets_and_hashes(&env, 3, 1);
+    let notes = vec![
+        &env,
+        String::from_str(&env, "a"),
+        String::from_str(&env, "b"),
+        String::from_str(&env, "c"),
+    ];
+
+    client.mint_vouches(&alice, &hashes, &notes);
+    // Starter 20 - 3 * stake 5 = 5.
+    assert_eq!(client.get_score(&alice), STARTER_SOCIAL - 3 * VOUCH_STAKE);
+}
+
+/// Each card emits its own `("vouch","minted")` event, so indexers and the feed are
+/// unchanged: the batch is just N mints in one invocation.
+#[test]
+fn mint_vouches_emits_one_minted_event_per_card() {
+    use soroban_sdk::{testutils::Events as _, vec, IntoVal, Val};
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let (_secrets, hashes) = secrets_and_hashes(&env, 2, 1);
+    let notes = vec![
+        &env,
+        String::from_str(&env, "a"),
+        String::from_str(&env, "b"),
+    ];
+
+    client.mint_vouches(&alice, &hashes, &notes);
+
+    let debit1: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("social"), alice.clone()).into_val(&env),
+        (VOUCH_STAKE, 15u64).into_val(&env),
+    );
+    let minted1: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("vouch"), symbol_short!("minted")).into_val(&env),
+        (1u64, alice.clone()).into_val(&env),
+    );
+    let debit2: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("social"), alice.clone()).into_val(&env),
+        (VOUCH_STAKE, 10u64).into_val(&env),
+    );
+    let minted2: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("vouch"), symbol_short!("minted")).into_val(&env),
+        (2u64, alice.clone()).into_val(&env),
+    );
+    assert_eq!(
+        env.events().all(),
+        vec![&env, debit1, minted1, debit2, minted2]
+    );
+}
+
+/// Mismatched `claim_hashes` / `notes` lengths revert the whole batch.
+#[test]
+fn mint_vouches_rejects_mismatched_lengths() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let (_secrets, hashes) = secrets_and_hashes(&env, 2, 1);
+    let notes = vec![&env, String::from_str(&env, "only one")];
+
+    assert_eq!(
+        client.try_mint_vouches(&alice, &hashes, &notes),
+        Err(Ok(contract_err(Error::LengthMismatch)))
+    );
+    // Nothing was minted or escrowed.
+    assert_eq!(client.get_score(&alice), 0);
+}
+
+/// A batch larger than `MAX_BATCH_VOUCH` reverts the whole batch.
+#[test]
+fn mint_vouches_rejects_over_limit_batch() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let n = MAX_BATCH_VOUCH + 1;
+    let (_secrets, hashes) = secrets_and_hashes(&env, n, 1);
+    let mut notes = Vec::new(&env);
+    for _ in 0..n {
+        notes.push_back(String::from_str(&env, "x"));
+    }
+
+    assert_eq!(
+        client.try_mint_vouches(&alice, &hashes, &notes),
+        Err(Ok(contract_err(Error::BatchTooLarge)))
+    );
+    assert_eq!(client.get_score(&alice), 0);
+}
+
+/// Exceeding the daily cap on any card in the batch reverts the whole batch.
+#[test]
+fn mint_vouches_reverts_whole_batch_when_cap_exceeded() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    // Use up all but one of Alice's daily allowance.
+    for i in 0..(MAX_VOUCH_PER_DAY - 1) {
+        vouch(&env, &client, &alice, &bob, i as u8);
+    }
+    // A batch of 2 would push her one over the cap: the whole batch must revert.
+    let (_secrets, hashes) = secrets_and_hashes(&env, 2, 200);
+    let notes = vec![
+        &env,
+        String::from_str(&env, "a"),
+        String::from_str(&env, "b"),
+    ];
+    assert_eq!(
+        client.try_mint_vouches(&alice, &hashes, &notes),
+        Err(Ok(contract_err(Error::DailyCapReached)))
+    );
+    // The single card that would have fit was not minted either.
+    assert_eq!(client.get_counts(&bob), (MAX_VOUCH_PER_DAY - 1, 0));
+}
+
+/// Insufficient stake for any card in the batch reverts the whole batch.
+#[test]
+fn mint_vouches_reverts_whole_batch_when_stake_insufficient() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    // Starter 20 affords exactly 4 unclaimed stakes; a batch of 5 must revert entirely.
+    let (_secrets, hashes) = secrets_and_hashes(&env, 5, 1);
+    let mut notes = Vec::new(&env);
+    for _ in 0..5 {
+        notes.push_back(String::from_str(&env, "x"));
+    }
+    assert_eq!(
+        client.try_mint_vouches(&alice, &hashes, &notes),
+        Err(Ok(contract_err(Error::InsufficientStake)))
+    );
+    assert_eq!(client.get_score(&alice), 0);
+}
+
+/// A batch of exactly `MAX_BATCH_VOUCH` is allowed and mints every card.
+#[test]
+fn mint_vouches_accepts_batch_at_the_limit() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let n = MAX_BATCH_VOUCH;
+    let (_secrets, hashes) = secrets_and_hashes(&env, n, 1);
+    let mut notes = Vec::new(&env);
+    for _ in 0..n {
+        notes.push_back(String::from_str(&env, "x"));
+    }
+    let ids = client.mint_vouches(&alice, &hashes, &notes);
+    assert_eq!(ids.len(), n);
+    assert_eq!(client.get_score(&alice), STARTER_SOCIAL - n * VOUCH_STAKE);
+}
+
+/// An empty batch is a no-op: no cards, no stake, no events.
+#[test]
+fn mint_vouches_empty_batch_is_a_noop() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let hashes: Vec<BytesN<32>> = Vec::new(&env);
+    let notes: Vec<String> = Vec::new(&env);
+    let ids = client.mint_vouches(&alice, &hashes, &notes);
+    assert_eq!(ids.len(), 0);
+    assert_eq!(client.get_score(&alice), 0);
 }
 
 #[test]

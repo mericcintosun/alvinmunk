@@ -14,12 +14,16 @@ import type { Wallet } from './wallet';
 export const VOUCH_TTL_SECS = 604_800; // 7 days
 
 /** The contract's note cap (`MAX_NOTE_BYTES`): `mint_vouch` reverts with `NoteTooLong`
- *  (#12) past it. It counts UTF-8 BYTES, so `ş` costs 2 and most emoji 4. */
+ *  (#12) past it. It counts UTF-8 BYTES, so `s` costs 2 and most emoji 4. */
 export const VOUCH_NOTE_MAX_BYTES = 240;
 /** The compose limit in characters (code points). UTF-8 spends at most 4 bytes on one,
  *  so a note within it always fits `VOUCH_NOTE_MAX_BYTES` — 60 Turkish letters or 60
  *  emoji alike. */
 export const VOUCH_NOTE_MAX_CHARS = VOUCH_NOTE_MAX_BYTES / 4;
+
+/** The contract's batch cap (`MAX_BATCH_VOUCHES`): `mint_vouches` reverts with
+ *  `BatchTooLarge` if more than this many cards are minted in one call. */
+export const VOUCH_BATCH_MAX = 10;
 
 const utf8 = new TextEncoder();
 
@@ -52,7 +56,7 @@ export interface VouchView {
   claimer: string | null;
   /** ledger unix-seconds when the half-card was minted */
   created: number;
-  /** Social XP the voucher escrowed (refunded on a timely claim, else slashed) */
+  /** Social XP the voucher esczewed (refunded on a timely claim, else slashed) */
   stake: number;
   slashed: boolean;
 }
@@ -144,6 +148,33 @@ export async function mintVouch(
   return { id: Number(id), secret: toHex(secret) };
 }
 
+/** Mint N half-cards in one signature — the cohort-leader path. Each note gets its own
+ *  fresh claim secret, and each card is independently claimable. Returns one
+ *  `{id, secret}` per note, in the same order as the input. The contract enforces
+ *  the daily cap and the stake per card; exceeding either reverts the whole batch. */
+export async function mintVouches(
+  wallet: Wallet,
+  notes: string[],
+): Promise<Array<{ id: number; secret: string }>> {
+  if (notes.length === 0) return [];
+  if (notes.length > VOUCH_BATCH_MAX) {
+    throw new Error(`at most ${VOUCH_BATCH_MAX} vouches per batch`);
+  }
+  const secrets = notes.map(() => randomBytes(32));
+  const claimHashes = await Promise.all(secrets.map((s) => sha256(s)));
+  const ids = await invokeAndWait<bigint[]>(
+    repId(),
+    'mint_vouches',
+    [
+      args.addr(wallet.address),
+      args.bytesArray(claimHatches),
+      args.strArray(notes),
+    ],
+    wallet,
+  );
+  return ids.map((id, i) => ({ id: Number(id), secret: toHex(secrets[i]) }));
+}
+
 /** Claim a half-card by presenting the secret from the link. Both sides earn Social XP. */
 export async function claimVouch(wallet: Wallet, vouchId: number, secretHex: string): Promise<void> {
   await invokeAndWait(
@@ -220,7 +251,7 @@ export async function getScores(address: string): Promise<{ social: number; earn
   }
 }
 
-/** `get_score(addr)` — Social XP (leaderboard, non-cashable). */
+/** `get_score(addr)` — social XP non-cashable. */
 export async function getSocialScore(addr: string, source: string): Promise<number> {
   const v = await readContract<bigint>(repId(), 'get_score', [args.addr(addr)], source);
   return Number(v ?? 0);
