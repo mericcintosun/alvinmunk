@@ -59,9 +59,20 @@ gh variable list
 
 Or in the UI: **Settings → Secrets and variables → Actions → Variables**.
 
-The first four are **required**: the `web-e2e` job fails immediately if any is unset, rather than
-falling back to the published contracts. `CI_GATE_CONTRACT_ID` and `CI_USDC_SAC_ID` are optional
-(nothing in the smoke test invokes them) but are checked for shape when present.
+The first four are **required**: for a push or a same-repo PR, the `web-e2e` job fails immediately
+if any is unset, rather than falling back to the published contracts. `CI_GATE_CONTRACT_ID` and
+`CI_USDC_SAC_ID` are optional (nothing in the smoke test invokes them) but are checked for shape
+when present.
+
+### Fork PRs skip this job — they don't fail it
+
+GitHub does not pass repository variables (or secrets) to a `pull_request` run triggered from a
+fork, for the same exfiltration-prevention reason it withholds secrets — so every `CI_*` var would
+read empty on an external contributor's PR. `ci.yml`'s `web-e2e` job has
+`if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository`,
+so it skips cleanly (shows "Skipped", not a red ✗) for a fork PR instead of failing the guard on
+every single one. It still runs normally on `push` and on a PR from a branch of this repo, where
+the vars are available.
 
 ### 3. Verify locally before you trust it
 
