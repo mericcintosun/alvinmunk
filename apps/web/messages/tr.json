@@ -80,6 +80,7 @@
   "onboard.landing.errTaken": "@{handle} alınmış — başka birini dene.",
   "onboard.landing.errReserved": "@{handle} yeni bırakıldı; {date} tarihine kadar önceki sahibine ayrılmış — başka birini dene.",
   "onboard.landing.success": "İçerisindesin — @{handle} zincire damgalandı.",
+  "onboard.landing.restored": "Tekrar hoş geldin — @{handle} geri yüklendi.",
 
   "onboard.app.eyebrow": "Adım 1 / 1",
   "onboard.app.title": "Profilini oluştur",
@@ -98,11 +99,18 @@
   "onboard.app.errTaken": "@{handle} alınmış — başka birini dene.",
   "onboard.app.errReserved": "@{handle} yeni bırakıldı; {date} tarihine kadar önceki sahibine ayrılmış — başka birini dene.",
   "onboard.app.success": "Profilin yayında — @{handle} zincire damgalandı.",
+  "onboard.app.or": "veya",
+  "onboard.app.restore": "Hesabım zaten var",
+  "onboard.app.restoring": "Hesabın aranıyor…",
+  "onboard.app.restoreNotFound": "Bu geçiş anahtarı için hesap bulunamadı — yeni bir hesap oluştur veya ilk kaydolduğun cihazı kullan.",
+  "onboard.app.restoreNoHandle": "Hesabın bulundu — henüz bir kullanıcı adı yok. Bitirmek için yukarıdan birini seç.",
+  "onboard.app.restored": "Tekrar hoş geldin — @{handle} geri yüklendi.",
 
   "onboard.claim.errShort": "Bir kullanıcı adı seç — 3 veya daha fazla harf ya da rakam.",
   "onboard.claim.errTaken": "@{handle} alınmış — başka birini dene.",
   "onboard.claim.errReserved": "@{handle} yeni bırakıldı; {date} tarihine kadar önceki sahibine ayrılmış — başka birini dene.",
   "onboard.claim.success": "İçerisindesin — @{handle} zincire damgalandı.",
+  "onboard.claim.restored": "Tekrar hoş geldin — @{handle} geri yüklendi.",
 
   "claim.handle.title": "Kullanıcı adını seç",
   "claim.handle.subtitle": "İnsanlar seni bulabilsin — ve seni adınla geri onaylayabilsin.",

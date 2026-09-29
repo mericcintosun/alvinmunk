@@ -8,6 +8,7 @@ import { humanizeError } from '@/lib/utils';
 import { track, identify, trackError } from '@/lib/track';
 import { useLocale, useTranslations } from '@/lib/i18n';
 import type { FaceId } from '@/lib/avatar';
+import type { Wallet } from '@/lib/wallet';
 
 /** Where a create-profile flow runs from. Drives both the `onboard.<from>.*` i18n keys
  *  and the `from` field on the `profile_created` track event. */
@@ -20,9 +21,9 @@ export interface UseCreateProfileOptions {
   from: CreateProfileSource;
   /** Chosen avatar face, if the caller offers a face picker (only `onboarding.tsx` does). */
   face?: FaceId;
-  /** Called once the profile has been created and stored. `landing-onboard.tsx` uses this
-   *  to navigate into `/app`; other callers stay put — the claim page just hides the inline
-   *  picker once `useWallet().profile` is set. */
+  /** Called once the profile is stored — created, or restored because the address already
+   *  held a handle. `landing-onboard.tsx` uses this to navigate into `/app`; other callers
+   *  stay put — the claim page just hides the inline picker once `useWallet().profile` is set. */
   onCreated?: (profile: Profile) => void;
 }
 
@@ -36,6 +37,15 @@ export interface UseCreateProfileResult {
   reservedUntil: string | null;
   creating: boolean;
   createProfile: () => Promise<void>;
+  /** A `restoreAccount` is running. */
+  restoring: boolean;
+  /**
+   * "I already have an account" (issue #278): pick an existing passkey — a synced one on a
+   * new phone, a second browser, after clearing site data — instead of enrolling a new one,
+   * and adopt the handle its account holds. Creates nothing. Only the app onboarding offers
+   * it, so only `onboard.app.*` defines its `restoreNoHandle` / `restoreNotFound` messages.
+   */
+  restoreAccount: () => Promise<void>;
 }
 
 /**
@@ -57,9 +67,10 @@ export interface UseCreateProfileResult {
 export function useCreateProfile({ from, face, onCreated }: UseCreateProfileOptions): UseCreateProfileResult {
   const t = useTranslations();
   const { locale } = useLocale();
-  const { wallet, connect, setProfile } = useWallet();
+  const { wallet, connect, setProfile, restoreProfile } = useWallet();
   const [handle, setHandle] = useState('');
   const [creating, setCreating] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const [avail, setAvail] = useState<HandleAvailability>('idle');
   const [reservedUntil, setReservedUntil] = useState<string | null>(null);
   const normalizedHandle = normalizeHandle(handle);
@@ -94,6 +105,17 @@ export function useCreateProfile({ from, face, onCreated }: UseCreateProfileOpti
     };
   }, [normalizedHandle, address, day]);
 
+  /** The address already holds `p`'s handle, now adopted as the local profile. */
+  const welcomeBack = useCallback(
+    (w: Wallet, p: Profile) => {
+      identify(w.address, { handle: p.handle, walletKind: w.kind });
+      track('profile_restored', { walletKind: w.kind, from });
+      toast.success(t(`onboard.${from}.restored`, { handle: p.handle }));
+      onCreated?.(p);
+    },
+    [from, onCreated, t],
+  );
+
   const createProfile = useCallback(async () => {
     const h = normalizedHandle;
     if (h.length < 3) {
@@ -109,6 +131,14 @@ export function useCreateProfile({ from, face, onCreated }: UseCreateProfileOpti
       // Reuse an already-connected wallet when there is one, so this never re-triggers
       // connect() / a second FaceID prompt (e.g. right after claimVouch on the claim page).
       const w = wallet ?? (await connect());
+      // An address that already holds a handle keeps it (a returning user whose passkey synced
+      // here, or a wallet that claimed one elsewhere): claiming would RENAME it. A strict read,
+      // so a registry outage stops here instead of passing for "no handle".
+      const held = await restoreProfile(w);
+      if (held) {
+        welcomeBack(w, held);
+        return;
+      }
       const a = await handleAvailability(h, w.address);
       if (a.status === 'reserved') {
         setAvail('reserved');
@@ -143,7 +173,44 @@ export function useCreateProfile({ from, face, onCreated }: UseCreateProfileOpti
     } finally {
       setCreating(false);
     }
-  }, [normalizedHandle, wallet, connect, setProfile, face, from, onCreated, t, day]);
+  }, [normalizedHandle, wallet, connect, setProfile, restoreProfile, welcomeBack, face, from, onCreated, t, day]);
 
-  return { handle, setHandle, normalizedHandle, avail, reservedUntil, creating, createProfile };
+  const restoreAccount = useCallback(async () => {
+    setRestoring(true);
+    try {
+      const w = await connect('recover');
+      const held = await restoreProfile(w);
+      // The account is there but never claimed a handle: it is connected now, so the form
+      // finishes it on this same account.
+      if (!held) {
+        toast(t(`onboard.${from}.restoreNoHandle`));
+        return;
+      }
+      welcomeBack(w, held);
+    } catch (e) {
+      // Already loaded by the connect above; dynamic for the same bundle reason as the rest.
+      const { AccountNotFoundError } = await import('@/lib/wallet');
+      if (e instanceof AccountNotFoundError) {
+        toast.error(t(`onboard.${from}.restoreNotFound`));
+        return;
+      }
+      console.error('🛑 restoreAccount failed →', e);
+      trackError(e, { flow: 'restore_account', from });
+      toast.error(humanizeError(e));
+    } finally {
+      setRestoring(false);
+    }
+  }, [connect, restoreProfile, welcomeBack, from, t]);
+
+  return {
+    handle,
+    setHandle,
+    normalizedHandle,
+    avail,
+    reservedUntil,
+    creating,
+    createProfile,
+    restoring,
+    restoreAccount,
+  };
 }
