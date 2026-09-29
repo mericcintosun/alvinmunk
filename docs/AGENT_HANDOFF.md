@@ -46,7 +46,7 @@ apps/web/                 Next.js 14, stellar-sdk 16 (protocol 23), @stellar/fre
   src/lib/contracts.ts    invokeAndWait / readContract / args (ScVal builders)
   src/lib/reputation.ts   mintVouch (claim-secret), claimVouch, getSocial/Earned
   src/lib/leaderboard.ts  RPC social events + localStorage snapshot cache + reciprocal-ring flag
-  src/lib/quests.ts       completeQuest (signs ownership, POSTs /api/attest)
+  src/lib/quests.ts       completeQuest (POSTs /api/attest, then submits award_quest)
   src/lib/genesis.ts      first on-chain tx (manageData); src/lib/payments.ts (Level-1 XLM send)
   src/app/api/attest/     SERVERLESS ATTESTER (the only server-side key user). Hardened.
   src/app/page.tsx        onboarding → vouch + quests + leaderboard links
