@@ -32,7 +32,6 @@ type Evidence =
   | { type: 'vouch_back'; ref: string };
 
 const RAW_ADDR = /^[GC][A-Z2-7]{55}$/;
-const RAW_G_ADDR = /^G[A-Z2-7]{55}$/;
 
 /**
  * Verified quests (Earned XP — the cashable track). The wallet owner proves ownership,
@@ -232,7 +231,7 @@ export function Quests({ address }: { address: string }) {
               ? 'You can’t refer yourself — paste a different wallet.'
               : refTrim && !resolvingRef && !validRef
                 ? 'That doesn’t look like a Stellar address (G… or C…) or handle.'
-                : 'A friend who’s already active on Stellar. Earns Earned XP (cashable).'}
+                : 'A friend who joined through your invite link and has been active since. Earns Earned XP (cashable).'}
           </p>
           <Button
             variant="onchain"

@@ -103,7 +103,7 @@ export interface OnChainMeta {
 /** True when the error says the deployed registry has no such function (it predates it). */
 function isMissingFunction(e: unknown): boolean {
   const msg = e instanceof Error ? e.message : String(e ?? '');
-  return /Error\(WasmVm, MissingValue)\|non-existent contract function/.test(msg);
+  return /Error\(WasmVm, MissingValue\)|non-existent contract function/.test(msg);
 }
 
 /**
@@ -132,7 +132,7 @@ export async function setMeta(wallet: Wallet, avatar: AvatarConfig, bio: string)
 }
 
 // Profiles are read on every /u page view and OG render; a short per-address cache (and
-// shared in-flight promise) Keeps repeat renders and crawler bursts to one simulation.
+// shared in-flight promise) keeps repeat renders and crawler bursts to one simulation.
 const META_TTL_MS = 30_000;
 const META_CACHE_MAX = 500;
 const metaCache = new Map<string, { at: number; value: Promise<OnChainMeta | null> }>();
@@ -177,17 +177,4 @@ export function getMeta(address: string): Promise<OnChainMeta | null> {
     .catch(() => null);
   remember(address, value);
   return value;
-}
-
-/**
- * Who invited `address`? Reads `invited_by(addr)` from the registry via simulation.
- * Returns the inviter's address, or null when the address wasn't invited, the
- * registry isn't configured, or the deployed registry predates `invited_by`.
- */
-export async function invitedBy(registry: string, address: string): Promise<string | null> {
-  if (!registry || !address) return null;
-  const v = await readPublic<string | null>(registry, 'invited_by', [args.addr(address)]).catch(
-    () => null,
-  );
-  return v ?? null;
 }
