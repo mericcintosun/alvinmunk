@@ -1,5 +1,4 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
-import { scValToNative } from '@stellar/stellar-sdk';
 
 const { readPublicMock, readContractMock, invokeAndWaitMock, argsMock } = vi.hoisted(() => {
   // Identity stand-ins for every `args.*` ScVal builder (real ./contracts) so
@@ -16,7 +15,7 @@ const { readPublicMock, readContractMock, invokeAndWaitMock, argsMock } = vi.hoi
       addr: identity,
       addrs: identity,
       u32: identity,
-      u64: identity,
+      u64: vi.fn(identity),
       i128: identity,
       bool: identity,
       str: identity,
@@ -68,6 +67,7 @@ describe('completeQuest', () => {
   const OWNER = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
   const ATTESTER_HEX = '0x' + 'ab'.repeat(32);
   const SIG_B64 = Buffer.alloc(64, 7).toString('base64');
+  const EXPIRES_AT = 1_790_813_400; // the signature's expiry, unix seconds
 
   const wallet: Wallet = {
     kind: 'freighter',
@@ -86,7 +86,7 @@ describe('completeQuest', () => {
     const fetchSpy = vi.fn(async () => ({
       ok: true,
       status: 200,
-      json: async () => ({ attester: ATTESTER_HEX, sig: SIG_B64 }),
+      json: async () => ({ attester: ATTESTER_HEX, sig: SIG_B64, expiresAt: EXPIRES_AT }),
     }));
     vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch);
     invokeAndWaitMock.mockResolvedValueOnce('HASH');
@@ -97,8 +97,14 @@ describe('completeQuest', () => {
     expect(invokeAndWaitMock).toHaveBeenCalledOnce();
     const [, method, callArgs] = invokeAndWaitMock.mock.calls[0];
     expect(method).toBe('award_quest');
-    expect(callArgs).toHaveLength(4);
-    const [attester, sig, questId, recipient] = callArgs as [Uint8Array, Uint8Array, number, string];
+    expect(callArgs).toHaveLength(5);
+    const [attester, sig, questId, recipient, expiresAt] = callArgs as [
+      Uint8Array,
+      Uint8Array,
+      number,
+      string,
+      bigint,
+    ];
     expect(attester).toBeInstanceOf(Uint8Array);
     expect(attester).toHaveLength(32);
     expect(Array.from(attester)).toEqual(Array.from(Buffer.from('ab'.repeat(32), 'hex')));
@@ -107,6 +113,7 @@ describe('completeQuest', () => {
     expect(Array.from(sig)).toEqual(Array.from(Buffer.alloc(64, 7)));
     expect(questId).toBe(2);
     expect(recipient).toBe(OWNER);
+    expect(expiresAt).toBe(BigInt(EXPIRES_AT));
 
     vi.unstubAllGlobals();
   });
@@ -115,7 +122,7 @@ describe('completeQuest', () => {
     const fetchSpy = vi.fn(async () => ({
       ok: true,
       status: 200,
-      json: async () => ({ attester: ATTESTER_HEX, sig: SIG_B64 }),
+      json: async () => ({ attester: ATTESTER_HEX, sig: SIG_B64, expiresAt: EXPIRES_AT }),
     }));
     vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch);
     invokeAndWaitMock.mockResolvedValueOnce('HASH');
@@ -150,7 +157,7 @@ describe('completeQuest', () => {
     const fetchSpy = vi.fn(async () => ({
       ok: true,
       status: 200,
-      json: async () => ({ attester: ATTESTER_HEX, sig: SIG_B64 }),
+      json: async () => ({ attester: ATTESTER_HEX, sig: SIG_B64, expiresAt: EXPIRES_AT }),
     }));
     vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch);
     invokeAndWaitMock.mockRejectedValueOnce(new Error('HostError: Error(Contract, #3)'));
@@ -218,8 +225,10 @@ describe('completeQuest signature expiry', () => {
     });
     const [contract, method, callArgs] = invokeAndWaitMock.mock.calls[0];
     expect([contract, method, callArgs.length]).toEqual(['CQUEST', 'award_quest', 5]);
-    expect(callArgs[4].switch().name).toBe('scvU64');
-    expect(scValToNative(callArgs[4])).toBe(1_790_813_400n);
+    // `args` is an identity stand-in here (see the top of the file): the raw value, and
+    // that it went through the u64 builder.
+    expect(callArgs[4]).toBe(1_790_813_400n);
+    expect(argsMock.u64).toHaveBeenLastCalledWith(1_790_813_400n);
     vi.unstubAllGlobals();
   });
 
