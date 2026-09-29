@@ -70,7 +70,13 @@ describe('hero box sizing', () => {
     );
     vi.stubGlobal(
       'matchMedia',
-      vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }),
+      vi
+        .fn()
+        .mockReturnValue({
+          matches: false,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        }),
     );
     container = document.createElement('div');
     document.body.appendChild(container);
