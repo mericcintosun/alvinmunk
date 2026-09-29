@@ -33,20 +33,30 @@ function explorer(net: NetKey, addr: string) {
 export default function StatsPage() {
   const [tab, setTab] = useState<NetKey>('testnet');
   const [data, setData] = useState<Record<NetKey, Stats | null>>({ testnet: null, mainnet: null });
+  const [stale, setStale] = useState<Record<NetKey, boolean>>({ testnet: false, mainnet: false });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let alive = true;
     const load = () => {
       fetch(`/api/stats?network=${tab}`, { cache: 'no-store' })
-        .then((r) => r.json())
+        .then(async (r) => {
+          if (!r.ok) throw new Error('fetch failed');
+          return r.json();
+        })
         .then((d: Stats) => {
           if (alive) {
             setData((prev) => ({ ...prev, [tab]: d }));
+            setStale((prev) => ({ ...prev, [tab]: false }));
             setLoading(false);
           }
         })
-        .catch(() => alive && setLoading(false));
+        .catch(() => {
+          if (alive) {
+            setStale((prev) => ({ ...prev, [tab]: true }));
+            setLoading(false);
+          }
+        });
     };
     setLoading(!data[tab]);
     load();
@@ -59,9 +69,10 @@ export default function StatsPage() {
   }, [tab]);
 
   const s = data[tab];
-  const users = s?.users ?? 0;
+  const users = s?.users;
   const target = s?.target ?? (tab === 'testnet' ? 50 : 20);
-  const pct = Math.min(100, Math.round((users / target) * 100));
+  const pct = users === undefined ? 0 : Math.min(100, Math.round((users / target) * 100));
+  const isStale = stale[tab];
 
   return (
     <div className="container max-w-3xl py-12">
@@ -108,12 +119,12 @@ export default function StatsPage() {
                 <div>
                   <p className="text-xs font-medium text-muted-foreground">Wallets on-chain</p>
                   <p className="font-display text-5xl font-semibold tabular-nums">
-                    {loading && !s ? '—' : users}
+                    {users === undefined ? '—' : users}
                   </p>
                 </div>
               </div>
               <p className="font-display text-2xl font-semibold text-muted-foreground">
-                {users} <span className="text-muted-foreground/50">/ {target}</span>
+                {users === undefined ? '—' : users} <span className="text-muted-foreground/50">/ {target}</span>
               </p>
             </div>
 
@@ -125,10 +136,10 @@ export default function StatsPage() {
               />
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
-              {pct}% toward {TABS.find((t) => t.key === tab)?.goal}
+              {users === undefined ? '—' : pct}% toward {TABS.find((t) => t.key === tab)?.goal}
               {s?.latestLedger ? ` · ledger ${s.latestLedger}` : ''}
-              <span className="ml-2 inline-flex items-center gap-1 text-secondary/80">
-                <Activity className="size-3" /> live
+              <span className={cn('ml-2 inline-flex items-center gap-1', isStale ? 'text-amber-400/90' : 'text-secondary/80')} title={isStale ? 'Sync delayed' : 'Live'}>
+                <Activity className="size-3" /> {isStale ? 'stale' : 'live'}
               </span>
             </p>
           </>

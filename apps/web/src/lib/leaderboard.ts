@@ -34,11 +34,11 @@ function saveSnapshot(records: SocialRecord[]): void {
 }
 
 /** Pull recent reputation events → social records + claimed vouch pairs. */
-export async function fetchWindow(): Promise<{ records: SocialRecord[]; pairs: VouchPair[] }> {
+export async function fetchWindow(options?: { throwOnError?: boolean }): Promise<{ records: SocialRecord[]; pairs: VouchPair[] }> {
   const records: SocialRecord[] = [];
   const pairs: VouchPair[] = [];
 
-  for (const { topics, data, ledger } of await fetchReputationEvents()) {
+  for (const { topics, data, ledger } of await fetchReputationEvents(options)) {
     if (topics[0] === EVENTS.SOCIAL) {
       const total = Array.isArray(data) ? Number(data[1]) : Number(data);
       records.push({ address: String(topics[1]), total, ledger });
@@ -50,11 +50,25 @@ export async function fetchWindow(): Promise<{ records: SocialRecord[]; pairs: V
   return { records, pairs };
 }
 
-export async function fetchLeaderboard(): Promise<LeaderboardEntry[]> {
-  const { records, pairs } = await fetchWindow();
+export async function fetchLeaderboard(options?: { throwOnError?: boolean }): Promise<LeaderboardEntry[]> {
+  let records: SocialRecord[] = [];
+  let pairs: VouchPair[] = [];
+  try {
+    const window = await fetchWindow(options);
+    records = window.records;
+    pairs = window.pairs;
+  } catch (err) {
+    if (options?.throwOnError) {
+      const snap = loadSnapshot();
+      if (snap.length === 0) throw err;
+    }
+  }
+
   // Merge with the persisted snapshot so older scores survive the RPC window.
   const merged = mergeSocialRecords(loadSnapshot(), records);
-  saveSnapshot(merged);
+  if (records.length > 0 || pairs.length > 0) {
+    saveSnapshot(merged);
+  }
   const flagged = new Set(detectReciprocalRings(pairs));
   return rankLeaderboard(merged, flagged);
 }
