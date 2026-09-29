@@ -238,3 +238,262 @@ fn writes_extend_gate_entries_to_bump_extend() {
         assert_eq!(ttl(&f, &DataKey::Gate(1)), BUMP_EXTEND);
     }
 }
+
+// ─── Composite gate rules ────────────────────────────────────────────────────
+
+/// Helper: give `user` exactly `social` Social XP and `earned` Earned XP.
+fn give_scores(f: &Fixture, user: &Address, social: u64, earned: u64) {
+    if social > 0 {
+        // Use award_xp on track 0 (the shortcut for Social XP in tests).
+        // award_xp signature: (attester, user, reward_id, amount)
+        f.rep.award_xp(&f.attester, user, &0u32, &social);
+    }
+    if earned > 0 {
+        f.rep.award_xp(&f.attester, user, &2u32, &earned);
+    }
+}
+
+#[test]
+fn all_of_passes_when_both_rules_met() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+
+    // Gate 10: Social ≥ 20 AND Earned ≥ 30.
+    let mut rules = Vec::new(&f.env);
+    rules.push_back(Rule { track: TRACK_SOCIAL, min: 20 });
+    rules.push_back(Rule { track: TRACK_EARNED, min: 30 });
+    f.gate.create_gate_rules(
+        &10u32,
+        &rules,
+        &RuleMode::AllOf,
+        &String::from_str(&f.env, "Bounty board tier"),
+    );
+
+    // Neither condition met → false.
+    assert!(!f.gate.check(&user, &10u32));
+
+    // Only social met → still false (all-of).
+    give_scores(&f, &user, 25, 0);
+    assert!(!f.gate.check(&user, &10u32));
+
+    // Both met → true.
+    give_scores(&f, &user, 0, 35);
+    assert!(f.gate.check(&user, &10u32));
+
+    // Unlock succeeds.
+    f.gate.unlock(&user, &10u32);
+    assert!(f.gate.is_unlocked(&user, &10u32));
+}
+
+#[test]
+fn all_of_fails_when_one_rule_unmet() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+
+    let mut rules = Vec::new(&f.env);
+    rules.push_back(Rule { track: TRACK_SOCIAL, min: 20 });
+    rules.push_back(Rule { track: TRACK_EARNED, min: 30 });
+    f.gate.create_gate_rules(
+        &11u32,
+        &rules,
+        &RuleMode::AllOf,
+        &String::from_str(&f.env, "All-of fail"),
+    );
+
+    // Social met, earned not → fails.
+    give_scores(&f, &user, 25, 5);
+    assert!(!f.gate.check(&user, &11u32));
+}
+
+#[test]
+#[should_panic]
+fn all_of_unlock_below_threshold_reverts() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+
+    let mut rules = Vec::new(&f.env);
+    rules.push_back(Rule { track: TRACK_SOCIAL, min: 20 });
+    rules.push_back(Rule { track: TRACK_EARNED, min: 30 });
+    f.gate.create_gate_rules(
+        &12u32,
+        &rules,
+        &RuleMode::AllOf,
+        &String::from_str(&f.env, "All-of unlock fail"),
+    );
+
+    give_scores(&f, &user, 25, 5); // earned too low
+    f.gate.unlock(&user, &12u32); // BelowThreshold
+}
+
+#[test]
+fn any_of_passes_when_one_rule_met() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+
+    // Gate 20: Social ≥ 50 OR Earned ≥ 10 (looser fallback).
+    let mut rules = Vec::new(&f.env);
+    rules.push_back(Rule { track: TRACK_SOCIAL, min: 50 });
+    rules.push_back(Rule { track: TRACK_EARNED, min: 10 });
+    f.gate.create_gate_rules(
+        &20u32,
+        &rules,
+        &RuleMode::AnyOf,
+        &String::from_str(&f.env, "Any-of perk"),
+    );
+
+    // Neither met → false.
+    assert!(!f.gate.check(&user, &20u32));
+
+    // Only earned met (10 ≥ 10) → true.
+    give_scores(&f, &user, 0, 10);
+    assert!(f.gate.check(&user, &20u32));
+}
+
+#[test]
+fn any_of_fails_when_no_rule_met() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+
+    let mut rules = Vec::new(&f.env);
+    rules.push_back(Rule { track: TRACK_SOCIAL, min: 50 });
+    rules.push_back(Rule { track: TRACK_EARNED, min: 30 });
+    f.gate.create_gate_rules(
+        &21u32,
+        &rules,
+        &RuleMode::AnyOf,
+        &String::from_str(&f.env, "Any-of all fail"),
+    );
+
+    give_scores(&f, &user, 10, 5); // both below minimums
+    assert!(!f.gate.check(&user, &21u32));
+}
+
+#[test]
+#[should_panic]
+fn any_of_unlock_below_threshold_reverts() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+
+    let mut rules = Vec::new(&f.env);
+    rules.push_back(Rule { track: TRACK_SOCIAL, min: 50 });
+    rules.push_back(Rule { track: TRACK_EARNED, min: 30 });
+    f.gate.create_gate_rules(
+        &22u32,
+        &rules,
+        &RuleMode::AnyOf,
+        &String::from_str(&f.env, "Any-of unlock fail"),
+    );
+
+    give_scores(&f, &user, 10, 5);
+    f.gate.unlock(&user, &22u32); // BelowThreshold
+}
+
+#[test]
+fn single_rule_shorthand_still_works() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+
+    // create_gate is the single-rule shorthand — must behave exactly as before.
+    f.gate.create_gate(
+        &30u32,
+        &TRACK_EARNED,
+        &20u64,
+        &String::from_str(&f.env, "Shorthand"),
+    );
+
+    assert!(!f.gate.check(&user, &30u32));
+    give_scores(&f, &user, 0, 20);
+    assert!(f.gate.check(&user, &30u32));
+    f.gate.unlock(&user, &30u32);
+    assert!(f.gate.is_unlocked(&user, &30u32));
+}
+
+#[test]
+fn get_gate_rules_returns_correct_rule_set() {
+    let f = setup();
+    let mut rules = Vec::new(&f.env);
+    rules.push_back(Rule { track: TRACK_SOCIAL, min: 20 });
+    rules.push_back(Rule { track: TRACK_EARNED, min: 30 });
+    f.gate.create_gate_rules(
+        &40u32,
+        &rules,
+        &RuleMode::AllOf,
+        &String::from_str(&f.env, "Read back"),
+    );
+
+    let gr = f.gate.get_gate_rules(&40u32).unwrap();
+    assert_eq!(gr.rules.len(), 2);
+    assert_eq!(gr.rules.get(0).unwrap().track, TRACK_SOCIAL);
+    assert_eq!(gr.rules.get(0).unwrap().min, 20);
+    assert_eq!(gr.rules.get(1).unwrap().track, TRACK_EARNED);
+    assert_eq!(gr.rules.get(1).unwrap().min, 30);
+}
+
+#[test]
+fn get_gate_rules_returns_none_for_unknown_gate() {
+    let f = setup();
+    assert!(f.gate.get_gate_rules(&99u32).is_none());
+}
+
+#[test]
+#[should_panic]
+fn create_gate_rules_too_many_rules_reverts() {
+    let f = setup();
+    // MAX_RULES = 4; push 5.
+    let mut rules = Vec::new(&f.env);
+    for i in 0..5u32 {
+        rules.push_back(Rule { track: TRACK_SOCIAL, min: i as u64 * 10 });
+    }
+    f.gate.create_gate_rules(
+        &50u32,
+        &rules,
+        &RuleMode::AllOf,
+        &String::from_str(&f.env, "Too many"),
+    );
+}
+
+#[test]
+#[should_panic]
+fn create_gate_rules_empty_rules_reverts() {
+    let f = setup();
+    let rules: Vec<Rule> = Vec::new(&f.env);
+    f.gate.create_gate_rules(
+        &51u32,
+        &rules,
+        &RuleMode::AllOf,
+        &String::from_str(&f.env, "Empty"),
+    );
+}
+
+#[test]
+fn create_gate_rules_updates_existing_gate() {
+    let f = setup();
+
+    // First define a single-rule gate, then upgrade it to a composite rule set.
+    f.gate.create_gate(
+        &60u32,
+        &TRACK_SOCIAL,
+        &5u64,
+        &String::from_str(&f.env, "Before"),
+    );
+    let user = Address::generate(&f.env);
+    give_scores(&f, &user, 10, 0);
+    assert!(f.gate.check(&user, &60u32)); // passes old rule
+
+    let mut rules = Vec::new(&f.env);
+    rules.push_back(Rule { track: TRACK_SOCIAL, min: 5 });
+    rules.push_back(Rule { track: TRACK_EARNED, min: 50 }); // stricter second rule
+    f.gate.create_gate_rules(
+        &60u32,
+        &rules,
+        &RuleMode::AllOf,
+        &String::from_str(&f.env, "After"),
+    );
+
+    // Same user: social still OK but earned = 0 → fails new rule.
+    assert!(!f.gate.check(&user, &60u32));
+
+    // get_gates still has only one entry (no dup id).
+    let gs = f.gate.get_gates();
+    assert_eq!(gs.len(), 1);
+}
