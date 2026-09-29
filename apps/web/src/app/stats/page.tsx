@@ -37,8 +37,11 @@ function explorer(net: NetKey, addr: string) {
 export default function StatsPage() {
   const [tab, setTab] = useState<NetKey>('testnet');
   const [data, setData] = useState<Record<NetKey, Stats | null>>({ testnet: null, mainnet: null });
+  // Per-network: true once a poll has failed and we have not yet recovered. The last good
+  // `data[tab]` is kept on screen (never cleared on failure) — only the "live"/"stale"
+  // marker below reacts, so an outage never masquerades as a fresh zero.
+  const [stale, setStale] = useState<Record<NetKey, boolean>>({ testnet: false, mainnet: false });
   const [loading, setLoading] = useState(true);
-  const [failed, setFailed] = useState<Record<NetKey, boolean>>({ testnet: false, mainnet: false });
 
   useEffect(() => {
     let alive = true;
@@ -51,14 +54,14 @@ export default function StatsPage() {
         .then((d) => {
           if (alive) {
             setData((prev) => ({ ...prev, [tab]: d }));
-            setFailed((prev) => ({ ...prev, [tab]: false }));
+            setStale((prev) => ({ ...prev, [tab]: false }));
             setLoading(false);
           }
         })
         .catch(() => {
           if (!alive) return;
-          // Keep the last good numbers on a failed poll; only an empty tab shows the error.
-          setFailed((prev) => ({ ...prev, [tab]: true }));
+          // Keep the last good numbers on a failed poll; only the marker below reacts.
+          setStale((prev) => ({ ...prev, [tab]: true }));
           setLoading(false);
         });
     };
@@ -73,9 +76,10 @@ export default function StatsPage() {
   }, [tab]);
 
   const s = data[tab];
-  const users = s?.users ?? 0;
+  const users = s?.users;
   const target = s?.target ?? (tab === 'testnet' ? 50 : 20);
-  const pct = Math.min(100, Math.round((users / target) * 100));
+  const pct = users === undefined ? 0 : Math.min(100, Math.round((users / target) * 100));
+  const isStale = stale[tab];
 
   return (
     <div className="container max-w-3xl py-12">
@@ -122,12 +126,12 @@ export default function StatsPage() {
                 <div>
                   <p className="text-xs font-medium text-muted-foreground">Wallets on-chain</p>
                   <p className="font-display text-5xl font-semibold tabular-nums">
-                    {s ? users : '—'}
+                    {users === undefined ? '—' : users}
                   </p>
                 </div>
               </div>
               <p className="font-display text-2xl font-semibold text-muted-foreground">
-                {users} <span className="text-muted-foreground/50">/ {target}</span>
+                {users === undefined ? '—' : users} <span className="text-muted-foreground/50">/ {target}</span>
               </p>
             </div>
 
@@ -139,10 +143,10 @@ export default function StatsPage() {
               />
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
-              {pct}% toward {TABS.find((t) => t.key === tab)?.goal}
+              {users === undefined ? '—' : pct}% toward {TABS.find((t) => t.key === tab)?.goal}
               {s?.latestLedger ? ` · ledger ${s.latestLedger}` : ''}
-              <span className="ml-2 inline-flex items-center gap-1 text-secondary/80">
-                <Activity className="size-3" /> live
+              <span className={cn('ml-2 inline-flex items-center gap-1', isStale ? 'text-amber-400/90' : 'text-secondary/80')} title={isStale ? 'Sync delayed' : 'Live'}>
+                <Activity className="size-3" /> {isStale ? 'stale' : 'live'}
               </span>
             </p>
           </>
@@ -154,7 +158,7 @@ export default function StatsPage() {
         <LoopHealth
           funnel={s?.funnel}
           loading={loading && !s}
-          error={s ? s.funnelError : failed[tab] ? 'Stats could not be loaded. Retrying…' : undefined}
+          error={s ? s.funnelError : isStale ? 'Stats could not be loaded. Retrying…' : undefined}
         />
       )}
 

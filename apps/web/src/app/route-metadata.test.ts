@@ -16,6 +16,7 @@ import * as leaderboardLayout from './leaderboard/layout';
 import * as statsLayout from './stats/layout';
 import * as walletLayout from './wallet/layout';
 import * as howItWorksLayout from './how-it-works/layout';
+import * as adminLayout from './admin/layout';
 
 // The /app layout renders the wallet-gated client shell; only its metadata matters here.
 vi.mock('@/components/app/app-client-layout', () => ({ AppClientLayout: () => null }));
@@ -193,6 +194,7 @@ describe('indexing (#212)', () => {
     ['/app/vouch', [appLayout.metadata, vouchLayout.metadata]],
     ['/app/people', [appLayout.metadata, peopleLayout.metadata]],
     ['/claim/7', [null, claimLayout.metadata]],
+    ['/admin', [adminLayout.metadata]],
   ] as [string, Segment[]][])('%s renders noindex', async (path, segments) => {
     const m = await resolve(path, ...segments);
     expect(m.robots?.basic).toBe('noindex, nofollow');

@@ -43,14 +43,15 @@ export interface Wallet {
    * Smart-account-mediated contract call (passkey only). A passkey wallet's address is
    * a CONTRACT (`C…`), which can't be a classic tx source — so contract invocations are
    * authorized by the passkey and submitted via the relayer here, instead of the
-   * build→sign→send path. When present, the contract layer routes through this and
-   * returns the decoded return value. Absent on G… wallets (dev/freighter).
+   * build→sign→send path. When present, the contract layer routes through this; it
+   * resolves once the tx confirms, with its hash and decoded return value. Absent on G…
+   * wallets (dev/freighter).
    */
   invoke?: (
     contractId: string,
     method: string,
     args: import('@stellar/stellar-sdk').xdr.ScVal[],
-  ) => Promise<unknown>;
+  ) => Promise<{ hash: string; value: unknown }>;
 }
 
 function u8ToB64(u8: Uint8Array): string {
@@ -556,7 +557,7 @@ export async function connectPasskey(): Promise<Wallet> {
         func: op.func.toXDR('base64'),
         auth: (op.auth ?? []).map((e) => e.toXDR('base64')),
       });
-      return waitForPasskeyTx(hash);
+      return { hash, value: await waitForPasskeyTx(hash) };
     },
     sign: async () => {
       // Passkey wallets author actions via `invoke` (Soroban auth), never raw classic XDR.
