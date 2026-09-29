@@ -58,7 +58,10 @@ describe('first-run UI states', () => {
   it('keeps the zero-state card and numbers mounted across a 15 s refresh', async () => {
     vi.useFakeTimers();
     try {
-      getScoresMock.mockResolvedValue({ social: 0, earned: 0 });
+      // The first read lands; the refresh stays in flight, which is when a skeleton would show.
+      getScoresMock
+        .mockResolvedValueOnce({ social: 0, earned: 0 })
+        .mockReturnValueOnce(new Promise(() => {}));
       getPeopleCountsMock.mockResolvedValue({ vouchedBy: 0, backed: 0 });
 
       await act(async () => {
@@ -67,13 +70,18 @@ describe('first-run UI states', () => {
       });
       expect(container.querySelectorAll('.animate-pulse')).toHaveLength(0);
       expect(container.textContent).toContain('Your constellation is still quiet');
+      const card = Array.from(container.querySelectorAll('p')).find(
+        (p) => p.textContent === 'Your constellation is still quiet',
+      );
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(15_000);
       });
 
+      expect(getScoresMock).toHaveBeenCalledTimes(2);
       expect(container.querySelectorAll('.animate-pulse')).toHaveLength(0);
-      expect(container.textContent).toContain('Your constellation is still quiet');
+      // Same node, never unmounted and remounted.
+      expect(card?.isConnected).toBe(true);
     } finally {
       vi.useRealTimers();
     }

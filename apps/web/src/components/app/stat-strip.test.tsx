@@ -66,6 +66,26 @@ describe('StatStrip', () => {
     expect(container.textContent).not.toContain('Your constellation is still quiet');
   });
 
+  it('keeps the last numbers on screen while a refresh is in flight', async () => {
+    vi.useFakeTimers();
+    try {
+      getScoresMock
+        .mockResolvedValueOnce({ social: 55, earned: 30 })
+        .mockReturnValueOnce(new Promise(() => {}));
+      getPeopleCountsMock.mockResolvedValue({ vouchedBy: 7, backed: 2 });
+      await render();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+      expect(getScoresMock).toHaveBeenCalledTimes(2);
+      expect(container.querySelectorAll('.animate-pulse')).toHaveLength(0);
+      expect(tile('Social XP')).toContain('55');
+      expect(tile('Earned XP')).toContain('30');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('stops polling while the tab is hidden and refreshes once when it returns', async () => {
     vi.useFakeTimers();
     try {
