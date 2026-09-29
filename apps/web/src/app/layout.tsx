@@ -23,6 +23,7 @@ export const metadata: Metadata = {
   },
   description:
     'A social proof-of-people reputation game on Stellar. Someone you trust vouches for you, and it becomes a star in your constellation.',
+  manifest: '/manifest.webmanifest',
   openGraph: {
     title: 'alvinmunk — Collect people, not points',
     description: 'Someone vouched for you. Claim your half of the sky.',
@@ -30,7 +31,16 @@ export const metadata: Metadata = {
     images: ['/assets/meta/og-default.png'],
   },
   twitter: { card: 'summary_large_image', images: ['/assets/meta/og-default.png'] },
-  icons: { icon: [{ url: '/assets/meta/favicon-32.png', type: 'image/png' }] },
+  icons: {
+    icon: [{ url: '/assets/meta/favicon-32.png', type: 'image/png' }],
+    apple: [
+      {
+        url: '/assets/brand/alvinmunk-apple-touch-icon.png',
+        sizes: '180x180',
+        type: 'image/png',
+      },
+    ],
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
