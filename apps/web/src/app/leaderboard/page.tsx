@@ -1,12 +1,14 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { fetchLeaderboard } from '@/lib/leaderboard';
 import { usePoll } from '@/lib/use-poll';
 import { type LeaderboardEntry } from '@alvinmunk/shared';
 import { loadProfile } from '@/lib/profile';
 import { reverseHandles } from '@/lib/registry';
 import { Crest } from '@/components/brand/crest';
+import { Avatar } from '@/components/Avatar';
 import { Frame } from '@/components/fx/frame';
 import { ShareRow } from '@/components/fx/share-row';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -150,39 +152,60 @@ export default function LeaderboardPage() {
           <ol className="divide-y divide-border/50">
             {rows.map((e) => {
               const isMe = e.address === me;
+              const handle = handles[e.address];
+              // Every row opens someone: their profile once a handle resolves, else their score.
+              const href = handle ? `/u/${handle}` : `/score/${e.address}`;
+              // The link's accessible name, e.g. "@alice, rank 3, 42 Social XP" — it replaces
+              // the row's text for a screen reader, so it carries the "you" / flagged marks too.
+              const label = [
+                t('leaderboard.rowLabel', {
+                  name: handle ? `@${handle}` : shortAddr(e.address),
+                  rank: String(e.rank),
+                  score: String(e.score),
+                }),
+                isMe && t('leaderboard.you'),
+                e.flagged && t('leaderboard.flaggedTitle'),
+              ]
+                .filter(Boolean)
+                .join(', ');
               return (
-                <li
-                  key={e.address}
-                  className={cn(
-                    'flex items-center gap-4 px-4 py-3 transition-colors hover:bg-surface/40',
-                    isMe && 'bg-primary/5',
-                  )}
-                >
-                  <span className="relative w-8 shrink-0 font-mono text-sm text-muted-foreground">
-                    #{String(e.rank).padStart(2, '0')}
-                    {e.rank === 1 && (
-                      <Sticker name="burst-hot" size={34} rotate={-12} className="absolute -left-1 -top-5 h-7 w-auto" />
+                <li key={e.address}>
+                  <Link
+                    href={href}
+                    aria-label={label}
+                    className={cn(
+                      'flex items-center gap-4 px-4 py-3 transition-colors hover:bg-surface/40',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset',
+                      isMe && 'bg-primary/5',
                     )}
-                  </span>
-                  <Crest address={e.address} size={42} points={Math.min(9, 4 + (e.rank % 5))} />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-mono text-sm">
-                      {handles[e.address] ? (
-                        <span className="text-foreground">@{handles[e.address]}</span>
-                      ) : (
-                        shortAddr(e.address)
+                  >
+                    <span className="relative w-8 shrink-0 font-mono text-sm text-muted-foreground">
+                      #{String(e.rank).padStart(2, '0')}
+                      {e.rank === 1 && (
+                        <Sticker name="burst-hot" size={34} rotate={-12} className="absolute -left-1 -top-5 h-7 w-auto" />
                       )}
-                    </p>
-                    <div className="mt-0.5 flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider">
-                      {isMe && <span className="text-primary">{t('leaderboard.you')}</span>}
-                      {e.flagged && (
-                        <span title={t('leaderboard.flaggedTitle')} className="text-warning">
-                          {t('leaderboard.flagged')}
-                        </span>
-                      )}
+                    </span>
+                    <Crest address={e.address} size={42} points={Math.min(9, 4 + (e.rank % 5))} />
+                    <Avatar address={e.address} size={32} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-mono text-sm">
+                        {handle ? (
+                          <span className="text-foreground">@{handle}</span>
+                        ) : (
+                          shortAddr(e.address)
+                        )}
+                      </p>
+                      <div className="mt-0.5 flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider">
+                        {isMe && <span className="text-primary">{t('leaderboard.you')}</span>}
+                        {e.flagged && (
+                          <span title={t('leaderboard.flaggedTitle')} className="text-warning">
+                            {t('leaderboard.flagged')}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  <span className="font-display text-lg font-semibold text-primary">★ {e.score}</span>
+                    <span className="font-display text-lg font-semibold text-primary">★ {e.score}</span>
+                  </Link>
                 </li>
               );
             })}

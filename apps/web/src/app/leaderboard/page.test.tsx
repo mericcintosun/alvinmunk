@@ -5,19 +5,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 (globalThis as { React?: typeof React }).React = React;
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const { fetchLeaderboardMock, reverseHandlesMock } = vi.hoisted(() => ({
+const { fetchLeaderboardMock, reverseHandlesMock, store } = vi.hoisted(() => ({
   fetchLeaderboardMock: vi.fn(),
   reverseHandlesMock: vi.fn(),
+  store: { me: null as string | null },
 }));
 
 vi.mock('@/lib/leaderboard', () => ({
   fetchLeaderboard: fetchLeaderboardMock,
 }));
-vi.mock('@/lib/profile', () => ({ loadProfile: () => null }));
+vi.mock('@/lib/profile', () => ({
+  loadProfile: () => (store.me ? { address: store.me } : null),
+}));
 vi.mock('@/lib/registry', () => ({
   reverseHandles: reverseHandlesMock,
 }));
-vi.mock('@/lib/i18n', () => ({ useTranslations: () => (k: string) => k }));
+// The key, then any vars as name=value, so a test can read what a label was built from.
+vi.mock('@/lib/i18n', () => ({
+  useTranslations: () => (k: string, vars?: Record<string, string>) =>
+    vars ? [k, ...Object.entries(vars).map(([n, v]) => `${n}=${v}`)].join(' ') : k,
+}));
 
 // Fix for default exports
 import LeaderboardPage from './page';
@@ -294,5 +301,78 @@ describe('LeaderboardPage — poll / handle-lookup interaction (issue #208)', ()
 
     expect(reverseHandlesMock).toHaveBeenCalledWith([ADDR_B]);
     expect(container.textContent).toContain('@bob');
+  });
+});
+
+/** Issue #216: every row opens the person — their profile, else their score page. */
+describe('LeaderboardPage — rows link to the person (issue #216)', () => {
+  let root: Root;
+  let container: HTMLDivElement;
+
+  const ALICE = 'GALICEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+  const NOHANDLE = 'GNOHANDLEBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    fetchLeaderboardMock.mockReset();
+    reverseHandlesMock.mockReset();
+    reverseHandlesMock.mockImplementation(async (addrs: string[]) =>
+      Object.fromEntries(addrs.map((a) => [a, a === ALICE ? 'alice' : null])),
+    );
+    store.me = null;
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    store.me = null;
+  });
+
+  type Row = { address: string; score: number; rank: number; flagged: boolean };
+
+  async function renderRows(rows: Row[]) {
+    fetchLeaderboardMock.mockResolvedValue(rows);
+    await act(async () => {
+      root.render(<LeaderboardPage />);
+      await Promise.resolve();
+    });
+    return Array.from(container.querySelectorAll('ol > li'));
+  }
+
+  it('links a row with a handle to /u/<handle> and one without to /score/<address>', async () => {
+    const items = await renderRows([
+      { address: ALICE, score: 42, rank: 1, flagged: false },
+      { address: NOHANDLE, score: 7, rank: 2, flagged: false },
+    ]);
+    expect(items).toHaveLength(2);
+    // One focusable link per row, wrapping the whole row (keyboard: a real <a href>).
+    const links = items.map((li) => li.querySelectorAll('a'));
+    expect(links.map((l) => l.length)).toEqual([1, 1]);
+    expect(links[0][0].getAttribute('href')).toBe('/u/alice');
+    expect(links[1][0].getAttribute('href')).toBe(`/score/${NOHANDLE}`);
+    // The face shows next to the crest.
+    expect(links[0][0].querySelector('[role="img"]')).not.toBeNull();
+  });
+
+  it('names each row for a screen reader: @handle (or short address), rank and score', async () => {
+    const items = await renderRows([
+      { address: ALICE, score: 42, rank: 3, flagged: false },
+      { address: NOHANDLE, score: 7, rank: 4, flagged: false },
+    ]);
+    const labels = items.map((li) => li.querySelector('a')?.getAttribute('aria-label'));
+    expect(labels).toEqual([
+      'leaderboard.rowLabel name=@alice rank=3 score=42',
+      'leaderboard.rowLabel name=GNOH…BBBB rank=4 score=7',
+    ]);
+  });
+
+  it('keeps the "you" and flagged marks in the accessible name', async () => {
+    store.me = ALICE;
+    const items = await renderRows([{ address: ALICE, score: 42, rank: 1, flagged: true }]);
+    expect(items[0].querySelector('a')?.getAttribute('aria-label')).toBe(
+      'leaderboard.rowLabel name=@alice rank=1 score=42, leaderboard.you, leaderboard.flaggedTitle',
+    );
   });
 });

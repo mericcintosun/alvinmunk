@@ -1471,6 +1471,29 @@ export const EVENTS = {
 } as const;
 ```
 
+### Reading view structs (`Attestation`, `Vouch`, `Profile`)
+
+`Vouch` and `Profile` mirror the structs above field for field, every `u64` a
+`bigint` (what `scValToNative` hands back), and ship with `decodeVouch` /
+`decodeProfile`. A named-field `#[contracttype]` struct travels as an
+`ScVal::Map` keyed by field name, which `scValToNative` turns into a plain
+object: `Option<T>` is the value or `null` (`ScVal::Void`), `BytesN<32>` a
+32-byte buffer. The decoders take that object and accept exactly the fields in
+`VOUCH_FIELDS` / `PROFILE_FIELDS`, so a field added, dropped or renamed throws
+instead of reading as `undefined`. `get_vouch` for an id never minted decodes
+to `null`. `Attestation` has no decoder: its `value` (an `i128`) is a `bigint`,
+its `timestamp` a `number` of unix seconds.
+
+`contracts/reputation/testdata/read_views.json` holds real `get_vouch` /
+`get_profile` return values (the XDR of each `ScVal`, hex). The contract test
+`read_view_fixtures_match_the_contract` writes it from real calls and fails
+when it is stale (rerun with `UPDATE_READ_VIEWS=1`);
+`packages/shared/src/read-views.test.ts` decodes it through the mirrors and
+checks their field lists against `contracts/reputation/src/lib.rs`, and
+`apps/web/src/lib/read-views.test.ts` checks that the `@alvinmunk/sdk` views
+the app reads through decode it the same way. A drift on either side fails a
+test.
+
 ---
 
 ## Versioning & Migration Policy

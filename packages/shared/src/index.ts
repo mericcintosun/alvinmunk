@@ -35,6 +35,13 @@ export const EVENTS = {
   REWARD: 'reward',
 } as const;
 
+// ── Mirrors of the on-chain read-view structs ──
+// `Vouch` and `Profile` carry every `u64` as a `bigint`, because that is what
+// `scValToNative` returns for one and a u64 does not fit a JS `number` in general. Narrow at
+// the edge that needs it. `Attestation` is left narrowing its own `timestamp`: it is a unix
+// second count, `getQuestAttestation` already normalises to a number, and callers do
+// arithmetic on it.
+
 // ── Mirror of the on-chain Attestation struct (read-view shape) ──
 export interface Attestation {
   issuer: string; // G... address
@@ -45,7 +52,7 @@ export interface Attestation {
 
 // ── Mirror of the on-chain Vouch struct (read-view shape of `get_vouch`) ──
 export interface Vouch {
-  id: number;
+  id: bigint;
   from: string; // voucher address
   /** sha256(secret) — BytesN<32>; all zeros on a card minted with a claim key
    *  (`mint_vouch_signed`), whose key is read with `get_claim_key` */
@@ -54,16 +61,120 @@ export interface Vouch {
   claimed: boolean;
   /** Option<Address> — null until claimed */
   claimer: string | null;
-  created: number; // ledger timestamp at mint
+  created: bigint; // ledger timestamp at mint
   /** Social XP escrowed at mint */
-  stake: number;
+  stake: bigint;
   slashed: boolean;
 }
 
+/** Mirror of the on-chain `Profile` struct — all of `get_profile`, nothing else. Frozen
+ *  (docs/ON_CHAIN_EVENTS.md): Soroban decodes a struct only when the returned map has
+ *  exactly its fields, so new per-address data ships as its own view, like `get_counts`. */
 export interface Profile {
-  address: string;
-  score: bigint;
-  attestations: Partial<Record<SchemaId, Attestation>>;
+  /** Social XP — leaderboard/fun, never cashable */
+  social: bigint;
+  /** Earned XP — the only track Rewards may gate USDC on */
+  earned: bigint;
+  /** true once the address has done at least one Earned (verified) action */
+  verified: boolean;
+}
+
+/**
+ * Every field of each mirror, in the contract's declaration order. A `#[contracttype]`
+ * struct with named fields travels as an `ScVal::Map` keyed by field name (sorted by the
+ * host), which `scValToNative` turns into a plain object with those keys: the decoders
+ * below accept exactly these keys, so a field added, dropped or renamed on either side
+ * throws instead of reading as `undefined`. `read-views.test.ts` checks the lists against
+ * `contracts/reputation/src/lib.rs` and decodes the contract's own fixtures through them.
+ */
+export const VOUCH_FIELDS = [
+  'id',
+  'from',
+  'claim_hash',
+  'note',
+  'claimed',
+  'claimer',
+  'created',
+  'stake',
+  'slashed',
+] as const satisfies readonly (keyof Vouch)[];
+
+export const PROFILE_FIELDS = [
+  'social',
+  'earned',
+  'verified',
+] as const satisfies readonly (keyof Profile)[];
+
+/** `raw` as a struct object with exactly `fields`, or a thrown error naming the drift. */
+function structOf(raw: unknown, name: string, fields: readonly string[]): Record<string, unknown> {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    const got = raw === null ? 'null' : Array.isArray(raw) ? 'an array' : typeof raw;
+    throw new Error(`${name}: expected a contract struct, got ${got}`);
+  }
+  const keys = Object.keys(raw);
+  const missing = fields.filter((f) => !keys.includes(f));
+  const extra = keys.filter((k) => !fields.includes(k));
+  if (missing.length || extra.length) {
+    throw new Error(
+      `${name}: contract fields drifted (missing: ${missing.join(', ') || '-'}; ` +
+        `unknown: ${extra.join(', ') || '-'})`,
+    );
+  }
+  return raw as Record<string, unknown>;
+}
+
+function u64Field(raw: unknown, what: string): bigint {
+  if (typeof raw !== 'bigint') throw new Error(`${what}: expected a u64, got ${typeof raw}`);
+  return raw;
+}
+
+function stringField(raw: unknown, what: string): string {
+  if (typeof raw !== 'string') throw new Error(`${what}: expected a string, got ${typeof raw}`);
+  return raw;
+}
+
+function boolField(raw: unknown, what: string): boolean {
+  if (typeof raw !== 'boolean') throw new Error(`${what}: expected a bool, got ${typeof raw}`);
+  return raw;
+}
+
+/**
+ * Decode a `get_vouch` return value, as `scValToNative` hands it back, into {@link Vouch}:
+ * `null` for `None` (an id that was never minted, which reads as `ScVal::Void`). An
+ * `Option<Address>` field is its address or `null`; a `BytesN<32>` is a 32-byte buffer.
+ */
+export function decodeVouch(raw: unknown): Vouch | null {
+  if (raw === null) return null;
+  const v = structOf(raw, 'Vouch', VOUCH_FIELDS);
+  const hash = v.claim_hash;
+  if (!(hash instanceof Uint8Array) || hash.length !== 32) {
+    throw new Error('Vouch.claim_hash: expected 32 bytes');
+  }
+  return {
+    id: u64Field(v.id, 'Vouch.id'),
+    from: stringField(v.from, 'Vouch.from'),
+    claim_hash: Uint8Array.from(hash),
+    note: stringField(v.note, 'Vouch.note'),
+    claimed: boolField(v.claimed, 'Vouch.claimed'),
+    claimer: v.claimer === null ? null : stringField(v.claimer, 'Vouch.claimer'),
+    created: u64Field(v.created, 'Vouch.created'),
+    stake: u64Field(v.stake, 'Vouch.stake'),
+    slashed: boolField(v.slashed, 'Vouch.slashed'),
+  };
+}
+
+/**
+ * Decode a `get_profile` return value, as `scValToNative` hands it back, into
+ * {@link Profile}. The address is the call's argument, never a field: `Profile` carries no
+ * subject of its own.
+ */
+export function decodeProfile(raw: unknown): Profile {
+  const p = structOf(raw, 'Profile', PROFILE_FIELDS);
+  return {
+    social: u64Field(p.social, 'Profile.social'),
+    earned: u64Field(p.earned, 'Profile.earned'),
+    verified: boolField(p.verified, 'Profile.verified'),
+  };
 }
 
 // ── Network config ──

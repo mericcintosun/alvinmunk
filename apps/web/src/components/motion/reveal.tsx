@@ -3,7 +3,13 @@
 import { useRef } from 'react';
 import { motion, useReducedMotion, useScroll, useTransform } from 'motion/react';
 
-/** Scroll-triggered reveal (fade + rise) — fires once when it enters the viewport. */
+/**
+ * Scroll-triggered reveal (fade + rise) — fires once when it enters the viewport.
+ *
+ * Always renders the same motion.div: the server can't know the reduced-motion setting, and
+ * swapping in a plain div on the client left the server's inline `opacity:0` stuck (#220).
+ * Reduced motion is handled by MotionProvider (`reducedMotion="user"`): no rise, fade kept.
+ */
 export function Reveal({
   children,
   delay = 0,
@@ -15,8 +21,6 @@ export function Reveal({
   y?: number;
   className?: string;
 }) {
-  const reduced = useReducedMotion();
-  if (reduced) return <div className={className}>{children}</div>;
   return (
     <motion.div
       className={className}

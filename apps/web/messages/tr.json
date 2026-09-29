@@ -321,6 +321,7 @@
   "leaderboard.flaggedTitle": "karşılıklı destek çifti — olası halka",
   "leaderboard.you": "sen",
   "leaderboard.share": "alvinmunk'ta en çok bağlantılı olanlar 🌌 — insanları topla, puan değil.",
+  "leaderboard.rowLabel": "{name}, sıra {rank}, {score} Sosyal XP",
 
   "howItWorks.meta.title": "Nasıl çalışır",
   "howItWorks.meta.desc": "Destek döngüsü, iki izli model ve dürüst sybil karşıtı tasarımımız.",

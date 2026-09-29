@@ -2339,3 +2339,73 @@ fn upgrade_serves_mint_vouches_and_keeps_numbering() {
     client.claim_vouch_signed(&bob, &id, &claim_sig(&env, &client, &sks[1], id, &bob));
     assert_eq!(client.get_vouch(&id).unwrap().claimer, Some(bob));
 }
+
+// --- Read-view fixtures for the TypeScript mirrors (issue #266) ---
+
+/// The `testdata/read_views.json` fixture: each read view's return value as the XDR (hex) of
+/// the `ScVal` a client gets back from RPC. `packages/shared` decodes the same file into its
+/// `Vouch` / `Profile` mirrors (`read-views.test.ts`), so a change to either struct fails
+/// here first. Rerun with `UPDATE_READ_VIEWS=1` to rewrite the file, then update the mirrors.
+#[test]
+fn read_view_fixtures_match_the_contract() {
+    use soroban_sdk::{
+        xdr::{Limits, ScVal, WriteXdr},
+        IntoVal, TryFromVal, Val,
+    };
+    fn hex(env: &Env, v: impl IntoVal<Env, Val>) -> std::string::String {
+        let sc = ScVal::try_from_val(env, &v.into_val(env)).unwrap();
+        // Qualified: the crate's `ToXdr` (in scope via `super::*`) has a `to_xdr` too.
+        let bytes = WriteXdr::to_xdr(&sc, Limits::none()).unwrap();
+        bytes.iter().map(|b| std::format!("{b:02x}")).collect()
+    }
+
+    let (env, client, _admin) = setup();
+    env.ledger().with_mut(|l| l.timestamp = 1_758_633_600);
+    // Accounts whose keys are 32 × 0x11 and 32 × 0x22.
+    let voucher = Address::from_str(
+        &env,
+        "GAIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCF6M",
+    );
+    let claimer = Address::from_str(
+        &env,
+        "GARCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCFRVX",
+    );
+    let attester = Address::generate(&env);
+    client.add_attester(&attester);
+
+    // A claimed card (stake refunded), then an unclaimed one a keeper slashed after the TTL.
+    let (secret, hash) = secret_and_hash(&env, 7);
+    let note = String::from_str(&env, "solid work on the quest");
+    let claimed = client.mint_vouch(&voucher, &hash, &note);
+    client.claim_vouch(&claimer, &claimed, &secret);
+    let (_, hash2) = secret_and_hash(&env, 9);
+    let slashed = client.mint_vouch(&voucher, &hash2, &String::from_str(&env, ""));
+    env.ledger().with_mut(|l| l.timestamp += VOUCH_TTL_SECS + 1);
+    client.expire_vouch(&slashed);
+    // Social from the claim, Earned (and verified) from one quest award.
+    client.award_xp(&attester, &claimer, &2u32, &50u64);
+
+    let fixtures = [
+        ("get_vouch_claimed", hex(&env, client.get_vouch(&claimed))),
+        ("get_vouch_slashed", hex(&env, client.get_vouch(&slashed))),
+        ("get_vouch_absent", hex(&env, client.get_vouch(&999))),
+        ("get_profile", hex(&env, client.get_profile(&claimer))),
+    ];
+    let mut json = std::string::String::from("{\n");
+    for (i, (name, xdr)) in fixtures.iter().enumerate() {
+        let comma = if i + 1 < fixtures.len() { "," } else { "" };
+        json.push_str(&std::format!("  \"{name}\": \"{xdr}\"{comma}\n"));
+    }
+    json.push_str("}\n");
+
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/read_views.json");
+    if std::env::var_os("UPDATE_READ_VIEWS").is_some() {
+        std::fs::write(path, &json).unwrap();
+    }
+    let committed = std::fs::read_to_string(path).unwrap_or_default();
+    assert!(
+        committed == json,
+        "testdata/read_views.json is stale: rerun with UPDATE_READ_VIEWS=1 and update the \
+         packages/shared mirrors. Current fixture:\n{json}"
+    );
+}

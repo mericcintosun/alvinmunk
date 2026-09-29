@@ -9,6 +9,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { AnalyticsProvider } from '@/components/analytics';
 import { ConfigStatusBanner } from '@/components/config-status-banner';
 import { WalletProvider } from '@/components/wallet/wallet-provider';
+import { MotionProvider } from '@/components/motion/motion-provider';
 import { I18nProvider } from '@/lib/i18n';
 import { rootMetadata } from '@/lib/metadata';
 
@@ -28,6 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="grain min-h-dvh" suppressHydrationWarning>
         <WalletProvider>
           <I18nProvider>
+          <MotionProvider>
           <SmoothScroll />
           <Starfield />
           <ConfigStatusBanner />
@@ -36,6 +38,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <SiteFooter />
           <Toaster />
           <AnalyticsProvider />
+          </MotionProvider>
           </I18nProvider>
         </WalletProvider>
       </body>

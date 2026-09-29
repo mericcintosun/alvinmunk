@@ -321,6 +321,7 @@
   "leaderboard.flaggedTitle": "reciprocal vouch pair — possible ring",
   "leaderboard.you": "you",
   "leaderboard.share": "The most-connected on alvinmunk 🌌 — collect people, not points.",
+  "leaderboard.rowLabel": "{name}, rank {rank}, {score} Social XP",
 
   "howItWorks.meta.title": "How it works",
   "howItWorks.meta.desc": "The vouch loop, the two-track model, and our honest anti-sybil design.",
