@@ -11,13 +11,15 @@ import { cn } from '@/lib/utils';
  */
 export function ShareRow({ path, text, className }: { path: string; text: string; className?: string }) {
   const [copied, setCopied] = useState(false);
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  const url = `${origin}${path}`;
-  const tweet = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
+
+  function getAbsoluteUrl() {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    return `${origin}${path}`;
+  }
 
   async function copy() {
     try {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(getAbsoluteUrl());
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -25,16 +27,20 @@ export function ShareRow({ path, text, className }: { path: string; text: string
     }
   }
 
+  function tweet() {
+    const url = getAbsoluteUrl();
+    const tweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
+    window.open(tweetUrl, '_blank', 'noopener,noreferrer');
+  }
+
   return (
     <div className={cn('flex items-center gap-2', className)}>
-      <a
-        href={tweet}
-        target="_blank"
-        rel="noreferrer"
+      <button
+        onClick={tweet}
         className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'glass font-mono')}
       >
         𝕏&nbsp; tweet
-      </a>
+      </button>
       <button
         onClick={copy}
         className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'glass font-mono')}
