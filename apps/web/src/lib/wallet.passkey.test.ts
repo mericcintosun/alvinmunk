@@ -17,6 +17,7 @@ import { createHash } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   Account,
+  Contract,
   Keypair,
   Networks,
   Operation,
@@ -49,6 +50,7 @@ vi.mock('passkey-kit', () => ({
 }));
 
 vi.mock('./stellar', () => ({
+  assertNetworkConfig: () => {},
   config: { rpcUrl: 'https://rpc.test', network: 'testnet' },
   networkPassphrase: 'Test SDF Network ; September 2015',
   waitForAccountReady: vi.fn(),
@@ -58,7 +60,7 @@ vi.mock('./stellar', () => ({
   },
 }));
 
-import { connectPasskey } from './wallet';
+import { AccountNotFoundError, connectPasskey, getWallet } from './wallet';
 
 // A realistic base64url WebAuthn credential id (43 chars = 32 bytes, unpadded).
 const KEY_ID = 'cZwu2LJZg1YEdS_DZzquI-d_x-g1nmyyVRM2GtgmKCI';
@@ -73,11 +75,18 @@ const WASM_HASH = 'ecd990f0b45ca6817149b6175f79b32efb442f35731985a084131e8265c4c
 // passkey-kit 0.12's shared deploy source: Keypair.fromRawEd25519Seed(hash('kalepail')). The
 // rebuilt deploy must come from it, or its contract id would differ from createWallet's.
 const DEPLOYER = 'GC2C7AWLS2FMFTQAHW3IBUB4ZXVP4E37XNLEF2IK7IVXBB6CMEPCSXFO';
+// The wallet KEY_ID's passkey deploys to on testnet, derived independently of the app by the
+// stellar CLI: `stellar contract id wasm --source-account $DEPLOYER --salt $(sha256 keyId)
+// --network-passphrase 'Test SDF Network ; September 2015'`.
+const KEY_ID_WALLET = 'CBENLWVTB3PRRJO4DC4MRVRU6SQ4X7X5KSKVSB5PP2S3DIAHZK64QH5R';
+// Another passkey of the same site (one enrolled on this device by mistake, say).
+const OTHER_KEY_ID = Buffer.alloc(32, 5).toString('base64url');
 
 const KEYID_KEY = 'alvinmunk.passkey.keyId';
 const CONTRACT_KEY = 'alvinmunk.passkey.contractId';
 const PUBKEY_KEY = 'alvinmunk.passkey.publicKey';
 const PENDING_KEY = 'alvinmunk.passkey.pendingDeploy';
+const DEV_SECRET_KEY = 'alvinmunk.devSecret';
 
 // Stand-in for the assembled deploy tx the SDK hands to the deployer signer.
 const UNSIGNED_DEPLOY_XDR = new TransactionBuilder(new Account(DEPLOYER, '1'), {
@@ -415,5 +424,143 @@ describe('connectPasskey deploy resilience (#186)', () => {
       [PUBKEY_KEY]: PUBKEY_B64,
       [CONTRACT_KEY]: CONTRACT_ID,
     });
+  });
+});
+
+describe('connectPasskey — recover an existing account (#278)', () => {
+  /**
+   * passkey-kit's `connectWallet` as the recover path meets it. Without a keyId, the WebAuthn
+   * prompt returns the passkey the user `picked` (a synced one). The kit then probes the wallet
+   * it derives with `getContractData`, which fails on ANY RPC error (`kitProbe: 'fails'`, the
+   * default) — and then takes its contract id from `getContractId`.
+   */
+  function pickPasskey(picked = KEY_ID, kitProbe: 'finds' | 'fails' = 'fails') {
+    mocks.connectWallet.mockImplementation(
+      async (opts: { keyId?: string; getContractId?: (keyId: string) => Promise<string | undefined> }) => {
+        const keyIdBase64 = opts.keyId ?? picked;
+        const contractId =
+          kitProbe === 'finds' ? KEY_ID_WALLET : await opts.getContractId?.(keyIdBase64);
+        if (!contractId) throw new Error('Failed to connect wallet');
+        return { keyIdBase64, keyId: Buffer.from(keyIdBase64, 'base64url'), contractId };
+      },
+    );
+  }
+
+  /** The contract whose instance the existence check read, for each check. */
+  const probed = () =>
+    mocks.getLedgerEntries.mock.calls.map(([key]) => (key as { toXDR(f: 'base64'): string }).toXDR('base64'));
+  const footprintOf = (contractId: string) => new Contract(contractId).getFootprint().toXDR('base64');
+
+  /** No passkey was enrolled and no wallet deployed. */
+  function expectNothingCreated() {
+    expect(mocks.createKey).not.toHaveBeenCalled();
+    expect(mocks.createWallet).not.toHaveBeenCalled();
+    expect(mocks.deploy).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  }
+
+  it.each(['fails', 'finds'] as const)(
+    'finds the wallet of a synced passkey on a fresh browser (the kit\'s own probe %s)',
+    async (kitProbe) => {
+      pickPasskey(KEY_ID, kitProbe);
+      mocks.getLedgerEntries.mockResolvedValue(contractPresent);
+
+      const wallet = await connectPasskey('recover');
+
+      // The passkey came from a discoverable-credential prompt: no keyId was asked for.
+      expect(mocks.connectWallet.mock.calls[0][0]).not.toHaveProperty('keyId');
+      // Its wallet is the one passkey-kit deploys for it, confirmed on-chain before use.
+      expect(wallet.kind).toBe('passkey');
+      expect(wallet.address).toBe(KEY_ID_WALLET);
+      expect(probed()).toEqual([footprintOf(KEY_ID_WALLET)]);
+      expectNothingCreated();
+      // Recorded like any returning user, so the next visit connects without the prompt.
+      expect(stored()).toEqual({ [KEYID_KEY]: KEY_ID, [CONTRACT_KEY]: KEY_ID_WALLET });
+    },
+  );
+
+  it('reports a passkey whose wallet is not on-chain as not found — and creates nothing', async () => {
+    seedPendingRecord(); // an unfinished deploy on this device must survive the attempt
+    const before = stored();
+    pickPasskey(KEY_ID);
+    mocks.getLedgerEntries.mockResolvedValue(contractAbsent);
+
+    const err = await connectPasskey('recover').catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(AccountNotFoundError);
+    expect(probed()).toEqual([footprintOf(KEY_ID_WALLET)]);
+    expectNothingCreated();
+    expect(mocks.connectWallet).toHaveBeenCalledTimes(1);
+    expect(stored()).toEqual(before);
+  });
+
+  it('tells an RPC failure apart from "not found", and changes nothing', async () => {
+    localStorage.setItem(KEYID_KEY, OTHER_KEY_ID);
+    localStorage.setItem(CONTRACT_KEY, OTHER_CONTRACT_ID);
+    const before = stored();
+    pickPasskey(KEY_ID);
+    // What the SDK's JSON-RPC client rejects with — not an Error instance.
+    mocks.getLedgerEntries.mockRejectedValue({ code: -32603, message: 'rpc unavailable' });
+
+    const err = await connectPasskey('recover').catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(AccountNotFoundError);
+    expect(humanizeError(err)).toBe("Couldn't reach the network to check your wallet — try again in a moment.");
+    expectNothingCreated();
+    expect(stored()).toEqual(before);
+  });
+
+  it('leaves everything as it was when the passkey prompt is dismissed', async () => {
+    seedPendingRecord();
+    const before = stored();
+    mocks.connectWallet.mockRejectedValue(
+      Object.assign(new Error('The operation either timed out or was not allowed.'), { name: 'NotAllowedError' }),
+    );
+
+    await expect(connectPasskey('recover')).rejects.toThrow(/not allowed/);
+
+    expectNothingCreated();
+    expect(mocks.getLedgerEntries).not.toHaveBeenCalled();
+    expect(stored()).toEqual(before);
+  });
+
+  it('asks for the passkey even with a record here, and replaces the record of another passkey', async () => {
+    // A passkey enrolled on this device by mistake, its deploy pending, before the user chose
+    // "I already have an account". Recover must not resume (deploy) it or connect to it.
+    seedPendingRecord({ [KEYID_KEY]: OTHER_KEY_ID, [CONTRACT_KEY]: OTHER_CONTRACT_ID });
+    pickPasskey(KEY_ID);
+    mocks.getLedgerEntries.mockResolvedValue(contractPresent);
+
+    const wallet = await connectPasskey('recover');
+
+    expect(mocks.connectWallet.mock.calls[0][0]).not.toHaveProperty('keyId');
+    expect(wallet.address).toBe(KEY_ID_WALLET);
+    expect(probed()).toEqual([footprintOf(KEY_ID_WALLET)]); // never the other wallet
+    expectNothingCreated();
+    expect(stored()).toEqual({ [KEYID_KEY]: KEY_ID, [CONTRACT_KEY]: KEY_ID_WALLET });
+  });
+});
+
+describe('getWallet — recover with the dev wallet', () => {
+  beforeEach(() => {
+    delete process.env.NEXT_PUBLIC_PASSKEY_WALLET_WASM_HASH;
+  });
+
+  it('never mints (and funds) a fresh dev wallet when there is none to restore', async () => {
+    await expect(getWallet('recover')).rejects.toBeInstanceOf(AccountNotFoundError);
+    expect(fetchMock).not.toHaveBeenCalled(); // no Friendbot
+    expect(stored()).toEqual({});
+  });
+
+  it("restores this browser's dev wallet", async () => {
+    const kp = Keypair.random();
+    localStorage.setItem(DEV_SECRET_KEY, kp.secret());
+
+    const wallet = await getWallet('recover');
+
+    expect(wallet.kind).toBe('dev');
+    expect(wallet.address).toBe(kp.publicKey());
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

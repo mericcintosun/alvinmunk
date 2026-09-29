@@ -61,14 +61,11 @@ export function Quests({ address }: { address: string }) {
 
   const refTrim = ref.trim();
   const inviteTrim = invite.trim();
-  const validRef =
-    resolvedRef &&
-    isStellarAddress(resolvedRef, { allowContract: false }) &&
-    resolvedRef !== address;
+  const validRef = resolvedRef && isStellarAddress(resolvedRef) && resolvedRef !== address;
   const validInvite = resolvedInvite && isStellarAddress(resolvedInvite) && resolvedInvite !== address;
 
   useEffect(() => {
-    if (isStellarAddress(refTrim, { allowContract: false })) {
+    if (isStellarAddress(refTrim)) {
       setResolvedRef(refTrim);
       setResolvingRef(false);
       return;
@@ -218,11 +215,11 @@ export function Quests({ address }: { address: string }) {
             id="quest-ref"
             value={ref}
             onChange={(e) => setRef(e.target.value)}
-            placeholder="@handle or address (G…)"
+            placeholder="@handle or address (G… or C…)"
             className="mt-1.5 font-mono text-xs"
             aria-describedby="quest-ref-hint"
           />
-          {!isStellarAddress(refTrim, { allowContract: false }) && refTrim.length > 0 && (
+          {!isStellarAddress(refTrim) && refTrim.length > 0 && (
             <div className="mt-1 flex items-center text-xs text-muted-foreground">
               {resolvingRef ? (
                 'Looking up handle…'
@@ -240,8 +237,8 @@ export function Quests({ address }: { address: string }) {
             {resolvedRef && resolvedRef === address
               ? 'You can’t refer yourself — paste a different wallet.'
               : refTrim && !resolvingRef && !validRef
-                ? 'That doesn’t look like a Stellar address (G…) or handle.'
-                : 'A friend who’s already active on Stellar. Earns Earned XP (cashable).'}
+                ? 'That doesn’t look like a Stellar address (G… or C…) or handle.'
+                : 'A friend who joined through your invite link and has been active since. Earns Earned XP (cashable).'}
           </p>
           <Button
             variant="onchain"

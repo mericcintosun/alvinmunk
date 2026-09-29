@@ -38,6 +38,26 @@ export function addMyVouch(v: MyVouch): void {
   localStorage.setItem(KEY, JSON.stringify(list));
 }
 
+/**
+ * Vouch IDs this device still wants notifications for (pending, unclaimed, in-window).
+ * Used when a rotated push subscription must be re-registered after the server already
+ * pruned the old record (#169) — the server's vouchIds set is rebuilt from this list.
+ */
+export async function getPendingVouchIds(): Promise<number[]> {
+  const mine = getMyVouches();
+  if (mine.length === 0) return [];
+  const now = Math.floor(Date.now() / 1000);
+  const ids = await Promise.all(
+    mine.map(async (m) => {
+      const v = await getVouch(m.id).catch(() => null);
+      if (!v || v.claimed || v.slashed) return null;
+      if (now >= v.created + VOUCH_TTL_SECS) return null;
+      return m.id;
+    }),
+  );
+  return ids.filter((id): id is number => id !== null);
+}
+
 export interface PendingVouch extends MyVouch {
   claimUrl: string;
   daysLeft: number;

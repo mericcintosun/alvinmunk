@@ -77,7 +77,11 @@ await server.send(signedTxOrAssembledTxOrXdr);            // → { hash, ... } v
    build the same deploy `createWallet` would (`PasskeyClient.deploy`) and submit it via the API
    route below; once confirmed only `{keyId, contractId}` stay in localStorage. While the marker
    is set, the next connect adopts a deploy that landed late or rebuilds it for the SAME passkey
-   instead of enrolling another one (issue #186). Return a `Wallet` whose `invoke(contractId, method,
+   instead of enrolling another one (issue #186). A `recover` connect (onboarding's "I already
+   have an account", issue #278) calls `connectWallet()` WITHOUT a keyId — a WebAuthn prompt for
+   any discoverable (synced) passkey of the site — derives its contract id the way the deploy
+   does (no Mercury needed), checks the contract exists on-chain, and only then records
+   `{keyId, contractId}`; it never enrolls or deploys. Return a `Wallet` whose `invoke(contractId, method,
    args)` builds an `AssembledTransaction` for the call, `account.sign(at, {keyId})`, then POSTs
    the signed tx to `/api/passkey-send` and decodes the result.
 4. **New `apps/web/src/app/api/passkey-send/route.ts`**: `PasskeyServer({rpcUrl, relayerUrl,

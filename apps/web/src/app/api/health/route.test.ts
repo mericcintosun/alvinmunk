@@ -1,6 +1,16 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { GET } from './route';
 import { rpc } from '@stellar/stellar-sdk';
+
+const { state } = vi.hoisted(() => ({
+  state: {
+    configErrors: [] as string[],
+    config: {
+      network: 'testnet',
+      rpcUrl: 'https://rpc.test',
+      contracts: { reputation: 'CREP', questRegistry: 'CQUEST', rewards: 'CREWARDS' },
+    },
+  },
+}));
 
 vi.mock('@stellar/stellar-sdk', () => {
   return {
@@ -9,6 +19,18 @@ vi.mock('@stellar/stellar-sdk', () => {
     },
   };
 });
+
+// The route reads the app's one resolved config; each test can change it (live getters).
+vi.mock('../../../lib/stellar', () => ({
+  get config() {
+    return state.config;
+  },
+  get configErrors() {
+    return state.configErrors;
+  },
+}));
+
+import { GET } from './route';
 
 /** A `getLatestLedger()` response whose ledger closed `ageSeconds` ago. */
 function freshLatestLedger(ageSeconds = 0) {
@@ -26,16 +48,21 @@ function mockServer(getHealth: ReturnType<typeof vi.fn>, getLatestLedger: Return
   });
 }
 
-describe('/api/health', () => {
-  let envBak: NodeJS.ProcessEnv;
+/** An RPC that is up, fresh and keeps a long enough history. */
+function healthyRpc() {
+  mockServer(
+    vi.fn().mockResolvedValue({ status: 'healthy', latestLedger: 100, ledgerRetentionWindow: 20000 }),
+    vi.fn().mockResolvedValue(freshLatestLedger(2)),
+  );
+}
 
+describe('/api/health', () => {
   beforeEach(() => {
-    envBak = { ...process.env };
-    process.env.NEXT_PUBLIC_REWARDS_CONTRACT_ID = 'C...';
+    state.configErrors = [];
+    state.config.contracts.rewards = 'CREWARDS';
   });
 
   afterEach(() => {
-    process.env = envBak;
     vi.restoreAllMocks();
   });
 
@@ -141,5 +168,42 @@ describe('/api/health', () => {
     expect(res.status).toBe(200);
     expect(clearTimeoutSpy).toHaveBeenCalled();
     vi.useRealTimers();
+  });
+
+  it('probes the RPC of the resolved config', async () => {
+    healthyRpc();
+    await GET();
+    expect(rpc.Server).toHaveBeenCalledWith('https://rpc.test', { allowHttp: false });
+  });
+
+  it('returns 503 with each specific reason when the network config is mixed', async () => {
+    healthyRpc();
+    state.configErrors = [
+      'NEXT_PUBLIC_NETWORK_PASSPHRASE is the testnet passphrase, but the network is mainnet',
+      'NEXT_PUBLIC_RPC_URL points at testnet, but the network is mainnet: https://soroban-testnet.stellar.org',
+    ];
+
+    const res = await GET();
+
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(body.rpc).toBe('ok'); // the RPC is fine — the config alone fails the probe
+    expect(body.configErrors).toEqual(state.configErrors);
+  });
+
+  it('reports an empty configErrors list when the config is consistent', async () => {
+    healthyRpc();
+    const body = await (await GET()).json();
+    expect(body.configErrors).toEqual([]);
+    expect(body.network).toBe('testnet');
+  });
+
+  it('still returns 503 without a rewards contract id', async () => {
+    healthyRpc();
+    state.config.contracts.rewards = '';
+    const res = await GET();
+    expect(res.status).toBe(503);
+    expect((await res.json()).contracts.rewards).toBeNull();
   });
 });
