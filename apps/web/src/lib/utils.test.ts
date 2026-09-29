@@ -87,6 +87,29 @@ describe('humanizeError', () => {
     });
   });
 
+  describe('SAC edge cases', () => {
+    it('maps the SAC "zero balance" message to USDC copy in tip flow', () => {
+      const msg = humanizeError(new Error('zero balance is not sufficient to spend'), {}, 'tip');
+      expect(msg).toContain('USDC');
+    });
+
+    it('does not read an auth failure as a missing trustline', () => {
+      const msg = humanizeError(new Error('Error(Auth, InvalidAction): not authorized'), {}, 'tip');
+      expect(msg).not.toContain('enabled this USDC');
+    });
+
+    it('keeps trustline copy out of flows that move no USDC', () => {
+      const msg = humanizeError(new Error('trustline entry is missing'));
+      expect(msg).toBe('trustline entry is missing');
+    });
+
+    it('still prefers the XLM fee copy inside a USDC flow', () => {
+      const msg = humanizeError(new Error('send tip failed: txInsufficientBalance'), {}, 'tip');
+      expect(msg).toContain('network fee');
+      expect(msg).not.toContain('USDC');
+    });
+  });
+
   describe('non-USDC flows', () => {
     it('does not apply USDC heuristics to vouch mint errors', () => {
       const msg = humanizeError(new Error('balance is not sufficient'));
