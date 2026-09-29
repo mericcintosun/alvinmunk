@@ -90,13 +90,13 @@ export function memSet(key: string, value: StoredSubscription): void {
   memStore.set(key, value);
   const wallet = value.walletAddress.toLowerCase();
   if (!walletIndex.has(wallet)) walletIndex.set(wallet, new Set());
-  walletIndex.get(wallet)!.add(key);
+  walletIndex.get(wallet)!.add(value.endpoint);
 }
 export function memDel(key: string): void {
   const existing = memStore.get(key);
   if (existing) {
     const wallet = existing.walletAddress.toLowerCase();
-    walletIndex.get(wallet)?.delete(key);
+    walletIndex.get(wallet)?.delete(existing.endpoint);
   }
   memStore.delete(key);
 }
