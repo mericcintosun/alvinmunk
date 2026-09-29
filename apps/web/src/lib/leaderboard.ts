@@ -51,18 +51,12 @@ export async function fetchWindow(options?: { throwOnError?: boolean }): Promise
 }
 
 export async function fetchLeaderboard(options?: { throwOnError?: boolean }): Promise<LeaderboardEntry[]> {
-  let records: SocialRecord[] = [];
-  let pairs: VouchPair[] = [];
-  try {
-    const window = await fetchWindow(options);
-    records = window.records;
-    pairs = window.pairs;
-  } catch (err) {
-    if (options?.throwOnError) {
-      const snap = loadSnapshot();
-      if (snap.length === 0) throw err;
-    }
-  }
+  // `throwOnError` always propagates a failure — regardless of whether a snapshot exists —
+  // so the caller can tell an outage apart from a genuinely quiet network. Swallowing the
+  // error whenever a snapshot happened to be present would silently keep the "live" badge
+  // on screen through an outage that started after the first successful load: the exact bug
+  // this option exists to prevent (issue #209).
+  const { records, pairs } = await fetchWindow(options);
 
   // Merge with the persisted snapshot so older scores survive the RPC window.
   const merged = mergeSocialRecords(loadSnapshot(), records);

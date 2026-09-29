@@ -41,4 +41,42 @@ describe('fetchLeaderboard', () => {
       { address: 'B', score: 5, rank: 3, flagged: false },
     ]);
   });
+
+  // `events.ts`'s real fetchReputationEvents only rejects when the caller opts into
+  // `throwOnError`; otherwise it swallows RPC failures to []. Mock it the same way here so
+  // these tests exercise fetchLeaderboard's own handling of that contract, not a mock that
+  // contradicts it.
+  function mockEventsRespectingThrowOnError() {
+    vi.mocked(fetchReputationEvents).mockImplementation(async (options?: { throwOnError?: boolean }) => {
+      if (options?.throwOnError) throw new Error('rpc down');
+      return [];
+    });
+  }
+
+  it('resolves to [] on RPC failure for existing callers, preserving the #312 contract', async () => {
+    mockEventsRespectingThrowOnError();
+
+    // No `throwOnError` — the default, silent-degrade behaviour every other caller
+    // (feed, constellation, badges) still relies on.
+    await expect(fetchLeaderboard()).resolves.toEqual([]);
+  });
+
+  it('propagates a failure via throwOnError even when a snapshot already has data', async () => {
+    // A snapshot from an earlier, successful load.
+    localStorage.setItem('alvinmunk.leaderboard.snapshot', JSON.stringify([
+      { address: 'A', total: 10, ledger: 100 },
+    ]));
+    mockEventsRespectingThrowOnError();
+
+    // The outage must still surface to the caller (the leaderboard page uses this to flip
+    // the "live" badge to "sync delayed") — the presence of a stale snapshot must not
+    // swallow the error and make the page look healthy through an active outage.
+    await expect(fetchLeaderboard({ throwOnError: true })).rejects.toThrow('rpc down');
+  });
+
+  it('does not throw with throwOnError when the RPC genuinely has nothing to report', async () => {
+    vi.mocked(fetchReputationEvents).mockResolvedValue([]);
+
+    await expect(fetchLeaderboard({ throwOnError: true })).resolves.toEqual([]);
+  });
 });

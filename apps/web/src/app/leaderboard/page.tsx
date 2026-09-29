@@ -67,7 +67,7 @@ export default function LeaderboardPage() {
               )}
             />
           )}
-          {stale && rows.length === 0 ? 'Sync Failed' : (stale ? t('leaderboard.syncDelayed') : t('leaderboard.live'))}
+          {stale && rows.length === 0 ? t('leaderboard.syncFailed') : (stale ? t('leaderboard.syncDelayed') : t('leaderboard.live'))}
         </span>
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
@@ -88,8 +88,8 @@ export default function LeaderboardPage() {
           stale ? (
             <div className="flex flex-col items-center gap-4 p-10 text-center">
               <div className="space-y-1">
-                <p className="font-mono text-sm text-foreground">Sync Failed</p>
-                <p className="font-mono text-xs text-muted-foreground">The network is currently unavailable.</p>
+                <p className="font-mono text-sm text-foreground">{t('leaderboard.syncFailed')}</p>
+                <p className="font-mono text-xs text-muted-foreground">{t('leaderboard.syncFailedBody')}</p>
               </div>
               <button
                 onClick={() => {
@@ -102,7 +102,7 @@ export default function LeaderboardPage() {
                 }}
                 className="mt-2 rounded bg-primary/10 px-4 py-2 font-mono text-xs text-primary hover:bg-primary/20"
               >
-                Retry
+                {t('leaderboard.retry')}
               </button>
             </div>
           ) : (
