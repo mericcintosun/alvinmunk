@@ -7,6 +7,7 @@ import {
   enableUsdc,
   getUsdcBalance,
   hasUsdcTrustline,
+  isValidAmount,
   requestTestUsdc,
   stroopsToUsdc,
   tip,
@@ -195,7 +196,7 @@ export function Tip({ address }: { address: string }) {
                     await tip(wallet, resolved!, usdcToStroops(amount));
                   })
                 }
-                disabled={busy !== null || resolving || !resolved}
+                disabled={busy !== null || resolving || !resolved || !isValidAmount(amount)}
                 className="flex-1"
               >
                 {busy === 'tip' ? 'Sending…' : 'Send tip'}
