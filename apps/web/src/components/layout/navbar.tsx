@@ -1,14 +1,32 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { Menu, X } from 'lucide-react';
 import { Logo } from '@/components/brand/logo';
 import { ConnectButton } from '@/components/wallet/connect-button';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { useTranslations } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { isReadOnlyView } from '@/lib/read-network';
+
+/** The wallet button — absent on a read-only `?network=` view (lib/read-network), which
+ *  offers no writes. Suspense keeps static pages static: the server renders the plain
+ *  button, and the client drops it once it can read the query. */
+function WalletButton(props: { onNavigate?: () => void }) {
+  return (
+    <Suspense fallback={<ConnectButton {...props} />}>
+      <WalletButtonUnlessReadOnly {...props} />
+    </Suspense>
+  );
+}
+
+function WalletButtonUnlessReadOnly(props: { onNavigate?: () => void }) {
+  const pathname = usePathname();
+  const network = useSearchParams().get('network');
+  return isReadOnlyView(pathname, network) ? null : <ConnectButton {...props} />;
+}
 
 export function Navbar() {
   const t = useTranslations();
@@ -70,7 +88,7 @@ export function Navbar() {
         <div className="flex items-center gap-2">
           <ThemeToggle />
           <div className="hidden md:block">
-            <ConnectButton />
+            <WalletButton />
           </div>
           <button
             className="inline-flex size-10 items-center justify-center rounded-full text-foreground md:hidden"
@@ -104,7 +122,7 @@ export function Navbar() {
             {/* Close only when a link inside is followed: a wrapper that closed on any click
                 would unmount the account menu the moment its chip is tapped. */}
             <div className="px-2 pt-2">
-              <ConnectButton onNavigate={closePanel} />
+              <WalletButton onNavigate={closePanel} />
             </div>
           </div>
         </div>

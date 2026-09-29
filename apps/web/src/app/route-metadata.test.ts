@@ -184,8 +184,12 @@ describe('route metadata', () => {
     expect(m.twitter?.card).toBe('summary_large_image');
   });
 
-  it('/claim/<id> carries the claim-funnel copy and still unfurls with the default card', async () => {
-    const m = await resolve('/claim/7', null, claimLayout.metadata);
+  it('/claim/<id> carries the claim-funnel copy and unfurls with its half-card opengraph-image', async () => {
+    const m = await resolve('/claim/7', null, {
+      metadata: claimLayout.metadata,
+      ogImage: '/claim/7/opengraph-image?a1b2',
+    });
+    const card = at('/claim/7/opengraph-image?a1b2');
     expect(texts(m)).toEqual({
       title: 'Someone vouched for you · alvinmunk',
       ogTitle: 'Someone vouched for you · alvinmunk',
@@ -194,7 +198,8 @@ describe('route metadata', () => {
       ogDescription: CLAIM_DESCRIPTION,
       twitterDescription: CLAIM_DESCRIPTION,
     });
-    expect(imageUrls(m.openGraph?.images)).toEqual([DEFAULT_OG]);
+    expect(imageUrls(m.openGraph?.images)).toEqual([card]);
+    expect(imageUrls(m.twitter?.images)).toEqual([card]);
     expect(m.twitter?.card).toBe('summary_large_image');
   });
 

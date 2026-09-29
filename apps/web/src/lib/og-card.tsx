@@ -1,4 +1,5 @@
 /* eslint-disable @next/next/no-img-element -- Satori (next/og) renders plain <img>; next/image can't run here */
+import type { CSSProperties } from 'react';
 import { stampArt, shortAddr } from '@alvinmunk/shared';
 import { resolveHandle, getMeta } from './registry';
 import { getScores, type PeopleCounts } from './reputation';
@@ -14,8 +15,9 @@ import {
   type KitAvatar,
 } from './avatar';
 
-// Shared profile-card renderer for the OG image routes (/u and /v). Resolves the handle
-// on-chain and returns Satori-compatible JSX. Literal colors (Satori has no CSS vars).
+// Shared card renderers for the OG image routes: the profile card (/u and /v, resolved from
+// the handle on-chain) and the half-card (/claim). Satori-compatible JSX with literal colors
+// (Satori has no CSS vars).
 
 /** Calculate font size for handle based on length to fit within OG card width. */
 export function handleFontSize(handleLength: number): number {
@@ -88,63 +90,19 @@ export function ogCard(opts: {
   const art = stampArt(address ?? `unclaimed-${handle}`, 7);
   const pts = art.points.split(' ').map((p) => p.split(',').map(Number));
   const polyPoints = [...pts, pts[0]].map((p) => `${p[0]},${p[1]}`).join(' ');
-  const face =
-    address && avatar?.kind !== 'kit' ? loadPng(faceFile(resolveAvatarId(avatar, address))) : null;
-  const kit = address && avatar?.kind === 'kit' ? avatar : null;
 
   return (
-    <div
-      style={{
-        width: '100%',
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        background: `radial-gradient(120% 120% at 20% 0%, #1a0b2e 0%, ${BG} 60%)`,
-        color: FG,
-        padding: '64px',
-        // Must match the `name` of every font entry passed to `ImageResponse` (see the two
-        // opengraph-image.tsx routes) — Satori only falls back to a font whose CSS family
-        // matches this name; nothing here declares its own fontFamily.
-        fontFamily: 'Noto Sans',
-      }}
-    >
+    <div style={SHELL}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', color: MUTED, fontSize: '24px', letterSpacing: '6px' }}>
-          <div style={{ width: '14px', height: '14px', borderRadius: '50%', background: GOLD }} />
-          ALVINMUNK
-        </div>
+        <Brand />
         <div style={{ display: 'flex', color: invite ? GOLD : GREEN, fontSize: '22px', letterSpacing: '4px' }}>
           {invite ? 'INVITED YOU' : '● LIVE'}
         </div>
       </div>
 
       <div style={{ display: 'flex', flex: 1, alignItems: 'center', gap: '56px' }}>
-        {face || kit ? (
-          <div
-            style={{
-              display: 'flex',
-              width: '380px',
-              height: '380px',
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: '50%',
-              overflow: 'hidden',
-              background: `radial-gradient(circle, ${VIOLET}22 0%, ${BG} 72%)`,
-              border: `6px solid ${LIME}`,
-            }}
-          >
-            {kit ? (
-              <OgKitFace cfg={kit} size={FACE_BOX} />
-            ) : face ? (
-              <img
-                src={face.uri}
-                alt=""
-                width={372}
-                height={475}
-                style={{ objectFit: 'cover', objectPosition: 'top' }}
-              />
-            ) : null}
-          </div>
+        {address ? (
+          <OgFace address={address} avatar={avatar} size={380} ring={LIME} />
         ) : (
           <div style={{ display: 'flex', width: '380px', height: '380px' }}>
             <svg width="380" height="380" viewBox="0 0 100 100">
@@ -199,8 +157,220 @@ export function ogCard(opts: {
   );
 }
 
-/** Inner size of the 380px face circle (its 6px border takes the rest). */
-const FACE_BOX = 368;
+/**
+ * What a `/claim/<id>` link unfurls into, as far as the PUBLIC id reveals. The claim route
+ * builds it from `getVouch(id)` alone — never from the link's claim code, which lives in the
+ * URL fragment and never reaches a server.
+ * - `unknown`: no half-card has this id (or the id can never be one).
+ * - `unavailable`: the chain didn't answer. It says nothing about the card, so an unfurl
+ *   cached during an RPC blip never tells the recipient a live link is dead.
+ */
+export type ClaimCardView =
+  | { status: 'unknown' }
+  | { status: 'unavailable' }
+  | {
+      /** `closed`: the voucher's stake window has passed — the card itself still claims. */
+      status: 'open' | 'claimed' | 'closed';
+      vouchId: number;
+      from: string;
+      /** The voucher's @handle (null → their short address). */
+      handle: string | null;
+      /** The voucher's published face (undefined → their deterministic default). */
+      avatar?: AvatarConfig;
+      /** The one-line note, rendered as text ('' when none). */
+      note: string;
+      daysLeft: number;
+    };
+
+/** Font size that keeps the voucher's name on one line under the face: 40px up to 20
+ *  characters, then scaled down so the longest handle (`@` + 32) still fits the column. */
+export function claimNameSize(chars: number): number {
+  return Math.min(40, Math.floor(820 / Math.max(chars, 1)));
+}
+
+/**
+ * The half-card unfurl for `/claim/<id>` — the install funnel: the voucher's face and
+ * @handle, their note, and the glowing empty socket waiting for the recipient.
+ */
+export function claimCard(view: ClaimCardView) {
+  if (view.status === 'unknown' || view.status === 'unavailable') {
+    const [title, line] =
+      view.status === 'unknown'
+        ? ['This half-card doesn’t exist', 'The link may be old or mistyped — ask for a fresh one.']
+        : ['Someone vouched for you', 'Open the link to claim your half of the sky.'];
+    return (
+      <div style={SHELL}>
+        <Brand />
+        <div style={{ display: 'flex', flex: 1, flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          <svg width="180" height="180" viewBox="0 0 100 100">
+            <circle cx="50" cy="50" r="44" fill={VIOLET} fillOpacity="0.08" />
+            <circle cx="50" cy="50" r="6" fill={GOLD} />
+          </svg>
+          <div style={{ display: 'flex', marginTop: '28px', fontSize: '56px', fontWeight: 700 }}>{title}</div>
+          <div style={{ display: 'flex', marginTop: '16px', color: MUTED, fontSize: '28px' }}>{line}</div>
+        </div>
+      </div>
+    );
+  }
+
+  const { status, vouchId, from, handle, avatar, note, daysLeft } = view;
+  const name = handle ? `@${handle}` : shortAddr(from);
+  const lit = status === 'claimed';
+  const statusText =
+    status === 'open'
+      ? `${daysLeft} ${daysLeft === 1 ? 'DAY' : 'DAYS'} LEFT TO CLAIM`
+      : lit
+        ? 'THIS STAR IS LIT'
+        : 'STAKE WINDOW CLOSED';
+  const statusColor = status === 'open' ? GOLD : lit ? GREEN : MUTED;
+  const socket = lit ? GREEN : GOLD;
+
+  return (
+    <div style={SHELL}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Brand />
+        <div style={{ display: 'flex', color: statusColor, fontSize: '22px', letterSpacing: '4px' }}>{statusText}</div>
+      </div>
+
+      <div style={{ display: 'flex', flex: 1, alignItems: 'center', justifyContent: 'center', gap: '48px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '18px' }}>
+          <OgFace address={from} avatar={avatar} size={260} ring={GOLD} />
+          <div style={{ display: 'flex', fontSize: claimNameSize(name.length), fontWeight: 700, maxWidth: '520px', wordBreak: 'break-all' }}>
+            {name}
+          </div>
+        </div>
+
+        {/* An SVG arrow: Noto Sans has no → glyph. */}
+        <svg width="64" height="32" viewBox="0 0 64 32">
+          <path d="M2 16h56M44 4l14 12-14 12" fill="none" stroke={MUTED} strokeWidth="4" />
+        </svg>
+
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '18px' }}>
+          <div
+            style={{
+              display: 'flex',
+              width: '260px',
+              height: '260px',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: '36px',
+              background: `radial-gradient(circle, ${socket}22 0%, ${BG} 74%)`,
+              border: `5px ${lit ? 'solid' : 'dashed'} ${socket}`,
+              boxShadow: `0 0 42px 6px ${socket}55`,
+            }}
+          >
+            <div style={{ display: 'flex', color: socket, fontSize: '26px', letterSpacing: '3px' }}>
+              {lit ? 'LIT' : 'YOUR HALF'}
+            </div>
+          </div>
+          <div style={{ display: 'flex', color: MUTED, fontSize: '26px' }}>{lit ? 'claimed' : 'waiting for you'}</div>
+        </div>
+      </div>
+
+      {note ? (
+        <div
+          style={{
+            display: 'block',
+            alignSelf: 'center',
+            maxWidth: '760px',
+            lineClamp: 2,
+            wordBreak: 'break-word',
+            textAlign: 'center',
+            color: FG,
+            opacity: 0.88,
+            fontSize: '30px',
+            lineHeight: 1.35,
+          }}
+        >
+          {`“${note}”`}
+        </div>
+      ) : null}
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '24px', color: MUTED, fontSize: '20px', letterSpacing: '4px', opacity: 0.55 }}>
+        <div style={{ display: 'flex' }}>{`HALF-CARD // #${vouchId}`}</div>
+        <div style={{ display: 'flex' }}>COLLECT PEOPLE, NOT POINTS</div>
+      </div>
+    </div>
+  );
+}
+
+/** The canvas every card renders into. */
+const SHELL: CSSProperties = {
+  width: '100%',
+  height: '100%',
+  display: 'flex',
+  flexDirection: 'column',
+  background: `radial-gradient(120% 120% at 20% 0%, #1a0b2e 0%, ${BG} 60%)`,
+  color: FG,
+  padding: '64px',
+  // Must match the `name` of every font entry passed to `ImageResponse` (see the
+  // opengraph-image.tsx routes) — Satori only falls back to a font whose CSS family
+  // matches this name; nothing here declares its own fontFamily.
+  fontFamily: 'Noto Sans',
+};
+
+function Brand() {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '14px', color: MUTED, fontSize: '24px', letterSpacing: '6px' }}>
+      <div style={{ width: '14px', height: '14px', borderRadius: '50%', background: GOLD }} />
+      ALVINMUNK
+    </div>
+  );
+}
+
+/** Width of the ring around a face circle. */
+const RING = 6;
+/** Height-to-width of the box a face sticker is cropped into. */
+const FACE_TALL = 475 / 372;
+
+/**
+ * A ringed face circle: the published face sticker, a remixed kit face, or — with none
+ * published — the deterministic default for `address` (the same resolution <Avatar> uses).
+ */
+function OgFace({
+  address,
+  avatar,
+  size,
+  ring,
+}: {
+  address: string;
+  avatar?: AvatarConfig;
+  size: number;
+  ring: string;
+}) {
+  const inner = size - 2 * RING;
+  const face = avatar?.kind === 'kit' ? null : loadPng(faceFile(resolveAvatarId(avatar, address)));
+  // A portrait box a little wider than the circle, so `cover` leaves no sliver at the ring
+  // and crops the sticker from the bottom (`objectPosition: top`).
+  const w = inner + 4;
+  return (
+    <div
+      style={{
+        display: 'flex',
+        width: `${size}px`,
+        height: `${size}px`,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: '50%',
+        overflow: 'hidden',
+        background: `radial-gradient(circle, ${VIOLET}22 0%, ${BG} 72%)`,
+        border: `${RING}px solid ${ring}`,
+      }}
+    >
+      {avatar?.kind === 'kit' ? (
+        <OgKitFace cfg={avatar} size={inner} />
+      ) : face ? (
+        <img
+          src={face.uri}
+          alt=""
+          width={w}
+          height={Math.round(w * FACE_TALL)}
+          style={{ objectFit: 'cover', objectPosition: 'top' }}
+        />
+      ) : null}
+    </div>
+  );
+}
 
 /**
  * Satori twin of <KitFace>: stacks the kit layers at the same calibrated anchors (a 200px

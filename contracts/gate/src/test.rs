@@ -1,5 +1,6 @@
 #![cfg(test)]
 //! Integration tests: Gate cross-reads the Reputation contract's Social/Earned tracks.
+extern crate std;
 use super::*;
 use alvinmunk_reputation::{ReputationContract, ReputationContractClient};
 use soroban_sdk::{
@@ -913,4 +914,245 @@ fn the_gate_version_lives_as_long_as_the_gate() {
         assert_eq!(ttl(&f, &DataKey::Gate(1)), BUMP_EXTEND);
         assert_eq!(ttl(&f, &DataKey::GateVersion(1)), BUMP_EXTEND);
     }
+}
+
+// --- Batch views: `get_status` / `check_many` (#158) ---
+
+fn ids(f: &Fixture, ids: &[u32]) -> Vec<u32> {
+    let mut v = Vec::new(&f.env);
+    for id in ids {
+        v.push_back(*id);
+    }
+    v
+}
+
+/// (id, passes, unlocked) for every row of `get_status(addr)`.
+fn status(f: &Fixture, addr: &Address) -> std::vec::Vec<(u32, bool, bool)> {
+    f.gate
+        .get_status(addr)
+        .iter()
+        .map(|s| (s.gate.id, s.passes, s.unlocked))
+        .collect()
+}
+
+/// A gate wired to the read-counting Reputation stand-in (every score reads as 100).
+fn counting_setup(
+    env: &Env,
+) -> (
+    GateContractClient<'static>,
+    counting_rep::CountingRepClient<'static>,
+) {
+    env.mock_all_auths();
+    let rep_id = env.register(counting_rep::CountingRep, ());
+    let rep = counting_rep::CountingRepClient::new(env, &rep_id);
+    let gate = GateContractClient::new(env, &env.register(GateContract, ()));
+    gate.init(&Address::generate(env), &rep_id);
+    (gate, rep)
+}
+
+#[test]
+fn get_status_reports_every_gate_with_passes_and_unlocked() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    earn(&f, &user, 40);
+    earn_social(&f, &user, 1); // Social 30, Earned 40
+    f.gate
+        .create_gate(&1u32, &TRACK_EARNED, &30u64, &label(&f, "Bounty"));
+    f.gate
+        .create_gate(&2u32, &TRACK_SOCIAL, &50u64, &label(&f, "Circle"));
+    composite(
+        &f,
+        3,
+        &[rule(TRACK_SOCIAL, 50), rule(TRACK_EARNED, 40)],
+        RuleMode::AnyOf,
+        "Either",
+    );
+    f.gate
+        .create_gate(&4u32, &TRACK_EARNED, &10u64, &label(&f, "Off"));
+    f.gate.set_gate_active(&4u32, &false);
+    f.gate.unlock(&user, &1u32);
+
+    assert_eq!(
+        status(&f, &user),
+        [
+            (1, true, true),   // passed and unlocked
+            (2, false, false), // Social 30 < 50
+            (3, true, false),  // any-of: the Earned rule passes
+            (4, false, false), // inactive: listed, but never passes
+        ]
+    );
+    let rows = f.gate.get_status(&user);
+    let first = rows.get(0).unwrap().gate;
+    assert_eq!(
+        (first.track, first.min, first.label),
+        (TRACK_EARNED, 30, label(&f, "Bounty"))
+    );
+    assert!(!rows.get(3).unwrap().gate.active);
+
+    // Every row agrees with the single-gate reads.
+    for s in rows.iter() {
+        assert_eq!(s.passes, f.gate.check(&user, &s.gate.id));
+        assert_eq!(s.unlocked, f.gate.is_unlocked(&user, &s.gate.id));
+    }
+}
+
+#[test]
+fn get_status_with_no_gates_is_empty() {
+    let f = setup();
+    assert_eq!(f.gate.get_status(&Address::generate(&f.env)).len(), 0);
+}
+
+#[test]
+fn get_status_follows_disabling_and_redefining_a_gate() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    earn(&f, &user, 50);
+    f.gate
+        .create_gate(&1u32, &TRACK_EARNED, &30u64, &label(&f, "Perk"));
+    f.gate.unlock(&user, &1u32);
+    assert_eq!(status(&f, &user), [(1, true, true)]);
+
+    // Disabled: nothing passes and the unlock doesn't count, until it is re-enabled.
+    f.gate.set_gate_active(&1u32, &false);
+    assert_eq!(status(&f, &user), [(1, false, false)]);
+    f.gate.set_gate_active(&1u32, &true);
+    assert_eq!(status(&f, &user), [(1, true, true)]);
+
+    // Redefined: the old unlock is stale even though the wallet still passes.
+    f.gate
+        .create_gate(&1u32, &TRACK_EARNED, &50u64, &label(&f, "Perk"));
+    assert_eq!(status(&f, &user), [(1, true, false)]);
+    f.gate.unlock(&user, &1u32);
+    assert_eq!(status(&f, &user), [(1, true, true)]);
+}
+
+#[test]
+fn get_status_counts_an_unlock_stored_before_versioning() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    f.gate
+        .create_gate(&1u32, &TRACK_EARNED, &30u64, &label(&f, "x"));
+    legacy_unlock(&f, &user, 1);
+    assert_eq!(status(&f, &user), [(1, false, true)]); // unlocked, below today's bar
+}
+
+#[test]
+fn get_status_reads_each_track_once_for_all_gates() {
+    let env = Env::default();
+    let (gate, rep) = counting_setup(&env);
+    for id in 1..=3u32 {
+        gate.create_gate(
+            &id,
+            &TRACK_SOCIAL,
+            &(id as u64),
+            &String::from_str(&env, "s"),
+        );
+        gate.create_gate(
+            &(id + 10),
+            &TRACK_EARNED,
+            &(id as u64),
+            &String::from_str(&env, "e"),
+        );
+    }
+    let mut rules = Vec::new(&env);
+    rules.push_back(rule(TRACK_EARNED, 5));
+    rules.push_back(rule(TRACK_SOCIAL, 5));
+    gate.create_gate_rules(
+        &20u32,
+        &rules,
+        &RuleMode::AllOf,
+        &String::from_str(&env, "c"),
+    );
+
+    let user = Address::generate(&env);
+    let rows = gate.get_status(&user);
+    assert_eq!(rows.len(), 7);
+    assert!(rows.iter().all(|s| s.passes));
+    assert_eq!(rep.reads(), 2); // seven gates, two tracks
+}
+
+#[test]
+fn get_status_skips_reputation_for_tracks_no_active_gate_uses() {
+    let env = Env::default();
+    let (gate, rep) = counting_setup(&env);
+    gate.create_gate(&1u32, &TRACK_SOCIAL, &5u64, &String::from_str(&env, "s"));
+    gate.create_gate(&2u32, &TRACK_EARNED, &5u64, &String::from_str(&env, "e"));
+    gate.set_gate_active(&2u32, &false);
+
+    let user = Address::generate(&env);
+    gate.get_status(&user);
+    assert_eq!(rep.reads(), 1); // only the active Social gate is evaluated
+
+    gate.set_gate_active(&1u32, &false);
+    gate.get_status(&user);
+    assert_eq!(rep.reads(), 1); // nothing active: no cross-contract read at all
+}
+
+#[test]
+fn check_many_matches_check_in_order() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    earn(&f, &user, 30);
+    f.gate
+        .create_gate(&1u32, &TRACK_EARNED, &30u64, &label(&f, "a"));
+    f.gate
+        .create_gate(&2u32, &TRACK_SOCIAL, &10u64, &label(&f, "b"));
+    f.gate
+        .create_gate(&3u32, &TRACK_EARNED, &0u64, &label(&f, "c"));
+    f.gate.set_gate_active(&3u32, &false);
+
+    // Unknown (99) and inactive (3) gates read false; order and duplicates are kept.
+    let asked = [2u32, 1, 99, 3, 1];
+    let got = f.gate.check_many(&user, &ids(&f, &asked));
+    let expected: std::vec::Vec<bool> = asked.iter().map(|id| f.gate.check(&user, id)).collect();
+    assert_eq!(got.iter().collect::<std::vec::Vec<bool>>(), expected);
+    assert_eq!(expected, [false, true, false, false, true]);
+    assert_eq!(f.gate.check_many(&user, &ids(&f, &[])).len(), 0);
+}
+
+#[test]
+fn check_many_reads_each_track_once() {
+    let env = Env::default();
+    let (gate, rep) = counting_setup(&env);
+    for id in 1..=4u32 {
+        let track = if id % 2 == 0 {
+            TRACK_EARNED
+        } else {
+            TRACK_SOCIAL
+        };
+        gate.create_gate(&id, &track, &10u64, &String::from_str(&env, "x"));
+    }
+    let user = Address::generate(&env);
+    let mut asked = Vec::new(&env);
+    for id in [1u32, 2, 3, 4, 1, 42] {
+        asked.push_back(id);
+    }
+    let got = gate.check_many(&user, &asked);
+    assert_eq!(
+        got.iter().collect::<std::vec::Vec<bool>>(),
+        [true, true, true, true, true, false]
+    );
+    assert_eq!(rep.reads(), 2);
+}
+
+#[test]
+fn upgrading_serves_the_batch_views() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    earn(&f, &user, 30);
+    f.gate
+        .create_gate(&1u32, &TRACK_EARNED, &30u64, &label(&f, "a"));
+    f.gate.unlock(&user, &1u32);
+
+    let hash = f.env.deployer().upload_contract_wasm(GATE_WASM);
+    f.gate.upgrade(&hash);
+
+    assert_eq!(status(&f, &user), [(1, true, true)]);
+    assert_eq!(
+        f.gate
+            .check_many(&user, &ids(&f, &[1]))
+            .iter()
+            .collect::<std::vec::Vec<bool>>(),
+        [true]
+    );
 }

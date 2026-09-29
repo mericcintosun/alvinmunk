@@ -25,6 +25,12 @@ vi.mock('@/lib/i18n', () => ({
   useTranslations: () => (k: string, vars?: Record<string, string>) =>
     vars ? [k, ...Object.entries(vars).map(([n, v]) => `${n}=${v}`)].join(' ') : k,
 }));
+// The ?network= override: lib/read-network decides it (tested there); here `testnet` is one.
+const TESTNET_NET = vi.hoisted(() => ({ network: 'testnet' }));
+vi.mock('@/lib/read-network', () => ({
+  readNetworkFor: (p?: string | string[]) => (p === 'testnet' ? TESTNET_NET : null),
+  withReadNetwork: (path: string, net: unknown) => (net ? `${path}?network=testnet` : path),
+}));
 
 // Fix for default exports
 import LeaderboardPage from './page';
@@ -50,7 +56,31 @@ describe('LeaderboardPage', () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    delete (document as { hidden?: boolean }).hidden;
     vi.useRealTimers();
+  });
+
+  it('ranks the override network read-only, and shares the override link (#290)', async () => {
+    fetchLeaderboardMock.mockResolvedValue([{ address: 'GTEST', score: 5, rank: 1, flagged: false }]);
+    await act(async () => {
+      root.render(<LeaderboardPage searchParams={{ network: 'testnet' }} />);
+      await Promise.resolve();
+    });
+    expect(fetchLeaderboardMock).toHaveBeenCalledWith({ throwOnError: true, net: TESTNET_NET });
+    expect(reverseHandlesMock).toHaveBeenCalledWith(['GTEST'], TESTNET_NET);
+    expect(container.querySelector('[role="status"]')?.textContent).toContain('readOnly.stamp');
+    // A row opens the override network's page, not the deployment's.
+    expect(container.querySelector('a[href="/score/GTEST?network=testnet"]')).not.toBeNull();
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    fetchLeaderboardMock.mockClear();
+    await act(async () => {
+      root.render(<LeaderboardPage />);
+      await Promise.resolve();
+    });
+    expect(fetchLeaderboardMock).toHaveBeenCalledWith({ throwOnError: true, net: null });
+    expect(container.querySelector('[role="status"]')).toBeNull();
   });
 
   it('shows error state when fetch fails on first load with no snapshot', async () => {
@@ -105,6 +135,32 @@ describe('LeaderboardPage', () => {
     expect(container.textContent).toContain('leaderboard.empty');
     expect(container.textContent).not.toContain('leaderboard.syncFailed');
     expect(container.textContent).not.toContain('leaderboard.syncDelayed');
+  });
+
+  it('fires no poll while the tab is hidden, and one when it returns (issue #210)', async () => {
+    fetchLeaderboardMock.mockResolvedValue([]);
+    await act(async () => {
+      root.render(<LeaderboardPage />);
+      await Promise.resolve();
+    });
+    expect(fetchLeaderboardMock).toHaveBeenCalledTimes(1);
+
+    const setHidden = (hidden: boolean) =>
+      act(async () => {
+        Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+    await setHidden(true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+    });
+    expect(fetchLeaderboardMock).toHaveBeenCalledTimes(1);
+
+    await setHidden(false);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(fetchLeaderboardMock).toHaveBeenCalledTimes(2);
   });
 
   it('keeps showing the last good rows with a stale badge when a later poll fails', async () => {
@@ -251,7 +307,7 @@ describe('LeaderboardPage — poll / handle-lookup interaction (issue #208)', ()
     // Despite 3 polls, the batched lookup should have been made exactly once for
     // both addresses — not once per poll.
     expect(reverseHandlesMock).toHaveBeenCalledTimes(1);
-    expect(reverseHandlesMock).toHaveBeenCalledWith([ADDR_A, ADDR_B]);
+    expect(reverseHandlesMock).toHaveBeenCalledWith([ADDR_A, ADDR_B], null);
   });
 
   it('does not restart lookups when the poll returns identical data', async () => {
@@ -290,7 +346,7 @@ describe('LeaderboardPage — poll / handle-lookup interaction (issue #208)', ()
     });
 
     // ADDR_A resolved immediately; ADDR_B is not yet in the list.
-    expect(reverseHandlesMock).toHaveBeenCalledWith([ADDR_A]);
+    expect(reverseHandlesMock).toHaveBeenCalledWith([ADDR_A], null);
     expect(container.textContent).toContain('@alice');
 
     // Second poll fires at +5 s, brings in ADDR_B — only the new address is looked up.
@@ -299,7 +355,7 @@ describe('LeaderboardPage — poll / handle-lookup interaction (issue #208)', ()
       await Promise.resolve();
     });
 
-    expect(reverseHandlesMock).toHaveBeenCalledWith([ADDR_B]);
+    expect(reverseHandlesMock).toHaveBeenCalledWith([ADDR_B], null);
     expect(container.textContent).toContain('@bob');
   });
 });

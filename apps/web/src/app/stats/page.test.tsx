@@ -172,3 +172,70 @@ describe('StatsPage — wallet rows (issue #216)', () => {
     ]);
   });
 });
+
+/** Issue #210: no polling from a background tab, and never two requests at once. */
+describe('StatsPage — background tabs (issue #210)', () => {
+  let root: Root;
+  let container: HTMLDivElement;
+
+  const ok = { ok: true, json: async () => ({ network: 'testnet', configured: true, users: 3, target: 50, addresses: [] }) };
+
+  const setHidden = (hidden: boolean) => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+    document.dispatchEvent(new Event('visibilitychange'));
+  };
+  const advance = (ms: number) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    fetchMock.mockReset();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    delete (document as { hidden?: boolean }).hidden;
+    vi.useRealTimers();
+  });
+
+  it('fires no request while the tab is hidden, and one when it returns', async () => {
+    fetchMock.mockResolvedValue(ok);
+    await act(async () => {
+      root.render(<StatsPage />);
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => setHidden(true));
+    await advance(10 * 60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => setHidden(false));
+    await advance(0);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('never overlaps a slow response with the next poll', async () => {
+    let respond!: (v: typeof ok) => void;
+    fetchMock.mockReturnValueOnce(new Promise((r) => (respond = r))).mockResolvedValue(ok);
+    await act(async () => {
+      root.render(<StatsPage />);
+      await Promise.resolve();
+    });
+
+    // A minute in flight: several poll intervals pass, yet nothing is sent on top of it.
+    await advance(60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    respond(ok);
+    await advance(0);
+    expect(container.textContent).toContain('3 / 50');
+    expect(fetchMock).toHaveBeenCalledTimes(1); // the next poll waits a full interval
+  });
+});

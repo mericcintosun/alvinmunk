@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { xdr, Address, StrKey } from '@stellar/stellar-sdk';
+import type { ReadNetwork } from './read-network';
 
 const { getLatestLedgerMock, getEventsMock } = vi.hoisted(() => ({
   getLatestLedgerMock: vi.fn(),
@@ -251,6 +252,42 @@ describe('contract event reads', () => {
       limit: 1000,
     });
     expect(getEventsMock).toHaveBeenCalledTimes(1); // a quiet window is still one request
+  });
+
+  it("scans the override network's reputation contract on its own RPC, never the deployment's (#290)", async () => {
+    const testnetServer = {
+      getLatestLedger: vi.fn().mockResolvedValue({ sequence: 50_000 }),
+      getEvents: vi.fn().mockResolvedValue({ events: [] }),
+    };
+    const net = {
+      network: 'testnet',
+      contracts: { reputation: 'CTESTREP', registry: 'CTESTREG' },
+      server: testnetServer,
+    } as unknown as ReadNetwork;
+    await Promise.all([fetchReputationEvents({ net }), fetchReputationEvents()]);
+    expect(testnetServer.getEvents).toHaveBeenCalledWith({
+      startLedger: 41_000,
+      filters: [{ type: 'contract', contractIds: ['CTESTREP'], topics: [['*', '*']] }],
+      limit: 1000,
+    });
+    // The deployment's scan ran on its own, not shared with the override's.
+    expect(getEventsMock).toHaveBeenCalledTimes(1);
+    expect(getEventsMock.mock.calls[0][0].filters[0].contractIds).toEqual(['CREP']);
+    // Each window is reused within the TTL from its own network's cache.
+    await Promise.all([fetchReputationEvents({ net }), fetchReputationEvents()]);
+    expect(testnetServer.getEvents).toHaveBeenCalledTimes(1);
+    expect(getEventsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keys the shared window by network, even for one contract id on both', async () => {
+    const otherServer = {
+      getLatestLedger: vi.fn().mockResolvedValue({ sequence: 50_000 }),
+      getEvents: vi.fn().mockResolvedValue({ events: [] }),
+    };
+    const net = { network: 'testnet', contracts: { reputation: 'CREP' }, server: otherServer } as unknown as ReadNetwork;
+    await fetchReputationEvents();
+    await fetchReputationEvents({ net }); // within the TTL of the deployment's window
+    expect(otherServer.getEvents).toHaveBeenCalledTimes(1);
   });
 
   it('shares one scan between concurrent callers', async () => {

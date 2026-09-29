@@ -132,10 +132,10 @@ A production MVP on Stellar with real users, one-tap onboarding, analytics + mon
 | Name | Wallet or @handle | Rating | Notes / wants next |
 | --- | --- | :---: | --- |
 | Berkay Gündüz (beko) | [`GB72PZXN…YZ3H3`](https://stellar.expert/explorer/testnet/account/GB72PZXNOU6DJ2BXZDITS24A5JCN3CEUNTKIX5ESZDXAY2R5HO7YZ3H3) | 4/5 | "Interface is working well." → wants **weighted vouch** |
-| Umut Akçayır | [@umut](https://alvinmunk.vercel.app/u/umut) | 5/5 | — |
-| Leyla Bayıroğlu | [@leyla](https://alvinmunk.vercel.app/u/leyla) | 5/5 | — |
-| Cansu Güzel | [@cansu](https://alvinmunk.vercel.app/u/cansu) | 3/5 | — |
-| Nazlı Kır | [@nazli](https://alvinmunk.vercel.app/u/nazli) | 1/5 | — |
+| Umut Akçayır | [@umut](https://alvinmunk.vercel.app/u/umut?network=testnet) | 5/5 | — |
+| Leyla Bayıroğlu | [@leyla](https://alvinmunk.vercel.app/u/leyla?network=testnet) | 5/5 | — |
+| Cansu Güzel | [@cansu](https://alvinmunk.vercel.app/u/cansu?network=testnet) | 3/5 | — |
+| Nazlı Kır | [@nazli](https://alvinmunk.vercel.app/u/nazli?network=testnet) | 1/5 | — |
 
 **Summary:** **5 responses, average 3.6/5**, ratings span 1–5 (organic, not all 5-star); UI praised; top qualitative request = **weighted vouch**.
 

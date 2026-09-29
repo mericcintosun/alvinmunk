@@ -8,6 +8,7 @@ import { Address, scValToNative, xdr, type rpc } from '@stellar/stellar-sdk';
 import { EVENTS } from '@alvinmunk/shared';
 import { server, config } from './stellar';
 import { shareInFlight } from './utils';
+import type { ReadNetwork } from './read-network';
 
 /**
  * RPC event retention is ~24h; staying within ~9000 ledgers keeps `getEvents` returning
@@ -71,11 +72,21 @@ export function decodeScVal(v: xdr.ScVal | string): unknown {
  * caller degrades gracefully. Concurrent callers (feed, constellation, badges mounting
  * together) share one scan, and a settled one is reused for `EVENT_WINDOW_TTL_MS`.
  */
-export async function fetchReputationEvents(options?: WindowReadOptions): Promise<RepEvent[]> {
-  return fetchContractEvents(config.contracts.reputation, ['*', '*'], PAGE_SIZE * MAX_PAGES, {
-    maxAgeMs: EVENT_WINDOW_TTL_MS,
-    ...options,
-  });
+export async function fetchReputationEvents(
+  options?: WindowReadOptions & {
+    /** Read another network (the ?network= override); default: the deployment's. */
+    net?: ReadNetwork | null;
+  },
+): Promise<RepEvent[]> {
+  const { net, ...window } = options ?? {};
+  const contractId = net ? net.contracts.reputation : config.contracts.reputation;
+  return fetchContractEvents(
+    contractId,
+    ['*', '*'],
+    PAGE_SIZE * MAX_PAGES,
+    { maxAgeMs: EVENT_WINDOW_TTL_MS, ...window },
+    net,
+  );
 }
 
 /**
@@ -138,16 +149,18 @@ export function fetchContractEvents(
   topics: string[],
   limit: number,
   { throwOnError, maxAgeMs = 0 }: WindowReadOptions = {},
+  net?: ReadNetwork | null,
 ): Promise<RepEvent[]> {
   if (!contractId) {
     if (throwOnError) return Promise.reject(new Error('No contract ID'));
     return Promise.resolve([]);
   }
-  const key = `${contractId}|${topics.join(',')}|${limit}`;
+  // One network's window never answers for the other's (the ?network= override).
+  const key = `${net?.network ?? ''}|${contractId}|${topics.join(',')}|${limit}`;
   const hit = settledScans.get(key);
   if (hit && Date.now() - hit.at < maxAgeMs) return Promise.resolve(hit.events);
   const scan = shareInFlight(pendingScans, key, async () => {
-    const events = await scanContractEvents(contractId, topics, limit);
+    const events = await scanContractEvents(net?.server ?? server, contractId, topics, limit);
     settledScans.set(key, { events, at: Date.now() });
     return events;
   });
@@ -166,7 +179,12 @@ export function fetchContractEvents(
  * A request failing part-way rejects the whole scan (plain callers read []): an oldest-only
  * prefix would read to every caller as "nothing happened since".
  */
-async function scanContractEvents(contractId: string, topics: string[], limit: number): Promise<RepEvent[]> {
+async function scanContractEvents(
+  server: rpc.Server,
+  contractId: string,
+  topics: string[],
+  limit: number,
+): Promise<RepEvent[]> {
   const latest = await server.getLatestLedger();
   const startLedger = Math.max(1, latest.sequence - EVENT_LEDGER_WINDOW);
 

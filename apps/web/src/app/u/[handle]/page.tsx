@@ -16,14 +16,25 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { buttonVariants } from '@/components/ui/button';
 import { shortAddr } from '@alvinmunk/shared';
 import { cn } from '@/lib/utils';
+import { readNetworkFor, withReadNetwork } from '@/lib/read-network';
+import { ReadOnlyBanner } from '@/components/read-only-banner';
 
 /**
  * Public profile. The handle is resolved ON-CHAIN via the registry, so ANY claimed
  * @handle renders for anyone (the share-link target). Falls back to an honest "unclaimed"
- * state for free handles.
+ * state for free handles. `?network=testnet` on a mainnet deployment shows the testnet
+ * profile, read-only (lib/read-network).
  */
-export default function ProfilePage({ params }: { params: { handle: string } }) {
+export default function ProfilePage({
+  params,
+  searchParams,
+}: {
+  params: { handle: string };
+  searchParams?: { network?: string | string[] };
+}) {
   const handle = params.handle.toLowerCase();
+  // A shared singleton (or null), so it is a stable effect dependency.
+  const net = readNetworkFor(searchParams?.network);
   const { profile } = useWallet();
   const [address, setAddress] = useState<string | null | undefined>(undefined); // undefined = loading
   const [scores, setScores] = useState<{ social: number; earned: number } | null>(null);
@@ -36,15 +47,15 @@ export default function ProfilePage({ params }: { params: { handle: string } }) 
     setScores(null);
     setPeople(null);
     setMeta(null);
-    resolveHandle(handle)
+    resolveHandle(handle, net)
       .then(async (addr) => {
         if (!alive) return;
         setAddress(addr);
         if (!addr) return;
         const [s, p, m] = await Promise.all([
-          getScores(addr).catch(() => ({ social: 0, earned: 0 })),
-          getPeopleCounts(addr).catch(() => ({ vouchedBy: 0, backed: 0 })),
-          getMeta(addr), // null (default face, no bio) when unset or the registry predates it
+          getScores(addr, net).catch(() => ({ social: 0, earned: 0 })),
+          getPeopleCounts(addr, net).catch(() => ({ vouchedBy: 0, backed: 0 })),
+          getMeta(addr, net), // null (default face, no bio) when unset or the registry predates it
         ]);
         if (!alive) return;
         setScores(s);
@@ -55,9 +66,10 @@ export default function ProfilePage({ params }: { params: { handle: string } }) 
     return () => {
       alive = false;
     };
-  }, [handle]);
+  }, [handle, net]);
 
-  const isMe = !!address && profile?.address === address;
+  // The signed-in profile lives on the deployment's network, never the override's.
+  const isMe = !net && !!address && profile?.address === address;
   // The published face/bio for everyone; on your own profile the local copy (updated the
   // moment you pick, before the tx lands) wins.
   const avatar = (isMe ? profile?.avatar : undefined) ?? meta?.avatar;
@@ -82,18 +94,27 @@ export default function ProfilePage({ params }: { params: { handle: string } }) 
   if (address === null) {
     return (
       <div className="container max-w-md py-24">
+        {net && <ReadOnlyBanner network={net.network} />}
         <Frame label={`profile // @${handle}`} index="FREE">
           <div className="flex flex-col items-center gap-4 p-8 text-center">
             <Crest address={`unclaimed-${handle}`} size={120} points={5} />
             <h1 className="font-display text-2xl font-semibold">@{handle}</h1>
-            <p className="font-mono text-xs uppercase tracking-wider text-secondary">available</p>
-            <p className="text-sm text-muted-foreground text-balance">
-              This handle isn&apos;t claimed yet. Open the app, pick it, and it stamps to chain as
-              your profile ID.
-            </p>
-            <Link href="/app" className={cn(buttonVariants({ variant: 'flow' }))}>
-              Claim @{handle}
-            </Link>
+            {net ? (
+              <p className="text-sm text-muted-foreground text-balance">
+                Nobody held this handle on {net.network}.
+              </p>
+            ) : (
+              <>
+                <p className="font-mono text-xs uppercase tracking-wider text-secondary">available</p>
+                <p className="text-sm text-muted-foreground text-balance">
+                  This handle isn&apos;t claimed yet. Open the app, pick it, and it stamps to chain as
+                  your profile ID.
+                </p>
+                <Link href="/app" className={cn(buttonVariants({ variant: 'flow' }))}>
+                  Claim @{handle}
+                </Link>
+              </>
+            )}
           </div>
         </Frame>
       </div>
@@ -102,7 +123,8 @@ export default function ProfilePage({ params }: { params: { handle: string } }) 
 
   return (
     <div className="container max-w-2xl py-14">
-      <Frame label={`profile // @${handle}`} index="ID" tilt>
+      {net && <ReadOnlyBanner network={net.network} />}
+      <Frame label={`profile // @${handle}`} index={net ? net.network.toUpperCase() : 'ID'} tilt>
         <div className="grid gap-6 p-7 sm:grid-cols-[auto_1fr] sm:items-center sm:p-8">
           <Avatar address={address} avatar={avatar} handle={handle} size={140} />
           <div>
@@ -122,20 +144,29 @@ export default function ProfilePage({ params }: { params: { handle: string } }) 
         </div>
       </Frame>
 
-      {/* Milestone badges — earned + next-to-earn, on every public profile */}
-      <div className="mt-5">
-        <BadgeGallery address={address} />
-      </div>
+      {/* Milestone badges — earned + next-to-earn, on every public profile. They read the
+          quest and rewards contracts too, which the override doesn't cover. */}
+      {!net && (
+        <div className="mt-5">
+          <BadgeGallery address={address} />
+        </div>
+      )}
 
       <div className="mt-5 flex flex-wrap items-center gap-3">
-        <Link href="/app" className={cn(buttonVariants({ variant: 'flow' }))}>
-          {isMe ? 'Vouch someone' : `Vouch @${handle}`}
-        </Link>
-        <Link href="/leaderboard" className={cn(buttonVariants({ variant: 'outline' }), 'glass')}>
+        {/* Read-only on the override: no vouch (or any other write) from here. */}
+        {!net && (
+          <Link href="/app" className={cn(buttonVariants({ variant: 'flow' }))}>
+            {isMe ? 'Vouch someone' : `Vouch @${handle}`}
+          </Link>
+        )}
+        <Link
+          href={withReadNetwork('/leaderboard', net)}
+          className={cn(buttonVariants({ variant: 'outline' }), 'glass')}
+        >
           Leaderboard
         </Link>
         <ShareRow
-          path={`/u/${handle}`}
+          path={withReadNetwork(`/u/${handle}`, net)}
           text={
             isMe
               ? 'My constellation on alvinmunk — collect people, not points.'

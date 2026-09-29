@@ -23,6 +23,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { withTimeout, humanizeError } from '@/lib/utils';
 import { toast } from '@/components/ui/toaster';
 import { useTranslations } from '@/lib/i18n';
+import { MoneyFlowConfirm, isRealMoney, type MoneyConfirmRequest } from '@/components/MoneyFlowConfirm';
 
 // Rewards contract error codes → friendly copy (mirrors contracts/rewards Error enum).
 // Built from `t` so the copy follows the active locale. 15–17 and 19 are admin-only
@@ -70,6 +71,8 @@ export function Rewards({ address }: { address: string }) {
   const [busy, setBusy] = useState<number | null>(null);
   const [hash, setHash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A mainnet claim waiting on its confirmation (#291).
+  const [pending, setPending] = useState<{ id: number; request: MoneyConfirmRequest } | null>(null);
 
   const refresh = useCallback(async () => {
     // Timeout the gating reads so a slow RPC degrades to "no rewards" instead of an
@@ -94,7 +97,16 @@ export function Rewards({ address }: { address: string }) {
     void refresh();
   }, [refresh]);
 
-  async function onClaim(id: number) {
+  /** Mainnet claims pay real USDC: confirm first. Testnet claims run on the click, as before. */
+  function onClaim(id: number, amount: bigint) {
+    if (!isRealMoney()) {
+      void claim(id);
+      return;
+    }
+    setPending({ id, request: { kind: 'claim', to: address, amount: stroopsToUsdc(amount) } });
+  }
+
+  async function claim(id: number) {
     setBusy(id);
     setError(null);
     setHash(null);
@@ -173,8 +185,8 @@ export function Rewards({ address }: { address: string }) {
                   <Button
                     size="sm"
                     variant={claimed || soldOut || !eligible ? 'secondary' : 'primary'}
-                    onClick={() => onClaim(r.id)}
-                    disabled={busy !== null || claimed || soldOut || !eligible}
+                    onClick={() => onClaim(r.id, r.amount)}
+                    disabled={busy !== null || pending !== null || claimed || soldOut || !eligible}
                   >
                     {claimed
                       ? t('rewards.claimed')
@@ -206,6 +218,17 @@ export function Rewards({ address }: { address: string }) {
 
         <AnchorCashout address={address} />
       </div>
+
+      {pending && (
+        <MoneyFlowConfirm
+          request={pending.request}
+          onCancel={() => setPending(null)}
+          onConfirm={() => {
+            setPending(null);
+            void claim(pending.id);
+          }}
+        />
+      )}
     </Frame>
   );
 }

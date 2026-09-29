@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fetchLeaderboard } from './leaderboard';
 import { fetchReputationEvents } from './events';
 import { EVENTS } from '@alvinmunk/shared';
+import type { ReadNetwork } from './read-network';
 
 vi.mock('./events', () => ({
   fetchReputationEvents: vi.fn(),
@@ -111,5 +112,24 @@ describe('fetchLeaderboard', () => {
     await fetchLeaderboard({ throwOnError: true });
 
     expect(fetchReputationEvents).toHaveBeenLastCalledWith({ throwOnError: true, maxAgeMs: 0 });
+  });
+
+  it('keeps an override network in its own snapshot, apart from the deployment\'s (#290)', async () => {
+    const net = { network: 'testnet' } as unknown as ReadNetwork;
+    localStorage.setItem('alvinmunk.leaderboard.snapshot', JSON.stringify([{ address: 'MAIN', total: 99, ledger: 1 }]));
+    vi.mocked(fetchReputationEvents).mockResolvedValue([
+      { topics: [EVENTS.SOCIAL, 'TEST'], data: 7, ledger: 5 },
+    ]);
+
+    const rows = await fetchLeaderboard({ net });
+    expect(vi.mocked(fetchReputationEvents)).toHaveBeenCalledWith({ net, maxAgeMs: 0 });
+    expect(rows.map((r) => r.address)).toEqual(['TEST']);
+    expect(JSON.parse(localStorage.getItem('alvinmunk.leaderboard.snapshot.testnet')!)).toEqual([
+      { address: 'TEST', total: 7, ledger: 5 },
+    ]);
+    // The deployment's snapshot is untouched.
+    expect(JSON.parse(localStorage.getItem('alvinmunk.leaderboard.snapshot')!)).toEqual([
+      { address: 'MAIN', total: 99, ledger: 1 },
+    ]);
   });
 });

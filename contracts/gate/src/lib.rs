@@ -116,6 +116,20 @@ pub struct Gate {
     pub active: bool,
 }
 
+/// One gate as `addr` sees it, as returned by `get_status`: `passes` is `check(addr, id)`
+/// and `unlocked` is `is_unlocked(addr, id)`, both read from the same ledger.
+#[contracttype]
+#[derive(Clone)]
+pub struct GateStatus {
+    pub gate: Gate,
+    pub passes: bool,
+    pub unlocked: bool,
+}
+
+/// `[Social, Earned]` scores read so far in one call: `passes` fills a slot the first time
+/// a rule on that track is evaluated, and every later rule and gate reuses it.
+type Scores = [Option<u64>; 2];
+
 #[contract]
 pub struct GateContract;
 
@@ -216,6 +230,44 @@ impl GateContract {
         out
     }
 
+    /// Every gate (inactive ones included, in `get_gates` order) with whether `addr` passes
+    /// it and holds a current unlock of it — the whole perks screen in one simulation.
+    /// Reputation is read at most once per track for the call, and not at all for a track
+    /// no active gate uses.
+    pub fn get_status(env: Env, addr: Address) -> Vec<GateStatus> {
+        let mut scores: Scores = [None, None];
+        let mut out = Vec::new(&env);
+        for gate in Self::get_gates(env.clone()).iter() {
+            let passes = gate.active && Self::passes(&env, &addr, &gate, &mut scores);
+            let unlocked = Self::unlocked(&env, addr.clone(), &gate);
+            out.push_back(GateStatus {
+                gate,
+                passes,
+                unlocked,
+            });
+        }
+        out
+    }
+
+    /// `check(addr, id)` for each of `ids`, in order: `false` for an unknown or inactive
+    /// gate. Reputation is read at most once per track for the whole call.
+    pub fn check_many(env: Env, addr: Address, ids: Vec<u32>) -> Vec<bool> {
+        let mut scores: Scores = [None, None];
+        let mut out = Vec::new(&env);
+        for id in ids.iter() {
+            let passes = match env
+                .storage()
+                .persistent()
+                .get::<DataKey, Gate>(&DataKey::Gate(id))
+            {
+                Some(g) if g.active => Self::passes(&env, &addr, &g, &mut scores),
+                _ => false,
+            };
+            out.push_back(passes);
+        }
+        out
+    }
+
     /// How many times gate `id` has been redefined (0 for a gate never replaced, or an
     /// unknown one). An `UnlockRecord` counts only while its `version` equals this.
     pub fn get_gate_version(env: Env, id: u32) -> u32 {
@@ -244,7 +296,7 @@ impl GateContract {
         if !g.active {
             return false;
         }
-        Self::passes(&env, &addr, &g)
+        Self::passes(&env, &addr, &g, &mut [None, None])
     }
 
     /// `caller` claims a gate they pass — records an on-chain proof + a consumer unlock,
@@ -256,7 +308,7 @@ impl GateContract {
         if !g.active {
             panic_with_error!(&env, Error::GateInactive);
         }
-        if !Self::passes(&env, &caller, &g) {
+        if !Self::passes(&env, &caller, &g, &mut [None, None]) {
             panic_with_error!(&env, Error::BelowThreshold);
         }
         let record = UnlockRecord {
@@ -276,15 +328,10 @@ impl GateContract {
     /// An unlock recorded before versioning counts as version 0: valid until the gate's
     /// first redefinition after the upgrade.
     pub fn is_unlocked(env: Env, addr: Address, id: u32) -> bool {
-        let Some(record) = Self::unlock_record(&env, addr, id) else {
-            return false;
-        };
-        let active = env
-            .storage()
+        env.storage()
             .persistent()
             .get::<DataKey, Gate>(&DataKey::Gate(id))
-            .is_some_and(|g| g.active);
-        active && record.version == Self::version(&env, id)
+            .is_some_and(|g| Self::unlocked(&env, addr, &g))
     }
 
     /// `addr`'s latest unlock of gate `id` — which definition (`version`) it passed and at
@@ -295,6 +342,13 @@ impl GateContract {
     }
 
     // --- internal ---
+
+    /// `is_unlocked` for a gate already read: active, and unlocked under its current version.
+    fn unlocked(env: &Env, addr: Address, g: &Gate) -> bool {
+        g.active
+            && Self::unlock_record(env, addr, g.id)
+                .is_some_and(|r| r.version == Self::version(env, g.id))
+    }
 
     fn version(env: &Env, id: u32) -> u32 {
         env.storage()
@@ -380,10 +434,10 @@ impl GateContract {
             })
     }
 
-    /// Does `addr` pass `g`'s rules? Reads each track from Reputation at most once.
-    fn passes(env: &Env, addr: &Address, g: &Gate) -> bool {
+    /// Does `addr` pass `g`'s rules? Reads each track from Reputation at most once per
+    /// `scores` cache, which a batch view shares across gates.
+    fn passes(env: &Env, addr: &Address, g: &Gate, scores: &mut Scores) -> bool {
         let set = Self::rules(env, g);
-        let mut scores: [Option<u64>; 2] = [None, None]; // [Social, Earned]
         let mut ok = |rule: Rule| {
             let slot = &mut scores[usize::from(rule.track == TRACK_EARNED)];
             *slot.get_or_insert_with(|| Self::track_score(env, addr, rule.track)) >= rule.min

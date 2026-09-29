@@ -17,19 +17,29 @@ import {
 } from '@alvinmunk/shared';
 import { fetchReputationEvents } from './events';
 import { readJSON, writeJSON } from './storage';
+import type { ReadNetwork } from './read-network';
 
 const SNAPSHOT_KEY = 'alvinmunk.leaderboard.snapshot';
 
-function loadSnapshot(): SocialRecord[] {
-  return readJSON<SocialRecord[]>(SNAPSHOT_KEY, []);
+/** One snapshot per network: an override view must never merge into the deployment's. */
+const snapshotKey = (net?: ReadNetwork | null) => (net ? `${SNAPSHOT_KEY}.${net.network}` : SNAPSHOT_KEY);
+
+function loadSnapshot(net?: ReadNetwork | null): SocialRecord[] {
+  return readJSON<SocialRecord[]>(snapshotKey(net), []);
 }
-function saveSnapshot(records: SocialRecord[]): void {
-  writeJSON(SNAPSHOT_KEY, records);
+function saveSnapshot(records: SocialRecord[], net?: ReadNetwork | null): void {
+  writeJSON(snapshotKey(net), records);
 }
+
+type FetchOptions = {
+  throwOnError?: boolean;
+  /** Read another network (the ?network= override); default: the deployment's. */
+  net?: ReadNetwork | null;
+};
 
 /** Pull recent reputation events → social records + claimed vouch pairs. Always a fresh
  *  scan (`maxAgeMs: 0`): the board polls every 5s, faster than the shared window's TTL. */
-export async function fetchWindow(options?: { throwOnError?: boolean }): Promise<{ records: SocialRecord[]; pairs: VouchPair[] }> {
+export async function fetchWindow(options?: FetchOptions): Promise<{ records: SocialRecord[]; pairs: VouchPair[] }> {
   const records: SocialRecord[] = [];
   const pairs: VouchPair[] = [];
 
@@ -45,7 +55,7 @@ export async function fetchWindow(options?: { throwOnError?: boolean }): Promise
   return { records, pairs };
 }
 
-export async function fetchLeaderboard(options?: { throwOnError?: boolean }): Promise<LeaderboardEntry[]> {
+export async function fetchLeaderboard(options?: FetchOptions): Promise<LeaderboardEntry[]> {
   // `throwOnError` always propagates a failure — regardless of whether a snapshot exists —
   // so the caller can tell an outage apart from a genuinely quiet network. Swallowing the
   // error whenever a snapshot happened to be present would silently keep the "live" badge
@@ -54,9 +64,9 @@ export async function fetchLeaderboard(options?: { throwOnError?: boolean }): Pr
   const { records, pairs } = await fetchWindow(options);
 
   // Merge with the persisted snapshot so older scores survive the RPC window.
-  const merged = mergeSocialRecords(loadSnapshot(), records);
+  const merged = mergeSocialRecords(loadSnapshot(options?.net), records);
   if (records.length > 0 || pairs.length > 0) {
-    saveSnapshot(merged);
+    saveSnapshot(merged, options?.net);
   }
   const flagged = new Set(detectReciprocalRings(pairs));
   return rankLeaderboard(merged, flagged);

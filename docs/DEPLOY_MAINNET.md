@@ -126,6 +126,7 @@ Needs `stellar` (with `strkey decode`), `jq` and `git`. Offline tests for the ga
 - [ ] Remove/disable the testnet faucet route on mainnet (it already refuses when network=mainnet).
 - [ ] Redeploy, then `GET /api/health`: it must return `"ok": true` with `"configErrors": []`. Each entry names the env var still set for testnet (or missing) — while any remain, the app shows a red banner, hands out no wallet, and the attester and faucet answer 503.
 - [ ] Smoke-test onboarding + one vouch on the live mainnet app.
+- [ ] Testnet history stays readable through `?network=testnet` on `/u/<handle>`, `/score/<address>` and `/leaderboard` (read-only, [lib/read-network.ts](../apps/web/src/lib/read-network.ts)). It reads the SDK's built-in testnet deployment (`NETWORKS.testnet` in `packages/sdk`); if the final testnet ids differ, pin them with `NEXT_PUBLIC_TESTNET_REPUTATION_CONTRACT_ID` / `NEXT_PUBLIC_TESTNET_REGISTRY_CONTRACT_ID` (and `NEXT_PUBLIC_TESTNET_RPC_URL` for a keyed RPC). Check the README evidence links render their testnet profiles.
 
 **Monitoring**
 - [x] Product analytics wired: Vercel Analytics + Speed Insights ([components/analytics.tsx](../apps/web/src/components/analytics.tsx)); `lib/track.ts` custom events require a Pro plan and are no-ops on Hobby. Per-user funnel/retention analytics needs a dedicated product-analytics tool (e.g. PostHog — a separate future feature).

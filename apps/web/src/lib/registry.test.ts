@@ -38,6 +38,7 @@ import {
   transferHandle,
 } from './registry';
 import type { Wallet } from './wallet';
+import type { ReadNetwork } from './read-network';
 
 const G = 'G'.padEnd(56, 'A');
 const wallet = { kind: 'dev', address: G } as unknown as Wallet;
@@ -61,7 +62,7 @@ describe('getMeta', () => {
       avatar: { kind: 'kit', skin: 3, hair: 7, eyes: 5, mouth: 4, acc: 9, bg: 2 },
       bio: 'hi there',
     });
-    expect(readPublicMock).toHaveBeenCalledWith('CREGISTRY', 'get_meta', [{ __addr: G }]);
+    expect(readPublicMock).toHaveBeenCalledWith('CREGISTRY', 'get_meta', [{ __addr: G }], undefined);
   });
 
   it('is null when the address never published a profile', async () => {
@@ -444,5 +445,55 @@ describe('handle cooldown', () => {
     chain(null, null);
     await expect(handleAvailability('alice')).resolves.toEqual({ status: 'free' });
     await expect(isHandleAvailable('alice')).resolves.toBe(true);
+  });
+});
+
+describe('on a ?network= override (#290)', () => {
+  // A ReadNetwork stand-in: its own registry id and SDK client, apart from the deployment's.
+  const netClient = { resolveHandle: vi.fn(), reverseHandle: vi.fn() };
+  const net = {
+    network: 'testnet',
+    contracts: { registry: 'CTESTREG', reputation: 'CTESTREP' },
+    client: netClient,
+  } as unknown as ReadNetwork;
+
+  beforeEach(() => {
+    readPublicMock.mockReset();
+    sdkMock.resolveHandle.mockReset();
+    netClient.resolveHandle.mockReset();
+    netClient.reverseHandle.mockReset();
+    clearMetaCache();
+    registry = 'CREGISTRY';
+  });
+
+  it("resolves a handle with the override's client, never the deployment's", async () => {
+    netClient.resolveHandle.mockResolvedValueOnce(G);
+    await expect(resolveHandle('umut', net)).resolves.toBe(G);
+    expect(netClient.resolveHandle).toHaveBeenCalledWith('umut');
+    expect(sdkMock.resolveHandle).not.toHaveBeenCalled();
+  });
+
+  it("reads through the override even where the deployment has no registry", async () => {
+    registry = '';
+    netClient.resolveHandle.mockResolvedValueOnce(G);
+    await expect(resolveHandle('umut', net)).resolves.toBe(G);
+    await expect(resolveHandle('umut')).resolves.toBeNull();
+  });
+
+  it("reads the override's get_meta, cached apart from the deployment's profile", async () => {
+    readPublicMock.mockResolvedValueOnce({ bio: 'on mainnet' }).mockResolvedValueOnce({ bio: 'on testnet' });
+    await expect(getMeta(G)).resolves.toMatchObject({ bio: 'on mainnet' });
+    await expect(getMeta(G, net)).resolves.toMatchObject({ bio: 'on testnet' });
+    expect(readPublicMock).toHaveBeenLastCalledWith('CTESTREG', 'get_meta', [{ __addr: G }], net);
+    // Both are cached now, each under its own network.
+    await expect(getMeta(G)).resolves.toMatchObject({ bio: 'on mainnet' });
+    await expect(getMeta(G, net)).resolves.toMatchObject({ bio: 'on testnet' });
+    expect(readPublicMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("labels a leaderboard from the override's registry", async () => {
+    readPublicMock.mockResolvedValueOnce(['umut']);
+    await expect(reverseHandles([G], net)).resolves.toEqual({ [G]: 'umut' });
+    expect(readPublicMock).toHaveBeenCalledWith('CTESTREG', 'reverse_many', [{ __addrs: [G] }], net);
   });
 });

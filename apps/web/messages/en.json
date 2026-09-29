@@ -305,6 +305,9 @@
   "activity.page.leaderboard.title": "See the leaderboard",
   "activity.page.leaderboard.body": "The most-connected constellations, ranked.",
 
+  "readOnly.stamp": "{network} · READ-ONLY",
+  "readOnly.body": "Archived {network} data. Vouching, tipping and connecting a wallet are off on this view.",
+
   "leaderboard.eyebrow": "// the_night_sky",
   "leaderboard.title": "The most-connected",
   "leaderboard.syncDelayed": "sync delayed",
@@ -512,12 +515,18 @@
   "handleTransfer.error.noHandle": "The in-app wallet no longer holds a handle — there's nothing to move.",
   "handleTransfer.error.targetHasHandle": "This wallet already holds a handle — the move needs a wallet without one.",
 
-  "appTabs.inbox": "Inbox",
-
-  "inbox.page.title": "Inbox",
-  "inbox.page.subtitle": "Claims, tips, and quest awards — what happened while you were away.",
-  "inbox.empty.title": "All quiet",
-  "inbox.empty.body": "Claims, tips received, and quest awards will appear here.",
-  "inbox.error": "Couldn't load your inbox right now — the network may be slow. Pull to refresh.",
-  "inbox.refresh": "Refresh inbox"
+  "moneyFlowConfirm.tipTitle": "Confirm tip",
+  "moneyFlowConfirm.claimTitle": "Confirm claim",
+  "moneyFlowConfirm.tipSubtitle": "You're about to send real USDC on mainnet.",
+  "moneyFlowConfirm.claimSubtitle": "You're about to claim real USDC on mainnet.",
+  "moneyFlowConfirm.to": "To",
+  "moneyFlowConfirm.claimTo": "Paid to your wallet",
+  "moneyFlowConfirm.noHandle": "No @handle — check the address",
+  "moneyFlowConfirm.realMoneyWarning": "This is real money and can't be reversed.",
+  "moneyFlowConfirm.firstTipCheckbox": "I understand this is real money and can't be reversed.",
+  "moneyFlowConfirm.sendingIn": "Sending in {seconds}s — undo to cancel.",
+  "moneyFlowConfirm.undo": "Undo",
+  "moneyFlowConfirm.cancel": "Cancel",
+  "moneyFlowConfirm.confirmTip": "Confirm tip",
+  "moneyFlowConfirm.confirmClaim": "Confirm claim"
 }

@@ -1448,6 +1448,29 @@ reads as `{ version: 0, ledger: 0 }`: it keeps counting until the gate's first
 redefinition, and the next `unlock` replaces it with a record. A contract deployed before
 this change has no `get_unlock` or `get_gate_version`.
 
+### Batch gate reads (`get_status` / `check_many`)
+
+```rust
+pub struct GateStatus {
+    pub gate: Gate,
+    pub passes: bool,   // check(addr, gate.id)
+    pub unlocked: bool, // is_unlocked(addr, gate.id)
+}
+
+pub fn get_status(addr: Address) -> Vec<GateStatus>
+pub fn check_many(addr: Address, ids: Vec<u32>) -> Vec<bool>
+```
+
+`get_status(addr)` returns every gate of `get_gates` (inactive ones included, same order)
+with the two per-address answers, all from one ledger. An inactive gate never `passes`
+and its unlocks don't count, exactly as with the single-gate reads; composite gates are
+evaluated on their whole rule set, and `unlocked` follows the `UnlockRecord` version rule
+above. `check_many(addr, ids)` answers `check` for each id in order (duplicates kept,
+`false` for an unknown or inactive gate). Both read each Reputation track at most once per
+call, however many gates or rules use it, and skip a track no active gate being evaluated
+needs. They are read-only and take no auth. A contract deployed before these views has no
+`get_status` or `check_many`.
+
 ---
 
 ## Shared TypeScript Mirrors

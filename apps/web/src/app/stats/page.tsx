@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Users, Activity, ExternalLink } from 'lucide-react';
 import { shortAddr } from '@alvinmunk/shared';
 import { cn } from '@/lib/utils';
+import { usePoll } from '@/lib/use-poll';
 import type { VouchFunnel } from '@/lib/vouch-funnel';
 import { LoopHealth } from '@/components/LoopHealth';
 
@@ -45,36 +46,34 @@ export default function StatsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let alive = true;
-    const load = () => {
-      fetch(`/api/stats?network=${tab}`, { cache: 'no-store' })
-        .then((r) => {
-          if (!r.ok) throw new Error(`stats ${r.status}`);
-          return r.json() as Promise<Stats>;
-        })
-        .then((d) => {
-          if (alive) {
-            setData((prev) => ({ ...prev, [tab]: d }));
-            setStale((prev) => ({ ...prev, [tab]: false }));
-            setLoading(false);
-          }
-        })
-        .catch(() => {
-          if (!alive) return;
-          // Keep the last good numbers on a failed poll; only the marker below reacts.
-          setStale((prev) => ({ ...prev, [tab]: true }));
-          setLoading(false);
-        });
-    };
     setLoading(!data[tab]);
-    load();
-    const t = setInterval(load, 30_000); // /api/stats reuses a scan for 30 s, so poll no faster
-    return () => {
-      alive = false;
-      clearInterval(t);
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
+
+  // Refresh every 10s while the tab is visible, never overlapping (lib/use-poll.ts). The tab is
+  // the poll's key: switching network restarts it with an immediate fetch, and the signal
+  // drops the previous network's late response.
+  usePoll(
+    async (signal) => {
+      try {
+        const r = await fetch(`/api/stats?network=${tab}`, { cache: 'no-store' });
+        if (!r.ok) throw new Error(`stats ${r.status}`);
+        const d = (await r.json()) as Stats;
+        if (signal.aborted) return;
+        setData((prev) => ({ ...prev, [tab]: d }));
+        setStale((prev) => ({ ...prev, [tab]: false }));
+        setLoading(false);
+      } catch (err) {
+        if (signal.aborted) return;
+        // Keep the last good numbers on a failed poll; only the marker below reacts.
+        setStale((prev) => ({ ...prev, [tab]: true }));
+        setLoading(false);
+        throw err; // so the poll backs off
+      }
+    },
+    30_000, // /api/stats reuses a scan for 30 s (#444), so poll no faster
+    tab,
+  );
 
   const s = data[tab];
   const users = s?.users;
