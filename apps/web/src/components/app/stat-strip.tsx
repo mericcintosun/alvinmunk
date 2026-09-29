@@ -37,31 +37,45 @@ export function StatStrip({ address }: { address: string }) {
   const numberFormat = new Intl.NumberFormat(locale === 'tr' ? 'tr-TR' : 'en-US');
   const [scores, setScores] = useState<{ social: number; earned: number } | null>(null);
   const [people, setPeople] = useState<PeopleCounts | null>(null);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let alive = true;
+    setScores(null);
     const load = () => {
-      setLoading(true);
       getScores(address)
         .then((s) => {
-          if (alive) {
-            setScores(s);
-            setLoading(false);
-          }
+          if (alive) setScores(s);
         })
         .catch(() => {
-          if (alive) {
-            setScores({ social: 0, earned: 0 });
-            setLoading(false);
-          }
+          if (alive) setScores({ social: 0, earned: 0 });
         });
     };
     load();
-    const t = setInterval(load, REFRESH_MS);
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const stop = () => {
+      if (timer !== null) {
+        clearInterval(timer);
+        timer = null;
+      }
+    };
+    const start = () => {
+      stop();
+      timer = setInterval(load, REFRESH_MS);
+    };
+    const onVisibility = () => {
+      if (document.hidden) {
+        stop();
+      } else {
+        load();
+        start();
+      }
+    };
+    if (!document.hidden) start();
+    document.addEventListener('visibilitychange', onVisibility);
     return () => {
       alive = false;
-      clearInterval(t);
+      stop();
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [address]);
 
@@ -78,14 +92,35 @@ export function StatStrip({ address }: { address: string }) {
         });
     };
     load();
-    const t = setInterval(load, PEOPLE_REFRESH_MS);
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const stop = () => {
+      if (timer !== null) {
+        clearInterval(timer);
+        timer = null;
+      }
+    };
+    const start = () => {
+      stop();
+      timer = setInterval(load, PEOPLE_REFRESH_MS);
+    };
+    const onVisibility = () => {
+      if (document.hidden) {
+        stop();
+      } else {
+        load();
+        start();
+      }
+    };
+    if (!document.hidden) start();
+    document.addEventListener('visibilitychange', onVisibility);
     return () => {
       alive = false;
-      clearInterval(t);
+      stop();
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [address]);
 
-  const busy = loading || people === null;
+  const busy = scores === null || people === null;
   const value = (k: Tile['key']) =>
     k === 'vouchedBy'
       ? (people?.vouchedBy ?? 0)

@@ -55,6 +55,30 @@ describe('first-run UI states', () => {
     expect(container.textContent).toContain('Your constellation is still quiet');
   });
 
+  it('keeps the zero-state card and numbers mounted across a 15 s refresh', async () => {
+    vi.useFakeTimers();
+    try {
+      getScoresMock.mockResolvedValue({ social: 0, earned: 0 });
+      getPeopleCountsMock.mockResolvedValue({ vouchedBy: 0, backed: 0 });
+
+      await act(async () => {
+        root.render(<StatStrip address="GB123" />);
+        await Promise.resolve();
+      });
+      expect(container.querySelectorAll('.animate-pulse')).toHaveLength(0);
+      expect(container.textContent).toContain('Your constellation is still quiet');
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+
+      expect(container.querySelectorAll('.animate-pulse')).toHaveLength(0);
+      expect(container.textContent).toContain('Your constellation is still quiet');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('shows a friendly empty state for the activity feed before any vouches appear', async () => {
     fetchActivityMock.mockResolvedValue([]);
     reverseHandlesMock.mockResolvedValue({});
