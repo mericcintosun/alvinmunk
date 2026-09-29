@@ -9,6 +9,12 @@ import type { Wallet } from '@/lib/wallet';
 (globalThis as { React?: typeof React }).React = React;
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+const FREE = { status: 'free' } as const;
+const TAKEN = { status: 'taken' } as const;
+const UNTIL = new Date('2026-10-29T12:00:00Z');
+const RESERVED = { status: 'reserved', until: UNTIL } as const;
+const UNTIL_EN = UNTIL.toLocaleDateString('en', { dateStyle: 'medium' });
+
 const DEV_WALLET: Wallet = { kind: 'dev', address: 'GDEV', sign: async (x) => x, signMessage: async () => '' };
 const PASSKEY_WALLET: Wallet = { kind: 'passkey', address: 'CPASSKEY', sign: async (x) => x, signMessage: async () => '' };
 
@@ -17,7 +23,7 @@ const {
   connectMock,
   setProfileMock,
   restoreProfileMock,
-  isHandleAvailableMock,
+  availabilityMock,
   claimHandleMock,
   recordGenesisMock,
   toastMock,
@@ -29,7 +35,7 @@ const {
   connectMock: vi.fn(),
   setProfileMock: vi.fn(),
   restoreProfileMock: vi.fn(),
-  isHandleAvailableMock: vi.fn(),
+  availabilityMock: vi.fn(),
   claimHandleMock: vi.fn(),
   recordGenesisMock: vi.fn(),
   toastMock: { success: vi.fn(), error: vi.fn() },
@@ -47,7 +53,7 @@ vi.mock('@/components/wallet/wallet-provider', () => ({
   }),
 }));
 vi.mock('@/lib/registry', () => ({
-  isHandleAvailable: isHandleAvailableMock,
+  handleAvailability: availabilityMock,
   claimHandle: claimHandleMock,
 }));
 vi.mock('@/lib/genesis', () => ({
@@ -87,7 +93,7 @@ describe('useCreateProfile', () => {
     connectMock.mockReset().mockResolvedValue(DEV_WALLET);
     setProfileMock.mockReset();
     restoreProfileMock.mockReset().mockResolvedValue(null);
-    isHandleAvailableMock.mockReset().mockResolvedValue(true);
+    availabilityMock.mockReset().mockResolvedValue(FREE);
     claimHandleMock.mockReset().mockResolvedValue(undefined);
     recordGenesisMock.mockReset().mockResolvedValue('genesis-tx-hash');
     toastMock.success.mockReset();
@@ -133,17 +139,17 @@ describe('useCreateProfile', () => {
 
   it('debounces the availability check and reports free vs taken', async () => {
     await mount('app');
-    isHandleAvailableMock.mockResolvedValue(true);
+    availabilityMock.mockResolvedValue(FREE);
     await setHandle('newbie');
     expect(latest.avail).toBe('checking');
-    expect(isHandleAvailableMock).not.toHaveBeenCalled();
+    expect(availabilityMock).not.toHaveBeenCalled();
 
     await advance(400);
     await flush();
-    expect(isHandleAvailableMock).toHaveBeenCalledWith('newbie');
+    expect(availabilityMock).toHaveBeenCalledWith('newbie', undefined);
     expect(latest.avail).toBe('free');
 
-    isHandleAvailableMock.mockResolvedValue(false);
+    availabilityMock.mockResolvedValue(TAKEN);
     await setHandle('taken1');
     await advance(400);
     await flush();
@@ -211,7 +217,7 @@ describe('useCreateProfile', () => {
     await advance(400);
     await flush();
     // Someone else claims it between the debounced check and the submit.
-    isHandleAvailableMock.mockResolvedValue(false);
+    availabilityMock.mockResolvedValue(TAKEN);
 
     await act(async () => {
       await latest.createProfile();
@@ -220,6 +226,57 @@ describe('useCreateProfile', () => {
     expect(claimHandleMock).not.toHaveBeenCalled();
     expect(toastMock.error).toHaveBeenCalledWith('@raceduser is taken — pick another.');
     expect(latest.avail).toBe('taken');
+  });
+
+  it('reports a handle cooling down for its previous owner as reserved until a date', async () => {
+    await mount('app');
+    availabilityMock.mockResolvedValue(RESERVED);
+    await setHandle('alice');
+    await advance(400);
+    await flush();
+    expect(latest.avail).toBe('reserved');
+    expect(latest.reservedUntil).toBe(UNTIL_EN);
+
+    availabilityMock.mockResolvedValue(FREE);
+    await setHandle('alice2');
+    await advance(400);
+    await flush();
+    expect(latest.reservedUntil).toBeNull();
+  });
+
+  it('asks on behalf of the connected wallet, which may be the previous owner', async () => {
+    store.wallet = DEV_WALLET;
+    await mount('claim');
+    await setHandle('myoldname');
+    await advance(400);
+    await flush();
+    expect(availabilityMock).toHaveBeenCalledWith('myoldname', 'GDEV');
+
+    await act(async () => {
+      await latest.createProfile();
+    });
+    expect(availabilityMock).toHaveBeenLastCalledWith('myoldname', 'GDEV');
+    expect(claimHandleMock).toHaveBeenCalledWith(DEV_WALLET, 'myoldname');
+  });
+
+  it('refuses a reserved handle at submit time and says until when', async () => {
+    await mount('landing');
+    await setHandle('alice');
+    await advance(400);
+    await flush();
+    availabilityMock.mockResolvedValue(RESERVED);
+
+    await act(async () => {
+      await latest.createProfile();
+    });
+
+    expect(availabilityMock).toHaveBeenLastCalledWith('alice', 'GDEV');
+    expect(claimHandleMock).not.toHaveBeenCalled();
+    expect(recordGenesisMock).not.toHaveBeenCalled();
+    expect(toastMock.error).toHaveBeenCalledWith(
+      `@alice was just freed and is held for its previous owner until ${UNTIL_EN} — pick another.`,
+    );
+    expect(latest.avail).toBe('reserved');
   });
 
   describe('an address that already holds a handle (#278)', () => {
@@ -239,6 +296,8 @@ describe('useCreateProfile', () => {
         });
 
         expect(restoreProfileMock).toHaveBeenCalledWith(PASSKEY_WALLET);
+        // Checked before availability: the typed handle (even a reserved one) is irrelevant.
+        expect(availabilityMock).not.toHaveBeenCalled();
         expect(claimHandleMock).not.toHaveBeenCalled();
         expect(recordGenesisMock).not.toHaveBeenCalled();
         expect(setProfileMock).not.toHaveBeenCalled();
