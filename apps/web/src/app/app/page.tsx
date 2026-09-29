@@ -6,6 +6,7 @@ import { Star, Target, Coins, ArrowRight } from 'lucide-react';
 import { useWallet } from '@/components/wallet/wallet-provider';
 import { FOCUS_MODE } from '@/lib/focus';
 import { asset, BRAND } from '@/lib/assets';
+import { HERO_BOX } from '@/components/brand/hero-box';
 import { FirstStarNudge } from '@/components/FirstStarNudge';
 import { InviteNudge } from '@/components/InviteNudge';
 import { PendingHalfCards } from '@/components/PendingHalfCards';
@@ -17,7 +18,7 @@ import { useTranslations } from '@/lib/i18n';
 const ConstellationHero3D = dynamic(() => import('@/components/brand/constellation-3d'), {
   ssr: false,
   loading: () => (
-    <div className="aurora flex h-[44vh] max-h-[440px] min-h-[320px] w-full items-center justify-center rounded-3xl border border-border/60">
+    <div className={`aurora flex ${HERO_BOX} w-full items-center justify-center rounded-3xl border border-border/60`}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={asset(BRAND['logo-mark'].file)}
