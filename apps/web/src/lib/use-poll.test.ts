@@ -22,7 +22,7 @@ function render(fn: PollFn, ms: number, pollKey?: unknown) {
 /** Advance fake time, letting each run's promise settle before the next timer fires. */
 async function advance(ms: number) {
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(ms);
+    await vi.advanceTimerByTimeAsync(ms);
   });
 }
 

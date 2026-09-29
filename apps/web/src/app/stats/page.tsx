@@ -50,7 +50,7 @@ export default function StatsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
-  // Refresh every 10s while the tab is visible, never overlapping (lib/use-poll.ts). The tab is
+  // Refresh every 30s while the tab is visible, never overlapping (lib/use-poll.ts). The tab is
   // the poll's key: switching network restarts it with an immediate fetch, and the signal
   // drops the previous network's late response.
   usePoll(

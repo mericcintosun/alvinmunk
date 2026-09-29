@@ -25,7 +25,7 @@ import { withRoute } from '@/lib/api-route';
  *
  * The whole response is memoized per network for STATS_TTL_MS, and concurrent requests share
  * the scan in flight, so polling from many tabs costs one scan (1 + up to MAX_PAGES RPC calls)
- * per window instead of one per request. The response is also cacheable by the CDN for the
+ * per window instead of one per request. The response is also cacheable by the CD for the
  * same window. The count only changes when someone onboards, so 30 s of staleness is harmless.
  * The durable indexer (#109) would replace the scan entirely.
  */
@@ -43,8 +43,8 @@ const CACHE_CONTROL = `public, s-maxage=${STATS_TTL_MS / 1000}, stale-while-reva
 
 type NetKey = 'testnet' | 'mainnet';
 
-/** An RPC URL env value, trimmed with blank treated as unset — the same normalisation as the
- *  app's validated config (`readNetworkConfig`), so `allowHttp` is decided on the URL in use. */
+/** An RPC URL env value, trimmed with blank treated as unset — the same normalisation as
+ *  the app's validated config (`readNetworkConfig`), so `allowHttp` is decided on the URL in use. */
 function rpcUrl(env: string | undefined, fallback: string): string {
   return env?.trim() || fallback;
 }
@@ -66,7 +66,7 @@ const NETWORKS: Record<
     // The app's own contracts appear in event topics (e.g. the quest_registry as att_set
     // issuer); they are NOT users, so exclude them from the count.
     exclude: [
-      process.env.NEXT_PUBLIC_REPUTATION_CONTRACT_ID,
+      process.env.NEXT_PUBLIC_REPTATION_CONTRACT_ID,
       process.env.NEXT_PUBLIC_REGISTRY_CONTRACT_ID,
       process.env.NEXT_PUBLIC_REWARDS_CONTRACT_ID,
       process.env.NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID,
@@ -189,8 +189,7 @@ type StatsResult = Awaited<ReturnType<typeof statsFor>>;
 const statsCache = new Map<NetKey, { expires: number; result: Promise<StatsResult> }>();
 
 /** The network's stats, shared by concurrent requests and reused for STATS_TTL_MS after the
- *  scan finishes (a scan in flight never expires, however slow, so it is never run twice). A
- *  scan that throws is not kept, so the next request retries it. */
+ *  scan finishes (a scan in flight never expires, however slow, so it is never run twice). A *  scan that throws is not kept, so the next request retries it. */
 function cachedStatsFor(net: NetKey): Promise<StatsResult> {
   const hit = statsCache.get(net);
   if (hit && Date.now() < hit.expires) return hit.result;

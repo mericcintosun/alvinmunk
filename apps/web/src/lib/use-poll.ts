@@ -31,6 +31,7 @@ export function usePoll(
   useEffect(() => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let hidden = document.hidden;
     let running = false;
     let failures = 0;
 
@@ -59,7 +60,8 @@ export function usePoll(
     };
 
     const onVisibility = () => {
-      if (document.hidden) clear();
+      hidden = document.hidden;
+      if (hidden) clear();
       else void run();
     };
 
