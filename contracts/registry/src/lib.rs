@@ -2,7 +2,8 @@
 //! Registry — on-chain username/handle ↔ address mapping for Stellar Passport.
 //!
 //! Identity is its own primitive (decoupled from `reputation`, which other apps read
-//! separately). Permissionless first-come `claim`, reverse lookup, rename, and release.
+//! separately). Permissionless first-come `claim`, reverse lookup, rename, release, and a
+//! two-signature `transfer_handle` that moves a handle to another wallet.
 //! Handles are normalized/validated OFF-CHAIN (lowercase, `[a-z0-9_]`, 3–20 chars); the
 //! contract only enforces UNIQUENESS. A `Symbol` is the cheap interned key for a handle.
 //!
@@ -12,6 +13,7 @@
 //!
 //! A handle holder can also publish a profile face and a short bio (`set_meta`), keyed by
 //! ADDRESS, so a freed handle never carries its previous owner's profile to the next one.
+//! `transfer_handle`, which both wallets sign, moves the profile along with the handle.
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short, Address,
@@ -40,6 +42,7 @@ pub enum Error {
     BadBio = 6,
     BadAvatar = 7,
     TooMany = 8,
+    AlreadyHasHandle = 9,
 }
 
 /// Bio limit in UTF-8 BYTES (what `String::len` counts), not characters: 80 ASCII
@@ -194,6 +197,64 @@ impl RegistryContract {
             (caller.clone(), handle),
         );
         Self::clear_meta(&env, caller);
+    }
+
+    /// Move `from`'s handle to `to` in one call, for a user switching wallets (e.g. from the
+    /// throwaway dev key to a passkey): `release` + `claim` would leave the handle free to
+    /// anyone between the two transactions. Both sign — `from` gives the handle up and `to`
+    /// accepts it, so nobody can push a handle onto an address that never asked for it.
+    /// Reverts with `NoHandle` if `from` holds none and `AlreadyHasHandle` if `to` already
+    /// holds one (`to == from` included), keeping one handle per address.
+    ///
+    /// The handle is never free in between, so this is not a release: it publishes only
+    /// `handle/moved`, never `released` or `claimed`. The profile meta moves with the handle
+    /// (the same person on a new wallet keeps their face and bio), announced as
+    /// `meta/cleared` for `from` then `meta/set` for `to`, so an address-keyed indexer needs
+    /// no new rule. Nothing else moves: state other contracts key by address (Social and
+    /// Earned XP in `reputation`) stays with `from`.
+    pub fn transfer_handle(env: Env, from: Address, to: Address) {
+        from.require_auth();
+
+        let from_rkey = DataKey::Rev(from.clone());
+        let handle: Symbol = env
+            .storage()
+            .persistent()
+            .get(&from_rkey)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::NoHandle));
+        let to_rkey = DataKey::Rev(to.clone());
+        if env.storage().persistent().has(&to_rkey) {
+            panic_with_error!(&env, Error::AlreadyHasHandle);
+        }
+        // after the checks, so a self-transfer reverts with `AlreadyHasHandle` rather than
+        // asking the same address to authorize twice
+        to.require_auth();
+
+        let fkey = DataKey::Fwd(handle.clone());
+        env.storage().persistent().set(&fkey, &to);
+        env.storage().persistent().remove(&from_rkey);
+        env.storage().persistent().set(&to_rkey, &handle);
+        Self::bump(&env, &fkey);
+        Self::bump(&env, &to_rkey);
+        env.events().publish(
+            (symbol_short!("handle"), symbol_short!("moved")),
+            (from.clone(), to.clone(), handle),
+        );
+
+        let from_mkey = DataKey::Meta(from.clone());
+        if let Some(meta) = env
+            .storage()
+            .persistent()
+            .get::<DataKey, ProfileMeta>(&from_mkey)
+        {
+            Self::clear_meta(&env, from);
+            let to_mkey = DataKey::Meta(to.clone());
+            env.storage().persistent().set(&to_mkey, &meta);
+            Self::bump(&env, &to_mkey);
+            env.events().publish(
+                (symbol_short!("meta"), symbol_short!("set")),
+                (to, meta.avatar, meta.bio),
+            );
+        }
     }
 
     /// Admin force-release a handle (squatting / abuse), dropping the holder's profile
