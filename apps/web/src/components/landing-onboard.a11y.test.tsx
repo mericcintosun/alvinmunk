@@ -86,7 +86,7 @@ describe('LandingOnboard handle field', () => {
     await render();
     await typeHandle('ada');
     expect(handleAvailabilityMock).toHaveBeenCalledWith('ada', undefined);
-    expect(container.querySelector('#landing-handle-status')!.textContent).toBe('@ada is taken');
+    expect(container.querySelector('#landing-handle-status')!.textContent).toBe('@ada is taken — try another');
     expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(
       true,
     );

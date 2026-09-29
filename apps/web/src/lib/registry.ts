@@ -3,7 +3,7 @@
  * shareable identity that resolves for ANY wallet (not just the logged-in user).
  * Validate/normalize the handle with normalizeHandle() BEFORE calling claim.
  */
-import { invokeAndWait, readPublic, args, registryId } from './contracts';
+import { invokeAndWait, invokeCosigned, readPublic, args, registryId } from './contracts';
 import type { Wallet } from './wallet';
 import { encodeAvatar, decodeAvatar, type AvatarConfig } from './avatar';
 import { sanitizeBio } from './profile';
@@ -140,6 +140,32 @@ export async function claimHandle(wallet: Wallet, handle: string): Promise<void>
     [args.addr(wallet.address), args.sym(handle)],
     wallet,
   );
+}
+
+/** Registry error codes `transfer_handle` can revert with (mirrors the contract's Error enum). */
+export const TRANSFER_ERRORS = { NoHandle: 4, AlreadyHasHandle: 10 } as const;
+
+/**
+ * Move `from`'s @handle, with its published face and bio, to `to` in ONE transaction — the
+ * handle is never free in between, as it would be with a release and a fresh claim. The
+ * registry wants both wallets' signatures, so one of them must hold its key in this browser
+ * (the dev wallet) and co-sign, while the other submits the call with its usual prompt.
+ * Social and Earned XP don't move: the reputation contract keys them by address. Resolves
+ * the transaction hash.
+ */
+export async function transferHandle(from: Wallet, to: Wallet): Promise<string> {
+  const [submitter, cosigner] = from.signAuthEntry ? [to, from] : [from, to];
+  const { hash } = await invokeCosigned(
+    registryId(),
+    'transfer_handle',
+    [args.addr(from.address), args.addr(to.address)],
+    submitter,
+    cosigner,
+  );
+  // the profile moved with the handle: read both addresses fresh next time
+  metaCache.delete(from.address);
+  metaCache.delete(to.address);
+  return hash;
 }
 
 /** Registry error codes `set_meta` can revert with (mirrors the contract's Error enum). */
