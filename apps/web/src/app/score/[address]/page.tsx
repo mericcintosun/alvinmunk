@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { Sparkles, Users, ShieldCheck, Code, AlertCircle } from 'lucide-react';
-import { getScores, getAttestation } from '@/lib/reputation';
+import { getScores, getQuestAttestation } from '@/lib/reputation';
 import { getPeopleCounts } from '@/lib/constellation';
 import { Crest } from '@/components/brand/crest';
 import { Frame } from '@/components/fx/frame';
@@ -47,16 +47,16 @@ export default async function ScorePage({ params }: ScorePageProps) {
   }
 
   // Fetch reputation data (read-only, no wallet required)
-  const [scores, people, attestations] = await Promise.all([
+  const [scores, people, questAttestation] = await Promise.all([
     getScores(address).catch(() => ({ social: 0, earned: 0 })),
     getPeopleCounts(address).catch(() => ({ vouchedBy: 0, backed: 0 })),
-    getAttestation(address),
+    getQuestAttestation(address).catch(() => null),
   ]);
 
   const hasActivity =
     scores.social > 0 ||
     scores.earned > 0 ||
-    attestations > 0 ||
+    questAttestation !== null ||
     people.vouchedBy > 0 ||
     people.backed > 0;
 
@@ -140,13 +140,15 @@ export default async function ScorePage({ params }: ScorePageProps) {
       </Frame>
 
       {/* Attestations */}
-      {attestations > 0 && (
-        <Frame label="quests // completed" index={`${attestations}`} className="mt-6">
+      {questAttestation && (
+        <Frame label="quests // verified" index="latest" className="mt-6">
           <div className="flex items-center gap-4 p-6">
             <Sticker name="stamp-verified" size={48} className="h-10 w-auto" />
             <div>
-              <p className="font-display text-2xl font-semibold">{attestations}</p>
-              <p className="text-sm text-muted-foreground">Quest attestations completed</p>
+              <p className="font-display text-2xl font-semibold">+{Number(questAttestation.value)} XP</p>
+              <p className="text-sm text-muted-foreground">
+                Latest verified quest · {new Date(questAttestation.timestamp * 1000).toLocaleDateString()}
+              </p>
             </div>
           </div>
         </Frame>
@@ -169,7 +171,8 @@ export default async function ScorePage({ params }: ScorePageProps) {
             <span className="ml-2 font-mono text-[10px] text-muted-foreground">read-reputation.ts</span>
           </div>
           <pre className="overflow-x-auto p-5 font-mono text-xs leading-relaxed text-foreground/80">
-{`import { getScores, getCounts, getAttestation } from '@/lib/reputation';
+{`import { getScores, getCounts, getQuestAttestation } from '@/lib/reputation';
+import { SCHEMA } from '@alvinmunk/shared';
 
 // Read Social and Earned XP for any address
 const { social, earned } = await getScores(address);
@@ -179,9 +182,9 @@ const { social, earned } = await getScores(address);
 const people = await getCounts(address);
 // → { vouchedBy: 4, backed: 3 }
 
-// Read completed quest attestations
-const attestations = await getAttestation(address);
-// → 5`}
+// Read latest quest attestation for an address
+const questAttestation = await getQuestAttestation(address);
+// → { issuer: "G...", value: 50n, timestamp: 1234567890, revoked: false } | null`}
           </pre>
         </div>
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
@@ -204,9 +207,9 @@ const attestations = await getAttestation(address);
             </p>
           </div>
           <div className="border-border/50 border-t p-4">
-            <Stamp accent="tertiary">GET_ATTESTATION</Stamp>
+            <Stamp accent="tertiary">GET_QUEST_ATTESTATION</Stamp>
             <p className="mt-2 text-sm text-muted-foreground">
-              Returns the number of completed quest attestations for an address.
+              Returns the latest verified quest attestation for an address (issuer, value, timestamp, revoked).
             </p>
           </div>
         </div>

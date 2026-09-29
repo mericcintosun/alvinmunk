@@ -8,6 +8,7 @@
 import { invokeAndWait, readContract, readPublic, args, repId, questId } from './contracts';
 import { shareInFlight } from './utils';
 import type { Wallet } from './wallet';
+import { SCHEMA, type Attestation } from '@alvinmunk/shared';
 
 /** Vouch TTL — claim within this window to refund the voucher's stake (mirrors the
  *  contract's VOUCH_TTL_SECS). After it, the stake is slashed but the card still claims. */
@@ -202,12 +203,9 @@ export async function getEarnedScore(addr: string, source: string): Promise<numb
   return Number(v ?? 0);
 }
 
-/** `get_attestation(addr)` — Read completed quest attestations for an address. */
-export async function getAttestation(addr: string): Promise<number> {
-  try {
-    const v = await readPublic<bigint>(questId(), 'get_completed', [args.addr(addr)]);
-    return Number(v ?? 0);
-  } catch {
-    return 0;
-  }
+/** `get_attestation(addr, schema_id)` — Read quest attestation for an address.
+ *  Returns the latest verified quest attestation or null if none exists.
+ *  Real errors propagate — only None reads as "no quests". */
+export async function getQuestAttestation(addr: string): Promise<Attestation | null> {
+  return readPublic(repId(), 'get_attestation', [args.addr(addr), args.u32(SCHEMA.QUEST)]);
 }
