@@ -141,11 +141,15 @@ export function Quests({ address }: { address: string }) {
       });
   }
 
+  // Runs after a verified quest, outside its error path: the XP is already granted on-chain, so a
+  // slow or failed read keeps the last figures instead of reporting the quest as failed.
   function refreshScores() {
-    getEarnedScore(address, address).then(setEarned).catch(() => {});
-    getStreak(address, address)
-      .then((s) => setStreak({ weeks: s.weeks, best: s.best }))
-      .catch(() => {});
+    getEarnedScore(address, address)
+      .then(setEarned)
+      .catch(() => {
+        /* keep the last score */
+      });
+    reloadStreak();
   }
 
   async function run(kind: 'referral' | 'invite' | 'vouchback', questId: number, evidence: Evidence) {
