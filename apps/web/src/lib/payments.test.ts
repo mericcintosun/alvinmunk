@@ -1,3 +1,4 @@
+import { xdr } from '@stellar/stellar-sdk';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const getAccountMock = vi.fn();
@@ -36,6 +37,7 @@ vi.mock('@stellar/stellar-sdk', async (importOriginal) => {
 });
 
 import { sendXlm } from './payments';
+import { TxRejectedError } from './tx-errors';
 import type { Wallet } from './wallet';
 
 function makeWallet(): Wallet {
@@ -77,9 +79,28 @@ describe('sendXlm status mapping', () => {
     await expect(promise).resolves.toEqual({ hash: 'HASH2', status: 'FAILED' });
   });
 
-  it('throws when sendTransaction itself errors', async () => {
-    sendTransactionMock.mockResolvedValue({ status: 'ERROR', errorResult: { foo: 'bar' } });
-    await expect(sendXlm(makeWallet(), 'GB72PZXNOU6DJ2BXZDITS24A5JCN3CEUNTKIX5ESZDXAY2R5HO7YZ3H3', '10')).rejects.toThrow('payment rejected');
+  it('throws the decoded rejection when sendTransaction itself errors, and never polls', async () => {
+    sendTransactionMock.mockResolvedValue({
+      status: 'ERROR',
+      hash: 'HASH6',
+      errorResult: new xdr.TransactionResult({
+        feeCharged: xdr.Int64.fromString('100'),
+        result: xdr.TransactionResultResult.txFailed([
+          xdr.OperationResult.opInner(
+            xdr.OperationResultTr.payment(xdr.PaymentResult.paymentUnderfunded()),
+          ),
+        ]),
+        ext: new xdr.TransactionResultExt(0),
+      }),
+    });
+    await expect(
+      sendXlm(makeWallet(), 'GB72PZXNOU6DJ2BXZDITS24A5JCN3CEUNTKIX5ESZDXAY2R5HO7YZ3H3', '10'),
+    ).rejects.toMatchObject({
+      name: 'TxRejectedError',
+      code: 'paymentUnderfunded',
+      message: 'Your balance is too low for this payment.',
+    } satisfies Partial<TxRejectedError>);
+    expect(getTransactionMock).not.toHaveBeenCalled();
   });
 
   it('resubmits the same envelope on TRY_AGAIN_LATER, then polls once it is PENDING', async () => {
