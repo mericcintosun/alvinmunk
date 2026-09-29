@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Flame } from 'lucide-react';
 import { getWallet } from '@/lib/wallet';
-import { completeQuest, getCompleted, getStreak } from '@/lib/quests';
-import { DEFAULT_QUEST_IDS } from '@/lib/attest';
+import { completeQuest, getCompleted, getQuestPeriods, getStreak } from '@/lib/quests';
+import { DEFAULT_QUEST_IDS, WEEK_SECS } from '@/lib/attest';
 import { getEarnedScore } from '@/lib/reputation';
 import { resolveHandle } from '@/lib/registry';
 import { normalizeHandle } from '@/lib/profile';
@@ -35,6 +35,7 @@ const VOUCHBACK_QUEST_ID = Number(
   process.env.NEXT_PUBLIC_VOUCHBACK_QUEST_ID || DEFAULT_QUEST_IDS.vouch_back,
 );
 const VOUCH_BACK_MIN = 3; // mirrors attest.ts VOUCH_BACK_MIN (UI copy only)
+const QUEST_IDS = [REFERRAL_QUEST_ID, INVITE_QUEST_ID, VOUCHBACK_QUEST_ID];
 
 type Evidence =
   | { type: 'referral_tx'; ref: string }
@@ -46,12 +47,16 @@ type Evidence =
  * the attester verifies proof + on-chain activity, then grants Earned XP. Earned ≠ Social.
  * Three auto-verifiable quests: refer an active wallet, invite-converts (someone you invited
  * got vouched for), and vouch-back (you've vouched for ≥N people) — all feed the viral loop.
+ * A quest the admin made repeatable (`set_quest_period`, #154) is tagged, shows as done only
+ * for the current period, and opens again when the week rolls over.
  */
 export function Quests({ address }: { address: string }) {
   const t = useTranslations();
   const [earned, setEarned] = useState<number | null>(null);
   const [streak, setStreak] = useState<{ weeks: number; best: number } | null>(null);
   const [completed, setCompleted] = useState<Record<number, boolean>>({});
+  // Repeat period per quest id in seconds; absent or 0 = one-shot.
+  const [periods, setPeriods] = useState<Record<number, number>>({});
   const [busy, setBusy] = useState<null | 'referral' | 'invite' | 'vouchback'>(null);
   const [ref, setRef] = useState('');
   const [resolvedRef, setResolvedRef] = useState<string | null>(null);
@@ -127,27 +132,34 @@ export function Quests({ address }: { address: string }) {
     };
   }, [inviteTrim]);
 
+  // Quests this wallet already completed show as done. `null` (the read failed, or the
+  // deployed contract predates `get_completed`) leaves every quest available, as before.
+  const loadCompleted = useCallback(
+    (isAlive: () => boolean) =>
+      getCompleted(address, QUEST_IDS, address).then((done) => {
+        if (isAlive() && done) setCompleted(Object.fromEntries(done));
+      }),
+    [address],
+  );
+
   useEffect(() => {
     getEarnedScore(address, address).then(setEarned).catch(() => setEarned(0));
     getStreak(address, address)
       .then((s) => setStreak({ weeks: s.weeks, best: s.best }))
       .catch(() => setStreak({ weeks: 0, best: 0 }));
 
-    // Quests this wallet already completed show as done. `null` (the read failed, or the
-    // deployed contract predates `get_completed`) leaves every quest available, as before.
     let alive = true;
     setCompleted({});
-    getCompleted(address, [REFERRAL_QUEST_ID, INVITE_QUEST_ID, VOUCHBACK_QUEST_ID], address).then(
-      (done) => {
-        if (alive && done) setCompleted(Object.fromEntries(done));
-      },
-    );
+    void loadCompleted(() => alive);
+    // `null` (a contract without repeatable quests, or a failed read): all one-shot.
+    getQuestPeriods(QUEST_IDS, address).then((p) => {
+      if (alive && p) setPeriods(Object.fromEntries(p));
+    });
     return () => {
       alive = false;
     };
-  }, [address]);
+  }, [address, loadCompleted]);
 
-  // A run can lapse when the week rolls over, so the countdown re-reads the streak then.
   function reloadStreak() {
     getStreak(address, address)
       .then((s) => setStreak({ weeks: s.weeks, best: s.best }))
@@ -155,6 +167,37 @@ export function Quests({ address }: { address: string }) {
         /* keep the last streak */
       });
   }
+
+  // A run can lapse when the week rolls over, so the countdown re-reads the streak then —
+  // and the completions, since a weekly quest opens again.
+  function onRollover() {
+    reloadStreak();
+    if (QUEST_IDS.some((id) => (periods[id] ?? 0) > 0)) {
+      setCompleted({});
+      void loadCompleted(() => true);
+    }
+  }
+
+  // The tag a repeatable quest carries, and the label its button shows once done.
+  function repeats(id: number): string | null {
+    const secs = periods[id] ?? 0;
+    if (secs <= 0) return null;
+    if (secs === WEEK_SECS) return t('quests.repeatsWeekly');
+    return t('quests.repeatsEvery', { days: String(Math.round(secs / 86_400)) });
+  }
+  function doneLabel(id: number): string {
+    const secs = periods[id] ?? 0;
+    if (secs <= 0) return t('quests.completed');
+    return secs === WEEK_SECS ? t('quests.completedThisWeek') : t('quests.completedThisRound');
+  }
+  const tag = (id: number) => {
+    const text = repeats(id);
+    return text ? (
+      <span className="ml-2 font-mono text-[10px] normal-case tracking-normal text-secondary">
+        · {text}
+      </span>
+    ) : null;
+  };
 
   // Runs after a verified quest, outside its error path: the XP is already granted on-chain, so a
   // slow or failed read keeps the last figures instead of reporting the quest as failed.
@@ -230,13 +273,14 @@ export function Quests({ address }: { address: string }) {
                 </span>
               )}
             </span>
-            <WeekReset address={address} onRollover={reloadStreak} className="ml-auto" />
+            <WeekReset address={address} onRollover={onRollover} className="ml-auto" />
           </div>
         )}
         {/* Quest 1 — refer an active wallet */}
         <div className="mt-4">
           <label htmlFor="quest-ref" className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
             {t('quests.referLabel')}
+            {tag(REFERRAL_QUEST_ID)}
           </label>
           <Input
             id="quest-ref"
@@ -274,7 +318,7 @@ export function Quests({ address }: { address: string }) {
             className="mt-2 w-full"
           >
             {completed[REFERRAL_QUEST_ID]
-              ? t('quests.completed')
+              ? doneLabel(REFERRAL_QUEST_ID)
               : busy === 'referral'
                 ? t('quests.verifying')
                 : t('quests.verify')}
@@ -285,6 +329,7 @@ export function Quests({ address }: { address: string }) {
         <div className="mt-4 border-t border-border/60 pt-4">
           <label htmlFor="quest-invite" className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
             {t('quests.inviteLabel')}
+            {tag(INVITE_QUEST_ID)}
           </label>
           <Input
             id="quest-invite"
@@ -322,7 +367,7 @@ export function Quests({ address }: { address: string }) {
             className="mt-2 w-full"
           >
             {completed[INVITE_QUEST_ID]
-              ? t('quests.completed')
+              ? doneLabel(INVITE_QUEST_ID)
               : busy === 'invite'
                 ? t('quests.verifying')
                 : t('quests.claimInvite')}
@@ -333,6 +378,7 @@ export function Quests({ address }: { address: string }) {
         <div className="mt-4 border-t border-border/60 pt-4">
           <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
             {t('quests.vouchBackLabel')}
+            {tag(VOUCHBACK_QUEST_ID)}
           </span>
           <p className="mt-1 text-[11px] text-muted-foreground">
             {t('quests.vouchBackHint', { min: String(VOUCH_BACK_MIN) })}
@@ -344,7 +390,7 @@ export function Quests({ address }: { address: string }) {
             className="mt-2 w-full"
           >
             {completed[VOUCHBACK_QUEST_ID]
-              ? t('quests.completed')
+              ? doneLabel(VOUCHBACK_QUEST_ID)
               : busy === 'vouchback'
                 ? t('quests.verifying')
                 : t('quests.claimVouchBack', { min: String(VOUCH_BACK_MIN) })}

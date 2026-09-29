@@ -36,7 +36,7 @@ vi.mock('./contracts', async (importOriginal) => ({
   args: argsMock,
 }));
 
-import { completeQuest, getCompleted, getStreak, getWeekBounds, timeUntilReset } from './quests';
+import { completeQuest, getCompleted, getQuestPeriods, getStreak, getWeekBounds, timeUntilReset } from './quests';
 import type { Wallet } from './wallet';
 
 describe('completeQuest', () => {
@@ -458,5 +458,37 @@ describe('timeUntilReset', () => {
   it('is null from the reset on', () => {
     expect(timeUntilReset(bounds, RESET)).toBeNull();
     expect(timeUntilReset(bounds, RESET + 90)).toBeNull();
+  });
+});
+
+describe('getQuestPeriods', () => {
+  const OWNER = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
+
+  beforeEach(() => {
+    readPublicMock.mockReset();
+    readContractMock.mockReset();
+  });
+
+  it('reads one period per quest id, keyed by id, with one get_quest_periods call', async () => {
+    readContractMock.mockResolvedValueOnce([0n, 604_800n, 0n]);
+    await expect(getQuestPeriods([2, 3, 4], OWNER)).resolves.toEqual(
+      new Map([[2, 0], [3, 604_800], [4, 0]]),
+    );
+    expect(readContractMock).toHaveBeenCalledWith('CQUEST', 'get_quest_periods', [[2, 3, 4]], OWNER);
+  });
+
+  it('reads wallet-free when no source is given', async () => {
+    readPublicMock.mockResolvedValueOnce([86_400n]);
+    await expect(getQuestPeriods([2])).resolves.toEqual(new Map([[2, 86_400]]));
+    expect(readContractMock).not.toHaveBeenCalled();
+  });
+
+  it('is null when the view is missing, the read fails or the reply is not one period per id', async () => {
+    readContractMock.mockRejectedValueOnce(new Error('simulate get_quest_periods failed'));
+    await expect(getQuestPeriods([2, 3], OWNER)).resolves.toBeNull();
+    for (const reply of [[0n], 'x', [0n, -1], [0n, 'week']]) {
+      readContractMock.mockResolvedValueOnce(reply);
+      await expect(getQuestPeriods([2, 3], OWNER)).resolves.toBeNull();
+    }
   });
 });

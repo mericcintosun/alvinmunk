@@ -8,8 +8,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 (globalThis as { React?: typeof React }).React = React;
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const { nav, wallet } = vi.hoisted(() => ({
-  nav: { pathname: '/' },
+const { nav, wallet, readOnlyView } = vi.hoisted(() => ({
+  nav: { pathname: '/', search: '' },
+  readOnlyView: vi.fn(() => false),
   wallet: {
     profile: null as { handle: string; address: string; createdAt: number } | null,
     balance: null as string | null,
@@ -17,7 +18,12 @@ const { nav, wallet } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('next/navigation', () => ({ usePathname: () => nav.pathname }));
+vi.mock('next/navigation', () => ({
+  usePathname: () => nav.pathname,
+  useSearchParams: () => new URLSearchParams(nav.search),
+}));
+// Whether a page is a read-only ?network= view is lib/read-network's call (tested there).
+vi.mock('@/lib/read-network', () => ({ isReadOnlyView: readOnlyView }));
 // A plain anchor that forwards every prop (and its ref), so ARIA attributes reach the DOM as
 // they would (jsdom cannot navigate, so a click only runs the link's own handler).
 vi.mock('next/link', () => ({
@@ -54,6 +60,8 @@ describe('Navbar', () => {
 
   beforeEach(() => {
     nav.pathname = '/';
+    nav.search = '';
+    readOnlyView.mockReset().mockReturnValue(false);
     wallet.profile = null;
     wallet.disconnect.mockClear();
     localStorage.clear();
@@ -163,6 +171,22 @@ describe('Navbar', () => {
 
     await act(async () => mobile.querySelector<HTMLAnchorElement>('a[href="/u/damian"]')!.click());
     expect(panel()).toBeNull();
+  });
+
+  it('drops the wallet button on a read-only ?network= view, and keeps it elsewhere (#290)', async () => {
+    nav.pathname = '/u/alice';
+    nav.search = 'network=testnet';
+    readOnlyView.mockReturnValue(true);
+    await mount();
+    const mobile = await openPanel();
+    expect(readOnlyView).toHaveBeenCalledWith('/u/alice', 'testnet');
+    expect(container.querySelector('a[href="/app"]')).toBeNull();
+    expect(mobile.querySelector('a[href="/app"]')).toBeNull();
+
+    readOnlyView.mockReturnValue(false);
+    nav.search = '';
+    await mount();
+    expect(container.querySelector('a[href="/app"]')).not.toBeNull();
   });
 
   it('closes the panel when the signed-out "Open app" link is followed', async () => {

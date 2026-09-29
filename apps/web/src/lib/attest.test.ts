@@ -19,7 +19,12 @@ import {
   MAX_QUEST_ID,
   MAX_REF_LEN,
   QUEST_AWARD_DOMAIN,
+  QUEST_AWARD_DOMAIN_V2,
   QUEST_SIG_TTL_SECS,
+  FRESH_EVIDENCE,
+  WEEK_SECS,
+  questWindow,
+  signatureExpiry,
   type ReferralFacts,
   type EvidenceType,
 } from './attest';
@@ -367,5 +372,75 @@ describe('signQuestPayload', () => {
     expect(kp.verify(questPayload(TESTNET, 3, CLASSIC, EXPIRES_AT + QUEST_SIG_TTL_SECS), sig)).toBe(false);
     expect(kp.verify(questPayload(TESTNET, 3, PASSKEY, EXPIRES_AT), sig)).toBe(false);
     expect(kp.verify(questPayload(MAINNET, 3, CLASSIC, EXPIRES_AT), sig)).toBe(false);
+  });
+});
+
+// ── repeatable quests: the period window (issue #154) ──
+
+const THU_2026_10_01 = 1_790_812_800; // a week boundary: 2961 × WEEK_SECS
+
+/** Quest 3's WEEKLY award payload in week 2961 — the bytes
+ *  contracts/quest_registry/src/test.rs pins as AWARD_V2_PAYLOAD. */
+const AWARD_V2_PAYLOAD_G = [
+  '000000100000000100000008', // vec of 8
+  '0000000f00000018616c76696e6d756e6b5f61776172645f71756573745f7632', // Symbol("alvinmunk_award_quest_v2")
+  '0000000d00000020cee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472', // BytesN<32> network id
+  '00000012000000011111111111111111111111111111111111111111111111111111111111111111', // Address, contract
+  '0000000300000003', // u32 quest id
+  '0000001200000000000000002222222222222222222222222222222222222222222222222222222222222222', // Address, account
+  '000000050000000000093a80', // u64 period_secs = 604_800
+  '000000050000000000000b91', // u64 epoch = 2961
+  AWARD_EXPIRES_AT, // u64 expires_at
+].join('');
+
+describe('questWindow', () => {
+  it('is null for a one-shot quest', () => {
+    expect(questWindow(THU_2026_10_01, 0)).toBeNull();
+    expect(questWindow(THU_2026_10_01, -1)).toBeNull();
+  });
+
+  it("derives the contract's epoch and the period's first and last second", () => {
+    const week = { periodSecs: WEEK_SECS, epoch: 2961, start: THU_2026_10_01, end: THU_2026_10_01 + WEEK_SECS - 1 };
+    expect(questWindow(THU_2026_10_01, WEEK_SECS)).toEqual(week);
+    expect(questWindow(THU_2026_10_01 + WEEK_SECS - 1, WEEK_SECS)).toEqual(week);
+    expect(questWindow(THU_2026_10_01 + WEEK_SECS, WEEK_SECS)?.epoch).toBe(2962);
+    expect(questWindow(THU_2026_10_01 - 1, WEEK_SECS)?.epoch).toBe(2960);
+  });
+});
+
+describe('signatureExpiry', () => {
+  it('is QUEST_SIG_TTL_SECS ahead, but never past the end of a repeatable period', () => {
+    const now = THU_2026_10_01 + 100;
+    expect(signatureExpiry(now, null)).toBe(now + QUEST_SIG_TTL_SECS);
+    expect(signatureExpiry(now, questWindow(now, WEEK_SECS))).toBe(now + QUEST_SIG_TTL_SECS);
+    const late = THU_2026_10_01 + WEEK_SECS - 60;
+    expect(signatureExpiry(late, questWindow(late, WEEK_SECS))).toBe(THU_2026_10_01 + WEEK_SECS - 1);
+  });
+});
+
+describe('questPayload for a repeatable quest', () => {
+  const week = questWindow(THU_2026_10_01, WEEK_SECS);
+
+  it("is the contract's v2 payload byte for byte", () => {
+    expect(QUEST_AWARD_DOMAIN_V2).toBe('alvinmunk_award_quest_v2');
+    expect(hex(questPayload(TESTNET, 3, CLASSIC, EXPIRES_AT, week))).toBe(AWARD_V2_PAYLOAD_G);
+    // A one-shot quest's bytes are unchanged.
+    expect(hex(questPayload(TESTNET, 3, CLASSIC, EXPIRES_AT, null))).toBe(AWARD_PAYLOAD_G);
+  });
+
+  it('binds the signature to its period', () => {
+    const kp = Keypair.fromRawEd25519Seed(Buffer.alloc(32, 7));
+    const sig = Buffer.from(signQuestPayload(kp.secret(), TESTNET, 3, CLASSIC, EXPIRES_AT, week).sig, 'base64');
+    expect(kp.verify(questPayload(TESTNET, 3, CLASSIC, EXPIRES_AT, week), sig)).toBe(true);
+    const next = questWindow(THU_2026_10_01 + WEEK_SECS, WEEK_SECS);
+    const daily = questWindow(THU_2026_10_01, 86_400);
+    for (const other of [next, daily, null]) {
+      expect(kp.verify(questPayload(TESTNET, 3, CLASSIC, EXPIRES_AT, other), sig)).toBe(false);
+    }
+  });
+
+  it('only takes evidence the attester can date', () => {
+    expect([...FRESH_EVIDENCE].sort()).toEqual(['github_pr', 'invite_converts', 'vouch_back']);
+    expect(FRESH_EVIDENCE.has('referral_tx')).toBe(false);
   });
 });

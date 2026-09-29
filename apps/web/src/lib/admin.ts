@@ -21,6 +21,7 @@ import { enumKey, gateId, questId, readInstanceValue, rewardsId } from './contra
 import { stroopsToUsdc, usdcToStroops, type RewardEntry } from './rewards';
 import { TRACK, type Gate } from './gate';
 import type { QuestConfig } from './quests';
+import { WEEK_SECS } from './attest';
 import { humanizeError } from './utils';
 
 export type ContentSection = 'rewards' | 'gates' | 'quests';
@@ -28,7 +29,8 @@ export const CONTENT_SECTIONS: ContentSection[] = ['rewards', 'gates', 'quests']
 
 // ── Admin gate ──
 
-/** `DataKey::Admin`: the instance-storage key each contract's `init` stores its admin under. */
+/** `DataKey::Admin`: the instance-storage key each contract's constructor (its `init`, before
+ *  #127) stores its admin under. */
 export const ADMIN_KEY = enumKey('Admin');
 
 /** The admin a contract stores on-chain (`null` if it has none, or isn't deployed). */
@@ -282,13 +284,45 @@ export function gateToggleConsequence(g: Gate, active: boolean): string {
   return `Gate ${g.id} “${g.label}” will be enabled: any wallet with ≥ ${g.min} ${trackName(g.track)} XP passes it.`;
 }
 
-/** `create_quest` saves the quest ACTIVE; replacing one keeps its per-wallet completions. */
-export function questConsequence(d: QuestDraft, current: QuestConfig | null): string {
-  const awards = `Quest ${d.id} will award ${d.xp} Earned XP (schema ${d.schemaId}) once to each wallet the attester verifies for it`;
+/** How often a quest with this repeat period can be completed, for admin copy. */
+function repeatPhrase(periodSecs: number): string {
+  if (periodSecs <= 0) return 'once';
+  if (periodSecs === WEEK_SECS) return 'once a week';
+  return `once every ${Math.round(periodSecs / 86_400)} days`;
+}
+
+/** `create_quest` saves the quest ACTIVE and leaves its repeat period (`periodSecs`, 0 =
+ *  one-shot) alone; replacing one keeps its per-wallet completions. */
+export function questConsequence(
+  d: QuestDraft,
+  current: QuestConfig | null,
+  periodSecs = 0,
+): string {
+  const awards = `Quest ${d.id} will award ${d.xp} Earned XP (schema ${d.schemaId}) ${repeatPhrase(periodSecs)} to each wallet the attester verifies for it`;
   if (!current) return `${awards}.`;
+  const kept =
+    periodSecs > 0
+      ? 'Wallets that completed it this round can complete it again next round.'
+      : "Wallets that already completed it can't complete it again.";
   return (
     `${awards}, replacing ${current.xp} XP (schema ${current.schemaId}).` +
-    `${reEnabled(current.active)} Wallets that already completed it can't complete it again.`
+    `${reEnabled(current.active)} ${kept}`
+  );
+}
+
+/** `set_quest_period`: weekly (`WEEK_SECS`) or back to one-shot (0). */
+export function questPeriodConsequence(q: QuestConfig, periodSecs: number): string {
+  if (periodSecs <= 0) {
+    return (
+      `Quest ${q.id} will be one-shot again: each wallet can complete it once. ` +
+      'Wallets that only completed the repeating version can complete it one more time.'
+    );
+  }
+  return (
+    `Quest ${q.id} will repeat: each wallet can complete it ${repeatPhrase(periodSecs)} ` +
+    '(weeks start Thursday 00:00 UTC). The attester signs a repeating quest only for evidence ' +
+    'dated inside the current round — a PR merged, an invite or vouches claimed — so a ' +
+    'referral quest can’t repeat. Approvals issued before the change stop working.'
   );
 }
 
@@ -323,6 +357,7 @@ export const ADMIN_ERRORS: Record<ContentSection, Record<number, string>> = {
   quests: {
     1: 'The quest registry is not initialized.',
     4: 'That quest doesn’t exist. Create it first.',
+    9: 'A repeat period must be at least a day. Use 0 for a one-shot quest.',
   },
 };
 

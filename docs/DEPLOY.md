@@ -94,7 +94,7 @@ Each contract id is also printed (`REP_ID=…`, `QUEST_ID=…`, `REWARDS_ID=…`
 
 ### Optional: registry + gate (handles + reputation gates)
 
-`deploy-testnet.sh` covers the core three contracts. Public `/u/<handle>` profiles and reputation gates need **registry** and **gate** as well. The maintainer one-shot that deploys all five (and seeds quests/rewards) is `scripts/redeploy-all.sh` — read it before running (it hard-codes an admin identity and attester pubkey). You can also deploy those two Wasm files manually with `stellar contract deploy` / `init` the same way the script does, then add:
+`deploy-testnet.sh` covers the core three contracts. Public `/u/<handle>` profiles and reputation gates need **registry** and **gate** as well. The maintainer one-shot that deploys all five (and seeds quests/rewards) is `scripts/redeploy-all.sh` — read it before running (it hard-codes an admin identity and attester pubkey). You can also deploy those two Wasm files manually the way the script does, passing the constructor's arguments after `--` (`stellar contract deploy --wasm … -- --admin <G…>` for registry, `-- --admin <G…> --reputation <reputation id>` for gate; there is no separate `init`, #127), then add:
 
 ```bash
 NEXT_PUBLIC_REGISTRY_CONTRACT_ID=C…
@@ -187,7 +187,7 @@ A missing or malformed id stops the script with exit code 2 and names the variab
 | Symptom | Likely cause |
 | --- | --- |
 | `deploy-testnet.sh` fails on build | Missing Rust/`stellar` CLI, or wrong Wasm target — CLI 25+ writes to `contracts/target/wasm32v1-none/release/` |
-| `init` / `add_attester` fails | Admin not funded, or identity name mismatch (`ADMIN=` / `ATTESTER=` must match `stellar keys` names) |
+| A deploy or `add_attester` fails | Admin not funded, or identity name mismatch (`ADMIN=` / `ATTESTER=` must match `stellar keys` names) |
 | Health returns 503 | RPC unreachable or stalled (`rpc`), an inconsistent network config (`configErrors`), or a variable named in `missing` is unset |
 | Quest verify 500 | Missing `ATTESTER_SECRET_KEY`, or secret is not the allowlisted attester |
 | Faucet 500 | Missing `USDC_ISSUER_SECRET_KEY` or wrong SAC id |

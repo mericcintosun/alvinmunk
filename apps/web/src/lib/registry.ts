@@ -6,15 +6,19 @@
 import { isMissingFunction } from '@alvinmunk/sdk';
 import { invokeAndWait, invokeCosigned, readPublic, args, registryId } from './contracts';
 import { readClient } from './sdk';
+import type { ReadNetwork } from './read-network';
 import type { Wallet } from './wallet';
 import { encodeAvatar, decodeAvatar, type AvatarConfig } from './avatar';
 import { sanitizeBio } from './profile';
 import { shareInFlight } from './utils';
 
+/** The registry to read: `net`'s (the ?network= override) or the deployment's. */
+const registryOf = (net?: ReadNetwork | null) => (net ? net.contracts.registry : registryId());
+
 /** Resolve `@handle` → address (public, wallet-free). null if unclaimed/unconfigured. */
-export async function resolveHandle(handle: string): Promise<string | null> {
-  if (!registryId() || !handle) return null;
-  return readClient()
+export async function resolveHandle(handle: string, net?: ReadNetwork | null): Promise<string | null> {
+  if (!registryOf(net) || !handle) return null;
+  return (net?.client ?? readClient())
     .resolveHandle(handle)
     .catch(() => null);
 }
@@ -26,10 +30,10 @@ export async function resolveHandle(handle: string): Promise<string | null> {
  */
 export async function reverseHandle(
   address: string,
-  { strict = false }: { strict?: boolean } = {},
+  { strict = false, net }: { strict?: boolean; net?: ReadNetwork | null } = {},
 ): Promise<string | null> {
-  if (!registryId() || !address) return null;
-  const read = readClient().reverseHandle(address);
+  if (!registryOf(net) || !address) return null;
+  const read = (net?.client ?? readClient()).reverseHandle(address);
   return strict ? read : read.catch(() => null);
 }
 
@@ -44,10 +48,13 @@ const pendingReverse = new Map<string, Promise<(string | null)[]>>();
  * input address gets an entry (null = no handle, or it couldn't be read), so a caller that
  * merges the result into its label map never asks again for the same address.
  */
-export async function reverseHandles(addresses: string[]): Promise<Record<string, string | null>> {
+export async function reverseHandles(
+  addresses: string[],
+  net?: ReadNetwork | null,
+): Promise<Record<string, string | null>> {
   const unique = [...new Set(addresses)];
   const out: Record<string, string | null> = Object.fromEntries(unique.map((a) => [a, null]));
-  if (!registryId()) return out;
+  if (!registryOf(net)) return out;
   // sorted, so a re-render that reorders the same rows asks for the same chunks
   const todo = unique.filter(Boolean).sort();
   const chunks: string[][] = [];
@@ -56,7 +63,7 @@ export async function reverseHandles(addresses: string[]): Promise<Record<string
   }
   await Promise.all(
     chunks.map(async (chunk) => {
-      const handles = await reverseChunk(chunk);
+      const handles = await reverseChunk(chunk, net);
       for (let i = 0; i < chunk.length; i++) out[chunk[i]] = handles[i];
     }),
   );
@@ -68,15 +75,15 @@ export async function reverseHandles(addresses: string[]): Promise<Record<string
  * mid-read shares it. A registry that predates the view gets one `reverse` per address
  * instead; any other failure leaves the chunk unlabelled, as a failed `reverseHandle` would.
  */
-function reverseChunk(chunk: string[]): Promise<(string | null)[]> {
-  return shareInFlight(pendingReverse, chunk.join(','), async () => {
+function reverseChunk(chunk: string[], net?: ReadNetwork | null): Promise<(string | null)[]> {
+  return shareInFlight(pendingReverse, `${net?.network ?? ''}|${chunk.join(',')}`, async () => {
     try {
-      const v = await readPublic<unknown>(registryId(), 'reverse_many', [args.addrs(chunk)]);
+      const v = await readPublic<unknown>(registryOf(net), 'reverse_many', [args.addrs(chunk)], net);
       if (!Array.isArray(v) || v.length !== chunk.length) return chunk.map(() => null);
       return v.map((h) => (typeof h === 'string' ? h : null));
     } catch (e) {
       if (!isMissingFunction(e)) return chunk.map(() => null);
-      return Promise.all(chunk.map((a) => reverseHandle(a).catch(() => null)));
+      return Promise.all(chunk.map((a) => reverseHandle(a, { net }).catch(() => null)));
     }
   });
 }
@@ -232,15 +239,20 @@ export function clearMetaCache(): void {
  * registry isn't configured, or the deployed registry predates `get_meta` — every caller
  * then renders the deterministic default face, exactly as before profiles existed.
  */
-export function getMeta(address: string): Promise<OnChainMeta | null> {
-  if (!registryId() || !address) return Promise.resolve(null);
-  const hit = metaCache.get(address);
+export function getMeta(address: string, net?: ReadNetwork | null): Promise<OnChainMeta | null> {
+  if (!registryOf(net) || !address) return Promise.resolve(null);
+  // One address can hold a profile on each network: never serve one network's from the other's.
+  const key = net ? `${net.network}|${address}` : address;
+  const hit = metaCache.get(key);
   if (hit && Date.now() - hit.at < META_TTL_MS) return hit.value;
   const value = Promise.resolve()
     .then(() =>
-      readPublic<{ avatar?: unknown; bio?: unknown } | null>(registryId(), 'get_meta', [
-        args.addr(address),
-      ]),
+      readPublic<{ avatar?: unknown; bio?: unknown } | null>(
+        registryOf(net),
+        'get_meta',
+        [args.addr(address)],
+        net,
+      ),
     )
     .then((raw) =>
       raw && typeof raw === 'object'
@@ -251,6 +263,6 @@ export function getMeta(address: string): Promise<OnChainMeta | null> {
         : null,
     )
     .catch(() => null);
-  remember(address, value);
+  remember(key, value);
   return value;
 }

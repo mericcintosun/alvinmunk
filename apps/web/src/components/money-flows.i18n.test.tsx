@@ -14,8 +14,7 @@ const mocks = vi.hoisted(() => ({
   tip: vi.fn(),
   requestTestUsdc: vi.fn(),
   enableUsdc: vi.fn(),
-  getGates: vi.fn(),
-  isUnlocked: vi.fn(),
+  getGateStatus: vi.fn(),
   unlockGate: vi.fn(),
   getAnchorConfig: vi.fn(),
   getStreak: vi.fn(),
@@ -52,8 +51,7 @@ vi.mock('@/lib/anchor', async (io) => ({
 }));
 vi.mock('@/lib/gate', async (io) => ({
   ...(await io<typeof import('@/lib/gate')>()),
-  getGates: mocks.getGates,
-  isUnlocked: mocks.isUnlocked,
+  getGateStatus: mocks.getGateStatus,
   unlockGate: mocks.unlockGate,
 }));
 vi.mock('@/lib/quests', async (io) => ({
@@ -90,8 +88,7 @@ describe('money-flow i18n (#238)', () => {
     mocks.getRewardsFor.mockResolvedValue({ rows: [], remainingToday: null });
     mocks.getUsdcBalance.mockResolvedValue(12345000n);
     mocks.hasUsdcTrustline.mockResolvedValue(true);
-    mocks.getGates.mockResolvedValue([]);
-    mocks.isUnlocked.mockResolvedValue(false);
+    mocks.getGateStatus.mockResolvedValue([]);
     mocks.getAnchorConfig.mockReturnValue(null);
     mocks.getStreak.mockResolvedValue({ weeks: 0, best: 0 });
   });
@@ -164,11 +161,12 @@ describe('money-flow i18n (#238)', () => {
 
   it('renders Unlockables track labels and states in Turkish', async () => {
     mocks.getScores.mockResolvedValue({ social: 10, earned: 2 });
-    mocks.getGates.mockResolvedValue([
-      { id: 1, track: 1, min: 5, label: 'VIP', active: true }, // Earned, not passed
-      { id: 2, track: 0, min: 5, label: 'OG', active: true }, // Social, passed + unlocked
+    mocks.getGateStatus.mockResolvedValue([
+      // Earned, not passed
+      { gate: { id: 1, track: 1, min: 5, label: 'VIP', active: true }, passes: false, unlocked: false },
+      // Social, passed + unlocked
+      { gate: { id: 2, track: 0, min: 5, label: 'OG', active: true }, passes: true, unlocked: true },
     ]);
-    mocks.isUnlocked.mockImplementation(async (_addr: string, id: number) => id === 2);
     await render(<Unlockables address={OWNER} />);
     expect(container.textContent).toContain('İtibar erişimin kilidini açar');
     expect(container.textContent).toContain('Kazanılan XP için 5 gerekli · sende 2');

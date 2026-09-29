@@ -23,6 +23,7 @@ import { simulateRead } from '@alvinmunk/sdk';
 import { server, networkPassphrase, config } from './stellar';
 import { submitSigned } from './submit';
 import type { Wallet } from './wallet';
+import type { ReadNetwork } from './read-network';
 
 const BASE_FEE = '1000000'; // 0.1 XLM ceiling; simulation sets the real fee.
 
@@ -62,9 +63,11 @@ export async function readPublic<T>(
   contractId: string,
   method: string,
   callArgs: xdr.ScVal[],
+  /** Read another network (the ?network= override, lib/read-network); default: the deployment's. */
+  net?: ReadNetwork | null,
 ): Promise<T> {
   requireDeployed(contractId, method);
-  return simulateRead<T>(server, networkPassphrase, contractId, method, callArgs);
+  return simulateRead<T>(net?.server ?? server, net?.networkPassphrase ?? networkPassphrase, contractId, method, callArgs);
 }
 
 /** A confirmed state-changing call: its transaction hash and decoded return value. */

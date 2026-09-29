@@ -246,6 +246,10 @@
   "quests.vouchBackHint": "Vouch for {min} people, then claim — rewards backing others, not just being backed.",
   "quests.claimVouchBack": "Claim vouch-back ({min}+ vouches)",
   "quests.completed": "Completed",
+  "quests.repeatsWeekly": "repeats weekly",
+  "quests.repeatsEvery": "repeats every {days} days",
+  "quests.completedThisWeek": "Done this week",
+  "quests.completedThisRound": "Done this round",
   "quests.toast.success": "Quest verified — Earned XP added 🎉",
   "quests.done": "verified on-chain → Earned XP added",
 
@@ -304,6 +308,9 @@
   "activity.page.subtitle": "Every claimed vouch lights a star somewhere. This feed reads live from on-chain events — no backend in between.",
   "activity.page.leaderboard.title": "See the leaderboard",
   "activity.page.leaderboard.body": "The most-connected constellations, ranked.",
+
+  "readOnly.stamp": "{network} · READ-ONLY",
+  "readOnly.body": "Archived {network} data. Vouching, tipping and connecting a wallet are off on this view.",
 
   "leaderboard.eyebrow": "// the_night_sky",
   "leaderboard.title": "The most-connected",
@@ -366,6 +373,8 @@
   "appTabs.rewards": "Rewards",
   "appTabs.activity": "Activity",
   "appTabs.people": "People",
+  "appTabs.inbox": "Inbox",
+  "appTabs.inboxUnread": "New items in your inbox",
   "statStrip.vouchedBy.label": "Vouched by",
   "statStrip.vouchedBy.hint": "People in your sky",
   "statStrip.social.label": "Social XP",
@@ -510,5 +519,30 @@
   "handleTransfer.submitting": "Moving…",
   "handleTransfer.done": "@{handle} now belongs to this wallet.",
   "handleTransfer.error.noHandle": "The in-app wallet no longer holds a handle — there's nothing to move.",
-  "handleTransfer.error.targetHasHandle": "This wallet already holds a handle — the move needs a wallet without one."
+  "handleTransfer.error.targetHasHandle": "This wallet already holds a handle — the move needs a wallet without one.",
+
+  "moneyFlowConfirm.tipTitle": "Confirm tip",
+  "moneyFlowConfirm.claimTitle": "Confirm claim",
+  "moneyFlowConfirm.tipSubtitle": "You're about to send real USDC on mainnet.",
+  "moneyFlowConfirm.claimSubtitle": "You're about to claim real USDC on mainnet.",
+  "moneyFlowConfirm.to": "To",
+  "moneyFlowConfirm.claimTo": "Paid to your wallet",
+  "moneyFlowConfirm.noHandle": "No @handle — check the address",
+  "moneyFlowConfirm.realMoneyWarning": "This is real money and can't be reversed.",
+  "moneyFlowConfirm.firstTipCheckbox": "I understand this is real money and can't be reversed.",
+  "moneyFlowConfirm.sendingIn": "Sending in {seconds}s — undo to cancel.",
+  "moneyFlowConfirm.undo": "Undo",
+  "moneyFlowConfirm.cancel": "Cancel",
+  "moneyFlowConfirm.confirmTip": "Confirm tip",
+  "moneyFlowConfirm.confirmClaim": "Confirm claim",
+
+  "inbox.title": "Inbox",
+  "inbox.subtitle": "Claims of your half-cards, tips you received and your quest results — what happened while you were away.",
+  "inbox.empty.title": "All quiet",
+  "inbox.empty.body": "Claims, tips you receive and verified quests will show up here.",
+  "inbox.new": "New",
+  "inbox.item.claim": "{who} claimed your half-card",
+  "inbox.item.tip": "{who} tipped you {amount} USDC",
+  "inbox.item.quest": "Quest #{id} verified — Earned XP added",
+  "inbox.item.streak": "Your quest streak reached {weeks} weeks"
 }

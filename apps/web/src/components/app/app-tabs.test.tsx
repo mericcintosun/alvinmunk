@@ -6,7 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 (globalThis as { React?: typeof React }).React = React;
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const { nav, focus } = vi.hoisted(() => ({ nav: { pathname: '/app' }, focus: { on: false } }));
+const { nav, focus, wallet, loadInboxMock } = vi.hoisted(() => ({
+  nav: { pathname: '/app' },
+  focus: { on: false },
+  wallet: { profile: null as { address: string } | null },
+  loadInboxMock: vi.fn(),
+}));
 
 vi.mock('next/navigation', () => ({ usePathname: () => nav.pathname }));
 // A plain anchor that forwards every prop, so ARIA attributes reach the DOM as they would.
@@ -23,6 +28,10 @@ vi.mock('@/lib/focus', () => ({
   },
 }));
 
+vi.mock('@/components/wallet/wallet-provider', () => ({ useWallet: () => wallet }));
+// What is unread is lib/inbox's call (tested there); the tab only shows it.
+vi.mock('@/lib/inbox', () => ({ INBOX_READ_EVENT: 'alvinmunk:inbox-read', loadInbox: loadInboxMock }));
+
 import { AppTabs } from './app-tabs';
 
 describe('AppTabs', () => {
@@ -31,6 +40,8 @@ describe('AppTabs', () => {
 
   beforeEach(() => {
     focus.on = false;
+    wallet.profile = null;
+    loadInboxMock.mockReset().mockResolvedValue({ items: [], unread: new Set() });
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -57,6 +68,7 @@ describe('AppTabs', () => {
     ['/app/rewards', '/app/rewards'],
     ['/app/activity', '/app/activity'],
     ['/app/people', '/app/people'],
+    ['/app/inbox', '/app/inbox'],
   ])('on %s only the %s tab is the current page', async (pathname, tab) => {
     expect(await currentAt(pathname)).toEqual([[tab, 'page']]);
   });
@@ -69,5 +81,32 @@ describe('AppTabs', () => {
     focus.on = true;
     // Under focus mode the Quests tab is hidden, so its route has no current tab.
     expect(await currentAt('/app/quests')).toEqual([]);
+  });
+
+  describe('the inbox dot (#279)', () => {
+    const dot = () => container.querySelector('[data-testid="inbox-dot"]');
+
+    it('shows while the signed-in wallet has unread items, and clears when the inbox is read', async () => {
+      wallet.profile = { address: 'GME' };
+      loadInboxMock.mockResolvedValue({ items: [], unread: new Set(['tip:1', 'claim:2']) });
+      await currentAt('/app');
+      expect(loadInboxMock).toHaveBeenCalledWith('GME');
+      expect(dot()).not.toBeNull();
+      expect(container.querySelector('a[href="/app/inbox"]')?.textContent).toContain('New items in your inbox');
+
+      await act(async () => window.dispatchEvent(new Event('alvinmunk:inbox-read')));
+      expect(dot()).toBeNull();
+    });
+
+    it('stays off with nothing unread, when signed out, and on the inbox itself', async () => {
+      await currentAt('/app');
+      expect(dot()).toBeNull();
+      expect(loadInboxMock).not.toHaveBeenCalled(); // signed out: no read at all
+
+      wallet.profile = { address: 'GME' };
+      loadInboxMock.mockResolvedValue({ items: [], unread: new Set(['tip:1']) });
+      await currentAt('/app/inbox');
+      expect(dot()).toBeNull();
+    });
   });
 });

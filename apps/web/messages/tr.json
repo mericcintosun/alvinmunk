@@ -246,6 +246,10 @@
   "quests.vouchBackHint": "{min} kişiyi destekle, sonra talep et — sadece desteklenmek değil, başkalarını desteklemek de kazandırır.",
   "quests.claimVouchBack": "Geri desteği al ({min}+ destek)",
   "quests.completed": "Tamamlandı",
+  "quests.repeatsWeekly": "her hafta tekrarlanır",
+  "quests.repeatsEvery": "{days} günde bir tekrarlanır",
+  "quests.completedThisWeek": "Bu hafta tamamlandı",
+  "quests.completedThisRound": "Bu tur tamamlandı",
   "quests.toast.success": "Görev doğrulandı — Kazanılan XP eklendi 🎉",
   "quests.done": "zincirde doğrulandı → Kazanılan XP eklendi",
 
@@ -304,6 +308,9 @@
   "activity.page.subtitle": "Her talep edilen destek bir yerde bir yıldız yakar. Bu akış, zincir olaylarından canlı olarak okunur — arada hiçbir backend yok.",
   "activity.page.leaderboard.title": "Sıralamayı gör",
   "activity.page.leaderboard.body": "En çok bağlantılı takımyıldızları, sıralı.",
+
+  "readOnly.stamp": "{network} · SALT OKUNUR",
+  "readOnly.body": "Arşivlenmiş {network} verisi. Bu görünümde kefil olma, bahşiş ve cüzdan bağlama kapalı.",
 
   "leaderboard.eyebrow": "// gece_gökyüzü",
   "leaderboard.title": "En çok bağlantılı olanlar",
@@ -366,6 +373,8 @@
   "appTabs.rewards": "Ödüller",
   "appTabs.activity": "Aktivite",
   "appTabs.people": "Kişiler",
+  "appTabs.inbox": "Gelen kutusu",
+  "appTabs.inboxUnread": "Gelen kutunda yeni öğeler var",
   "statStrip.vouchedBy.label": "Seni destekleyen",
   "statStrip.vouchedBy.hint": "Gökyüzündeki kişiler",
   "statStrip.social.label": "Sosyal XP",
@@ -510,5 +519,30 @@
   "handleTransfer.submitting": "Taşınıyor…",
   "handleTransfer.done": "@{handle} artık bu cüzdanın.",
   "handleTransfer.error.noHandle": "Uygulama içi cüzdanın artık bir kullanıcı adı yok — taşınacak bir şey kalmadı.",
-  "handleTransfer.error.targetHasHandle": "Bu cüzdanın zaten bir kullanıcı adı var — taşıma için kullanıcı adı olmayan bir cüzdan gerekir."
+  "handleTransfer.error.targetHasHandle": "Bu cüzdanın zaten bir kullanıcı adı var — taşıma için kullanıcı adı olmayan bir cüzdan gerekir.",
+
+  "moneyFlowConfirm.tipTitle": "Bahşişi onayla",
+  "moneyFlowConfirm.claimTitle": "Ödülü almayı onayla",
+  "moneyFlowConfirm.tipSubtitle": "Ana ağda gerçek USDC göndermek üzeresin.",
+  "moneyFlowConfirm.claimSubtitle": "Ana ağda gerçek USDC almak üzeresin.",
+  "moneyFlowConfirm.to": "Alıcı",
+  "moneyFlowConfirm.claimTo": "Cüzdanına ödenir",
+  "moneyFlowConfirm.noHandle": "Kullanıcı adı yok — adresi kontrol et",
+  "moneyFlowConfirm.realMoneyWarning": "Bu gerçek para ve geri alınamaz.",
+  "moneyFlowConfirm.firstTipCheckbox": "Bunun gerçek para olduğunu ve geri alınamayacağını anlıyorum.",
+  "moneyFlowConfirm.sendingIn": "{seconds} sn içinde gönderiliyor — iptal için geri al.",
+  "moneyFlowConfirm.undo": "Geri al",
+  "moneyFlowConfirm.cancel": "İptal",
+  "moneyFlowConfirm.confirmTip": "Bahşişi onayla",
+  "moneyFlowConfirm.confirmClaim": "Ödülü al",
+
+  "inbox.title": "Gelen kutusu",
+  "inbox.subtitle": "Yarım kartlarının alınması, aldığın bahşişler ve görev sonuçların — sen yokken olanlar.",
+  "inbox.empty.title": "Her şey sakin",
+  "inbox.empty.body": "Alınan yarım kartlar, gelen bahşişler ve doğrulanan görevler burada görünecek.",
+  "inbox.new": "Yeni",
+  "inbox.item.claim": "{who} yarım kartını aldı",
+  "inbox.item.tip": "{who} sana {amount} USDC bahşiş gönderdi",
+  "inbox.item.quest": "#{id} numaralı görev doğrulandı — Kazanılan XP eklendi",
+  "inbox.item.streak": "Görev serin {weeks} haftaya ulaştı"
 }

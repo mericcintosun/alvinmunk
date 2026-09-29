@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { contentSecurityPolicy } from './src/config/csp.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -24,6 +25,13 @@ const nextConfig = {
             key: 'Permissions-Policy',
             value:
               'camera=(), microphone=(), geolocation=(), publickey-credentials-get=(self), publickey-credentials-create=(self)',
+          },
+          {
+            // Report-only first (#179): violations reach /api/csp-report and nothing is
+            // blocked. After a clean week on preview and production, rename the key to
+            // Content-Security-Policy to enforce it (docs/CSP.md).
+            key: 'Content-Security-Policy-Report-Only',
+            value: contentSecurityPolicy(process.env),
           },
         ],
       },

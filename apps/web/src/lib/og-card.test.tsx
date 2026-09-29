@@ -16,11 +16,14 @@ vi.mock('./registry', () => ({
 vi.mock('./reputation', () => ({ getScores: async () => ({ social: 40, earned: 7 }) }));
 vi.mock('./constellation', () => ({ getPeopleCounts: async () => ({ vouchedBy: 3, backed: 2 }) }));
 
-import { ogResolve, ogCard, handleFontSize, type OgScores } from './og-card';
+import { ogResolve, ogCard, claimCard, claimNameSize, handleFontSize, type OgScores } from './og-card';
+import { shortAddr } from '@alvinmunk/shared';
 import { loadPng } from './og-assets';
-import { defaultAvatarId, faceFile, kitFile, type KitAvatar } from './avatar';
+import { FACE_IDS, defaultAvatarId, faceFile, kitFile, type KitAvatar } from './avatar';
 
 const G = 'G'.padEnd(56, 'B');
+/** A published face that differs from G's deterministic default, so ignoring it shows. */
+const PUBLISHED = FACE_IDS.find((id) => id !== defaultAvatarId(G))!;
 const scores: OgScores = { social: 40, earned: 7, vouchedBy: 3, backed: 2 };
 
 function render(el: JSX.Element): Document {
@@ -83,9 +86,9 @@ describe('ogResolve', () => {
 describe('ogCard', () => {
   it('shows the published face sticker', () => {
     const doc = render(
-      ogCard({ handle: 'alice', address: G, scores, avatar: { kind: 'face', id: 'face-04' } }),
+      ogCard({ handle: 'alice', address: G, scores, avatar: { kind: 'face', id: PUBLISHED } }),
     );
-    expect(srcs(doc)).toEqual([loadPng(faceFile('face-04')).uri]);
+    expect(srcs(doc)).toEqual([loadPng(faceFile(PUBLISHED)).uri]);
   });
 
   it('shows the deterministic default face without a published one', () => {
@@ -123,6 +126,93 @@ describe('ogCard', () => {
     const doc = render(ogCard({ handle: 'free', address: null, scores, bio: 'stale' }));
     expect(srcs(doc)).toEqual([]);
     expect(doc.body.textContent).not.toContain('stale');
+  });
+});
+
+describe('claimCard', () => {
+  const open = {
+    status: 'open' as const,
+    vouchId: 7,
+    from: G,
+    handle: 'alice',
+    note: 'unblocked me at 2am',
+    daysLeft: 3,
+  };
+  const text = (doc: Document) => doc.body.textContent ?? '';
+
+  it('shows the voucher face, @handle, note, the empty socket and the days left', () => {
+    const doc = render(claimCard(open));
+    expect(srcs(doc)).toEqual([loadPng(faceFile(defaultAvatarId(G))).uri]);
+    expect(text(doc)).toContain('@alice');
+    expect(text(doc)).toContain('“unblocked me at 2am”');
+    expect(text(doc)).toContain('YOUR HALF');
+    expect(text(doc)).toContain('3 DAYS LEFT TO CLAIM');
+    expect(text(doc)).toContain('#7');
+  });
+
+  it('shows the voucher’s published face, like the claim page does', () => {
+    const doc = render(claimCard({ ...open, avatar: { kind: 'face', id: PUBLISHED } }));
+    expect(srcs(doc)).toEqual([loadPng(faceFile(PUBLISHED)).uri]);
+  });
+
+  it('composes a remixed kit face from its layers', () => {
+    const kit: KitAvatar = { kind: 'kit', skin: 2, hair: 5, eyes: 3, mouth: 9, acc: null, bg: 4 };
+    const doc = render(claimCard({ ...open, avatar: kit }));
+    expect(srcs(doc)).toEqual(
+      [kitFile('bg', 4), kitFile('skin', 2), kitFile('hair', 5), kitFile('eyes', 3), kitFile('mouth', 9)].map(
+        (f) => loadPng(f).uri,
+      ),
+    );
+  });
+
+  it('falls back to the short address when the voucher has no handle', () => {
+    const doc = render(claimCard({ ...open, handle: null, daysLeft: 1 }));
+    expect(text(doc)).toContain(shortAddr(G));
+    expect(text(doc)).not.toContain('@');
+    expect(text(doc)).toContain('1 DAY LEFT TO CLAIM');
+  });
+
+  it('keeps the name on one line: full size for a short one, scaled down for the longest handle', () => {
+    expect(claimNameSize('@alice'.length)).toBe(40);
+    expect(claimNameSize(shortAddr(G).length)).toBe(40);
+    // '@' + a 32-character handle at ~0.6em a glyph stays inside the 520px column
+    expect(claimNameSize(33) * 0.6 * 33).toBeLessThan(520);
+    expect(claimNameSize(33)).toBeGreaterThanOrEqual(24);
+  });
+
+  it('prints the note as plain text, never markup, and drops the quote when there is none', () => {
+    const note = '<img src=x onerror=alert(1)> & friends';
+    expect(text(render(claimCard({ ...open, note })))).toContain(note);
+    expect(srcs(render(claimCard({ ...open, note })))).toHaveLength(1); // only the face
+    expect(text(render(claimCard({ ...open, note: '' })))).not.toContain('“');
+  });
+
+  it('gives a claimed card a lit socket instead of the empty one', () => {
+    const doc = render(claimCard({ ...open, status: 'claimed', daysLeft: 0 }));
+    expect(text(doc)).toContain('THIS STAR IS LIT');
+    expect(text(doc)).not.toContain('YOUR HALF');
+    expect(text(doc)).not.toContain('LEFT TO CLAIM');
+  });
+
+  it('keeps the socket open on a closed card — a late claim still lands', () => {
+    const doc = render(claimCard({ ...open, status: 'closed', daysLeft: 0 }));
+    expect(text(doc)).toContain('STAKE WINDOW CLOSED');
+    expect(text(doc)).toContain('YOUR HALF');
+    expect(text(doc)).not.toContain('LEFT TO CLAIM');
+  });
+
+  it('renders a neutral brand card (no face, no broken image) for an unknown id', () => {
+    const doc = render(claimCard({ status: 'unknown' }));
+    expect(srcs(doc)).toEqual([]);
+    expect(text(doc)).toContain('This half-card doesn’t exist');
+    expect(text(doc)).not.toContain('YOUR HALF');
+  });
+
+  it('never calls the card dead when the chain could not be read', () => {
+    const doc = render(claimCard({ status: 'unavailable' }));
+    expect(srcs(doc)).toEqual([]);
+    expect(text(doc)).toContain('Someone vouched for you');
+    expect(text(doc)).not.toContain('doesn’t exist');
   });
 });
 

@@ -135,10 +135,11 @@ pub struct RewardsContract;
 
 #[contractimpl]
 impl RewardsContract {
-    pub fn init(env: Env, admin: Address, usdc: Address, reputation: Address) {
-        if env.storage().instance().has(&DataKey::Admin) {
-            panic_with_error!(&env, Error::AlreadyInitialized);
-        }
+    /// Deploy-time setup (#127): `stellar contract deploy … -- --admin <ADDR> --usdc <SAC> --reputation <C…>` runs this inside
+    /// the deploy transaction, so nobody can claim the admin between deploy and setup —
+    /// there is no `init` to front-run. `upgrade` never runs a constructor: a contract
+    /// deployed before this change was set up by its old `init` and keeps that state.
+    pub fn __constructor(env: Env, admin: Address, usdc: Address, reputation: Address) {
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Usdc, &usdc);
         env.storage()
@@ -265,9 +266,10 @@ impl RewardsContract {
     }
 
     /// Point the rewards contract at the QuestRegistry whose `get_streak` gates
-    /// streak-gated rewards. Admin-only. `init` doesn't take it (deployed contracts keep
-    /// their init signature), so a deploy or upgrade calls this once; it can be re-pointed
-    /// after a QuestRegistry redeploy.
+    /// streak-gated rewards. Admin-only. The constructor doesn't take it (it keeps the
+    /// arguments the old `init` had, so the deploy scripts wire every contract the same
+    /// way), so a deploy or upgrade calls this once; it can be re-pointed after a
+    /// QuestRegistry redeploy.
     pub fn set_quest_registry(env: Env, quest_registry: Address) {
         Self::admin(&env).require_auth();
         env.storage()

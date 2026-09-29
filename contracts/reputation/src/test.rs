@@ -14,9 +14,8 @@ fn setup() -> (Env, ReputationContractClient<'static>, Address) {
     let env = Env::default();
     env.mock_all_auths();
     let admin = Address::generate(&env);
-    let id = env.register(ReputationContract, ());
+    let id = env.register(ReputationContract, (&admin,));
     let client = ReputationContractClient::new(&env, &id);
-    client.init(&admin);
     (env, client, admin)
 }
 
@@ -1400,9 +1399,8 @@ fn upgrade_keeps_notes_and_enforces_the_note_cap() {
 fn non_admin_upgrade_reverts() {
     let env = Env::default();
     let admin = Address::generate(&env);
-    let id = env.register(ReputationContract, ());
+    let id = env.register(ReputationContract, (&admin,));
     let client = ReputationContractClient::new(&env, &id);
-    client.init(&admin);
     let hash = soroban_sdk::BytesN::from_array(&env, &[1; 32]);
     client.upgrade(&hash);
 }
@@ -1428,9 +1426,8 @@ fn setup_with_ttls(
     });
     env.mock_all_auths();
     let admin = Address::generate(&env);
-    let id = env.register(ReputationContract, ());
+    let id = env.register(ReputationContract, (&admin,));
     let client = ReputationContractClient::new(&env, &id);
-    client.init(&admin);
     (env, client)
 }
 
@@ -1701,8 +1698,7 @@ fn claim_signature_does_not_replay_on_another_vouch() {
 #[test]
 fn claim_signature_does_not_replay_on_another_deployment() {
     let (env, client, admin) = setup_testnet();
-    let other = ReputationContractClient::new(&env, &env.register(ReputationContract, ()));
-    other.init(&admin);
+    let other = ReputationContractClient::new(&env, &env.register(ReputationContract, (&admin,)));
     let alice = Address::generate(&env);
     let bob = Address::generate(&env);
     let sk = link_key(7);
@@ -1883,7 +1879,7 @@ fn claim_message_matches_the_documented_bytes() {
         &env,
         "CAIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRDB3V",
     );
-    env.register_at(&contract, ReputationContract, ());
+    env.register_at(&contract, ReputationContract, (Address::generate(&env),));
     let classic = Address::from_str(
         &env,
         "GARCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCFRVX",
@@ -2397,9 +2393,8 @@ fn a_full_mint_vouches_fits_one_transaction() {
 
     let env = Env::default();
     env.mock_all_auths();
-    let id = env.register(REPUTATION_WASM, ());
+    let id = env.register(REPUTATION_WASM, (&Address::generate(&env),));
     let client = ReputationContractClient::new(&env, &id);
-    client.init(&Address::generate(&env));
     let alice = Address::generate(&env);
     fund_social(&env, &client, &alice, 3);
 
@@ -2511,4 +2506,26 @@ fn read_view_fixtures_match_the_contract() {
         "testdata/read_views.json is stale: rerun with UPDATE_READ_VIEWS=1 and update the \
          packages/shared mirrors. Current fixture:\n{json}"
     );
+}
+
+/// #127: the release build is set up by its constructor, inside the deploy — registering it
+/// takes the constructor's arguments, it has no `init` left for anyone to call afterwards,
+/// and `upgrade` asks the constructor's admin to sign.
+#[test]
+fn the_release_build_is_set_up_by_its_constructor() {
+    use soroban_sdk::IntoVal as _;
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = soroban_sdk::Address::generate(&env);
+    let id = env.register(REPUTATION_WASM, (&admin,));
+    let init = soroban_sdk::Symbol::new(&env, "init");
+    let impostor = soroban_sdk::Address::generate(&env);
+    let call = soroban_sdk::vec![&env, impostor.into_val(&env)];
+    assert!(env
+        .try_invoke_contract::<(), soroban_sdk::Error>(&id, &init, call)
+        .is_err());
+
+    let hash = env.deployer().upload_contract_wasm(REPUTATION_WASM);
+    ReputationContractClient::new(&env, &id).upgrade(&hash);
+    assert_eq!(env.auths()[0].0, admin);
 }

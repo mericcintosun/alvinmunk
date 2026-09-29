@@ -15,9 +15,8 @@ fn setup() -> (Env, RegistryContractClient<'static>, Address) {
     let env = Env::default();
     env.mock_all_auths();
     let admin = Address::generate(&env);
-    let id = env.register(RegistryContract, ());
+    let id = env.register(RegistryContract, (&admin,));
     let client = RegistryContractClient::new(&env, &id);
-    client.init(&admin);
     (env, client, admin)
 }
 
@@ -59,21 +58,18 @@ fn pass(env: &Env, secs: u64) {
     env.ledger().with_mut(|l| l.timestamp += secs);
 }
 
-/// `init` is one-shot: a second call must not take over, whoever makes it. The first admin
-/// keeps its rights, so an initialized contract cannot be re-pointed at a new admin.
+/// The admin comes from the constructor, inside the deploy (#127): there is no `init` left
+/// for anyone to call afterwards, so nobody can re-point the contract at a new admin.
 #[test]
-fn init_twice_reverts_and_keeps_the_first_admin() {
+fn there_is_no_init_to_take_over_the_admin() {
     let (env, client, admin) = setup();
     let impostor = Address::generate(&env);
 
-    assert_eq!(
-        client.try_init(&impostor),
-        Err(Ok(Error::AlreadyInitialized.into()))
-    );
-    assert_eq!(
-        client.try_init(&admin),
-        Err(Ok(Error::AlreadyInitialized.into()))
-    );
+    let init = Symbol::new(&env, "init");
+    let args = soroban_sdk::vec![&env, impostor.into_val(&env)];
+    assert!(env
+        .try_invoke_contract::<(), soroban_sdk::Error>(&client.address, &init, args)
+        .is_err());
 
     // still the first admin, not the impostor: a forced release asks the first admin to sign
     let squatter = claimed(&env, &client, "brand");
@@ -592,9 +588,8 @@ fn upgrade_to_identical_wasm_preserves_handles() {
 fn non_admin_upgrade_reverts() {
     let env = Env::default();
     let admin = Address::generate(&env);
-    let id = env.register(RegistryContract, ());
+    let id = env.register(RegistryContract, (&admin,));
     let client = RegistryContractClient::new(&env, &id);
-    client.init(&admin);
     let hash = soroban_sdk::BytesN::from_array(&env, &[1; 32]);
     client.upgrade(&hash);
 }
@@ -620,9 +615,8 @@ fn setup_with_ttls(
     });
     env.mock_all_auths();
     let admin = Address::generate(&env);
-    let id = env.register(RegistryContract, ());
+    let id = env.register(RegistryContract, (&admin,));
     let client = RegistryContractClient::new(&env, &id);
-    client.init(&admin);
     (env, client)
 }
 
@@ -773,9 +767,8 @@ fn a_full_reverse_many_fits_one_transaction() {
 
     let env = Env::default();
     env.mock_all_auths();
-    let id = env.register(REGISTRY_WASM, ());
+    let id = env.register(REGISTRY_WASM, (&Address::generate(&env),));
     let client = RegistryContractClient::new(&env, &id);
-    client.init(&Address::generate(&env));
     let addrs = some_claimed(&env, &client, REVERSE_MANY_CAP);
 
     client.reverse_many(&addrs);
@@ -1404,4 +1397,26 @@ fn transfer_extends_the_moved_entries_to_bump_extend() {
             assert_eq!(ttl(&env, &client, &key), BUMP_EXTEND);
         }
     }
+}
+
+/// #127: the release build is set up by its constructor, inside the deploy — registering it
+/// takes the constructor's arguments, it has no `init` left for anyone to call afterwards,
+/// and `upgrade` asks the constructor's admin to sign.
+#[test]
+fn the_release_build_is_set_up_by_its_constructor() {
+    use soroban_sdk::IntoVal as _;
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = soroban_sdk::Address::generate(&env);
+    let id = env.register(REGISTRY_WASM, (&admin,));
+    let init = soroban_sdk::Symbol::new(&env, "init");
+    let impostor = soroban_sdk::Address::generate(&env);
+    let call = soroban_sdk::vec![&env, impostor.into_val(&env)];
+    assert!(env
+        .try_invoke_contract::<(), soroban_sdk::Error>(&id, &init, call)
+        .is_err());
+
+    let hash = env.deployer().upload_contract_wasm(REGISTRY_WASM);
+    RegistryContractClient::new(&env, &id).upgrade(&hash);
+    assert_eq!(env.auths()[0].0, admin);
 }

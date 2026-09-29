@@ -10,7 +10,9 @@
 #   Gate 3  the operator types `mainnet` at a prompt read from the terminal, never from stdin.
 #
 # Then it builds (cargo --locked, into a fresh directory), uploads and deploys each contract
-# and inits it straight away, turns on set_daily_cap(DAILY_CAP) and set_require_funding(true),
+# with its constructor arguments (the admin and wiring are set inside the deploy transaction,
+# #127: there is no `init` to front-run), turns on set_daily_cap(DAILY_CAP) and
+# set_require_funding(true),
 # wires the attesters and rewards -> quest_registry, seeds the quests / reward table / gates
 # exactly like scripts/redeploy-all.sh, reads the safety settings back, and appends the
 # contract ids, wasm hashes, deployer key and commit SHA to deployment-log.md. It never calls
@@ -130,7 +132,7 @@ invoke() { # $1 = contract id, rest = function + args
 }
 
 # Admin setters that are safe to repeat, retried so a transient RPC or TxBadSeq error does not
-# strand a half-wired deploy. `init` is never retried.
+# strand a half-wired deploy. A deploy is never retried.
 invoke_retry() {
   local n=1
   until invoke "$@"; do
@@ -141,17 +143,17 @@ invoke_retry() {
   done
 }
 
-# Upload the built wasm, deploy an instance, and init it immediately: `init` is open to anyone
-# until it has run, so the window between deploy and init stays as short as possible.
-deploy_and_init() { # $1 = contract, rest = init args
+# Upload the built wasm and deploy an instance. The constructor arguments go to the contract's
+# `__constructor` inside the deploy transaction itself, so the contract never exists without
+# its admin (#127): there is no separate `init` anyone could call first.
+deploy_contract() { # $1 = contract, rest = constructor args
   local c=$1 wasm="$BUILD_DIR/alvinmunk_$1.wasm" hash onchain id
   shift
   hash=$(hash_of "$c")
   if [ "$DRY_RUN" = 1 ]; then
     show stellar contract upload --wasm "$wasm" --optimize=false --source-account "$ADMIN" --network "$NETWORK"
-    show stellar contract deploy --wasm-hash "$hash" --source-account "$ADMIN" --network "$NETWORK"
+    show stellar contract deploy --wasm-hash "$hash" --source-account "$ADMIN" --network "$NETWORK" -- "$@"
     printf -v "ID_$c" '<%s-id>' "$c"
-    invoke "$(id_of "$c")" init "$@"
     return 0
   fi
   STEP="upload $c"
@@ -159,13 +161,10 @@ deploy_and_init() { # $1 = contract, rest = init args
     die "upload of $c failed"
   [ "$onchain" = "$hash" ] || die "the uploaded $c wasm hash '$onchain' is not the local build's sha256 $hash"
   STEP="deploy $c"
-  id=$(stellar contract deploy --wasm-hash "$hash" --source-account "$ADMIN" --network "$NETWORK") ||
+  id=$(stellar contract deploy --wasm-hash "$hash" --source-account "$ADMIN" --network "$NETWORK" -- "$@") ||
     die "deploy of $c failed"
   [[ $id =~ $C_RE ]] || die "deploy of $c returned '$id', not a contract id"
   printf -v "ID_$c" '%s' "$id"
-  STEP="init $c"
-  invoke "$id" init "$@" ||
-    die "init of $c ($id) failed. If someone else initialized it first, never use this contract; rerun the deploy."
   ok "$c $id"
 }
 
@@ -319,12 +318,12 @@ fi
 
 # --- Mainnet writes ---
 
-info "Deploying and initializing (upload, deploy, init per contract)"
-deploy_and_init reputation --admin "$ADMIN_ADDR"
-deploy_and_init quest_registry --admin "$ADMIN_ADDR" --reputation "$ID_reputation"
-deploy_and_init rewards --admin "$ADMIN_ADDR" --usdc "$USDC_SAC" --reputation "$ID_reputation"
-deploy_and_init registry --admin "$ADMIN_ADDR"
-deploy_and_init gate --admin "$ADMIN_ADDR" --reputation "$ID_reputation"
+info "Deploying (upload, then deploy with the constructor's arguments, per contract)"
+deploy_contract reputation --admin "$ADMIN_ADDR"
+deploy_contract quest_registry --admin "$ADMIN_ADDR" --reputation "$ID_reputation"
+deploy_contract rewards --admin "$ADMIN_ADDR" --usdc "$USDC_SAC" --reputation "$ID_reputation"
+deploy_contract registry --admin "$ADMIN_ADDR"
+deploy_contract gate --admin "$ADMIN_ADDR" --reputation "$ID_reputation"
 
 info "Treasury safety: daily cap + proof-of-funding"
 STEP="rewards safety settings"

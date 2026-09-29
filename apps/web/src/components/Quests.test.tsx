@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const {
   completeQuestMock,
   getCompletedMock,
+  getQuestPeriodsMock,
   getEarnedScoreMock,
   getStreakMock,
   getWalletMock,
@@ -13,16 +14,20 @@ const {
 } = vi.hoisted(() => ({
   completeQuestMock: vi.fn(),
   getCompletedMock: vi.fn(),
+  getQuestPeriodsMock: vi.fn(),
   getEarnedScoreMock: vi.fn(),
   getStreakMock: vi.fn(),
   getWalletMock: vi.fn(),
   toastMock: { success: vi.fn(), error: vi.fn() },
 }));
+// The week countdown's rollover callback, so a test can fire the week change.
+const rollover = vi.hoisted(() => ({ fire: undefined as undefined | (() => void) }));
 
 vi.mock('@/lib/wallet', () => ({ getWallet: getWalletMock }));
 vi.mock('@/lib/quests', () => ({
   completeQuest: completeQuestMock,
   getCompleted: getCompletedMock,
+  getQuestPeriods: getQuestPeriodsMock,
   getStreak: getStreakMock,
 }));
 vi.mock('@/lib/reputation', () => ({ getEarnedScore: getEarnedScoreMock }));
@@ -38,7 +43,12 @@ vi.mock('@/components/fx/number-ticker', () => ({
 vi.mock('@/components/ui/state-art', () => ({ StateArt: () => null }));
 vi.mock('@/components/ui/sticker', () => ({ Sticker: () => null }));
 vi.mock('@/components/Avatar', () => ({ Avatar: () => null }));
-vi.mock('@/components/WeekReset', () => ({ WeekReset: () => null }));
+vi.mock('@/components/WeekReset', () => ({
+  WeekReset: ({ onRollover }: { onRollover?: () => void }) => {
+    rollover.fire = onRollover;
+    return null;
+  },
+}));
 
 import { Quests } from './Quests';
 
@@ -58,6 +68,8 @@ describe('Quests', () => {
     completeQuestMock.mockReset().mockResolvedValue({ ok: true });
     // No completion state unless a test sets one (as on a contract without get_completed).
     getCompletedMock.mockReset().mockResolvedValue(null);
+    // One-shot quests unless a test says otherwise (as on a contract without the view).
+    getQuestPeriodsMock.mockReset().mockResolvedValue(null);
     getEarnedScoreMock.mockReset().mockResolvedValue(12);
     getStreakMock.mockReset().mockResolvedValue({ weeks: 1, best: 2, lastWeek: 0 });
     getWalletMock.mockReset().mockResolvedValue({ kind: 'dev', address: ADDRESS });
@@ -251,5 +263,80 @@ describe('Quests', () => {
 
     expect(vouchBackButton().textContent).toBe('Claim vouch-back (3+ vouches)');
     expect(vouchBackButton().disabled).toBe(false);
+  });
+
+  describe('repeatable quests (#154)', () => {
+    const WEEK = 604_800;
+    const labels = () => [...container.querySelectorAll('label, span.font-mono')].map((l) => l.textContent);
+
+    it('tags a repeatable quest and shows it done only for this period', async () => {
+      getQuestPeriodsMock.mockResolvedValue(
+        new Map([
+          [REFER, 0],
+          [INVITE, WEEK],
+          [VOUCHBACK, 3 * 86_400],
+        ]),
+      );
+      getCompletedMock.mockResolvedValue(
+        new Map([
+          [REFER, true],
+          [INVITE, true],
+          [VOUCHBACK, true],
+        ]),
+      );
+      await mount();
+      expect(getQuestPeriodsMock).toHaveBeenCalledWith([REFER, INVITE, VOUCHBACK], ADDRESS);
+      const [refer, invite, vouchback] = buttons();
+      expect(refer.textContent).toBe('Completed'); // one-shot: done for good
+      expect(invite.textContent).toBe('Done this week');
+      expect(vouchback.textContent).toBe('Done this round');
+      expect(labels().some((l) => l?.includes('invite who converted') && l.includes('repeats weekly'))).toBe(true);
+      expect(labels().some((l) => l?.includes('vouch-back streak') && l.includes('repeats every 3 days'))).toBe(true);
+      expect(labels().some((l) => l?.includes('refer a friend') && l.includes('repeats'))).toBe(false);
+    });
+
+    it('opens a weekly quest again when the week rolls over', async () => {
+      getQuestPeriodsMock.mockResolvedValue(
+        new Map([
+          [REFER, 0],
+          [INVITE, 0],
+          [VOUCHBACK, WEEK],
+        ]),
+      );
+      getCompletedMock.mockResolvedValueOnce(
+        new Map([
+          [REFER, false],
+          [INVITE, false],
+          [VOUCHBACK, true],
+        ]),
+      );
+      await mount();
+      expect(vouchBackButton().textContent).toBe('Done this week');
+
+      getCompletedMock.mockResolvedValueOnce(
+        new Map([
+          [REFER, false],
+          [INVITE, false],
+          [VOUCHBACK, false],
+        ]),
+      );
+      await act(async () => {
+        rollover.fire?.();
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+      });
+      expect(getCompletedMock).toHaveBeenCalledTimes(2);
+      expect(vouchBackButton().textContent).toBe('Claim vouch-back (3+ vouches)');
+      expect(vouchBackButton().disabled).toBe(false);
+    });
+
+    it('does not re-read completions at rollover when every quest is one-shot', async () => {
+      await mount();
+      await act(async () => {
+        rollover.fire?.();
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+      });
+      expect(getCompletedMock).toHaveBeenCalledTimes(1);
+      expect(labels().some((l) => l?.includes('repeats'))).toBe(false);
+    });
   });
 });

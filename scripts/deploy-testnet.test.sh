@@ -111,15 +111,24 @@ fi
 # --- happy path ---
 run USDC_SAC="$SAC"
 check "happy path exits 0" [ "$RC" = 0 ]
-check "defaults to testnet" [ "$(calls 'contract deploy .*--network testnet$')" = 3 ]
+check "defaults to testnet" [ "$(calls 'contract deploy .*--network testnet -- ')" = 3 ]
 check "builds once" [ "$(calls 'contract build')" = 1 ]
 check "builds before the first deploy" \
   [ "$(grep -nE 'contract (build|deploy)' "$STUB_LOG" | head -1 | cut -d' ' -f3)" = build ]
 check "three deploys" [ "$(calls 'contract deploy')" = 3 ]
-check "rewards is initialized with the given SAC" [ "$(calls "-- init .*--usdc $SAC")" = 1 ]
+ADMIN_G=GAMXYXRK2NGDVVPJ4N5RIOTTZ7D6NOSG3XYOBO6ZRY3QX4AK6L3I2TXY
+check "reputation's constructor gets the admin" \
+  [ "$(calls "alvinmunk_reputation.wasm .* -- --admin $ADMIN_G$")" = 1 ]
+check "quest_registry's constructor gets the admin and reputation" \
+  [ "$(calls "alvinmunk_quest_registry.wasm .* -- --admin $ADMIN_G --reputation $REP$")" = 1 ]
+check "rewards' constructor gets the admin, the given SAC and reputation" \
+  [ "$(calls "alvinmunk_rewards.wasm .* -- --admin $ADMIN_G --usdc $SAC --reputation $REP$")" = 1 ]
+check "no post-deploy init (#127)" [ "$(calls ' init ')" = 0 ]
+check "rewards is wired to the quest registry" \
+  [ "$(calls "--id $REWARDS .* set_quest_registry --quest_registry $QUEST$")" = 1 ]
 check "each id printed right after its deploy (reputation)" before "^REP_ID=$REP$" "Deploying quest_registry"
 check "each id printed right after its deploy (quest_registry)" before "^QUEST_ID=$QUEST$" "Deploying rewards"
-check "each id printed right after its deploy (rewards)" before "^REWARDS_ID=$REWARDS$" "Initializing"
+check "each id printed right after its deploy (rewards)" before "^REWARDS_ID=$REWARDS$" "Wiring rewards"
 check "summary: reputation" out_has "^NEXT_PUBLIC_REPUTATION_CONTRACT_ID=$REP$"
 check "summary: quest_registry" out_has "^NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID=$QUEST$"
 check "summary: rewards" out_has "^NEXT_PUBLIC_REWARDS_CONTRACT_ID=$REWARDS$"
@@ -127,21 +136,26 @@ check "summary: USDC SAC" out_has "^NEXT_PUBLIC_USDC_SAC_ID=$SAC$"
 
 run USDC_SAC="$SAC" NETWORK=futurenet
 check "futurenet: exits 0" [ "$RC" = 0 ]
-check "futurenet: deploys to futurenet" [ "$(calls 'contract deploy .*--network futurenet$')" = 3 ]
+check "futurenet: deploys to futurenet" [ "$(calls 'contract deploy .*--network futurenet -- ')" = 3 ]
 
 # --- a later failure never loses the ids deployed before it ---
-run USDC_SAC="$SAC" STUB_FAIL="--usdc"
-check "rewards init failure: exits non-zero" [ "$RC" != 0 ]
-check "rewards init failure: reputation id printed" out_has "^REP_ID=$REP$"
-check "rewards init failure: quest_registry id printed" out_has "^QUEST_ID=$QUEST$"
-check "rewards init failure: rewards id printed" out_has "^REWARDS_ID=$REWARDS$"
-check "rewards init failure: no success summary" out_lacks "✅"
+run USDC_SAC="$SAC" STUB_FAIL="set_quest_registry"
+check "wiring failure: exits non-zero" [ "$RC" != 0 ]
+check "wiring failure: reputation id printed" out_has "^REP_ID=$REP$"
+check "wiring failure: quest_registry id printed" out_has "^QUEST_ID=$QUEST$"
+check "wiring failure: rewards id printed" out_has "^REWARDS_ID=$REWARDS$"
+check "wiring failure: no success summary" out_lacks "✅"
+
+run USDC_SAC="$SAC" STUB_FAIL="alvinmunk_rewards.wasm"
+check "rewards deploy failure: exits non-zero" [ "$RC" != 0 ]
+check "rewards deploy failure: earlier ids printed" out_has "^QUEST_ID=$QUEST$"
+check "rewards deploy failure: nothing invoked" [ "$(calls 'contract invoke')" = 0 ]
 
 run USDC_SAC="$SAC" STUB_FAIL="alvinmunk_quest_registry.wasm"
 check "second deploy failure: exits non-zero" [ "$RC" != 0 ]
 check "second deploy failure: reputation id printed" out_has "^REP_ID=$REP$"
 check "second deploy failure: rewards never deployed" [ "$(calls alvinmunk_rewards.wasm)" = 0 ]
-check "second deploy failure: nothing initialized" [ "$(calls 'contract invoke')" = 0 ]
+check "second deploy failure: nothing invoked" [ "$(calls 'contract invoke')" = 0 ]
 
 run USDC_SAC="$SAC" STUB_FAIL="contract build"
 check "build failure: exits non-zero" [ "$RC" != 0 ]
