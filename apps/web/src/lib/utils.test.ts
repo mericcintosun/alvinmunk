@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { humanizeError, withTimeout, contractErrorCode, shortAddress, shareInFlight } from './utils';
+import { humanizeError, withTimeout, contractErrorCode, shareInFlight } from './utils';
 
 describe('contractErrorCode', () => {
   it('extracts a Soroban contract error code', () => {
@@ -99,12 +99,6 @@ describe('humanizeError', () => {
       expect(msg).not.toContain('USDC');
       expect(msg).toBe('insufficient balance');
     });
-  });
-});
-
-describe('shortAddress', () => {
-  it('middle-truncates long addresses', () => {
-    expect(shortAddress('GABCDEFGHIJKLMNOP')).toBe('GABC…MNOP');
   });
 });
 

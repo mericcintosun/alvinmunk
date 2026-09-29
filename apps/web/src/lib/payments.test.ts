@@ -82,6 +82,29 @@ describe('sendXlm status mapping', () => {
     await expect(sendXlm(makeWallet(), 'GB72PZXNOU6DJ2BXZDITS24A5JCN3CEUNTKIX5ESZDXAY2R5HO7YZ3H3', '10')).rejects.toThrow('payment rejected');
   });
 
+  it('resubmits the same envelope on TRY_AGAIN_LATER, then polls once it is PENDING', async () => {
+    sendTransactionMock
+      .mockResolvedValueOnce({ status: 'TRY_AGAIN_LATER', hash: 'HASH4' })
+      .mockResolvedValueOnce({ status: 'PENDING', hash: 'HASH4' });
+    getTransactionMock.mockResolvedValueOnce({ status: 'SUCCESS' });
+
+    const promise = sendXlm(makeWallet(), 'GB72PZXNOU6DJ2BXZDITS24A5JCN3CEUNTKIX5ESZDXAY2R5HO7YZ3H3', '10');
+    await vi.runAllTimersAsync();
+    await expect(promise).resolves.toEqual({ hash: 'HASH4', status: 'SUCCESS' });
+    expect(sendTransactionMock).toHaveBeenCalledTimes(2);
+    expect(sendTransactionMock.mock.calls[1][0]).toBe(sendTransactionMock.mock.calls[0][0]);
+  });
+
+  it('gives up with a clear retryable error when TRY_AGAIN_LATER persists, and never polls', async () => {
+    sendTransactionMock.mockResolvedValue({ status: 'TRY_AGAIN_LATER', hash: 'HASH5' });
+
+    const promise = sendXlm(makeWallet(), 'GB72PZXNOU6DJ2BXZDITS24A5JCN3CEUNTKIX5ESZDXAY2R5HO7YZ3H3', '10');
+    const assertion = expect(promise).rejects.toThrow(/network is busy.*try again/);
+    await vi.runAllTimersAsync();
+    await assertion;
+    expect(getTransactionMock).not.toHaveBeenCalled();
+  });
+
   it('falls back to PENDING when confirmation never resolves within the poll budget', async () => {
     sendTransactionMock.mockResolvedValue({ status: 'PENDING', hash: 'HASH3' });
     getTransactionMock.mockResolvedValue({ status: 'NOT_FOUND' });

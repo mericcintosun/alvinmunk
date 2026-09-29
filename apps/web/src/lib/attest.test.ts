@@ -1,10 +1,13 @@
+// @vitest-environment node
+// The quest payload is built and signed with stellar-sdk, which needs Node's own Uint8Array;
+// jsdom's cross-realm one fails the SDK's checks.
 import { describe, it, expect } from 'vitest';
+import { Keypair } from '@stellar/stellar-sdk';
 import {
-  ownershipMessage,
-  withinFreshness,
+  questPayload,
+  signQuestPayload,
   validateEvidence,
   isValidQuestId,
-  makeReplayGuard,
   parseRepoAllowlist,
   repoAllowed,
   decodeDataEntry,
@@ -15,7 +18,8 @@ import {
   DEFAULT_QUEST_IDS,
   MAX_QUEST_ID,
   MAX_REF_LEN,
-  type AttestClaim,
+  QUEST_AWARD_DOMAIN,
+  QUEST_SIG_TTL_SECS,
   type ReferralFacts,
   type EvidenceType,
 } from './attest';
@@ -23,45 +27,6 @@ import {
 const G = 'G'.padEnd(56, 'A'); // a syntactically valid G-address (G + 55 base32 chars)
 const G2 = 'G'.padEnd(56, 'B');
 const C = 'C'.padEnd(56, 'A'); // a syntactically valid smart-account (passkey) address
-const ctxA = { contractId: 'CQUEST_A', passphrase: 'Test SDF Network ; September 2015' };
-const ctxB = { contractId: 'CQUEST_B', passphrase: 'Public Global Stellar Network ; September 2015' };
-
-const claim = (over: Partial<AttestClaim> = {}): AttestClaim => ({
-  questId: 1,
-  recipient: G,
-  evidence: { type: 'referral_tx', ref: G2 },
-  timestamp: 1_000_000,
-  ...over,
-});
-
-describe('ownershipMessage', () => {
-  it('is deterministic for the same inputs', () => {
-    expect(ownershipMessage(claim(), ctxA)).toEqual(ownershipMessage(claim(), ctxA));
-  });
-
-  it('binds the deployment — same claim, different contract/network -> different message', () => {
-    expect(ownershipMessage(claim(), ctxA)).not.toEqual(ownershipMessage(claim(), ctxB));
-  });
-
-  it('changes when any claim field changes', () => {
-    const base = ownershipMessage(claim(), ctxA);
-    expect(ownershipMessage(claim({ questId: 2 }), ctxA)).not.toEqual(base);
-    expect(ownershipMessage(claim({ timestamp: 1_000_001 }), ctxA)).not.toEqual(base);
-    expect(ownershipMessage(claim({ recipient: G2 }), ctxA)).not.toEqual(base);
-  });
-});
-
-describe('withinFreshness', () => {
-  it('accepts a timestamp inside the window and rejects stale/future/non-numeric', () => {
-    const now = 1_000_000;
-    expect(withinFreshness(now, now)).toBe(true);
-    expect(withinFreshness(now, now - 119_000)).toBe(true);
-    expect(withinFreshness(now, now - 121_000)).toBe(false);
-    expect(withinFreshness(now, now + 121_000)).toBe(false);
-    expect(withinFreshness(now, undefined)).toBe(false);
-    expect(withinFreshness(now, NaN)).toBe(false);
-  });
-});
 
 describe('validateEvidence', () => {
   it('rejects missing/unknown types', () => {
@@ -99,16 +64,6 @@ describe('isValidQuestId', () => {
     expect(isValidQuestId(1.5)).toBe(false);
     expect(isValidQuestId('1')).toBe(false);
     expect(isValidQuestId(10_000_001)).toBe(false);
-  });
-});
-
-describe('makeReplayGuard', () => {
-  it('accepts a signature once, then rejects the replay until it expires', () => {
-    const guard = makeReplayGuard(1000);
-    expect(guard.accept('sigA', 0)).toBe(true);
-    expect(guard.accept('sigA', 500)).toBe(false); // replay within window
-    expect(guard.accept('sigB', 500)).toBe(true); // a different sig is fine
-    expect(guard.accept('sigA', 1500)).toBe(true); // expired -> usable again
   });
 });
 
@@ -342,5 +297,75 @@ describe('buildQuestEvidenceMap', () => {
     expect(evidenceMatchesQuest(2, 'referral_tx', map)).toBe(false);
     expect(evidenceMatchesQuest(2, 'github_pr', map)).toBe(false);
     expect(map.get(3)).toBe('invite_converts');
+  });
+});
+
+// ── quest award payload (issue #142) ──
+
+const QUEST_CONTRACT = 'CAIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRDB3V'; // 32 × 0x11
+const CLASSIC = 'GARCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCFRVX'; // 32 × 0x22
+const PASSKEY = 'CAZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGGJH'; // 32 × 0x33
+const TESTNET = { contractId: QUEST_CONTRACT, passphrase: 'Test SDF Network ; September 2015' };
+const MAINNET = { contractId: QUEST_CONTRACT, passphrase: 'Public Global Stellar Network ; September 2015' };
+const EXPIRES_AT = 1_790_813_400; // 2026-10-01 00:10:00 UTC
+
+/** Quest 3's award payload on testnet from QUEST_CONTRACT, valid through EXPIRES_AT — the
+ *  same bytes contracts/quest_registry/src/test.rs pins for the contract's `payload`. */
+const AWARD_PAYLOAD_HEAD = [
+  '000000100000000100000006', // vec of 6
+  '0000000f00000018616c76696e6d756e6b5f61776172645f71756573745f7631', // Symbol("alvinmunk_award_quest_v1")
+  '0000000d00000020cee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472', // BytesN<32> network id
+  '00000012000000011111111111111111111111111111111111111111111111111111111111111111', // Address, contract
+  '0000000300000003', // u32 quest id
+].join('');
+const AWARD_EXPIRES_AT = '00000005000000006abda4d8'; // u64 expires_at
+const AWARD_PAYLOAD_G =
+  AWARD_PAYLOAD_HEAD +
+  '0000001200000000000000002222222222222222222222222222222222222222222222222222222222222222' +
+  AWARD_EXPIRES_AT;
+const AWARD_PAYLOAD_C =
+  AWARD_PAYLOAD_HEAD + '00000012000000013333333333333333333333333333333333333333333333333333333333333333' + AWARD_EXPIRES_AT;
+
+const hex = (b: Uint8Array) => Buffer.from(b).toString('hex');
+
+describe('questPayload', () => {
+  it("is the contract's award payload byte for byte, for classic and passkey recipients", () => {
+    expect(QUEST_AWARD_DOMAIN).toBe('alvinmunk_award_quest_v1');
+    expect(hex(questPayload(TESTNET, 3, CLASSIC, EXPIRES_AT))).toBe(AWARD_PAYLOAD_G);
+    expect(hex(questPayload(TESTNET, 3, PASSKEY, EXPIRES_AT))).toBe(AWARD_PAYLOAD_C);
+  });
+
+  it('changes with the network, contract, quest, recipient and expiry', () => {
+    const base = hex(questPayload(TESTNET, 3, CLASSIC, EXPIRES_AT));
+    const variants = [
+      questPayload(MAINNET, 3, CLASSIC, EXPIRES_AT),
+      questPayload({ ...TESTNET, contractId: PASSKEY }, 3, CLASSIC, EXPIRES_AT),
+      questPayload(TESTNET, 4, CLASSIC, EXPIRES_AT),
+      questPayload(TESTNET, 3, PASSKEY, EXPIRES_AT),
+      questPayload(TESTNET, 3, CLASSIC, EXPIRES_AT + 1),
+    ].map(hex);
+    for (const v of variants) expect(v).not.toBe(base);
+    expect(new Set(variants).size).toBe(variants.length);
+  });
+});
+
+describe('signQuestPayload', () => {
+  const kp = Keypair.fromRawEd25519Seed(Buffer.alloc(32, 7));
+
+  it('returns the attester key, its signature over the payload, and the signed expiry', () => {
+    const signed = signQuestPayload(kp.secret(), TESTNET, 3, CLASSIC, EXPIRES_AT);
+    expect(signed.attester).toBe(kp.rawPublicKey().toString('hex'));
+    expect(signed.attester).toMatch(/^[0-9a-f]{64}$/);
+    expect(signed.expiresAt).toBe(EXPIRES_AT);
+    const sig = Buffer.from(signed.sig, 'base64');
+    expect(sig).toHaveLength(64);
+    expect(kp.verify(questPayload(TESTNET, 3, CLASSIC, EXPIRES_AT), sig)).toBe(true);
+  });
+
+  it('signs a grant that does not verify with a stretched expiry or for anyone else', () => {
+    const sig = Buffer.from(signQuestPayload(kp.secret(), TESTNET, 3, CLASSIC, EXPIRES_AT).sig, 'base64');
+    expect(kp.verify(questPayload(TESTNET, 3, CLASSIC, EXPIRES_AT + QUEST_SIG_TTL_SECS), sig)).toBe(false);
+    expect(kp.verify(questPayload(TESTNET, 3, PASSKEY, EXPIRES_AT), sig)).toBe(false);
+    expect(kp.verify(questPayload(MAINNET, 3, CLASSIC, EXPIRES_AT), sig)).toBe(false);
   });
 });

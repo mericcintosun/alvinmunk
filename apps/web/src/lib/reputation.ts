@@ -327,9 +327,19 @@ export async function getEarnedScore(addr: string, source: string): Promise<numb
   return Number(v ?? 0);
 }
 
-/** `get_attestation(addr, schema_id)` — Read quest attestation for an address.
- *  Returns the latest verified quest attestation or null if none exists.
- *  Real errors propagate — only None reads as "no quests". */
+/**
+ * `get_attestation(addr, SCHEMA.QUEST)` on the reputation contract — the quest record every
+ * award rewrites: `value` is the running XP total across all verified quests and `timestamp`
+ * the ledger time of the latest one (there is no on-chain count). `null` means no quest yet;
+ * a failed read throws instead of looking like "no quests".
+ */
 export async function getQuestAttestation(addr: string): Promise<Attestation | null> {
-  return readPublic(repId(), 'get_attestation', [args.addr(addr), args.u32(SCHEMA.QUEST)]);
+  const a = await readPublic<{ issuer: string; value: bigint | number; timestamp: bigint | number; revoked: boolean }>(
+    repId(),
+    'get_attestation',
+    [args.addr(addr), args.u32(SCHEMA.QUEST)],
+  );
+  if (!a) return null;
+  // i128 / u64 decode to bigint; normalise to the shared shape (timestamp in unix seconds).
+  return { issuer: a.issuer, value: BigInt(a.value), timestamp: Number(a.timestamp), revoked: a.revoked };
 }
