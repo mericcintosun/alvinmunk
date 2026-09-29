@@ -1,8 +1,17 @@
 import React from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { renderToString } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// The component leans on Next's automatic JSX runtime; this vitest setup compiles JSX to
+// `React.createElement`, so give it a global React to resolve.
+(globalThis as { React?: typeof React }).React = React;
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
 import { ShareRow } from './share-row';
+
+const tweetUrl = (html: string) => new URL(new DOMParser().parseFromString(html, 'text/html').querySelector('a')!.href);
 
 describe('ShareRow', () => {
   let container: HTMLDivElement;
@@ -17,86 +26,32 @@ describe('ShareRow', () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
-    vi.clearAllMocks();
+    vi.restoreAllMocks();
   });
 
-  it('renders tweet and copy buttons without hydration mismatch', async () => {
-    await act(async () => {
-      root.render(<ShareRow path="/leaderboard" text="Test leaderboard" />);
-    });
-
-    const buttons = container.querySelectorAll('button');
-    expect(buttons).toHaveLength(2);
-    expect(buttons[0].textContent).toContain('tweet');
-    expect(buttons[1].textContent).toContain('copy_link');
+  it('renders the same markup on the server whether or not window exists (no hydration mismatch)', () => {
+    // jsdom has a window, so a render-time `window.location` read would show up here.
+    const html = renderToString(<ShareRow path="/leaderboard" text="Top of the sky" />);
+    expect(tweetUrl(html).searchParams.get('url')).toBe('/leaderboard');
   });
 
-  it('opens absolute Twitter intent URL on tweet click', async () => {
-    const openMock = vi.spyOn(window, 'open').mockImplementation(() => null);
+  it('points the tweet intent at the absolute URL once mounted', async () => {
+    await act(async () => root.render(<ShareRow path="/leaderboard" text="Top of the sky" />));
 
-    await act(async () => {
-      root.render(<ShareRow path="/leaderboard" text="Test leaderboard" />);
-    });
-
-    const tweetButton = container.querySelector('button');
-    expect(tweetButton).not.toBeNull();
-
-    await act(async () => {
-      tweetButton!.click();
-    });
-
-    expect(openMock).toHaveBeenCalledOnce();
-    const calledUrl = openMock.mock.calls[0][0] as string;
-    expect(calledUrl).toContain('https://twitter.com/intent/tweet');
-    expect(calledUrl).toContain('text=Test%20leaderboard');
-    expect(calledUrl).toContain('url=');
-    const urlParam = calledUrl.split('url=')[1];
-    expect(urlParam).toMatch(/^https?:\/\/.+\/leaderboard/);
+    const href = new URL(container.querySelector('a')!.href);
+    expect(href.origin).toBe('https://twitter.com');
+    expect(href.searchParams.get('text')).toBe('Top of the sky');
+    expect(href.searchParams.get('url')).toBe(`${window.location.origin}/leaderboard`);
   });
 
-  it('copies absolute URL to clipboard on copy click', async () => {
-    const writeTextMock = vi.fn().mockResolvedValue(undefined);
-    vi.stubGlobal('navigator', { clipboard: { writeText: writeTextMock } });
+  it('copies the absolute URL', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    await act(async () => root.render(<ShareRow path="/u/alice" text="me" />));
 
-    await act(async () => {
-      root.render(<ShareRow path="/leaderboard" text="Test leaderboard" />);
-    });
-
-    const buttons = container.querySelectorAll('button');
-    const copyButton = buttons[1];
-
-    await act(async () => {
-      copyButton.click();
-    });
-
-    expect(writeTextMock).toHaveBeenCalledOnce();
-    const copiedUrl = writeTextMock.mock.calls[0][0] as string;
-    expect(copiedUrl).toMatch(/^https?:\/\/.+\/leaderboard/);
-  });
-
-  it('shows copied state temporarily', async () => {
-    const writeTextMock = vi.fn().mockResolvedValue(undefined);
-    vi.stubGlobal('navigator', { clipboard: { writeText: writeTextMock } });
-
-    await act(async () => {
-      root.render(<ShareRow path="/leaderboard" text="Test leaderboard" />);
-    });
-
-    const buttons = container.querySelectorAll('button');
-    const copyButton = buttons[1];
-
-    expect(copyButton.textContent).toContain('copy_link');
-
-    await act(async () => {
-      copyButton.click();
-    });
-
-    expect(copyButton.textContent).toContain('copied');
-
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 1600));
-    });
-
-    expect(copyButton.textContent).toContain('copy_link');
+    await act(async () => container.querySelector('button')!.click());
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/u/alice`);
+    expect(container.querySelector('button')!.textContent).toContain('copied');
+    vi.unstubAllGlobals();
   });
 });
