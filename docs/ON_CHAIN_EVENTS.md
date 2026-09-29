@@ -527,7 +527,8 @@ env.events().publish(
 
 ### `gate` / `created`
 
-An access gate is defined by the admin.
+An access gate is defined or replaced by the admin, with `create_gate` (one rule) or
+`create_gate_rules` (a composite gate). Both emit the same event.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -555,7 +556,7 @@ A user claims a gate they pass, recording on-chain proof of unlock.
 |------|-------------|
 | `u32` | `id` — the gate ID |
 
-**Contract source**: `gate/src/lib.rs` → `fn create_gate()` / `fn unlock()`
+**Contract source**: `gate/src/lib.rs` → `fn put_gate()` (via `create_gate()` / `create_gate_rules()`) / `fn unlock()`
 
 ```rust
 // Create:
@@ -1157,6 +1158,42 @@ pub struct Gate {
     pub active: bool,
 }
 ```
+
+For a composite gate, `track`/`min` hold its **first** rule only. `check` and `unlock`
+evaluate the whole rule set, so read `get_gate_rules` before describing what a gate
+requires.
+
+### Composite gates (`get_gate_rules`)
+
+```rust
+pub struct Rule {
+    pub track: u32, // 0 = Social, 1 = Earned
+    pub min: u64,
+}
+
+pub enum RuleMode {
+    AllOf = 0, // every rule must pass
+    AnyOf = 1, // at least one rule must pass
+}
+
+pub struct GateRules {
+    pub rules: Vec<Rule>,
+    pub mode: RuleMode, // encoded as a u32
+}
+```
+
+`create_gate_rules(id, rules, mode, label)` stores the set under its own key next to the
+`Gate`, which it writes active with the first rule's `track`/`min`. It reverts with
+`EmptyRules` (#8) for no rules, `TooManyRules` (#7) for more than `MAX_RULES` (4), and
+`BadTrack` (#6) for a track other than 0 or 1. Replacing a composite gate with
+`create_gate` drops its rule set. Replacing a gate either way keeps existing unlocks.
+
+`get_gate_rules(id) -> Option<GateRules>` returns `None` for an unknown gate. A gate
+created by `create_gate`, or before composite gates existed, has no stored set and reads
+as one `AllOf` rule built from its `Gate` fields. `check`/`unlock` read each reputation
+track at most once per call, however many rules name it. A contract deployed before
+composite gates has no `get_gate_rules` or `create_gate_rules`; its gates keep working
+unchanged after an upgrade.
 
 ---
 
