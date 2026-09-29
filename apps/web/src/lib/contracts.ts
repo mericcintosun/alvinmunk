@@ -36,6 +36,7 @@ export const args = {
   u32: (n: number) => nativeToScVal(n, { type: 'u32' }),
   u64: (n: number | bigint) => nativeToScVal(n, { type: 'u64' }),
   i128: (n: bigint) => nativeToScVal(n, { type: 'i128' }),
+  bool: (b: boolean) => xdr.ScVal.scvBool(b),
   str: (s: string) => nativeToScVal(s, { type: 'string' }),
   sym: (s: string) => nativeToScVal(s, { type: 'symbol' }),
   // Bytes / BytesN<32> (claim hash, secret) — the host checks fixed length where needed.
@@ -95,6 +96,12 @@ export async function readPublic<T>(
   return retval ? (scValToNative(retval) as T) : (undefined as T);
 }
 
+/** A confirmed state-changing call: its transaction hash and decoded return value. */
+export interface InvokeReceipt {
+  hash: string;
+  value: unknown;
+}
+
 /**
  * State-changing call: prepare (simulate+assemble), sign via the wallet, submit,
  * then poll until the tx lands. Returns the decoded return value (or undefined).
@@ -105,12 +112,31 @@ export async function invokeAndWait<T = unknown>(
   callArgs: xdr.ScVal[],
   wallet: Wallet,
 ): Promise<T> {
+  return (await submitAndWait(contractId, method, callArgs, wallet)).value as T;
+}
+
+/** Same as `invokeAndWait`, but resolves the confirmed transaction hash (for receipts). */
+export async function invokeAndWaitHash(
+  contractId: string,
+  method: string,
+  callArgs: xdr.ScVal[],
+  wallet: Wallet,
+): Promise<string> {
+  return (await submitAndWait(contractId, method, callArgs, wallet)).hash;
+}
+
+async function submitAndWait(
+  contractId: string,
+  method: string,
+  callArgs: xdr.ScVal[],
+  wallet: Wallet,
+): Promise<InvokeReceipt> {
   requireDeployed(contractId, method);
 
   // Passkey (smart-account) wallets can't be a classic tx source: the call is
   // authorized by the passkey and submitted via the relayer inside wallet.invoke.
   if (wallet.invoke) {
-    return (await wallet.invoke(contractId, method, callArgs)) as T;
+    return wallet.invoke(contractId, method, callArgs);
   }
 
   const account = await server.getAccount(wallet.address);
@@ -130,7 +156,52 @@ export async function invokeAndWait<T = unknown>(
 
   const result = await pollTransaction(sent.hash);
   const retval = result.returnValue;
-  return (retval ? scValToNative(retval) : undefined) as T;
+  return { hash: sent.hash, value: retval ? scValToNative(retval) : undefined };
+}
+
+/** A `#[contracttype]` enum key as the contracts store it: `vec[Symbol(variant), ...fields]`. */
+export function enumKey(variant: string, ...fields: xdr.ScVal[]): xdr.ScVal {
+  return xdr.ScVal.scvVec([xdr.ScVal.scvSymbol(variant), ...fields]);
+}
+
+/**
+ * Read stored contract state straight from the ledger (no simulation, no source account) —
+ * for state a contract keeps but has no getter for, like its admin or a quest config. One
+ * RPC round-trip for all `keys`; each result is `null` when that entry doesn't exist. Unlike
+ * `getContractData`, an RPC failure throws instead of reading as "not found".
+ */
+export async function readLedgerData(
+  contractId: string,
+  keys: xdr.ScVal[],
+): Promise<Array<xdr.ScVal | null>> {
+  requireDeployed(contractId, 'ledger read');
+  const contract = new Contract(contractId).address().toScAddress();
+  // Instance storage and `persistent()` entries both live under persistent durability.
+  const durability = xdr.ContractDataDurability.persistent();
+  const ledgerKeys = keys.map((key) =>
+    xdr.LedgerKey.contractData(new xdr.LedgerKeyContractData({ contract, key, durability })),
+  );
+  const { entries } = await server.getLedgerEntries(...ledgerKeys);
+  const found = new Map(
+    (entries ?? []).map((e) => [e.key.toXDR('base64'), e.val.contractData().val()]),
+  );
+  return ledgerKeys.map((k) => found.get(k.toXDR('base64')) ?? null);
+}
+
+/** One value from a contract instance's storage (`null` if the key isn't set). */
+export function instanceStorageValue(instance: xdr.ScVal, key: xdr.ScVal): xdr.ScVal | null {
+  const want = key.toXDR('base64');
+  const storage = instance.instance().storage() ?? [];
+  return storage.find((e) => e.key().toXDR('base64') === want)?.val() ?? null;
+}
+
+/** Read one key of a contract's INSTANCE storage (where every contract keeps its Admin). */
+export async function readInstanceValue(
+  contractId: string,
+  key: xdr.ScVal,
+): Promise<xdr.ScVal | null> {
+  const [instance] = await readLedgerData(contractId, [xdr.ScVal.scvLedgerKeyContractInstance()]);
+  return instance ? instanceStorageValue(instance, key) : null;
 }
 
 /**

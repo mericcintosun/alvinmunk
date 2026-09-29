@@ -8,13 +8,13 @@ import { useWallet } from '@/components/wallet/wallet-provider';
 import {
   claimHandle,
   getMeta,
-  isHandleAvailable,
+  handleAvailability,
   isMetaUnsupported,
   META_ERRORS,
   setMeta,
 } from '@/lib/registry';
 import { BIO_MAX_BYTES, bioBytes, normalizeHandle, sanitizeBio } from '@/lib/profile';
-import { useTranslations, type TFn } from '@/lib/i18n';
+import { useLocale, useTranslations, type TFn } from '@/lib/i18n';
 import { ShareRow } from '@/components/fx/share-row';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -46,6 +46,7 @@ const sameAvatar = (a?: AvatarConfig, b?: AvatarConfig) => JSON.stringify(a) ===
  */
 export function IdentityBar() {
   const t = useTranslations();
+  const { locale } = useLocale();
   const { profile, connect, setProfile } = useWallet();
   const [editing, setEditing] = useState(false);
   const [editingBio, setEditingBio] = useState(false);
@@ -140,7 +141,18 @@ export function IdentityBar() {
     }
     setBusy(true);
     try {
-      if (!(await isHandleAvailable(h))) {
+      // its previous owner may take back a handle it freed, so ask on behalf of this wallet
+      const a = await handleAvailability(h, profile.address);
+      if (a.status === 'reserved') {
+        toast.error(
+          t('identity.handle.reserved', {
+            handle: h,
+            date: a.until.toLocaleDateString(locale, { dateStyle: 'medium' }),
+          }),
+        );
+        return;
+      }
+      if (a.status === 'taken') {
         toast.error(`@${h} is taken — pick another.`);
         return;
       }
@@ -200,7 +212,7 @@ export function IdentityBar() {
             >
               <Avatar address={profile.address} avatar={profile.avatar} handle={profile.handle} size={40} />
             </button>
-            <h1 className="truncate font-display text-lg font-semibold">@{profile.handle}</h1>
+            <p className="truncate font-display text-lg font-semibold">@{profile.handle}</p>
             <Badge variant="onchain">on-chain</Badge>
             <button
               onClick={() => {

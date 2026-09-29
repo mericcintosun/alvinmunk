@@ -12,7 +12,7 @@ This is the step-by-step for taking the five Soroban contracts from testnet to *
 - [x] Full test suite green: 57 contract tests (`cargo test`) incl. property/fuzz, + 77 web/shared. CI green on every push.
 - [x] End-to-end integration test exists: `scripts/e2e-testnet.mjs` (deploy → invoke vouch/quest/tip/reward → assert state, happy + negative paths).
 - [x] Storage/TTL: every contract bumps TTL on long-lived keys (`BUMP_THRESHOLD`/`BUMP_EXTEND`); daily counters use temporary storage that auto-GCs. Re-profile before deploy with `scripts/bump-ttl.sh`.
-- [ ] Re-review every `require_auth`: `mint_vouch`(from), `claim_vouch`(claimer), `award_quest`(recipient + ed25519 sig), `tip`/`claim_reward`(from/to), all admin setters. Confirm no sensitive op is unauthenticated.
+- [ ] Re-review every `require_auth`: `mint_vouch_signed` / `mint_vouch`(from), `claim_vouch_signed`(claimer + ed25519 claim-key sig), `claim_vouch`(claimer), `award_quest`(recipient + ed25519 sig), `tip`/`claim_reward`(from/to), all admin setters. Confirm no sensitive op is unauthenticated.
 - [x] Cross-contract calls are read-only where they should be (`rewards`→`get_earned`, `gate`→`get_score/get_earned`) and write only via the allowlisted attester (`quest_registry`→`award_xp`).
 
 **Security**
@@ -66,8 +66,9 @@ Then it:
 - for each contract in order (reputation, quest_registry, rewards, registry, gate): uploads the wasm (checking the on-chain hash equals the local sha256), deploys it, and calls `init` straight away, because `init` is open to anyone until it has run. `init` is never retried: if it fails, someone may have initialized the contract first, so never use that id;
 - sets `rewards.set_daily_cap(DAILY_CAP)` and `rewards.set_require_funding(true)`;
 - wires the attesters: `reputation.add_attester(quest_registry)` and `quest_registry.add_attester_key(<attester ed25519 key>)`, the key `/api/attest` signs with;
+- points rewards at the quest registry with `rewards.set_quest_registry(quest_registry)`, which streak-gated rewards (`set_reward_min_streak`) read `get_streak` from;
 - seeds the same quests (ids 1-4), reward table (ids 1-3: 30 / 60 / 100 Earned XP pays 0.5 / 1 / 2 USDC) and gates (1, 2) as `scripts/redeploy-all.sh`;
-- reads back `get_require_funding`, `get_daily_cap` and `is_attester(quest_registry)`;
+- reads back `get_require_funding`, `get_daily_cap`, `get_quest_registry` and `is_attester(quest_registry)`;
 - appends the commit SHA, deployer (admin) public key, attester key, USDC SAC, daily cap, CLI version, and every contract id + wasm hash to `deployment-log.md`.
 
 It never calls friendbot or the faucet and never moves USDC. If it fails or is interrupted after creating contracts, it appends an `INCOMPLETE (failed during: <step>)` entry with the ids created so far; don't wire the app to them.
@@ -121,10 +122,11 @@ Needs `stellar` (with `strkey decode`), `jq` and `git`. Offline tests for the ga
 - [ ] In Vercel prod env, flip `NEXT_PUBLIC_STELLAR_NETWORK=mainnet`, set the mainnet RPC/Horizon, the five mainnet contract ids, and the Circle USDC SAC id.
 - [ ] The dev wallet is hard-disabled on mainnet, so passkey infra must be live: set `NEXT_PUBLIC_PASSKEY_WALLET_WASM_HASH` + the relayer secrets (already configured on Vercel).
 - [ ] Remove/disable the testnet faucet route on mainnet (it already refuses when network=mainnet).
-- [ ] Redeploy and smoke-test onboarding + one vouch on the live mainnet app.
+- [ ] Redeploy, then `GET /api/health`: it must return `"ok": true` with `"configErrors": []`. Each entry names the env var still set for testnet (or missing) — while any remain, the app shows a red banner, hands out no wallet, and the attester and faucet answer 503.
+- [ ] Smoke-test onboarding + one vouch on the live mainnet app.
 
 **Monitoring**
-- [x] Product analytics + error tracking already wired (Vercel Analytics + Speed Insights + PostHog). Add PostHog alerts on error-rate spikes.
+- [x] Product analytics + error tracking already wired (Vercel Analytics + Speed Insights; `lib/track.ts` custom events require a Pro plan and are no-ops on Hobby). Add Vercel alerts on error-rate spikes; per-user funnel/retention analytics needs a dedicated product-analytics tool (e.g. PostHog — a separate future feature).
 - [ ] Add contract-event monitoring (RPC `getEvents` cron, or Mercury/Subquery) alerting on: admin ops, `set_paused`, large `reward`/`tipped` amounts.
 - [ ] A simple metrics page (TVL paid, users, vouch loops/week) — even a Notion/Streamlit board.
 

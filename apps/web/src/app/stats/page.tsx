@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { Users, Activity, ExternalLink } from 'lucide-react';
 import { shortAddress } from '@/lib/utils';
 import { cn } from '@/lib/utils';
+import type { VouchFunnel } from '@/lib/vouch-funnel';
+import { LoopHealth } from '@/components/LoopHealth';
 
 type NetKey = 'testnet' | 'mainnet';
 
@@ -14,6 +16,8 @@ interface Stats {
   target: number;
   latestLedger?: number;
   addresses: string[];
+  funnel: VouchFunnel | null;
+  funnelError?: string;
   error?: string;
 }
 
@@ -33,20 +37,33 @@ function explorer(net: NetKey, addr: string) {
 export default function StatsPage() {
   const [tab, setTab] = useState<NetKey>('testnet');
   const [data, setData] = useState<Record<NetKey, Stats | null>>({ testnet: null, mainnet: null });
+  // Per-network: true once a poll has failed and we have not yet recovered. The last good
+  // `data[tab]` is kept on screen (never cleared on failure) — only the "live"/"stale"
+  // marker below reacts, so an outage never masquerades as a fresh zero.
+  const [stale, setStale] = useState<Record<NetKey, boolean>>({ testnet: false, mainnet: false });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let alive = true;
     const load = () => {
       fetch(`/api/stats?network=${tab}`, { cache: 'no-store' })
-        .then((r) => r.json())
-        .then((d: Stats) => {
+        .then((r) => {
+          if (!r.ok) throw new Error(`stats ${r.status}`);
+          return r.json() as Promise<Stats>;
+        })
+        .then((d) => {
           if (alive) {
             setData((prev) => ({ ...prev, [tab]: d }));
+            setStale((prev) => ({ ...prev, [tab]: false }));
             setLoading(false);
           }
         })
-        .catch(() => alive && setLoading(false));
+        .catch(() => {
+          if (!alive) return;
+          // Keep the last good numbers on a failed poll; only the marker below reacts.
+          setStale((prev) => ({ ...prev, [tab]: true }));
+          setLoading(false);
+        });
     };
     setLoading(!data[tab]);
     load();
@@ -59,9 +76,10 @@ export default function StatsPage() {
   }, [tab]);
 
   const s = data[tab];
-  const users = s?.users ?? 0;
+  const users = s?.users;
   const target = s?.target ?? (tab === 'testnet' ? 50 : 20);
-  const pct = Math.min(100, Math.round((users / target) * 100));
+  const pct = users === undefined ? 0 : Math.min(100, Math.round((users / target) * 100));
+  const isStale = stale[tab];
 
   return (
     <div className="container max-w-3xl py-12">
@@ -108,12 +126,12 @@ export default function StatsPage() {
                 <div>
                   <p className="text-xs font-medium text-muted-foreground">Wallets on-chain</p>
                   <p className="font-display text-5xl font-semibold tabular-nums">
-                    {loading && !s ? '—' : users}
+                    {users === undefined ? '—' : users}
                   </p>
                 </div>
               </div>
               <p className="font-display text-2xl font-semibold text-muted-foreground">
-                {users} <span className="text-muted-foreground/50">/ {target}</span>
+                {users === undefined ? '—' : users} <span className="text-muted-foreground/50">/ {target}</span>
               </p>
             </div>
 
@@ -125,15 +143,24 @@ export default function StatsPage() {
               />
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
-              {pct}% toward {TABS.find((t) => t.key === tab)?.goal}
+              {users === undefined ? '—' : pct}% toward {TABS.find((t) => t.key === tab)?.goal}
               {s?.latestLedger ? ` · ledger ${s.latestLedger}` : ''}
-              <span className="ml-2 inline-flex items-center gap-1 text-secondary/80">
-                <Activity className="size-3" /> live
+              <span className={cn('ml-2 inline-flex items-center gap-1', isStale ? 'text-amber-400/90' : 'text-secondary/80')} title={isStale ? 'Sync delayed' : 'Live'}>
+                <Activity className="size-3" /> {isStale ? 'stale' : 'live'}
               </span>
             </p>
           </>
         )}
       </div>
+
+      {/* contract-backed claim funnel (hidden where the contracts are not live yet) */}
+      {(!s || s.configured) && (
+        <LoopHealth
+          funnel={s?.funnel}
+          loading={loading && !s}
+          error={s ? s.funnelError : isStale ? 'Stats could not be loaded. Retrying…' : undefined}
+        />
+      )}
 
       {/* wallet list */}
       {s?.configured && s.addresses.length > 0 && (
