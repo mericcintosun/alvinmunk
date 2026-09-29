@@ -68,6 +68,41 @@ cashable Earned), first-pair-only rewards, per-day caps, claim-key vouches (ring
 pre-computed), an XP stake slashed on unclaimed vouches, and a treasury circuit breaker
 (daily cap + frozen set + proof-of-funding toggle) on the payout side.
 
+## No-value tips: faked "received a spend" (issue #144)
+
+**Threat.** `tip(from, to, amount)` validated only the wallet's own gates — paused, sender
+auth, not frozen — and handed the transfer straight to the Stellar Asset Contract. The SAC
+rejects a *negative* amount, so two shapes reached it that mint the frozen canonical
+`tipped` event while moving no USDC:
+
+- `tip(a, b, 0)` from a wallet holding no USDC at all. The SAC is happy: nothing is
+  debited, nothing is credited.
+- `tip(a, a, 50)`. The SAC moves `a`'s balance to itself and leaves it unchanged, and the
+  call succeeds.
+
+Both are cheap (the fee) and repeatable, and `tipped` is what the social feed and the
+indexer read as proof that somebody *received* a spend — the PRD's Green de-risk metric
+("D7 return among users who received a spend", `docs/PRD.md` §5) and the traction proof
+suggested in `docs/USER_FEEDBACK.md` §3. A wallet could "receive" any number of tips from
+itself, or send zero-value tips to anyone, and the metric would read it as traction.
+
+**Fix.** `validate_tip` runs before the SAC call and before the event: `amount <= 0`
+reverts with `InvalidAmount` (#8, which already existed), and `from == to` reverts with a
+new `SelfTip` (#20). `SelfTip` is numbered at 20, outside the SAC's own 1–13 error range,
+so a code can never be read as the token contract's own error — the collision that
+`humanizeError` already works around for insufficient balance. An emitted `tipped` now
+always means USDC moved from `from` to a different `to`. The web app runs the same two
+checks (`validateTip` in `lib/admin.ts`) before prompting for a signature, so a shape the
+chain would reject never costs a fee.
+
+**Residual risk.**
+- `tipped` events from a contract deployed before the upgrade are not re-validated, so a
+  historical zero/self tip can still appear in a historical scan. It is a fixed one-time
+  set and normal events already carry `amount > 0` and two distinct wallets; consumers that
+  need to be strict can check both off the event (`lib/events.ts` → `fetchTipsSent`).
+- The check bounds *this* contract's tip path only. A plain SAC transfer made outside
+  alvinmunk emits no `tipped` event, so it never enters the feed or the metric.
+
 ## Vouch claims: front-running (issue #121)
 
 **Threat.** The original `claim_vouch(claimer, vouch_id, secret)` authorizes a claim by

@@ -593,6 +593,16 @@ A direct USDC transfer from one wallet to another, with a social
 > 3-segment filter such as `[tipped, <from>, '*']` (`apps/web/src/lib/events.ts` →
 > `fetchTipsSent`).
 
+> **Invariants (#144)**: every `tipped` event moves value. `tip` reverts with
+> `InvalidAmount` (#8) for an `amount ≤ 0` and with `SelfTip` (#20) when `from == to`, so
+> `amount > 0` and `topics[1] != topics[2]` always hold. Before that rule the SAC accepted a
+> zero amount and a self-transfer, and a wallet could mint unlimited no-value `tipped`
+> events for the price of a fee — enough to fake "received a spend" in the feed and an
+> indexer, which is the Green belt's D7 de-risk metric. A `tipped` event from a contract
+> deployed before this rule is not re-validated; `amount > 0` and distinct wallets are the
+> normal case and only a deliberate abuse looks different. `SelfTip` (#20) sits above the
+> SAC's own 1–13 error range so a code can never be confused with the token contract's.
+
 ### `rwd_set` (Reward Registered/Updated)
 
 An admin registers or updates a reward row in the unlock table.
@@ -1145,6 +1155,15 @@ tightening it (`set_paused(true)` is the way to stop every payout), and with
 `CapBelowActiveReward` (#17) for a positive cap below an active row's `amount`. A negative
 cap stored by a contract deployed before that rule reads as `0`, which is how the payout
 checks always treated it.
+
+### Tip validation (`validate_tip`, in `tip`)
+
+`tip(from, to, amount)` takes no view and emits no event of its own, but the reverts are
+part of the `tipped` contract above: `InvalidAmount` (#8) for `amount ≤ 0` and `SelfTip`
+(#20) for `from == to`. Both are checked before the SAC transfer and before the event, so a
+rejected tip moves nothing and mints nothing. `tip` also requires `from.require_auth()`, is
+gated on `Paused` (#5) and on the sender not being `Frozen` (#10), and never touches the
+treasury — the daily cap counts claims only, since a tip is sender-funded.
 
 ### `Gate`
 

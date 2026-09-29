@@ -10,10 +10,10 @@ import {
   requestTestUsdc,
   stroopsToUsdc,
   tip,
-  usdcToStroops,
 } from '@/lib/rewards';
 import { resolveHandle } from '@/lib/registry';
 import { normalizeHandle } from '@/lib/profile';
+import { validateTip } from '@/lib/admin';
 import { Frame } from '@/components/fx/frame';
 import { NumberTicker } from '@/components/fx/number-ticker';
 import { Button } from '@/components/ui/button';
@@ -28,15 +28,23 @@ const RAW_ADDR = /^[GC][A-Z2-7]{55}$/;
 
 // Rewards contract error codes that can surface on tip (mirrors contracts/rewards Error enum).
 // An insufficient-USDC failure (the SAC's own error) is caught by humanizeError directly.
-const TIP_ERRORS: Record<number, string> = {
+// #8 and #20 are the contract's `validate_tip` (#144): a zero or self tip moves no value, so
+// the chain refuses it — `validateTip` below normally catches those before anyone signs.
+export const TIP_ERRORS: Record<number, string> = {
   5: 'Tips are paused right now — try again later.',
+  8: 'Enter an amount above 0 USDC — a tip has to move something.',
   10: 'This account is under review and can’t tip right now.',
+  20: 'You can’t tip yourself — send it to another wallet.',
 };
 
 /**
  * USDC tip rail (Green belt). A tip is a real wallet -> wallet USDC transfer. USDC is a
  * classic asset wrapped as a SAC, so a wallet needs a trustline to receive; test USDC
  * comes from the faucet. The cashable, spendable side — distinct from non-cashable Social XP.
+ *
+ * Every tip moves value: above 0 USDC, to somebody else. Checked here before signing
+ * (`validateTip`) and again on-chain (#144), so the `tipped` event the feed reads is
+ * always proof that a real spend happened.
  */
 export function Tip({ address }: { address: string }) {
   const [balance, setBalance] = useState<bigint | null>(null);
@@ -162,6 +170,7 @@ export function Tip({ address }: { address: string }) {
               value={to}
               onChange={(e) => setTo(e.target.value.trim())}
               placeholder="@handle or address (G… / C…)"
+              aria-label="Tip recipient: handle or address"
               className="font-mono text-xs"
             />
             {/* Resolution feedback: confirm who a handle points to before sending. */}
@@ -185,14 +194,19 @@ export function Tip({ address }: { address: string }) {
                 onChange={(e) => setAmount(e.target.value)}
                 inputMode="decimal"
                 placeholder="1.0"
+                aria-label="Tip amount in USDC"
                 className="w-24"
               />
               <Button
                 onClick={() =>
                   run('tip', async () => {
                     const wallet = await getWallet();
-                    // `resolved` is guaranteed a valid key here (button is gated on it).
-                    await tip(wallet, resolved!, usdcToStroops(amount));
+                    // The contract's own two checks (#144), run here first so a tip that
+                    // could only revert never costs a fee. `resolved` is guaranteed a
+                    // valid key here (the button is gated on it).
+                    const check = validateTip({ to: resolved!, amount }, wallet.address);
+                    if (!check.ok) throw new Error(check.error);
+                    await tip(wallet, resolved!, check.value);
                   })
                 }
                 disabled={busy !== null || resolving || !resolved}
