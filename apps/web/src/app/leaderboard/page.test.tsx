@@ -50,6 +50,7 @@ describe('LeaderboardPage', () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    delete (document as { hidden?: boolean }).hidden;
     vi.useRealTimers();
   });
 
@@ -105,6 +106,32 @@ describe('LeaderboardPage', () => {
     expect(container.textContent).toContain('leaderboard.empty');
     expect(container.textContent).not.toContain('leaderboard.syncFailed');
     expect(container.textContent).not.toContain('leaderboard.syncDelayed');
+  });
+
+  it('fires no poll while the tab is hidden, and one when it returns (issue #210)', async () => {
+    fetchLeaderboardMock.mockResolvedValue([]);
+    await act(async () => {
+      root.render(<LeaderboardPage />);
+      await Promise.resolve();
+    });
+    expect(fetchLeaderboardMock).toHaveBeenCalledTimes(1);
+
+    const setHidden = (hidden: boolean) =>
+      act(async () => {
+        Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+    await setHidden(true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+    });
+    expect(fetchLeaderboardMock).toHaveBeenCalledTimes(1);
+
+    await setHidden(false);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(fetchLeaderboardMock).toHaveBeenCalledTimes(2);
   });
 
   it('keeps showing the last good rows with a stale badge when a later poll fails', async () => {

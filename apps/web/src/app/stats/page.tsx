@@ -56,7 +56,7 @@ export default function StatsPage() {
   usePoll(
     async (signal) => {
       try {
-        const r = await fetch(`/api/stats?network=${tab}`, { cache: 'no-store', signal });
+        const r = await fetch(`/api/stats?network=${tab}`, { cache: 'no-store' });
         if (!r.ok) throw new Error(`stats ${r.status}`);
         const d = (await r.json()) as Stats;
         if (signal.aborted) return;
