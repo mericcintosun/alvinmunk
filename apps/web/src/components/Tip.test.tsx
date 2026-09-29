@@ -92,11 +92,12 @@ describe('Tip', () => {
 
   it('refuses a zero amount before signing — the chain would reject it (#144)', async () => {
     await fill(OTHER, '0');
+    // The send button stays disabled for a zero amount (#334), so no signature is asked for.
+    expect(sendButton().disabled).toBe(true);
     await act(async () => {
       sendButton().click();
     });
     expect(tipMock).not.toHaveBeenCalled();
-    expect(container.textContent).toContain('more than 0 USDC');
   });
 
   it('refuses a tip to your own wallet before signing (#144)', async () => {
