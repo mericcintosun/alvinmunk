@@ -110,5 +110,7 @@ hard-disabled on mainnet, so passkey is the only mainnet provider.
 2. On a phone: FaceID enroll → smart account (`C…`) created → handle claimed, fee sponsored,
    in <15s.
 3. Returning user: FaceID → `connectWallet()` resolves the same `C…` address (silent restore).
+   In a fresh browser (or on a second device the passkey synced to), "I already have an account"
+   reaches the same `C…` address and handle without enrolling a new passkey.
 4. Vouch / claim / reward / gate all succeed through `invoke` (the smart-account path).
 5. Dev wallet still hard-disabled on mainnet; passkey is the only mainnet provider.

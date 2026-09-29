@@ -11,13 +11,20 @@ vi.mock('./stellar', () => ({
   config: { contracts: { reputation: 'CREP', rewards: 'CRWD' } },
 }));
 
-import { decodeScVal, fetchReputationEvents, fetchTipsSent } from './events';
+import {
+  decodeScVal,
+  fetchReputationEvents,
+  fetchTipsSent,
+  EVENT_LEDGER_WINDOW,
+  MAX_PAGES,
+  PAGE_SIZE,
+} from './events';
 
 /**
  * Helper: assert two Uint8Arrays have the same bytes.
  */
 function expectBytesEqual(actual: Uint8Array, expected: Uint8Array) {
-  expect(actual).toBeInstanceOf(Uint8Array);
+  expect(ArrayBuffer.isView(actual)).toBe(true);
   expect(actual.length).toBe(expected.length);
   for (let i = 0; i < actual.length; i++) {
     expect(actual[i]).toBe(expected[i]);
@@ -97,7 +104,7 @@ describe('decodeScVal', () => {
   describe('address values', () => {
     it('decodes an account address (G…) ScVal to a string', () => {
       // Construct an account address ScVal using a raw 32-byte key buffer
-      const keyBuf = new Uint8Array(32);
+      const keyBuf = Buffer.alloc(32);
       for (let i = 0; i < 32; i++) keyBuf[i] = i + 1;
       const pubKey = xdr.PublicKey.publicKeyTypeEd25519(keyBuf);
       const scAddr = xdr.ScAddress.scAddressTypeAccount(pubKey);
@@ -121,15 +128,15 @@ describe('decodeScVal', () => {
 
   describe('bytes', () => {
     it('decodes a Bytes ScVal to a Uint8Array with order preserved', () => {
-      const data = new Uint8Array([0xde, 0xad, 0xbe, 0xef, 0xca, 0xfe, 0xba, 0xbe]);
+      const data = Buffer.from([0xde, 0xad, 0xbe, 0xef, 0xca, 0xfe, 0xba, 0xbe]);
       const scv = xdr.ScVal.scvBytes(data);
       const result = decodeScVal(scv);
-      expect(result).toBeInstanceOf(Uint8Array);
+      expect(ArrayBuffer.isView(result)).toBe(true);
       expectBytesEqual(result as Uint8Array, data);
     });
 
     it('decodes a non-trivial byte sequence correctly', () => {
-      const data = new Uint8Array(64);
+      const data = Buffer.alloc(64);
       for (let i = 0; i < data.length; i++) data[i] = i;
       const scv = xdr.ScVal.scvBytes(data);
       const result = decodeScVal(scv) as Uint8Array;
@@ -151,7 +158,7 @@ describe('decodeScVal', () => {
 
     it('decodes a Vec containing different ScVal types recursively', () => {
       // Build a consistent address ScVal without Keypair (jsdom incompatible)
-      const keyBuf = new Uint8Array(32).fill(0xab);
+      const keyBuf = Buffer.alloc(32, 0xab);
       const pubKey = xdr.PublicKey.publicKeyTypeEd25519(keyBuf);
       const scAddr = xdr.ScAddress.scAddressTypeAccount(pubKey);
       const addrScv = xdr.ScVal.scvAddress(scAddr);
@@ -160,7 +167,7 @@ describe('decodeScVal', () => {
         xdr.ScVal.scvSymbol('user'),
         addrScv,
         xdr.ScVal.scvU32(7),
-        xdr.ScVal.scvBytes(new Uint8Array([0x01, 0x02])),
+        xdr.ScVal.scvBytes(Buffer.from([0x01, 0x02])),
       ]);
       const result = decodeScVal(scv) as unknown[];
       expect(Array.isArray(result)).toBe(true);
@@ -168,7 +175,7 @@ describe('decodeScVal', () => {
       expect(typeof result[1]).toBe('string');
       expect((result[1] as string)).toMatch(/^G[A-Z2-7]{55}$/);
       expect(result[2]).toBe(7);
-      expect(result[3]).toBeInstanceOf(Uint8Array);
+      expect(ArrayBuffer.isView(result[3])).toBe(true);
     });
   });
 
@@ -234,6 +241,7 @@ describe('contract event reads', () => {
       filters: [{ type: 'contract', contractIds: ['CREP'], topics: [['*', '*']] }],
       limit: 1000,
     });
+    expect(getEventsMock).toHaveBeenCalledTimes(1); // a quiet window is still one request
   });
 
   it('shares one scan between concurrent callers, and re-reads once it settles', async () => {
@@ -254,9 +262,14 @@ describe('contract event reads', () => {
           ledger: 19_999,
         },
       ],
+      cursor: 'after-the-first-tip',
     });
 
     const events = await fetchTipsSent(from);
+
+    // Only the first tip is wanted: one request for one event, and no follow-up page.
+    expect(getEventsMock).toHaveBeenCalledTimes(1);
+    expect(getEventsMock.mock.calls[0][0].limit).toBe(1);
 
     const filter = getEventsMock.mock.calls[0][0].filters[0];
     expect(filter.contractIds).toEqual(['CRWD']);
@@ -273,5 +286,137 @@ describe('contract event reads', () => {
   it('degrades to [] when RPC fails', async () => {
     getEventsMock.mockRejectedValue(new Error('rpc down'));
     await expect(fetchReputationEvents()).resolves.toEqual([]);
+  });
+
+  it('still degrades to [] for a plain caller when getLatestLedger fails, not just getEvents', async () => {
+    getLatestLedgerMock.mockRejectedValue(new Error('rpc down'));
+    await expect(fetchReputationEvents()).resolves.toEqual([]);
+  });
+
+  it('throws instead of degrading when a caller opts into throwOnError', async () => {
+    getEventsMock.mockRejectedValue(new Error('rpc down'));
+    await expect(fetchReputationEvents({ throwOnError: true })).rejects.toThrow('rpc down');
+  });
+
+  it('throws on throwOnError even when getLatestLedger (not just getEvents) fails', async () => {
+    getLatestLedgerMock.mockRejectedValue(new Error('rpc down'));
+    await expect(fetchReputationEvents({ throwOnError: true })).rejects.toThrow('rpc down');
+  });
+
+  it('does not throw with throwOnError when the RPC succeeds with a genuinely quiet window', async () => {
+    getEventsMock.mockResolvedValue({ events: [] });
+    await expect(fetchReputationEvents({ throwOnError: true })).resolves.toEqual([]);
+  });
+
+  describe('cursor pagination', () => {
+    const SOCIAL = xdr.ScVal.scvSymbol('social');
+    const WHO = xdr.ScVal.scvSymbol('who');
+    const LATEST = 20_000;
+    const eventId = (ledger: number, i: number) =>
+      `${String(ledger).padStart(19, '0')}-${String(i).padStart(10, '0')}`;
+
+    /**
+     * Serve `count` events (data = their index, ascending, three per ledger from the window
+     * start) the way stellar-rpc's getEvents does: `startLedger` XOR `cursor`, at most `limit`
+     * events per page, and a cursor that is the last event on a full page or the end of the
+     * scanned range on a short one.
+     */
+    function serveWindow(count: number) {
+      const all = Array.from({ length: count }, (_, i) => {
+        const ledger = LATEST - EVENT_LEDGER_WINDOW + Math.floor(i / 3);
+        return { id: eventId(ledger, i), ledger, topic: [SOCIAL, WHO], value: xdr.ScVal.scvU32(i) };
+      });
+      getEventsMock.mockImplementation(async (req: { startLedger?: number; cursor?: string; limit: number }) => {
+        const { startLedger, cursor, limit } = req;
+        if (cursor !== undefined && startLedger !== undefined) {
+          throw new Error('ledger ranges and cursor cannot both be set');
+        }
+        if (cursor === undefined && !(Number(startLedger) > 0)) throw new Error('startLedger must be positive');
+        const rest =
+          cursor === undefined
+            ? all.filter((e) => e.ledger >= Number(startLedger))
+            : all.filter((e) => e.id > cursor);
+        const events = rest.slice(0, limit);
+        const next = events.length === limit ? events[events.length - 1].id : eventId(LATEST, 4_294_967_295);
+        return { events, cursor: next, latestLedger: LATEST, oldestLedger: 1 };
+      });
+      return all;
+    }
+    const indexes = (events: { data: unknown }[]) => events.map((e) => e.data);
+    const range = (n: number) => Array.from({ length: n }, (_, i) => i);
+
+    it('keeps the window inside one RPC ledger scan, so a short page means caught up', () => {
+      // stellar-rpc scans at most 10,000 ledgers per getEvents request (LedgerScanLimit).
+      expect(EVENT_LEDGER_WINDOW).toBeLessThan(10_000);
+    });
+
+    it('concatenates two pages in order, so the newest event is returned', async () => {
+      const all = serveWindow(PAGE_SIZE + 1); // the newest event is alone on page 2
+
+      const events = await fetchReputationEvents();
+
+      expect(indexes(events)).toEqual(range(PAGE_SIZE + 1));
+      expect(events[events.length - 1].ledger).toBe(all[PAGE_SIZE].ledger);
+      expect(getEventsMock).toHaveBeenCalledTimes(2);
+      // Page 2 continues from page 1's last event and must not also send startLedger.
+      const second = getEventsMock.mock.calls[1][0];
+      expect(second.cursor).toBe(all[PAGE_SIZE - 1].id);
+      expect(second).not.toHaveProperty('startLedger');
+    });
+
+    it('confirms an exactly-full last page with one more request', async () => {
+      serveWindow(2 * PAGE_SIZE);
+
+      const events = await fetchReputationEvents();
+
+      expect(indexes(events)).toEqual(range(2 * PAGE_SIZE));
+      expect(getEventsMock).toHaveBeenCalledTimes(3); // the third page comes back empty
+    });
+
+    it('stops after MAX_PAGES requests on a window busier than the cap', async () => {
+      serveWindow(PAGE_SIZE * MAX_PAGES + 7);
+
+      const events = await fetchReputationEvents();
+
+      expect(getEventsMock).toHaveBeenCalledTimes(MAX_PAGES);
+      expect(indexes(events)).toEqual(range(PAGE_SIZE * MAX_PAGES)); // documented ceiling: the oldest events win
+    });
+
+    it('ends the scan on a full page without a cursor instead of re-reading from startLedger', async () => {
+      const page = serveWindow(PAGE_SIZE);
+      getEventsMock.mockResolvedValue({ events: page, cursor: '' });
+
+      const events = await fetchReputationEvents();
+
+      expect(getEventsMock).toHaveBeenCalledTimes(1);
+      expect(indexes(events)).toEqual(range(PAGE_SIZE)); // no duplicated first page
+    });
+
+    it('drops the whole scan when a later page fails, and retries on the next call', async () => {
+      serveWindow(PAGE_SIZE + 1);
+      const rpcWindow = getEventsMock.getMockImplementation()!;
+      getEventsMock.mockImplementationOnce(rpcWindow).mockRejectedValueOnce(new Error('rpc timeout'));
+
+      // An oldest-only prefix would pass for "nothing newer happened", so it is not returned.
+      await expect(fetchReputationEvents()).resolves.toEqual([]);
+      expect(getEventsMock).toHaveBeenCalledTimes(2);
+
+      expect(indexes(await fetchReputationEvents())).toEqual(range(PAGE_SIZE + 1));
+    });
+
+    it('shares one multi-page scan between concurrent callers', async () => {
+      serveWindow(2 * PAGE_SIZE + 1);
+
+      const [a, b, c] = await Promise.all([fetchReputationEvents(), fetchReputationEvents(), fetchReputationEvents()]);
+
+      expect(getLatestLedgerMock).toHaveBeenCalledTimes(1);
+      expect(getEventsMock).toHaveBeenCalledTimes(3); // one 3-page scan, not three
+      expect(b).toBe(a);
+      expect(c).toBe(a);
+      expect(indexes(a)).toEqual(range(2 * PAGE_SIZE + 1));
+
+      await fetchReputationEvents(); // settled scans are not cached
+      expect(getEventsMock).toHaveBeenCalledTimes(6);
+    });
   });
 });
