@@ -3,8 +3,16 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { completeQuestMock, getEarnedScoreMock, getStreakMock, getWalletMock, toastMock } = vi.hoisted(() => ({
+const {
+  completeQuestMock,
+  getCompletedMock,
+  getEarnedScoreMock,
+  getStreakMock,
+  getWalletMock,
+  toastMock,
+} = vi.hoisted(() => ({
   completeQuestMock: vi.fn(),
+  getCompletedMock: vi.fn(),
   getEarnedScoreMock: vi.fn(),
   getStreakMock: vi.fn(),
   getWalletMock: vi.fn(),
@@ -12,7 +20,11 @@ const { completeQuestMock, getEarnedScoreMock, getStreakMock, getWalletMock, toa
 }));
 
 vi.mock('@/lib/wallet', () => ({ getWallet: getWalletMock }));
-vi.mock('@/lib/quests', () => ({ completeQuest: completeQuestMock, getStreak: getStreakMock }));
+vi.mock('@/lib/quests', () => ({
+  completeQuest: completeQuestMock,
+  getCompleted: getCompletedMock,
+  getStreak: getStreakMock,
+}));
 vi.mock('@/lib/reputation', () => ({ getEarnedScore: getEarnedScoreMock }));
 vi.mock('@/lib/registry', () => ({ resolveHandle: vi.fn() }));
 vi.mock('@/components/ui/toaster', () => ({ toast: toastMock }));
@@ -36,6 +48,7 @@ import { Quests } from './Quests';
 
 const ADDRESS = `G${'A'.repeat(55)}`;
 const SUCCESS_ART = 'verified on-chain → Earned XP added';
+const FRIEND = 'GARCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCFRVX'; // a valid G… address
 
 describe('Quests', () => {
   let container: HTMLDivElement;
@@ -43,6 +56,8 @@ describe('Quests', () => {
 
   beforeEach(() => {
     completeQuestMock.mockReset().mockResolvedValue({ ok: true });
+    // No completion state unless a test sets one (as on a contract without get_completed).
+    getCompletedMock.mockReset().mockResolvedValue(null);
     getEarnedScoreMock.mockReset().mockResolvedValue(12);
     getStreakMock.mockReset().mockResolvedValue({ weeks: 1, best: 2, lastWeek: 0 });
     getWalletMock.mockReset().mockResolvedValue({ kind: 'dev', address: ADDRESS });
@@ -63,10 +78,19 @@ describe('Quests', () => {
     await act(async () => root.render(<Quests address={ADDRESS} />));
   }
 
-  const vouchBackButton = () =>
-    [...container.querySelectorAll('button')].find(
-      (item) => item.textContent?.startsWith('Claim vouch-back') || item.textContent === 'Verifying…',
-    )!;
+  // The three quest buttons, in page order: refer, invite, vouch-back.
+  const buttons = () => [...container.querySelectorAll('button')];
+  const vouchBackButton = () => buttons()[2];
+
+  /** Type `value` into an input the way a user does, so React sees the change. */
+  async function typeInto(selector: string, value: string) {
+    const input = container.querySelector(selector) as HTMLInputElement;
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    await act(async () => {
+      setValue.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
 
   const earnedBadge = () =>
     [...container.querySelectorAll('span')].find((s) => s.textContent?.startsWith('Earned XP:'))?.textContent;
@@ -127,12 +151,17 @@ describe('Quests', () => {
     getEarnedScoreMock.mockResolvedValueOnce(12).mockReturnValueOnce(new Promise(() => {}));
     getStreakMock.mockResolvedValueOnce({ weeks: 1, best: 2, lastWeek: 0 }).mockReturnValueOnce(new Promise(() => {}));
     await mount();
+    // A referral target, so the refer button is enabled exactly when no quest is busy.
+    await typeInto('#quest-ref', FRIEND);
+    expect(buttons()[0].disabled).toBe(false);
 
     await clickVouchBack();
 
     expectReportedSuccess();
-    expect(vouchBackButton().textContent).toMatch(/^Claim vouch-back/);
-    expect(vouchBackButton().disabled).toBe(false);
+    // The finished quest now reads as completed; the others are free again.
+    expect(vouchBackButton().textContent).toBe('Completed');
+    expect(buttons()[0].textContent).toBe('Verify a quest');
+    expect(buttons()[0].disabled).toBe(false);
   });
 
   it('still reports a failed quest', async () => {
@@ -158,5 +187,69 @@ describe('Quests', () => {
     expect(toastMock.error).toHaveBeenCalledWith('Vouch for 3 people first');
     expect(container.querySelector('p.text-destructive')?.textContent).toBe('Vouch for 3 people first');
     expect(container.textContent).not.toContain(SUCCESS_ART);
+  });
+
+  // ── completion state (issue #156) ──────────────────────────────────────────
+
+  // The dashboard's quest ids (lib/attest.ts DEFAULT_QUEST_IDS): refer, invite-converts, vouch-back.
+  const [REFER, INVITE, VOUCHBACK] = [2, 3, 4];
+
+  it('shows the quests the wallet already completed as done on load', async () => {
+    getCompletedMock.mockResolvedValue(
+      new Map([
+        [REFER, true],
+        [INVITE, false],
+        [VOUCHBACK, true],
+      ]),
+    );
+    await mount();
+
+    expect(getCompletedMock).toHaveBeenCalledWith(ADDRESS, [REFER, INVITE, VOUCHBACK], ADDRESS);
+    const [refer, invite, vouchback] = buttons();
+    expect(refer.textContent).toBe('Completed');
+    expect(refer.disabled).toBe(true);
+    expect(invite.textContent).toBe('Claim invite reward');
+    expect(vouchback.textContent).toBe('Completed');
+    expect(vouchback.disabled).toBe(true);
+  });
+
+  it('leaves every quest available when the view is missing or the read fails', async () => {
+    await mount(); // getCompleted resolves null
+    const [refer, invite, vouchback] = buttons();
+    expect(refer.textContent).toBe('Verify a quest');
+    expect(invite.textContent).toBe('Claim invite reward');
+    expect(vouchback.textContent).toBe('Claim vouch-back (3+ vouches)');
+    expect(vouchback.disabled).toBe(false);
+  });
+
+  it('marks a quest done when a retry finds it already completed', async () => {
+    completeQuestMock.mockResolvedValueOnce({
+      ok: false,
+      error: 'You’ve already completed this quest.',
+      completed: true,
+    });
+    await mount();
+
+    await clickVouchBack();
+
+    expect(completeQuestMock).toHaveBeenCalledWith(
+      { kind: 'dev', address: ADDRESS },
+      VOUCHBACK,
+      { type: 'vouch_back', ref: '' },
+    );
+    expect(vouchBackButton().textContent).toBe('Completed');
+    expect(vouchBackButton().disabled).toBe(true);
+    expect(container.textContent).toContain('You’ve already completed this quest.');
+    expect(container.textContent).not.toContain(SUCCESS_ART);
+  });
+
+  it('keeps a quest available after a failure that is not a completion', async () => {
+    completeQuestMock.mockResolvedValueOnce({ ok: false, error: 'Vouch for 3 people first' });
+    await mount();
+
+    await clickVouchBack();
+
+    expect(vouchBackButton().textContent).toBe('Claim vouch-back (3+ vouches)');
+    expect(vouchBackButton().disabled).toBe(false);
   });
 });
