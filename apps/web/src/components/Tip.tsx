@@ -22,10 +22,9 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { StateArt } from '@/components/ui/state-art';
 import { Avatar } from '@/components/Avatar';
-import { withTimeout, humanizeError, shortAddress } from '@/lib/utils';
+import { isStellarAddress, shortAddr } from '@alvinmunk/shared';
+import { withTimeout, humanizeError } from '@/lib/utils';
 import { toast } from '@/components/ui/toaster';
-
-const RAW_ADDR = /^[GC][A-Z2-7]{55}$/;
 
 // Rewards contract error codes that can surface on tip (mirrors contracts/rewards Error enum).
 // An insufficient-USDC failure (the SAC's own error) is caught by humanizeError directly.
@@ -70,7 +69,7 @@ export function Tip({ address }: { address: string }) {
   // targets, so a mistyped handle can never silently send to a wrong-but-valid key.
   useEffect(() => {
     const raw = to.trim();
-    if (RAW_ADDR.test(raw)) {
+    if (isStellarAddress(raw)) {
       setResolved(raw);
       setResolving(false);
       return;
@@ -166,14 +165,14 @@ export function Tip({ address }: { address: string }) {
               className="font-mono text-xs"
             />
             {/* Resolution feedback: confirm who a handle points to before sending. */}
-            {!RAW_ADDR.test(to.trim()) && to.trim().length > 0 && (
+            {!isStellarAddress(to.trim()) && to.trim().length > 0 && (
               <div className="-mt-1 flex items-center text-xs text-muted-foreground">
                 {resolving ? (
                   'Looking up handle…'
                 ) : resolved ? (
                   <span className="flex items-center text-secondary">
                     → <Avatar address={resolved} size={16} ring={false} className="mx-1.5" />
-                    {shortAddress(resolved, 6, 6)}
+                    {shortAddr(resolved, 6, 6)}
                   </span>
                 ) : (
                   <span className="text-destructive">No wallet found for that handle</span>
