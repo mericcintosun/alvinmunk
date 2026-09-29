@@ -142,9 +142,10 @@ export default async function ScorePage({ params }: ScorePageProps) {
           <div className="flex items-center gap-4 p-6">
             <Sticker name="stamp-verified" size={48} className="h-10 w-auto" />
             <div>
-              <p className="font-display text-2xl font-semibold">+{Number(questAttestation.value)} XP</p>
+              <p className="font-display text-2xl font-semibold">{Number(questAttestation.value)} XP</p>
               <p className="text-sm text-muted-foreground">
-                Latest verified quest · {new Date(questAttestation.timestamp * 1000).toLocaleDateString()}
+                Earned from verified quests · latest on{' '}
+                {new Date(questAttestation.timestamp * 1000).toLocaleDateString('en-US', { dateStyle: 'medium' })}
               </p>
             </div>
           </div>
