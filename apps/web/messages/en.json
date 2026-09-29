@@ -380,5 +380,15 @@
   "people.suggest.view": "View",
   "people.suggest.viewAria": "View {label}'s profile",
 
-  "configBanner.title": "This deployment is misconfigured — nothing can be sent until it is fixed."
+  "configBanner.title": "This deployment is misconfigured — nothing can be sent until it is fixed.",
+
+  "handleTransfer.title": "Move your @handle to this wallet",
+  "handleTransfer.body": "This browser's in-app wallet ({from}) holds @{handle}. Move it here in one transaction: the in-app key signs here and this wallet signs as usual, so the handle is never up for grabs in between.",
+  "handleTransfer.xpNote": "Your Social and Earned XP stay with the in-app wallet: they're kept per address and don't move. Your face and bio come along with the handle.",
+  "handleTransfer.targetHasHandle": "This wallet already holds @{handle}. A wallet holds one handle, so the move needs a wallet without one.",
+  "handleTransfer.submit": "Move @{handle} here",
+  "handleTransfer.submitting": "Moving…",
+  "handleTransfer.done": "@{handle} now belongs to this wallet.",
+  "handleTransfer.error.noHandle": "The in-app wallet no longer holds a handle — there's nothing to move.",
+  "handleTransfer.error.targetHasHandle": "This wallet already holds a handle — the move needs a wallet without one."
 }

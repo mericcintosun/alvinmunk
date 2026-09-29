@@ -5,7 +5,8 @@ use soroban_sdk::{
     symbol_short,
     testutils::{
         storage::{Persistent as _, Temporary as _},
-        Address as _, AuthorizedFunction, AuthorizedInvocation, Events as _, Ledger as _,
+        Address as _, AuthorizedFunction, AuthorizedInvocation, Events as _, Ledger as _, MockAuth,
+        MockAuthInvoke,
     },
     vec, Address, Env, IntoVal, String, Symbol, Val, Vec,
 };
@@ -575,6 +576,11 @@ fn upgrade_to_identical_wasm_preserves_handles() {
     assert_eq!(client.get_meta(&alice), Some(before));
     client.set_meta(&alice, &KIT_MIN, &hi);
     assert_eq!(client.get_meta(&alice).map(|m| m.avatar), Some(KIT_MIN));
+    // and it is this build: it moves a handle and its profile to another wallet
+    let bob = Address::generate(&env);
+    client.transfer_handle(&alice, &bob);
+    assert_eq!(client.resolve(&symbol_short!("alice")), Some(bob.clone()));
+    assert_eq!(client.get_meta(&bob).map(|m| m.avatar), Some(KIT_MIN));
 }
 
 #[test]
@@ -1098,4 +1104,300 @@ fn get_meta_does_not_extend_the_profile() {
         ttl(&env, &client, &DataKey::Meta(alice)),
         BUMP_EXTEND - DAY_LEDGERS * 3
     );
+}
+
+// --- Handle transfer ---
+
+/// The `handle/moved (from, to, handle)` event as `env.events().all()` reports it.
+fn moved_event(
+    client: &RegistryContractClient,
+    from: &Address,
+    to: &Address,
+    handle: &str,
+) -> (Address, Vec<Val>, Val) {
+    let env = &client.env;
+    (
+        client.address.clone(),
+        (symbol_short!("handle"), symbol_short!("moved")).into_val(env),
+        (from.clone(), to.clone(), Symbol::new(env, handle)).into_val(env),
+    )
+}
+
+/// From here on only `signer` authorizes, and only `transfer_handle(from, to)`.
+fn only_signer(
+    env: &Env,
+    client: &RegistryContractClient,
+    signer: &Address,
+    from: &Address,
+    to: &Address,
+) {
+    env.mock_auths(&[MockAuth {
+        address: signer,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "transfer_handle",
+            args: (from.clone(), to.clone()).into_val(env),
+            sub_invokes: &[],
+        },
+    }]);
+}
+
+#[test]
+fn transfer_moves_both_directions_in_one_call() {
+    let (env, client, _admin) = setup();
+    let old = claimed(&env, &client, "alice");
+    let new = Address::generate(&env);
+    client.transfer_handle(&old, &new);
+    assert_eq!(client.resolve(&symbol_short!("alice")), Some(new.clone()));
+    assert_eq!(client.reverse(&old), None);
+    assert_eq!(client.reverse(&new), Some(symbol_short!("alice")));
+    assert_eq!(
+        client.reverse_many(&vec![&env, old, new]),
+        vec![&env, None, Some(symbol_short!("alice"))]
+    );
+}
+
+#[test]
+fn transfer_is_authorized_by_both_wallets() {
+    let (env, client, _admin) = setup();
+    let old = claimed(&env, &client, "alice");
+    let new = Address::generate(&env);
+    client.transfer_handle(&old, &new);
+    let call = || AuthorizedInvocation {
+        function: AuthorizedFunction::Contract((
+            client.address.clone(),
+            Symbol::new(&env, "transfer_handle"),
+            (old.clone(), new.clone()).into_val(&env),
+        )),
+        sub_invocations: std::vec![],
+    };
+    assert_eq!(
+        env.auths(),
+        std::vec![(old.clone(), call()), (new.clone(), call())]
+    );
+}
+
+/// The recipient must consent: with only the current holder's signature the call reverts
+/// and nothing moves, so nobody can push a handle onto someone else's address.
+#[test]
+fn transfer_reverts_unless_the_new_wallet_signs() {
+    let (env, client, _admin) = setup();
+    let old = claimed(&env, &client, "alice");
+    let new = Address::generate(&env);
+    only_signer(&env, &client, &old, &old, &new);
+    assert!(client.try_transfer_handle(&old, &new).is_err());
+    env.mock_all_auths();
+    assert_eq!(client.resolve(&symbol_short!("alice")), Some(old.clone()));
+    assert_eq!(client.reverse(&old), Some(symbol_short!("alice")));
+    assert_eq!(client.reverse(&new), None);
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn transfer_with_only_the_old_wallets_signature_is_an_auth_error() {
+    let (env, client, _admin) = setup();
+    let old = claimed(&env, &client, "alice");
+    let new = Address::generate(&env);
+    only_signer(&env, &client, &old, &old, &new);
+    client.transfer_handle(&old, &new);
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn transfer_with_only_the_new_wallets_signature_is_an_auth_error() {
+    let (env, client, _admin) = setup();
+    let old = claimed(&env, &client, "alice");
+    let new = Address::generate(&env);
+    only_signer(&env, &client, &new, &old, &new);
+    client.transfer_handle(&old, &new);
+}
+
+#[test]
+fn transfer_signed_by_exactly_both_wallets_succeeds() {
+    let (env, client, _admin) = setup();
+    let old = claimed(&env, &client, "alice");
+    let new = Address::generate(&env);
+    let args: Vec<Val> = (old.clone(), new.clone()).into_val(&env);
+    let invoke = MockAuthInvoke {
+        contract: &client.address,
+        fn_name: "transfer_handle",
+        args,
+        sub_invokes: &[],
+    };
+    env.mock_auths(&[
+        MockAuth {
+            address: &old,
+            invoke: &invoke,
+        },
+        MockAuth {
+            address: &new,
+            invoke: &invoke,
+        },
+    ]);
+    client.transfer_handle(&old, &new);
+    assert_eq!(client.resolve(&symbol_short!("alice")), Some(new));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #10)")]
+fn transfer_to_a_wallet_with_a_handle_reverts() {
+    let (env, client, _admin) = setup();
+    let alice = claimed(&env, &client, "alice");
+    let bob = claimed(&env, &client, "bob");
+    client.transfer_handle(&alice, &bob); // panics: AlreadyHasHandle
+}
+
+#[test]
+fn a_rejected_transfer_leaves_both_handles_and_profiles_alone() {
+    let (env, client, _admin) = setup();
+    let alice = claimed(&env, &client, "alice");
+    let bob = claimed(&env, &client, "bob");
+    client.set_meta(&alice, &FACE_03, &bio(&env, "alice"));
+    assert_eq!(
+        client.try_transfer_handle(&alice, &bob),
+        Err(Ok(Error::AlreadyHasHandle.into()))
+    );
+    assert_eq!(client.resolve(&symbol_short!("alice")), Some(alice.clone()));
+    assert_eq!(client.resolve(&symbol_short!("bob")), Some(bob.clone()));
+    assert_eq!(client.reverse(&alice), Some(symbol_short!("alice")));
+    assert_eq!(client.reverse(&bob), Some(symbol_short!("bob")));
+    assert_eq!(client.get_meta(&alice), Some(meta(&env, FACE_03, "alice")));
+    assert_eq!(client.get_meta(&bob), None);
+}
+
+#[test]
+fn transfer_to_itself_reverts_with_already_has_handle() {
+    let (env, client, _admin) = setup();
+    let alice = claimed(&env, &client, "alice");
+    assert_eq!(
+        client.try_transfer_handle(&alice, &alice),
+        Err(Ok(Error::AlreadyHasHandle.into()))
+    );
+    assert_eq!(client.reverse(&alice), Some(symbol_short!("alice")));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #4)")]
+fn transfer_without_a_handle_reverts() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    client.transfer_handle(&alice, &bob); // panics: NoHandle
+}
+
+/// A transfer is not a release: the handle is never free, so it publishes neither
+/// `released` nor `claimed`, only `moved`, and starts no cooldown.
+#[test]
+fn transfer_publishes_only_moved() {
+    let (env, client, _admin) = setup();
+    let old = claimed(&env, &client, "alice");
+    let new = Address::generate(&env);
+    client.transfer_handle(&old, &new);
+    assert_eq!(
+        env.events().all(),
+        vec![&env, moved_event(&client, &old, &new, "alice")]
+    );
+    assert_eq!(client.cooldown(&symbol_short!("alice")), None);
+    assert!(!has_cooldown_entry(&env, &client, "alice"));
+}
+
+#[test]
+fn transfer_takes_the_profile_along() {
+    let (env, client, _admin) = setup();
+    let old = claimed(&env, &client, "alice");
+    client.set_meta(&old, &FACE_03, &bio(&env, "still me"));
+    let new = Address::generate(&env);
+    client.transfer_handle(&old, &new);
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            moved_event(&client, &old, &new, "alice"),
+            (
+                client.address.clone(),
+                (symbol_short!("meta"), symbol_short!("cleared")).into_val(&env),
+                old.clone().into_val(&env),
+            ),
+            (
+                client.address.clone(),
+                (symbol_short!("meta"), symbol_short!("set")).into_val(&env),
+                (new.clone(), FACE_03, bio(&env, "still me")).into_val(&env),
+            ),
+        ]
+    );
+    assert_eq!(client.get_meta(&old), None);
+    assert_eq!(client.get_meta(&new), Some(meta(&env, FACE_03, "still me")));
+
+    // the profile is the new wallet's to edit now, and the old one can no longer set one
+    client.set_meta(&new, &KIT_MIN, &bio(&env, "new wallet"));
+    assert_eq!(
+        client.get_meta(&new),
+        Some(meta(&env, KIT_MIN, "new wallet"))
+    );
+    assert_eq!(
+        client.try_set_meta(&old, &FACE_03, &bio(&env, "")),
+        Err(Ok(Error::NoHandle.into()))
+    );
+}
+
+#[test]
+fn after_a_transfer_both_wallets_carry_on_as_usual() {
+    let (env, client, _admin) = setup();
+    env.ledger().with_mut(|l| l.timestamp = T0);
+    let old = claimed(&env, &client, "alice");
+    let new = Address::generate(&env);
+    client.transfer_handle(&old, &new);
+
+    // the old wallet can't take the handle back, but may claim a fresh one
+    assert_eq!(
+        client.try_claim(&old, &symbol_short!("alice")),
+        Err(Ok(Error::HandleTaken.into()))
+    );
+    client.claim(&old, &symbol_short!("fresh"));
+    assert_eq!(client.reverse(&old), Some(symbol_short!("fresh")));
+
+    // the new holder renames it as its own: the freed handle cools down for the NEW wallet
+    client.claim(&new, &symbol_short!("alice2"));
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            released_event(&client, &new, "alice", T0 + HANDLE_COOLDOWN_SECS),
+            handle_event(&client, "claimed", &new, "alice2"),
+        ]
+    );
+    assert_eq!(client.resolve(&symbol_short!("alice")), None);
+    assert_eq!(
+        client.cooldown(&symbol_short!("alice")),
+        cooling(&new, T0 + HANDLE_COOLDOWN_SECS)
+    );
+    assert_eq!(
+        client.try_claim(&old, &symbol_short!("alice")),
+        Err(Ok(Error::HandleCoolingDown.into()))
+    );
+    client.release(&new);
+    assert_eq!(client.resolve(&symbol_short!("alice2")), None);
+    assert_eq!(client.reverse(&new), None);
+}
+
+#[test]
+fn transfer_extends_the_moved_entries_to_bump_extend() {
+    for ttls in [TESTNET_TTLS, MAINNET_TTLS] {
+        let (env, client) = setup_with_ttls(ttls);
+        let old = Address::generate(&env);
+        client.claim(&old, &symbol_short!("alice"));
+        client.set_meta(&old, &FACE_03, &bio(&env, "hi"));
+        // days later the handle entries have aged; the transfer tops them back up
+        env.ledger()
+            .with_mut(|l| l.sequence_number += DAY_LEDGERS * 3);
+        let new = Address::generate(&env);
+        client.transfer_handle(&old, &new);
+        for key in [
+            DataKey::Fwd(symbol_short!("alice")),
+            DataKey::Rev(new.clone()),
+            DataKey::Meta(new.clone()),
+        ] {
+            assert_eq!(ttl(&env, &client, &key), BUMP_EXTEND);
+        }
+    }
 }
