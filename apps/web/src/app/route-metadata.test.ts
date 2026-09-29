@@ -16,6 +16,7 @@ import * as leaderboardLayout from './leaderboard/layout';
 import * as statsLayout from './stats/layout';
 import * as walletLayout from './wallet/layout';
 import * as howItWorksLayout from './how-it-works/layout';
+import * as adminLayout from './admin/layout';
 
 // The /app layout renders the wallet-gated client shell; only its metadata matters here.
 vi.mock('@/components/app/app-client-layout', () => ({ AppClientLayout: () => null }));
@@ -52,8 +53,10 @@ async function resolveWith(root: Metadata, pathname: string, ...segments: Segmen
 const profile = (handle: string) => () => profileLayout.generateMetadata({ params: { handle } });
 const invite = (handle: string) => () => inviteLayout.generateMetadata({ params: { handle } });
 
-const imageUrls = (images: { url: string | URL }[] | undefined) =>
-  (images ?? []).map((i) => i.url.toString());
+// Next's OGImage union also allows a bare string/URL, not just a descriptor object;
+// mirror that here since the resolved metadata type keeps the full union.
+const imageUrls = (images: Array<string | URL | { url: string | URL }> | undefined) =>
+  (images ?? []).map((i) => (typeof i === 'string' || i instanceof URL ? i.toString() : i.url.toString()));
 
 /** Every piece of text a page or its unfurl shows. */
 function texts(m: ResolvedMetadata) {
@@ -193,6 +196,7 @@ describe('indexing (#212)', () => {
     ['/app/vouch', [appLayout.metadata, vouchLayout.metadata]],
     ['/app/people', [appLayout.metadata, peopleLayout.metadata]],
     ['/claim/7', [null, claimLayout.metadata]],
+    ['/admin', [adminLayout.metadata]],
   ] as [string, Segment[]][])('%s renders noindex', async (path, segments) => {
     const m = await resolve(path, ...segments);
     expect(m.robots?.basic).toBe('noindex, nofollow');
