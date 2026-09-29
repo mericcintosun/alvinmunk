@@ -529,10 +529,10 @@ impl ReputationContract {
 
         // Evaluate the deadline BEFORE persisting so the stored record is consistent.
         let now = env.ledger().timestamp();
-        let timely = now <= claim_deadline(&vouch);
-
-        if !timely {
-            // Late claim: mark slashed now so the stored vouch is always accurate.
+        let timely = !vouch.slashed && now <= claim_deadline(&vouch);
+        // A late claim slashes here, unless `expire_vouch` already did (and announced it).
+        let slash_now = !timely && !vouch.slashed;
+        if slash_now {
             vouch.slashed = true;
         }
 
@@ -545,7 +545,7 @@ impl ReputationContract {
         if timely {
             // Timely claim: refund the escrowed stake.
             Self::add_social(env, &vouch.from, vouch.stake);
-        } else {
+        } else if slash_now {
             // Late claim: emit vouch/slashed (same event as expire_vouch) BEFORE
             // vouch/claimed so both slash paths leave identical state and events.
             env.events().publish(

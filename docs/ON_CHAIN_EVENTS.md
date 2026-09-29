@@ -203,7 +203,8 @@ emit this event:
    called `expire_vouch`. In this case `vouch`/`slashed` is emitted **before**
    `vouch`/`claimed` in the same transaction (the claimer's `social` claim-XP event
    falls between the two), so indexers see the slash before the claim.
-   The stored vouch records `slashed: true, claimed: true`.
+   The stored vouch records `slashed: true, claimed: true`. A card `expire_vouch` already
+   slashed can still be claimed; that claim emits no second `vouch`/`slashed`.
 
 Both paths store `slashed: true` on the vouch and emit the same event shape:
 
