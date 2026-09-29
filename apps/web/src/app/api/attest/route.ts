@@ -1,10 +1,11 @@
 /**
  * Serverless ATTESTER (no standing backend — 00-strategy). Holds the allowlisted attester
  * secret (server-only ATTESTER_SECRET_KEY), VERIFIES a real action, then returns its
- * ed25519 SIGNATURE over the quest_registry's canonical payload. It does NOT submit a tx:
- * the wallet submits `award_quest` itself, proving ownership on-chain via
- * `recipient.require_auth()`. The attester pubkey must be allowlisted via
- * `quest_registry.add_attester_key`.
+ * ed25519 SIGNATURE over the quest_registry's canonical award payload, which names the
+ * network, the contract and an expiry QUEST_SIG_TTL_SECS ahead (lib/attest.ts
+ * questPayload). It does NOT submit a tx: the wallet submits `award_quest` itself before
+ * the expiry, proving ownership on-chain via `recipient.require_auth()`. The attester
+ * pubkey must be allowlisted via `quest_registry.add_attester_key`.
  *
  * Only cryptographically / API-verifiable quests are accepted (00-strategy §1):
  *   - github_pr   : evidence.ref = "owner/repo#123" -> PR must be merged
@@ -30,6 +31,7 @@ import {
 } from '@stellar/stellar-sdk';
 import {
   MAX_BODY_BYTES,
+  QUEST_SIG_TTL_SECS,
   REFERRAL_MARKER_KEY,
   VOUCH_BACK_MIN,
   buildQuestEvidenceMap,
@@ -40,6 +42,7 @@ import {
   judgeReferral,
   parseRepoAllowlist,
   repoAllowed,
+  signQuestPayload,
   validateEvidence,
   type AttestEvidence,
 } from '../../../lib/attest';
@@ -143,12 +146,16 @@ export const POST = withRoute('POST /api/attest', async (req: Request): Promise<
   const verified = await verifyEvidence(body.evidence as AttestEvidence, body.recipient);
   if (!verified.ok) return json({ error: verified.reason }, 422);
 
-  // 4) Sign the contract's canonical payload — the recipient redeems it on-chain.
+  // 4) Sign the award payload, built here (never read from an RPC node). The recipient
+  // redeems it on-chain; the contract refuses it after `expiresAt` (unix seconds, compared
+  // with the ledger time, which tracks wall-clock time).
   try {
-    const signed = await signQuestPayload(secret, body.questId, body.recipient);
+    const expiresAt = Math.floor(Date.now() / 1000) + QUEST_SIG_TTL_SECS;
+    const ctx = { contractId: QUEST_ID, passphrase: PASSPHRASE };
+    const signed = signQuestPayload(secret, ctx, body.questId, body.recipient, expiresAt);
     return json({ ok: true, ...signed, recipient: body.recipient, questId: body.questId });
   } catch (e) {
-    return json({ error: e instanceof Error ? e.message : 'sign failed' }, 502);
+    return json({ error: e instanceof Error ? e.message : 'sign failed' }, 500);
   }
 });
 
@@ -358,38 +365,4 @@ async function countVouchesClaimedBy(repId: string, from: string): Promise<numbe
   }
 
   return claimers.size;
-}
-
-/**
- * Read the contract's canonical payload (so we sign EXACTLY what it verifies — no
- * byte-mismatch risk) and ed25519-sign it with the attester key.
- */
-async function signQuestPayload(
-  secret: string,
-  questId: number,
-  recipient: string,
-): Promise<{ attester: string; sig: string }> {
-  const kp = Keypair.fromSecret(secret);
-  const server = new rpc.Server(RPC_URL, { allowHttp: RPC_URL.startsWith('http://') });
-  const source = new Account(Keypair.random().publicKey(), '0');
-  const tx = new TransactionBuilder(source, { fee: '100', networkPassphrase: PASSPHRASE })
-    .addOperation(
-      new Contract(QUEST_ID).call(
-        'quest_payload',
-        nativeToScVal(questId, { type: 'u32' }),
-        new Address(recipient).toScVal(),
-      ),
-    )
-    .setTimeout(30)
-    .build();
-
-  const sim = await server.simulateTransaction(tx);
-  if (rpc.Api.isSimulationError(sim)) {
-    throw new Error(`payload read failed: ${sim.error}`);
-  }
-  const retval = sim.result?.retval;
-  if (!retval) throw new Error('payload read returned nothing');
-  const payload = scValToNative(retval) as Uint8Array;
-  const sig = kp.sign(Buffer.from(payload));
-  return { attester: kp.rawPublicKey().toString('hex'), sig: sig.toString('base64') };
 }

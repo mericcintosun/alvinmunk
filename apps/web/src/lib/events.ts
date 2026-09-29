@@ -61,6 +61,18 @@ export async function fetchReputationEvents(options?: { throwOnError?: boolean }
 }
 
 /**
+ * Every `tipped` event in the window (topics ('tipped', from, to) · data amount), decoded,
+ * oldest-first — the same window as `fetchReputationEvents`, so the feed can merge tips and
+ * vouches by ledger. It filters on the event name with three segments: RPC topic filters
+ * only match events with exactly as many topics, so a 2-segment wildcard never sees tips.
+ * Returns [] if the contract isn't deployed or RPC is unavailable.
+ */
+export async function fetchTipEvents(options?: { throwOnError?: boolean }): Promise<RepEvent[]> {
+  const tipped = xdr.ScVal.scvSymbol(EVENTS.TIPPED).toXDR('base64');
+  return fetchContractEvents(config.contracts.rewards, [tipped, '*', '*'], PAGE_SIZE * MAX_PAGES, options?.throwOnError);
+}
+
+/**
  * `tipped` events SENT by `from` (topics ('tipped', from, to) · data amount), oldest-first.
  * RPC topic filters only match events with exactly as many topics as segments, so the
  * 2-segment wildcard above never sees these 3-topic events; filtering on the sender here

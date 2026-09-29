@@ -309,6 +309,7 @@
   "activityFeed.empty.title": "Henüz aktivite yok",
   "activityFeed.empty.body": "İlk destek bu akışı insanlara dair canlı bir kanıta dönüştürür.",
   "activityFeed.vouched": "→ destekledi →",
+  "activityFeed.tipped": "→ bahşiş gönderdi →",
   "shareRow.tweet": "gönder",
   "shareRow.copied": "kopyalandı",
   "shareRow.copyLink": "linki_kopyala",

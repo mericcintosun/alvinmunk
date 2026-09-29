@@ -21,6 +21,7 @@ vi.mock('./contracts', () => ({
   invokeAndWait: (...a: unknown[]) => invokeMock(...a),
   args: {
     addr: (g: string) => ({ __addr: g }),
+    u32: (n: number) => ({ __u32: n }),
     u64: (n: number) => ({ __u64: n }),
     str: (s: string) => ({ __str: s }),
     bytes: (b: Uint8Array) => ({ __bytes: b }),
@@ -28,6 +29,7 @@ vi.mock('./contracts', () => ({
 }));
 
 import {
+  getQuestAttestation,
   claimLink,
   claimMessage,
   claimPublicKey,
@@ -353,5 +355,27 @@ describe('claim links', () => {
     expect(isClaimCode(seed.slice(1))).toBe(false);
     expect(isClaimCode(`${seed}0`)).toBe(false);
     expect(isClaimCode(`zz${seed.slice(2)}`)).toBe(false);
+  });
+});
+
+describe('getQuestAttestation', () => {
+  beforeEach(() => readPublicMock.mockReset());
+  const ADDR = 'GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H';
+
+  it('reads the quest-schema attestation from the reputation contract', async () => {
+    readPublicMock.mockResolvedValueOnce({ issuer: 'GATT', value: 25n, timestamp: 1_760_000_000n, revoked: false });
+    const a = await getQuestAttestation(ADDR);
+    expect(readPublicMock).toHaveBeenCalledWith(REP_ID, 'get_attestation', [{ __addr: ADDR }, { __u32: 2 }]);
+    expect(a).toEqual({ issuer: 'GATT', value: 25n, timestamp: 1_760_000_000, revoked: false });
+  });
+
+  it('returns null when the address has no quest attestation', async () => {
+    readPublicMock.mockResolvedValueOnce(undefined);
+    await expect(getQuestAttestation(ADDR)).resolves.toBeNull();
+  });
+
+  it('lets a failed read throw instead of reporting no quests', async () => {
+    readPublicMock.mockRejectedValueOnce(new Error('rpc down'));
+    await expect(getQuestAttestation(ADDR)).rejects.toThrow('rpc down');
   });
 });

@@ -83,13 +83,14 @@ fn setup_in(env: Env) -> Fixture<'static> {
 }
 
 /// Award `quest_id` the way the off-chain attester does: an ed25519 signature over the
-/// QuestRegistry's payload. Advances the recipient's weekly streak.
+/// QuestRegistry's payload, valid for 10 minutes. Advances the recipient's weekly streak.
 fn award_quest(f: &Fixture, quest_id: u32, recipient: &Address) {
-    let payload = f.quest.quest_payload(&quest_id, recipient);
+    let expires_at = f.env.ledger().timestamp() + 600;
+    let payload = f.quest.quest_payload(&quest_id, recipient, &expires_at);
     let msg: std::vec::Vec<u8> = payload.iter().collect();
     let sig = BytesN::from_array(&f.env, &f.attester_sk.sign(&msg).to_bytes());
     f.quest
-        .award_quest(&f.attester_pub, &sig, &quest_id, recipient);
+        .award_quest(&f.attester_pub, &sig, &quest_id, recipient, &expires_at);
 }
 
 #[test]
