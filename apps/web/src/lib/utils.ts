@@ -19,26 +19,48 @@ export function contractErrorCode(e: unknown): number | null {
   return m ? Number(m[1]) : null;
 }
 
+export type ErrorFlow = 'tip' | 'reward';
+
 /**
  * Turn a raw chain/network error into one calm human sentence (brand voice). Pass a
  * `codeMap` of contract error codes → messages for the contract being called; falls back
  * to the first line of the message (never the scary diagnostic-event dump).
+ * 
+ * @param flow - Optional flow context for USDC/trustline errors (tip, reward)
  */
-export function humanizeError(e: unknown, codeMap: Record<number, string> = {}): string {
+export function humanizeError(
+  e: unknown,
+  codeMap: Record<number, string> = {},
+  flow?: ErrorFlow,
+): string {
   const raw = e instanceof Error ? e.message : String(e ?? 'Something went wrong');
-  // Host-level signals first — they're clearer than a contract code AND dodge code
-  // collisions (e.g. a token SAC's own #10 "insufficient balance" vs a contract's #10).
   const lower = raw.toLowerCase();
-  if (
-    lower.includes('not sufficient') ||
-    lower.includes('insufficient') ||
-    lower.includes('zero balance')
-  ) {
-    return "You don't have enough USDC to cover that — claim a reward or get test USDC first.";
+
+  // XLM fee errors — match the actual tx result names before the generic "insufficient"
+  if (lower.includes('txinsufficientbalance') || lower.includes('txinsufficientfee')) {
+    return "You need a little XLM to cover the network fee — get some test XLM first.";
   }
-  if (lower.includes('trustline')) {
-    return "The recipient hasn't enabled this USDC, so they can't receive the tip yet. Try another passkey wallet, or someone who's enabled USDC.";
+
+  // USDC/trustline errors only for tip/reward flows with the SAC involved
+  if (flow === 'tip' || flow === 'reward') {
+    // SAC balance errors: "BalanceError" or specific SAC messages
+    if (
+      lower.includes('balanceerror') ||
+      lower.includes('insufficient balance') ||
+      lower.includes('balance is not sufficient')
+    ) {
+      return "You don't have enough USDC to cover that — claim a reward or get test USDC first.";
+    }
+    // Trustline errors
+    if (lower.includes('trustline') || lower.includes('not authorized')) {
+      if (flow === 'tip') {
+        return "The recipient hasn't enabled this USDC, so they can't receive the tip yet. Try another passkey wallet, or someone who's enabled USDC.";
+      }
+      // flow === 'reward'
+      return "You haven't enabled USDC yet, so you can't receive the reward. Enable it in your wallet first.";
+    }
   }
+
   const code = contractErrorCode(e);
   if (code != null && codeMap[code]) return codeMap[code];
   // Drop Soroban's "Event log (newest first): …" diagnostic tail and take the first line.
