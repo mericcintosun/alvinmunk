@@ -140,6 +140,10 @@ importers:
         version: 2.1.9(@types/node@20.19.43)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))
 
   packages/shared:
+    dependencies:
+      '@stellar/stellar-sdk':
+        specifier: ^16.0.1
+        version: 16.0.1
     devDependencies:
       '@types/node':
         specifier: ^20.14.12

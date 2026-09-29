@@ -17,7 +17,7 @@
 
 'use client';
 
-import {
+import React, {
   createContext,
   useCallback,
   useContext,
@@ -25,6 +25,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { getItem, setItem } from './storage';
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -72,7 +73,7 @@ const STORAGE_KEY = 'alvinmunk_locale';
 
 function readStoredLocale(): Locale {
   if (typeof window === 'undefined') return 'en';
-  const stored = window.localStorage.getItem(STORAGE_KEY);
+  const stored = getItem(STORAGE_KEY);
   if (stored === 'en' || stored === 'tr') return stored;
   // Auto-detect from browser language if no preference stored yet.
   const lang = navigator.language?.slice(0, 2).toLowerCase();
@@ -89,11 +90,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   const setLocale = useCallback((l: Locale) => {
     setLocaleState(l);
-    try {
-      window.localStorage.setItem(STORAGE_KEY, l);
-    } catch {
-      // localStorage blocked — ignore
-    }
+    setItem(STORAGE_KEY, l);
   }, []);
 
   const t = useCallback<TFn>(

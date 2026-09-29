@@ -14,7 +14,8 @@ import { ShareRow } from '@/components/fx/share-row';
 import { BadgeGallery } from '@/components/BadgeGallery';
 import { Skeleton } from '@/components/ui/skeleton';
 import { buttonVariants } from '@/components/ui/button';
-import { cn, shortAddress } from '@/lib/utils';
+import { shortAddr } from '@alvinmunk/shared';
+import { cn } from '@/lib/utils';
 
 /**
  * Public profile. The handle is resolved ON-CHAIN via the registry, so ANY claimed
@@ -106,8 +107,7 @@ export default function ProfilePage({ params }: { params: { handle: string } }) 
           <Avatar address={address} avatar={avatar} handle={handle} size={140} />
           <div>
             <h1 className="font-display text-3xl font-semibold">@{handle}</h1>
-            <p className="mt-1 font-mono text-xs text-muted-foreground">{shortAddress(address)}</p>
-            {/* plain text only: React escapes it, and it was sanitized to one line */}
+            <p className="mt-1 font-mono text-xs text-muted-foreground">{shortAddr(address)}</p>
             {bio && <p className="mt-2 break-words text-sm text-foreground/80">{bio}</p>}
             <div className="mt-3">
               <Stamp accent="secondary">✦ LIT ON STELLAR</Stamp>

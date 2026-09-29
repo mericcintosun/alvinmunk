@@ -7,6 +7,7 @@
 import { claimLink, getPending, getVouch, VOUCH_TTL_SECS, type ClaimCode } from './reputation';
 import { reverseHandle } from './registry';
 import { subscribeToPush } from './push';
+import { readJSON, writeJSON } from './storage';
 
 export interface MyVouch {
   id: number;
@@ -24,18 +25,32 @@ export interface MyVouch {
 const KEY = 'alvinmunk.myVouches';
 
 export function getMyVouches(): MyVouch[] {
-  if (typeof localStorage === 'undefined') return [];
-  try {
-    return JSON.parse(localStorage.getItem(KEY) ?? '[]') as MyVouch[];
-  } catch {
-    return [];
-  }
+  return readJSON<MyVouch[]>(KEY, []);
 }
 
 export function addMyVouch(v: MyVouch): void {
-  if (typeof localStorage === 'undefined') return;
   const list = [v, ...getMyVouches().filter((x) => x.id !== v.id)].slice(0, 60);
-  localStorage.setItem(KEY, JSON.stringify(list));
+  writeJSON(KEY, list);
+}
+
+/**
+ * Vouch IDs this device still wants notifications for (pending, unclaimed, in-window).
+ * Used when a rotated push subscription must be re-registered after the server already
+ * pruned the old record (#169) — the server's vouchIds set is rebuilt from this list.
+ */
+export async function getPendingVouchIds(): Promise<number[]> {
+  const mine = getMyVouches();
+  if (mine.length === 0) return [];
+  const now = Math.floor(Date.now() / 1000);
+  const ids = await Promise.all(
+    mine.map(async (m) => {
+      const v = await getVouch(m.id).catch(() => null);
+      if (!v || v.claimed || v.slashed) return null;
+      if (now >= v.created + VOUCH_TTL_SECS) return null;
+      return m.id;
+    }),
+  );
+  return ids.filter((id): id is number => id !== null);
 }
 
 export interface PendingVouch extends MyVouch {
@@ -114,14 +129,9 @@ export async function getOwedBonuses(me: string): Promise<OwedBonus[]> {
 const SEEN_CLAIMED_KEY = 'alvinmunk.seenClaimed';
 
 function getSeenClaimed(): { ids: number[]; baselined: boolean } {
-  if (typeof localStorage === 'undefined') return { ids: [], baselined: true };
-  try {
-    const raw = localStorage.getItem(SEEN_CLAIMED_KEY);
-    if (raw === null) return { ids: [], baselined: false };
-    return { ids: JSON.parse(raw) as number[], baselined: true };
-  } catch {
-    return { ids: [], baselined: true };
-  }
+  const ids = readJSON<number[] | null>(SEEN_CLAIMED_KEY, null);
+  if (ids === null) return { ids: [], baselined: false };
+  return { ids, baselined: true };
 }
 
 /**
@@ -160,10 +170,8 @@ export async function pollNewlyClaimed(): Promise<{ id: number; note: string }[]
       if (baselined && !seen.has(m.id)) fresh.push({ id: m.id, note: m.note });
     }),
   );
-  if (typeof localStorage !== 'undefined') {
-    // Persist the union so a claim is reported once; first run only baselines (no toasts).
-    const next = Array.from(new Set([...seenIds, ...claimedNow]));
-    localStorage.setItem(SEEN_CLAIMED_KEY, JSON.stringify(next));
-  }
+  // Persist the union so a claim is reported once; first run only baselines (no toasts).
+  const next = Array.from(new Set([...seenIds, ...claimedNow]));
+  writeJSON(SEEN_CLAIMED_KEY, next);
   return baselined ? fresh : [];
 }

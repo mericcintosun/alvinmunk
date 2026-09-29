@@ -7,6 +7,11 @@
 //! and Earned XP (verified) become ACCESS — bounty boards, perks, allowlists — and the
 //! whole thing is COMPOSABLE: any contract or app can `check(addr, gate)` in one call.
 //!
+//! Composite gates: `create_gate_rules` attaches a `GateRules` set (up to `MAX_RULES`
+//! track thresholds, all-of or any-of) under the same gate id. `create_gate` stays the
+//! single-rule shorthand and stores only the `Gate`, so gates created before composite
+//! rules existed need no migration.
+//!
 //! Standalone (it never touches Reputation's storage), so adding it needs no redeploy of
 //! the existing contracts.
 
@@ -28,6 +33,10 @@ const BUMP_THRESHOLD: u32 = BUMP_EXTEND - DAY_LEDGERS;
 pub const TRACK_SOCIAL: u32 = 0; // clout (vouches)
 pub const TRACK_EARNED: u32 = 1; // cashable (verified quests)
 
+/// Most rules one gate may hold. Bounds the loop in `check`/`unlock`; the cross-contract
+/// reads are bounded anyway at one per track.
+pub const MAX_RULES: u32 = 4;
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -38,6 +47,34 @@ pub enum Error {
     GateInactive = 4,
     BelowThreshold = 5,
     BadTrack = 6,
+    TooManyRules = 7,
+    EmptyRules = 8,
+}
+
+/// How a gate combines its rules. Encoded as a `u32`: 0 = all-of, 1 = any-of.
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum RuleMode {
+    AllOf = 0, // every rule must pass
+    AnyOf = 1, // at least one rule must pass
+}
+
+/// One condition: at least `min` reputation on `track`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Rule {
+    pub track: u32, // 0 = Social, 1 = Earned
+    pub min: u64,
+}
+
+/// A gate's full policy. Stored under its own key (`DataKey::GateRules`) so the `Gate`
+/// struct keeps its shape; a gate without one is the single rule `Gate { track, min }`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GateRules {
+    pub rules: Vec<Rule>,
+    pub mode: RuleMode,
 }
 
 #[contracttype]
@@ -48,6 +85,7 @@ pub enum DataKey {
     Gate(u32),
     GateIds,
     Unlocked(Address, u32), // (addr, gate_id) -> bool
+    GateRules(u32),         // gate_id -> GateRules (composite gates only)
 }
 
 /// An access gate: `min` of `track` reputation unlocks it.
@@ -83,38 +121,41 @@ impl GateContract {
         env.deployer().update_current_contract_wasm(new_wasm_hash);
     }
 
-    /// Admin defines/updates a gate. `track` must be Social(0) or Earned(1).
+    /// Admin defines/updates a single-rule gate. `track` must be Social(0) or Earned(1).
+    /// Replacing a composite gate this way drops its rule set.
     pub fn create_gate(env: Env, id: u32, track: u32, min: u64, label: String) {
         Self::admin(&env).require_auth();
         if track != TRACK_SOCIAL && track != TRACK_EARNED {
             panic_with_error!(&env, Error::BadTrack);
         }
-        let existed = env
-            .storage()
-            .persistent()
-            .get::<DataKey, Gate>(&DataKey::Gate(id))
-            .is_some();
-        let gate = Gate {
-            id,
-            track,
-            min,
-            label,
-            active: true,
-        };
-        env.storage().persistent().set(&DataKey::Gate(id), &gate);
-        Self::bump(&env, &DataKey::Gate(id));
-        if !existed {
-            let mut ids: Vec<u32> = env
-                .storage()
-                .persistent()
-                .get(&DataKey::GateIds)
-                .unwrap_or_else(|| Vec::new(&env));
-            ids.push_back(id);
-            env.storage().persistent().set(&DataKey::GateIds, &ids);
-            Self::bump(&env, &DataKey::GateIds);
+        env.storage().persistent().remove(&DataKey::GateRules(id));
+        Self::put_gate(&env, id, track, min, label);
+    }
+
+    /// Admin defines/updates a composite gate: 1..=`MAX_RULES` rules (else `EmptyRules` /
+    /// `TooManyRules`), each on Social(0) or Earned(1) (else `BadTrack`), combined by
+    /// `mode`. Like `create_gate` it saves the gate active and keeps existing unlocks. The
+    /// stored `Gate` carries the first rule's `track`/`min` so `get_gate`/`get_gates` keep
+    /// their shape; `get_gate_rules` returns the whole set.
+    pub fn create_gate_rules(env: Env, id: u32, rules: Vec<Rule>, mode: RuleMode, label: String) {
+        Self::admin(&env).require_auth();
+        let first = rules
+            .first()
+            .unwrap_or_else(|| panic_with_error!(&env, Error::EmptyRules));
+        if rules.len() > MAX_RULES {
+            panic_with_error!(&env, Error::TooManyRules);
         }
-        env.events()
-            .publish((symbol_short!("gate"), symbol_short!("created")), id);
+        for rule in rules.iter() {
+            if rule.track != TRACK_SOCIAL && rule.track != TRACK_EARNED {
+                panic_with_error!(&env, Error::BadTrack);
+            }
+        }
+        let key = DataKey::GateRules(id);
+        env.storage()
+            .persistent()
+            .set(&key, &GateRules { rules, mode });
+        Self::bump(&env, &key);
+        Self::put_gate(&env, id, first.track, first.min, label);
     }
 
     pub fn set_gate_active(env: Env, id: u32, active: bool) {
@@ -123,6 +164,10 @@ impl GateContract {
         g.active = active;
         env.storage().persistent().set(&DataKey::Gate(id), &g);
         Self::bump(&env, &DataKey::Gate(id));
+        // A composite gate's rules must live as long as the gate itself.
+        if env.storage().persistent().has(&DataKey::GateRules(id)) {
+            Self::bump(&env, &DataKey::GateRules(id));
+        }
     }
 
     pub fn get_gate(env: Env, id: u32) -> Option<Gate> {
@@ -148,8 +193,16 @@ impl GateContract {
         out
     }
 
-    /// The COMPOSABLE read — does `addr` pass `id`? Cross-reads Reputation. Any
-    /// contract/app can call this to reputation-gate a feature in one call. Pure read.
+    /// The rules gate `id` evaluates, or `None` for an unknown gate. A single-rule gate
+    /// (`create_gate`, or any gate created before composite rules) reads as one all-of rule.
+    pub fn get_gate_rules(env: Env, id: u32) -> Option<GateRules> {
+        let g: Gate = env.storage().persistent().get(&DataKey::Gate(id))?;
+        Some(Self::rules(&env, &g))
+    }
+
+    /// The COMPOSABLE read — does `addr` pass `id`? Cross-reads Reputation (at most once
+    /// per track, however many rules the gate has). Any contract/app can call this to
+    /// reputation-gate a feature in one call. Pure read.
     pub fn check(env: Env, addr: Address, id: u32) -> bool {
         let g = match env
             .storage()
@@ -162,7 +215,7 @@ impl GateContract {
         if !g.active {
             return false;
         }
-        Self::track_score(&env, &addr, g.track) >= g.min
+        Self::passes(&env, &addr, &g)
     }
 
     /// `caller` claims a gate they pass — records an on-chain proof + a consumer unlock.
@@ -172,7 +225,7 @@ impl GateContract {
         if !g.active {
             panic_with_error!(&env, Error::GateInactive);
         }
-        if Self::track_score(&env, &caller, g.track) < g.min {
+        if !Self::passes(&env, &caller, &g) {
             panic_with_error!(&env, Error::BelowThreshold);
         }
         env.storage()
@@ -197,6 +250,67 @@ impl GateContract {
             .persistent()
             .get(&DataKey::Gate(id))
             .unwrap_or_else(|| panic_with_error!(env, Error::GateNotFound))
+    }
+
+    /// Write gate `id` (active), list it once in `GateIds`, emit `gate`/`created`.
+    fn put_gate(env: &Env, id: u32, track: u32, min: u64, label: String) {
+        let existed = env
+            .storage()
+            .persistent()
+            .get::<DataKey, Gate>(&DataKey::Gate(id))
+            .is_some();
+        let gate = Gate {
+            id,
+            track,
+            min,
+            label,
+            active: true,
+        };
+        env.storage().persistent().set(&DataKey::Gate(id), &gate);
+        Self::bump(env, &DataKey::Gate(id));
+        if !existed {
+            let mut ids: Vec<u32> = env
+                .storage()
+                .persistent()
+                .get(&DataKey::GateIds)
+                .unwrap_or_else(|| Vec::new(env));
+            ids.push_back(id);
+            env.storage().persistent().set(&DataKey::GateIds, &ids);
+            Self::bump(env, &DataKey::GateIds);
+        }
+        env.events()
+            .publish((symbol_short!("gate"), symbol_short!("created")), id);
+    }
+
+    /// `g`'s stored rule set, or its own `(track, min)` as a one-rule all-of set.
+    fn rules(env: &Env, g: &Gate) -> GateRules {
+        env.storage()
+            .persistent()
+            .get(&DataKey::GateRules(g.id))
+            .unwrap_or_else(|| GateRules {
+                rules: soroban_sdk::vec![
+                    env,
+                    Rule {
+                        track: g.track,
+                        min: g.min,
+                    }
+                ],
+                mode: RuleMode::AllOf,
+            })
+    }
+
+    /// Does `addr` pass `g`'s rules? Reads each track from Reputation at most once.
+    fn passes(env: &Env, addr: &Address, g: &Gate) -> bool {
+        let set = Self::rules(env, g);
+        let mut scores: [Option<u64>; 2] = [None, None]; // [Social, Earned]
+        let mut ok = |rule: Rule| {
+            let slot = &mut scores[usize::from(rule.track == TRACK_EARNED)];
+            *slot.get_or_insert_with(|| Self::track_score(env, addr, rule.track)) >= rule.min
+        };
+        match set.mode {
+            RuleMode::AllOf => set.rules.iter().all(&mut ok),
+            RuleMode::AnyOf => set.rules.iter().any(&mut ok),
+        }
     }
 
     /// Cross-read the Reputation track score (get_score for Social, get_earned for Earned).

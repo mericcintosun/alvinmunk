@@ -42,6 +42,31 @@ describe('fetchLeaderboard', () => {
     ]);
   });
 
+  it('completes fetchLeaderboard even when localStorage getter or setter throws', async () => {
+    vi.mocked(fetchReputationEvents).mockResolvedValue([
+      { topics: [EVENTS.SOCIAL, 'A'], data: [0, 15], ledger: 200 },
+    ] as any);
+
+    const original = Object.getOwnPropertyDescriptor(window, 'localStorage');
+    Object.defineProperty(window, 'localStorage', {
+      get() {
+        throw new DOMException('SecurityError', 'SecurityError');
+      },
+      configurable: true,
+    });
+
+    try {
+      const result = await fetchLeaderboard();
+      expect(result).toEqual([
+        { address: 'A', score: 15, rank: 1, flagged: false },
+      ]);
+    } finally {
+      if (original) {
+        Object.defineProperty(window, 'localStorage', original);
+      }
+    }
+  });
+
   // `events.ts`'s real fetchReputationEvents only rejects when the caller opts into
   // `throwOnError`; otherwise it swallows RPC failures to []. Mock it the same way here so
   // these tests exercise fetchLeaderboard's own handling of that contract, not a mock that

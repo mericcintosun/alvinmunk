@@ -8,7 +8,7 @@ import { connectViaKit } from '@/lib/wallet-kit';
 import type { Wallet } from '@/lib/wallet';
 import { FOCUS_MODE } from '@/lib/focus';
 import { txExplorerUrl } from '@/lib/stellar';
-import { shortAddress } from '@/lib/utils';
+import { shortAddr } from '@alvinmunk/shared';
 import {
   addReward,
   getAllRewards,
@@ -107,7 +107,7 @@ export default function AdminPage() {
         <p className="text-sm text-muted-foreground">
           {unread
             ? 'Couldn’t read the admin from the contracts (not deployed, or the RPC is unreachable).'
-            : `${shortAddress(wallet.address)} is not the on-chain admin.`}
+            : `${shortAddr(wallet.address)} is not the on-chain admin.`}
         </p>
         <div className="mt-4 flex gap-2">
           {unread ? (
@@ -128,7 +128,7 @@ export default function AdminPage() {
       <p className="text-xs uppercase tracking-[0.25em] text-secondary">admin // content</p>
       <div className="mt-2 flex flex-wrap items-center gap-3">
         <h1 className="text-3xl font-semibold">Content</h1>
-        <Badge variant="onchain">on-chain admin · {shortAddress(wallet.address)}</Badge>
+        <Badge variant="onchain">on-chain admin · {shortAddr(wallet.address)}</Badge>
         {connectButton('Switch wallet')}
       </div>
       <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
@@ -237,7 +237,7 @@ function WriteStatus({ write }: { write: ReturnType<typeof useWrite> }) {
           <p className="mt-1 text-muted-foreground">{write.receipt.consequence}</p>
           {write.receipt.hash && (
             <p className="mt-2 text-xs text-muted-foreground">
-              Confirmed in transaction <code>{shortAddress(write.receipt.hash, 8, 8)}</code> ·{' '}
+              Confirmed in transaction <code>{shortAddr(write.receipt.hash, 8, 8)}</code> ·{' '}
               <a
                 className="underline"
                 href={txExplorerUrl(write.receipt.hash)}

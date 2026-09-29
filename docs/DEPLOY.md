@@ -99,7 +99,7 @@ NEXT_PUBLIC_REGISTRY_CONTRACT_ID=C…
 NEXT_PUBLIC_GATE_CONTRACT_ID=C…
 ```
 
-Without them: vouch / tip / basic dashboard still work against the three contracts from step 3; `@handle` resolution and gate unlocks do not.
+Without them: vouch / tip / basic dashboard still work against the three contracts from step 3; `@handle` resolution and gate unlocks do not. `/api/health` returns 503 until the registry id is set (the gate id only adds a warning).
 
 ---
 
@@ -135,7 +135,7 @@ These are **server-only**. Leave them unset for a minimal read/write demo; set t
 
 Minimal “it runs” config = network vars + the three contract ids + USDC SAC. Everything else is progressive enhancement.
 
-Quick sanity check after the app is up: `GET /api/health` reports `attesterConfigured` / `faucetConfigured` (booleans only — never the secrets) and whether RPC + rewards id look healthy.
+Quick sanity check after the app is up: `GET /api/health` reports all five contract ids and `attesterConfigured` / `faucetConfigured` / `relayerConfigured` / `pushConfigured` (booleans only — never the secrets), plus `configErrors` — every inconsistency in the network settings (a passphrase, RPC or Horizon URL for the other network, a mainnet contract id left unset), each naming its env var. It returns 503 when the RPC is down or stalled, when `configErrors` has any entry, or when anything in its `missing` list is unset: the reputation, registry, quest registry and rewards ids, plus the relayer URL and key on mainnet or once `NEXT_PUBLIC_PASSKEY_WALLET_WASM_HASH` is set. An unset gate id, relayer (elsewhere) or VAPID key only adds an entry to `warnings`.
 
 ---
 
@@ -149,7 +149,7 @@ pnpm dev
 Smoke checklist:
 
 1. Open the app — onboarding should create/fund a testnet wallet (dev wallet if passkey unset).
-2. Hit `/api/health` — expect `"ok": true` and your contract ids present.
+2. Hit `/api/health` — expect `"ok": true`, your contract ids present and `missing` empty.
 3. Mint or claim a vouch against your reputation contract (explorer link on success).
 4. If you set `ATTESTER_SECRET_KEY`, run a quest verify; if you set the faucet issuer, request test USDC.
 
@@ -176,7 +176,7 @@ Confirm: open `https://<your-deploy>/api/health` and walk through onboarding on 
 | --- | --- |
 | `deploy-testnet.sh` fails on build | Missing Rust/`stellar` CLI, or wrong Wasm target — CLI 25+ writes to `contracts/target/wasm32v1-none/release/` |
 | `init` / `add_attester` fails | Admin not funded, or identity name mismatch (`ADMIN=` / `ATTESTER=` must match `stellar keys` names) |
-| Health returns 503 | RPC unreachable or `NEXT_PUBLIC_REWARDS_CONTRACT_ID` empty |
+| Health returns 503 | RPC unreachable or stalled (`rpc`), an inconsistent network config (`configErrors`), or a variable named in `missing` is unset |
 | Quest verify 500 | Missing `ATTESTER_SECRET_KEY`, or secret is not the allowlisted attester |
 | Faucet 500 | Missing `USDC_ISSUER_SECRET_KEY` or wrong SAC id |
 | Passkey onboarding errors | WASM hash set but relayer URL/key missing — either set both, or unset the WASM hash to use the dev wallet |
