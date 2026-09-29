@@ -16,6 +16,7 @@ const { readPublicMock, readContractMock, invokeAndWaitMock, argsMock } = vi.hoi
       addr: identity,
       addrs: identity,
       u32: identity,
+      u32s: identity,
       u64: identity,
       i128: identity,
       bool: identity,
@@ -204,12 +205,15 @@ describe('getCompleted', () => {
     expect(readContractMock).toHaveBeenCalledOnce();
     const [contract, method, callArgs, source] = readContractMock.mock.calls[0];
     expect([contract, method, source]).toEqual(['CQUEST', 'get_completed', OWNER]);
-    expect(callArgs.map((a: xdr.ScVal) => scValToNative(a))).toEqual([OWNER, [2, 3, 4]]);
-    expect(callArgs[1].vec().map((v: xdr.ScVal) => v.switch().name)).toEqual([
-      'scvU32',
-      'scvU32',
-      'scvU32',
-    ]);
+    // `args` is an identity stand-in here (see the top of the file): the raw (who, ids).
+    expect(callArgs).toEqual([OWNER, [2, 3, 4]]);
+  });
+
+  it('encodes the ids as a vector of u32, the type get_completed takes', async () => {
+    const { args } = await vi.importActual<typeof import('./contracts')>('./contracts');
+    const ids = args.u32s([2, 3, 4]);
+    expect(ids.vec()!.map((v: xdr.ScVal) => v.switch().name)).toEqual(['scvU32', 'scvU32', 'scvU32']);
+    expect(scValToNative(ids)).toEqual([2, 3, 4]);
   });
 
   it('reads wallet-free when no source is given', async () => {

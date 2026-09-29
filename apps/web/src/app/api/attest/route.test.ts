@@ -249,7 +249,10 @@ describe('POST /api/attest referral_tx via the registry invite binding', () => {
     fetchSpy.mockResolvedValue(new Response(JSON.stringify({ data: { referral: marker } })));
     // No registry binding for REFERRED (invited_by resolves to null) — falls back to
     // the manageData marker.
-    simulateSpy.mockResolvedValueOnce(score(5)).mockResolvedValueOnce(sim(null));
+    simulateSpy
+      .mockResolvedValueOnce(open())
+      .mockResolvedValueOnce(score(5))
+      .mockResolvedValueOnce(sim(null));
     const res = await attest({ questId: 2, evidence: { type: 'referral_tx', ref: REFERRED } });
     expect(res.status).toBe(422);
     expect(await res.json()).toEqual({
@@ -261,7 +264,10 @@ describe('POST /api/attest referral_tx via the registry invite binding', () => {
     const someoneElse = Keypair.random().publicKey();
     const marker = Buffer.from(someoneElse, 'utf8').toString('base64');
     fetchSpy.mockResolvedValue(new Response(JSON.stringify({ data: { referral: marker } })));
-    simulateSpy.mockResolvedValueOnce(score(5)).mockResolvedValueOnce(sim(null));
+    simulateSpy
+      .mockResolvedValueOnce(open())
+      .mockResolvedValueOnce(score(5))
+      .mockResolvedValueOnce(sim(null));
     const res = await attest({ questId: 2, evidence: { type: 'referral_tx', ref: REFERRED } });
     expect(res.status).toBe(422);
     expect(await res.json()).toEqual({
@@ -274,7 +280,10 @@ describe('POST /api/attest referral_tx via the registry invite binding', () => {
     // hits Horizon, which returns a non-404 error — that must read as "couldn't read",
     // not be folded into "no referral binding found".
     fetchSpy.mockResolvedValue(new Response('rate limited', { status: 503 }));
-    simulateSpy.mockResolvedValueOnce(score(5)).mockResolvedValueOnce(sim(null));
+    simulateSpy
+      .mockResolvedValueOnce(open())
+      .mockResolvedValueOnce(score(5))
+      .mockResolvedValueOnce(sim(null));
     const res = await attest({ questId: 2, evidence: { type: 'referral_tx', ref: REFERRED } });
     expect(res.status).toBe(422);
     expect(await res.json()).toEqual({
@@ -459,7 +468,7 @@ describe('POST /api/attest — status codes (issue #180)', () => {
     vi.stubEnv('QUEST_GITHUB_ID', '1');
     ({ POST } = (await import('./route')) as { POST: Post });
     fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ merged: true }), { status: 200 }));
-    simulateSpy.mockResolvedValueOnce(simError('contract panic'));
+    simulateSpy.mockResolvedValueOnce(open()).mockResolvedValueOnce(simError('contract panic'));
     const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#1' } });
     expect(res.status).toBe(502);
     const body = (await res.json()) as { error: string };
@@ -471,7 +480,7 @@ describe('POST /api/attest — status codes (issue #180)', () => {
     vi.stubEnv('QUEST_GITHUB_ID', '1');
     ({ POST } = (await import('./route')) as { POST: Post });
     fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ merged: true }), { status: 200 }));
-    simulateSpy.mockRejectedValueOnce(new Error('rpc timeout'));
+    simulateSpy.mockResolvedValueOnce(open()).mockRejectedValueOnce(new Error('rpc timeout'));
     const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#1' } });
     expect(res.status).toBe(502);
   });
@@ -485,7 +494,7 @@ describe('POST /api/attest — status codes (issue #180)', () => {
     vi.stubEnv('QUEST_GITHUB_ID', '5');
     ({ POST } = (await import('./route')) as { POST: Post });
     fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ merged: true }), { status: 200 }));
-    simulateSpy.mockResolvedValueOnce(payload());
+    simulateSpy.mockResolvedValueOnce(open()).mockResolvedValueOnce(payload());
 
     const res = await attest({
       questId: 5,
@@ -522,7 +531,10 @@ describe('POST /api/attest — status codes (issue #180)', () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(JSON.stringify({ data: { referral: marker } }), { status: 200 }),
     );
-    simulateSpy.mockResolvedValueOnce(score(5)).mockResolvedValueOnce(payload());
+    simulateSpy
+      .mockResolvedValueOnce(open())
+      .mockResolvedValueOnce(score(5))
+      .mockResolvedValueOnce(payload());
 
     const res = await attest({
       questId: 2,
