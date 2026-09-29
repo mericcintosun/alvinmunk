@@ -1,88 +1,125 @@
 import { useCallback, useEffect, useRef } from 'react';
 
 /**
- * Poll `fn` on an interval, with three guards that plain `setInterval` lacks:
+ * Poll `fn` on an interval, with three guarantees:
  *
- *  1. **No overlap.** The next run is scheduled with `setTimeout` only after the
- *     current one settles, so a slow RFP call can never stack up with the next tick.
- *  2. **Pause while hidden.** No requests fire while `document.hidden`; one runs
- *     immediately when the tab becomes visible again.
- *  3. **Backoff on failure.** After consecutive failures the interval doubles,
- *     capped at 60 s, and resets on the first success.
+ *  1. No overlap: the next run is scheduled with `setTimeout` only after the
+ *     previous one settles, so a slow RFP call can never stack up.
+ *  2. Pause while the tab is hidden; run once immediately when it becomes
+ *     visible again.
+ *  3. Back off (×2, capped at 60s) after consecutive failures, resetting on
+ *     the first success.
  *
- * `fn` may return a promise; rejection counts as a failure. The hook returns
- * a manual `trigger` for callers that want to force a refresh.
+ * `fn` is read through a ref, so an inline closure does not restart the
+ * schedule on every render.
  */
+export const MAX_BACKOFF_MS = 60_000;
 
-const MAX_BACKOFF = 60_000;
+export interface UsePollOptions {
+  /** Run once immediately on mount (default: true). */
+  immediate?: boolean;
+  /** Start in a paused state (default: false). */
+  enabled?: boolean;
+}
 
-export function usePoll(fn: () => unknown | Promise<unknown>, intervalMs: number) {
+export function usePoll(fn: () => unknown | Promise<unknown>, intervalMs: number, options: UsePollOptions = {}): void {
+  const { immediate = true, enabled = true } = options;
+
   const fnRef = useRef(fn);
-  fnRef.current = fn;
+  const intervalRef = useRef(intervalMs);
+  const immediateRef = useRef(immediate);
+  const enabledRef = useRef(enabled);
 
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const failures = useRef(0);
-  const running = useRef(false);
-  const generation = useRef(0);
+  // Keep the latest callback/config without restarting the schedule.
+  fnE.current = fn;
+  intervalRef.current = intervalMs;
+  immediateRef.current = immediate;
+  enabledRef.current = enabled;
 
-  const clear = useCallback(() => {
-    if (timer.current !== null) {
-      clearTimeout(timer.current);
-      timer.current = null;
-    }
+  const runNow = useCallback(() => {
+    // Schedule the next run only after this one settles.
+    void (async () => {
+      try {
+        await fnRef.current();
+      } catch {
+        // The callee owns its error state; we just keep polling.
+      }
+    })();
   }, []);
 
-  const schedule = useCallback(
-    (delay: number) => {
-      clear();
-      const my = generation.current;
-      timer.current = setTimeout(() => {
-        if (generation.current !== my) return;
-        void tick();
-      }, delay);
-    },
-    [clear],
-  );
-
-  const tick = useCallback(async () => {
-    if (running.current) return;
-    if (typeof document !== 'undefined' && document.hidden) return;
-    running.current = true;
-    try {
-      await fnRef.current();
-      failures.current = 0;
-    } catch {
-      failures.current += 1;
-    } finally {
-      running.current = false;
-    }
-    if (typeof document !== 'undefined' && document.hidden) return;
-    const backoff = Math.min(intervalMs * 2 ** failures.current, MAX_BACKOFF);
-    schedule(backoff);
-  }, [intervalMs, schedule]);
-
   useEffect(() => {
-    generation.current += 1;
-    const my = generation.current;
+    if (!enabled) return;
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let failures = 0;
+    let cancelled = false;
+    let running = false;
+
+    const hidden = () => typeof document !== 'undefined' && document.hidden;
+
+    const clear = () => {
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+    };
+
+    const delay = () => {
+      const base = Math.max(1, intervalRef.current);
+      if (failures === 0) return base;
+      return Math.min(base * 2 ** failures, MAX_BACKOFF_MS);
+    };
+
+    const schedule = () => {
+      if (cancelled || hidden()) return;
+      clear();
+      timer = setTimeout(tick, delay());
+    };
+
+    const tick = async () => {
+      if (cancelled || running || hidden()) return;
+      running = true;
+      try {
+        await fnRef.current();
+        failures = 0;
+      } catch {
+        failures += 1;
+      } finally {
+        running = false;
+        schedule();
+      }
+    };
+
     const onVisibility = () => {
-      if (generation.current !== my) return;
-      if (document.hidden) {
+      if (cancelled) return;
+      if (hidden()) {
+        // Pause: drop any pending run. An in-flight run finishes and then
+        // `tick` will see `hidden()` and skip rescheduling.
         clear();
-      } else {
+        return;
+      }
+      // Visible again: run once now (unless one is already in flight).
+      if (!running) {
+        clear();
         void tick();
       }
     };
-    document.addEventListener('visibilitychange', onVisibility);
-    if (!document.hidden) void tick();
-    return () => {
-      generation.current += 1;
-      document.removeEventListener('visibilitychange', onVisibility);
-      clear();
-    };
-  }, [clear, tick]);
 
-  return useCallback(() => {
-    failures.current = 0;
-    void tick();
-  }, [tick]);
+    document.addEventListener('visibilitychange', onVisibility);
+
+    // Only start if visible; otherwise wait for the visibility event.
+    if (!hidden()) {
+      if (immediateRef.current) {
+        void tick();
+      } else {
+        schedule();
+      }
+    }
+
+    return () => {
+      cancelled = true;
+      clear();
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [enabled, runNow]);
 }

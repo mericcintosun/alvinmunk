@@ -44,7 +44,7 @@ export default function StatsPage() {
   const [stale, setStale] = useState<Record<NetKey, boolean>>({ testnet: false, mainnet: false });
   const [loading, setLoading] = useState(true);
 
-  const [pollKey, setPollKey] = useState(0);
+  // Poll only while the tab is visible; runs never overlap and back off on failure.
   useEffect(() => {
     let alive = true;
     const load = () => {
@@ -72,14 +72,26 @@ export default function StatsPage() {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, pollKey]);
+  }, [tab]);
 
   usePoll(
-    () => {
-      setPollKey((k) => k + 1);
-      return Promise.resolve();
-    },
+    () =>
+      fetch(`/api/stats?network=${tab}`, { cache: 'no-store' }).then((r) => {
+        if (!r.ok) throw new Error(`stats ${r.status}`);
+        return r.json() as Promise<Stats>;
+      }),
     10000,
+    {
+      onSuccess: (d) => {
+        setData((prev) => ({ ...prev, [tab]: d }));
+        setStale((prev) => ({ ...prev, [tab]: false }));
+        setLoading(false);
+      },
+      onError: () => {
+        setStale((prev) => ({ ...prev, [tab]: true }));
+        setLoading(false);
+      },
+    },
   );
 
   const s = data[tab];
