@@ -130,6 +130,58 @@ export function validateEvidence(
 }
 
 /**
+ * The quest id each evidence type is bound to when its env var is unset: the ids
+ * scripts/redeploy-all.sh seeds and components/Quests.tsx targets. `github_pr` has no
+ * default, so GitHub attestations stay off until QUEST_GITHUB_ID is set.
+ */
+export const DEFAULT_QUEST_IDS = { referral_tx: 2, invite_converts: 3, vouch_back: 4 } as const;
+
+/** Quest-id env vars (per evidence type) read by `buildQuestEvidenceMap`. */
+export const QUEST_ID_ENV: Record<EvidenceType, string> = {
+  referral_tx: 'NEXT_PUBLIC_DEFAULT_QUEST_ID',
+  invite_converts: 'NEXT_PUBLIC_INVITE_QUEST_ID',
+  vouch_back: 'NEXT_PUBLIC_VOUCHBACK_QUEST_ID',
+  github_pr: 'QUEST_GITHUB_ID',
+};
+
+/**
+ * Whether `type` is THE evidence type bound to `questId`. The attester checks this BEFORE
+ * any network call: without it one qualifying action (e.g. vouch_back) could be replayed
+ * against every quest id and redeem each of them. A quest id missing from the map is
+ * rejected, so an unmapped quest can never be attested.
+ */
+export function evidenceMatchesQuest(
+  questId: number,
+  type: EvidenceType,
+  map: ReadonlyMap<number, EvidenceType>,
+): boolean {
+  return map.get(questId) === type;
+}
+
+/**
+ * Build the questId → evidence-type map from env (see `QUEST_ID_ENV`). An unset or blank
+ * var falls back to `DEFAULT_QUEST_IDS`; a set value must be a plain decimal quest id, or
+ * that type is left unmapped. Two types configured with the same quest id are ambiguous,
+ * so that id is dropped entirely and rejects every type (fail closed).
+ */
+export function buildQuestEvidenceMap(
+  env: Record<string, string | undefined>,
+): Map<number, EvidenceType> {
+  const map = new Map<number, EvidenceType>();
+  const conflicts = new Set<number>();
+  for (const type of Object.keys(QUEST_ID_ENV) as EvidenceType[]) {
+    const raw = env[QUEST_ID_ENV[type]]?.trim();
+    const fallback = (DEFAULT_QUEST_IDS as Partial<Record<EvidenceType, number>>)[type];
+    const id = raw ? (/^\d+$/.test(raw) ? Number(raw) : NaN) : fallback;
+    if (!isValidQuestId(id)) continue;
+    if (map.has(id)) conflicts.add(id);
+    else map.set(id, type);
+  }
+  for (const id of conflicts) map.delete(id);
+  return map;
+}
+
+/**
  * In-window replay guard keyed by signature; entries self-expire after the window.
  * Best-effort (per-instance, resets on cold start) — the on-chain replay guard is the
  * hard cap, this just stops rapid double-submits within the freshness window.

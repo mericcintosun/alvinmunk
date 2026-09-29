@@ -47,7 +47,8 @@ export interface Attestation {
 export interface Vouch {
   id: number;
   from: string; // voucher address
-  /** sha256(secret) — BytesN<32> */
+  /** sha256(secret) — BytesN<32>; all zeros on a card minted with a claim key
+   *  (`mint_vouch_signed`), whose key is read with `get_claim_key` */
   claim_hash: Uint8Array;
   note: string;
   claimed: boolean;

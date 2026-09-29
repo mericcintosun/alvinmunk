@@ -32,6 +32,7 @@ echo "==> init"
 inv "$REP" init --admin "$ADMIN_ADDR"
 inv "$QUEST" init --admin "$ADMIN_ADDR" --reputation "$REP"
 inv "$REWARDS" init --admin "$ADMIN_ADDR" --usdc "$USDC" --reputation "$REP"
+inv "$REWARDS" set_quest_registry --quest_registry "$QUEST" # streak-gated rewards read get_streak
 inv "$REGISTRY" init --admin "$ADMIN_ADDR"
 inv "$GATE" init --admin "$ADMIN_ADDR" --reputation "$REP"
 

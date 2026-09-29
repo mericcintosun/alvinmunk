@@ -1,17 +1,54 @@
 /**
- * Typed Reputation contract client — the Yellow-belt vouch loop with a CLAIM-SECRET.
+ * Typed Reputation contract client — the Yellow-belt vouch loop with a CLAIM KEY.
  *
- * You vouch by minting a half-card bound to sha256(secret) — WITHOUT knowing the
- * recipient's address. The share link carries the secret; the recipient binds their
- * own address at claim time. This is the cold-start fix (belts/00-strategy §3).
+ * You vouch by minting a half-card bound to the public half of a fresh ed25519 key —
+ * WITHOUT knowing the recipient's address. The share link carries the key's seed; the
+ * recipient binds their own address at claim time by signing it with that seed. This is
+ * the cold-start fix (belts/00-strategy §3). The seed never leaves the browser: the claim
+ * transaction carries only a signature that names the claimer, so anyone who sees it in
+ * flight cannot reuse it for another address (issue #121). Cards minted before the key
+ * existed (links with `s=`) still claim with their plain secret.
  */
+import { Address, Keypair, hash, nativeToScVal, xdr } from '@stellar/stellar-sdk';
+import { buildClaimUrl } from '@alvinmunk/shared';
 import { invokeAndWait, readContract, readPublic, args, repId, questId } from './contracts';
+import { networkPassphrase } from './stellar';
 import { shareInFlight } from './utils';
 import type { Wallet } from './wallet';
 
 /** Vouch TTL — claim within this window to refund the voucher's stake (mirrors the
  *  contract's VOUCH_TTL_SECS). After it, the stake is slashed but the card still claims. */
 export const VOUCH_TTL_SECS = 604_800; // 7 days
+
+/** The contract's note cap (`MAX_NOTE_BYTES`): `mint_vouch_signed` reverts with `NoteTooLong`
+ *  (#12) past it. It counts UTF-8 BYTES, so `ş` costs 2 and most emoji 4. */
+export const VOUCH_NOTE_MAX_BYTES = 240;
+/** The compose limit in characters (code points). UTF-8 spends at most 4 bytes on one,
+ *  so a note within it always fits `VOUCH_NOTE_MAX_BYTES` — 60 Turkish letters or 60
+ *  emoji alike. */
+export const VOUCH_NOTE_MAX_CHARS = VOUCH_NOTE_MAX_BYTES / 4;
+
+const utf8 = new TextEncoder();
+
+/** UTF-8 length of `s` — what the contract's `String::len` checks against. */
+export function vouchNoteBytes(s: string): number {
+  return utf8.encode(s).length;
+}
+
+/** Cut `input` to a note `mint_vouch_signed` accepts: at most `VOUCH_NOTE_MAX_CHARS` characters
+ *  and `VOUCH_NOTE_MAX_BYTES` bytes, never half a character. The character cap binds
+ *  first; the byte check is the contract's own rule, kept so the two can never drift. */
+export function clampVouchNote(input: string): string {
+  let out = '';
+  let chars = 0;
+  let bytes = 0;
+  for (const ch of input) {
+    bytes += vouchNoteBytes(ch);
+    if (++chars > VOUCH_NOTE_MAX_CHARS || bytes > VOUCH_NOTE_MAX_BYTES) break;
+    out += ch;
+  }
+  return out;
+}
 
 /** A half-card as read from chain (the fields the claim funnel surfaces). */
 export interface VouchView {
@@ -80,15 +117,11 @@ export function getCounts(address: string): Promise<PeopleCounts | null> {
   });
 }
 
-// ── client-side crypto for the claim secret ──
+// ── client-side crypto for the claim key ──
 function randomBytes(n: number): Uint8Array {
   const a = new Uint8Array(n);
   crypto.getRandomValues(a);
   return a;
-}
-async function sha256(data: Uint8Array): Promise<Uint8Array> {
-  const h = await crypto.subtle.digest('SHA-256', data as unknown as BufferSource);
-  return new Uint8Array(h);
 }
 export function toHex(u8: Uint8Array): string {
   return [...u8].map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -98,23 +131,114 @@ export function fromHex(hex: string): Uint8Array {
   return new Uint8Array(m.map((x) => parseInt(x, 16)));
 }
 
-/** Mint a half-card. Returns the vouch id AND the secret to embed in the share link. */
+/** True for exactly 32 bytes of hex — a well-formed claim seed or legacy claim secret.
+ *  `fromHex` quietly turns junk into zero bytes, so check before signing with a link. */
+export function isClaimCode(hex: string): boolean {
+  return /^[0-9a-f]{64}$/i.test(hex);
+}
+
+/** What a claim link carries: the claim key's seed (`k`, cards from `mint_vouch_signed`)
+ *  or, for cards minted before the key existed, the plain claim secret (`s`). */
+export interface ClaimCode {
+  kind: 'key' | 'secret';
+  code: string;
+}
+
+/** A card's share link. The code rides in the URL fragment, which the browser never sends
+ *  to any server. */
+export function claimLink(origin: string, vouchId: number, claim: ClaimCode): string {
+  return `${buildClaimUrl(origin, vouchId)}#${claim.kind === 'key' ? 'k' : 's'}=${claim.code}`;
+}
+
+/** The claim code in a claim link: `#k=…` or `#s=…` from the fragment, else the `?s=…` query
+ *  of links shared before the fragment switch. `null` when the link carries none. */
+export function parseClaimCode(hash: string, search: string): ClaimCode | null {
+  const fragment = new URLSearchParams(hash.replace(/^#/, ''));
+  const seed = fragment.get('k');
+  if (seed) return { kind: 'key', code: seed };
+  const secret = fragment.get('s') ?? new URLSearchParams(search).get('s');
+  return secret ? { kind: 'secret', code: secret } : null;
+}
+
+/** Domain tag leading every claim message (the contract's `CLAIM_DOMAIN`). */
+export const VOUCH_CLAIM_DOMAIN = 'alvinmunk_vouch_claim';
+
+/**
+ * The bytes a card's claim key signs to claim `vouchId` for `claimer`: the XDR of the ScVal
+ * vector `[Symbol(VOUCH_CLAIM_DOMAIN), sha256(passphrase), contract, u64 vouchId, claimer]`,
+ * byte for byte the contract's `claim_message` (both sides pin the same test vector). Built
+ * here, never read from an RPC node: a dishonest node could return the message for ITS
+ * address, and the link's key would sign the card over to it.
+ */
+export function claimMessage(
+  passphrase: string,
+  contractId: string,
+  vouchId: number,
+  claimer: string,
+): Buffer {
+  return xdr.ScVal.scvVec([
+    xdr.ScVal.scvSymbol(VOUCH_CLAIM_DOMAIN),
+    xdr.ScVal.scvBytes(hash(passphrase)),
+    new Address(contractId).toScVal(),
+    nativeToScVal(vouchId, { type: 'u64' }),
+    new Address(claimer).toScVal(),
+  ]).toXDR();
+}
+
+/** The ed25519 key behind a link's 32-byte claim seed. */
+function claimKeypair(seed: Uint8Array): Keypair {
+  return Keypair.fromRawEd25519Seed(seed as Buffer);
+}
+
+/** The public claim key `mint_vouch_signed` stores for a seed. */
+export function claimPublicKey(seed: Uint8Array): Uint8Array {
+  return new Uint8Array(claimKeypair(seed).rawPublicKey());
+}
+
+/** The seed's signature over `claimMessage` — what `claim_vouch_signed` verifies. */
+export function signClaim(
+  seed: Uint8Array,
+  passphrase: string,
+  contractId: string,
+  vouchId: number,
+  claimer: string,
+): Uint8Array {
+  const message = claimMessage(passphrase, contractId, vouchId, claimer);
+  return new Uint8Array(claimKeypair(seed).sign(message));
+}
+
+/** Mint a half-card bound to a fresh claim key. Returns the vouch id AND the key's seed
+ *  (hex) to embed in the share link — the only copy; the chain holds the public half. */
 export async function mintVouch(
   wallet: Wallet,
   note: string,
-): Promise<{ id: number; secret: string }> {
-  const secret = randomBytes(32);
-  const claimHash = await sha256(secret);
+): Promise<{ id: number; seed: string }> {
+  const seed = randomBytes(32);
   const id = await invokeAndWait<bigint>(
     repId(),
-    'mint_vouch',
-    [args.addr(wallet.address), args.bytes(claimHash), args.str(note)],
+    'mint_vouch_signed',
+    [args.addr(wallet.address), args.bytes(claimPublicKey(seed)), args.str(note)],
     wallet,
   );
-  return { id: Number(id), secret: toHex(secret) };
+  return { id: Number(id), seed: toHex(seed) };
 }
 
-/** Claim a half-card by presenting the secret from the link. Both sides earn Social XP. */
+/** Claim a half-card by signing the claim for this wallet with the seed from the link.
+ *  The seed stays here; the transaction carries only the signature, which is worthless
+ *  for any other claimer, card, contract or network. Both sides earn Social XP. */
+export async function claimVouchSigned(wallet: Wallet, vouchId: number, seedHex: string): Promise<void> {
+  const sig = signClaim(fromHex(seedHex), networkPassphrase, repId(), vouchId, wallet.address);
+  await invokeAndWait(
+    repId(),
+    'claim_vouch_signed',
+    [args.addr(wallet.address), args.u64(vouchId), args.bytes(sig)],
+    wallet,
+  );
+}
+
+/** LEGACY: claim a card minted with a claim hash (links with `s=`) by presenting its secret.
+ *  The secret is a plain transaction argument, so these older cards stay front-runnable;
+ *  new cards use `mintVouch` + `claimVouchSigned`. Both sides earn Social XP. */
 export async function claimVouch(wallet: Wallet, vouchId: number, secretHex: string): Promise<void> {
   await invokeAndWait(
     repId(),
