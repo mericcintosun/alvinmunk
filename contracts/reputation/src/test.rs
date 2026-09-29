@@ -27,19 +27,6 @@ fn secret_and_hash(env: &Env, fill: u8) -> (Bytes, BytesN<32>) {
     (secret, hash)
 }
 
-/// A 32-byte ed25519 seed, its public key, and a signature over the claim payload
-/// `xdr([id, claimer, contract_address])` — the same shape `quest_registry` uses.
-fn signed_claim(
-    env: &Env,
-    client: &ReputationContractClient,
-    id: u32,
-    claimer: &Address,
-    seed: &[u8; 32],
-) -> BytesN<64> {
-    let payload = (id, claimer.clone(), client.address.clone()).into_val(env);
-    env.crypto().ed25519_sign(&BytesN::from_array(env, seed), &payload)
-}
-
 /// Notes of exactly `MAX_NOTE_BYTES` UTF-8 bytes: ASCII, then 2-, 3- and 4-byte characters.
 fn notes_at_cap() -> [std::string::String; 4] {
     [
@@ -111,7 +98,6 @@ fn max_length_note_still_claims() {
     let note = String::from_str(&env, &"💧".repeat(60));
     let id = client.mint_vouch(&alice, &hash, &note);
 
-    // Legacy entrypoint still works for cards minted before the signed flow.
     client.claim_vouch(&bob, &id, &secret);
 
     let v = client.get_vouch(&id).unwrap();
@@ -120,7 +106,6 @@ fn max_length_note_still_claims() {
 }
 
 #[test]
-#[should_panic]
 fn vouch_claim_secret_grants_asymmetric_social_xp() {
     let (env, client, _admin) = setup();
     let alice = Address::generate(&env);
@@ -137,7 +122,6 @@ fn vouch_claim_secret_grants_asymmetric_social_xp() {
     assert_eq!(client.get_score(&alice), 15);
     assert_eq!(client.get_score(&bob), 0);
 
-    // Legacy entrypoint: still claimable by secret, but only for pre-signed cards.
     // Bob binds his address at claim time by presenting the secret.
     client.claim_vouch(&bob, &id, &secret);
 
@@ -160,7 +144,6 @@ fn claim_with_wrong_secret_reverts() {
     let (_secret, hash) = secret_and_hash(&env, 7);
     let id = client.mint_vouch(&alice, &hash, &String::from_str(&env, "x"));
     let wrong = Bytes::from_array(&env, &[9u8; 32]);
-    // Legacy entrypoint: wrong secret still reverts.
     client.claim_vouch(&bob, &id, &wrong); // panics: BadSecret
 }
 
@@ -172,7 +155,6 @@ fn double_claim_reverts() {
     let bob = Address::generate(&env);
     let (secret, hash) = secret_and_hash(&env, 7);
     let id = client.mint_vouch(&alice, &hash, &String::from_str(&env, "gg"));
-    // Legacy entrypoint: double claim still reverts.
     client.claim_vouch(&bob, &id, &secret);
     client.claim_vouch(&bob, &id, &secret); // panics: AlreadyClaimed
 }
@@ -184,7 +166,6 @@ fn self_vouch_reverts() {
     let alice = Address::generate(&env);
     let (secret, hash) = secret_and_hash(&env, 7);
     let id = client.mint_vouch(&alice, &hash, &String::from_str(&env, "me"));
-    // Legacy entrypoint: self-vouch still reverts.
     client.claim_vouch(&alice, &id, &secret); // panics: SelfVouch
 }
 
@@ -196,7 +177,6 @@ fn repeated_pair_grants_no_more_social_xp() {
 
     let (s1, h1) = secret_and_hash(&env, 1);
     let id1 = client.mint_vouch(&alice, &h1, &String::from_str(&env, "first"));
-    // Legacy entrypoint: repeated pair still grants no more Social XP.
     client.claim_vouch(&bob, &id1, &s1);
 
     let (s2, h2) = secret_and_hash(&env, 2);
@@ -220,7 +200,6 @@ fn daily_cap_reverts_on_overuse() {
     for i in 0..MAX_VOUCH_PER_DAY {
         let (s, h) = secret_and_hash(&env, i as u8);
         let id = client.mint_vouch(&alice, &h, &String::from_str(&env, "spam"));
-        // Legacy entrypoint: daily cap still enforced.
         client.claim_vouch(&bob, &id, &s);
     }
     // the 21st mint in the same day exceeds the per-day cap.
@@ -256,7 +235,6 @@ fn stake_refunded_on_timely_claim() {
     let (s, h) = secret_and_hash(&env, 7);
     let id = client.mint_vouch(&alice, &h, &String::from_str(&env, "x"));
     assert_eq!(client.get_score(&alice), 15); // escrowed
-    // Legacy entrypoint: stake refunded on timely claim.
     client.claim_vouch(&bob, &id, &s); // within the 7-day window
     assert_eq!(client.get_score(&alice), 20); // refunded
 }
@@ -270,7 +248,6 @@ fn stake_slashed_when_claimed_after_ttl() {
     let id = client.mint_vouch(&alice, &h, &String::from_str(&env, "x"));
     // Jump past the 7-day window before claiming.
     env.ledger().with_mut(|l| l.timestamp = VOUCH_TTL_SECS + 1);
-    // Legacy entrypoint: stake slashed when claimed after TTL.
     client.claim_vouch(&bob, &id, &s);
     // No refund: Alice stays slashed at 15. Bob still gets the first-pair claim XP.
     assert_eq!(client.get_score(&alice), 15);
@@ -310,7 +287,6 @@ fn second_order_bonus_unlocks_on_verified_action() {
 
     let (s, h) = secret_and_hash(&env, 7);
     let id = client.mint_vouch(&alice, &h, &String::from_str(&env, "x"));
-    // Legacy entrypoint: bonus pending until Bob verifies.
     client.claim_vouch(&bob, &id, &s); // refund -> alice 20; bonus PENDING (bob unverified)
     assert_eq!(client.get_score(&alice), 20);
     assert!(!client.is_verified(&bob));
@@ -337,7 +313,6 @@ fn bonus_immediate_when_claimer_already_verified() {
     // Now Alice vouches Bob -> the claim pays Alice's bonus immediately.
     let (s, h) = secret_and_hash(&env, 7);
     let id = client.mint_vouch(&alice, &h, &String::from_str(&env, "x"));
-    // Legacy entrypoint: bonus immediate when claimer already verified.
     client.claim_vouch(&bob, &id, &s); // refund 5 -> 20, + immediate bonus 5 -> 25
     assert_eq!(client.get_score(&alice), 25);
 }
@@ -404,7 +379,6 @@ fn get_profile_aggregates_across_social_and_earned_state_changes() {
     // Vouch + claim: Social XP only, still unverified.
     let (secret, hash) = secret_and_hash(&env, 7);
     let id = client.mint_vouch(&alice, &hash, &String::from_str(&env, "hi"));
-    // Legacy entrypoint: profile aggregates across social and earned state changes.
     client.claim_vouch(&bob, &id, &secret);
 
     let p1 = client.get_profile(&bob);
@@ -657,7 +631,6 @@ fn vouch(
 ) {
     let (s, h) = secret_and_hash(env, fill);
     let id = client.mint_vouch(from, &h, &String::from_str(env, "hey"));
-    // Legacy entrypoint: used by counter tests on pre-signed cards.
     client.claim_vouch(claimer, &id, &s);
 }
 
@@ -739,7 +712,6 @@ fn rejected_claims_leave_counters_untouched() {
     assert_eq!(client.get_counts(&bob), (0, 0));
     assert_eq!(client.get_counts(&alice), (0, 0));
 
-    // Legacy entrypoint: successful claim moves counters.
     client.claim_vouch(&bob, &id, &s);
     // Re-claiming the same card (by anyone) is rejected and counts nothing.
     assert_eq!(
@@ -941,7 +913,6 @@ fn upgrade_keeps_notes_and_enforces_the_note_cap() {
     let hash = env.deployer().upload_contract_wasm(REPUTATION_WASM);
     client.upgrade(&hash);
 
-    // Legacy entrypoint: a vouch minted before the upgrade decodes and claims as before.
     // A vouch minted before the upgrade decodes and claims as before.
     client.claim_vouch(&bob, &id, &secret);
     assert_eq!(client.get_vouch(&id).unwrap().note, note);
@@ -1014,7 +985,6 @@ fn writes_extend_persistent_entries_to_bump_extend() {
         let (secret, h) = secret_and_hash(&env, 7);
 
         let id = client.mint_vouch(&alice, &h, &String::from_str(&env, "hi"));
-        // Legacy entrypoint: TTLs still bumped on claim.
         client.claim_vouch(&bob, &id, &secret);
         // Bob is not verified yet, so Alice's 2nd-order bonus is queued under Pending(bob).
         assert_eq!(
@@ -1081,59 +1051,475 @@ fn later_writes_top_the_ttl_back_up() {
     );
 }
 
-// --- Signed claims bind the card to the intended claimer (issue #XXX) ---
+// --- Signed claims: the link key binds a card to one claimer (issue #121) ---
 
-/// Mint a signed card: the link carries a 32-byte ed25519 seed; `mint` stores its pubkey.
+use ed25519_dalek::{Signer, SigningKey};
+use soroban_sdk::xdr::ToXdr;
+
+/// sha256("Test SDF Network ; September 2015") and sha256("Public Global Stellar Network ;
+/// September 2015") — the network ids the contract reads from the ledger.
+const TESTNET_ID: &str = "cee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472";
+const MAINNET_ID: &str = "7ac33997544e3175d266bd022439b22cdb16508c01163f26e5cb2a3e1045a979";
+
+fn network_id(env: &Env, hex: &str) -> BytesN<32> {
+    let mut id = [0u8; 32];
+    for (i, b) in id.iter_mut().enumerate() {
+        *b = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).unwrap();
+    }
+    BytesN::from_array(env, &id)
+}
+
+/// `setup()` on testnet: the ledger reports testnet's network id.
+fn setup_testnet() -> (Env, ReputationContractClient<'static>, Address) {
+    let (env, client, admin) = setup();
+    let id = network_id(&env, TESTNET_ID).to_array();
+    env.ledger().set_network_id(id);
+    (env, client, admin)
+}
+
+/// The share link's claim key: an ed25519 seed (in the link) and its public key (on-chain).
+fn link_key(fill: u8) -> SigningKey {
+    SigningKey::from_bytes(&[fill; 32])
+}
+
+fn claim_pubkey(env: &Env, sk: &SigningKey) -> BytesN<32> {
+    BytesN::from_array(env, &sk.verifying_key().to_bytes())
+}
+
+/// The claim message exactly as docs/ON_CHAIN_EVENTS.md specifies it, built here rather
+/// than through the contract so these tests pin the format instead of echoing it.
+fn claim_message(
+    env: &Env,
+    tag: &str,
+    network: &BytesN<32>,
+    contract: &Address,
+    vouch_id: u64,
+    claimer: &Address,
+) -> Bytes {
+    let parts: Vec<Val> = soroban_sdk::vec![
+        env,
+        Symbol::new(env, tag).into_val(env),
+        network.into_val(env),
+        contract.into_val(env),
+        vouch_id.into_val(env),
+        claimer.into_val(env),
+    ];
+    parts.to_xdr(env)
+}
+
+fn sign(env: &Env, sk: &SigningKey, message: &Bytes) -> BytesN<64> {
+    let msg: std::vec::Vec<u8> = message.iter().collect();
+    BytesN::from_array(env, &sk.sign(&msg).to_bytes())
+}
+
+/// What the claim page does: sign (this network, this contract, `vouch_id`, `claimer`).
+fn claim_sig(
+    env: &Env,
+    client: &ReputationContractClient,
+    sk: &SigningKey,
+    vouch_id: u64,
+    claimer: &Address,
+) -> BytesN<64> {
+    let network = env.ledger().network_id();
+    let msg = claim_message(
+        env,
+        CLAIM_DOMAIN,
+        &network,
+        &client.address,
+        vouch_id,
+        claimer,
+    );
+    sign(env, sk, &msg)
+}
+
 fn mint_signed(
     env: &Env,
     client: &ReputationContractClient,
     from: &Address,
-    seed: &[u8; 32],
-    fill: u8,
-) -> u32 {
-    let (_s, h) = secret_and_hash(env, fill);
-    let pubkey = BytesN::from_array(env, seed);
-    client.mint_vouch_signed(from, &h, &pubkey, &String::from_str(env, "signed"))
+    sk: &SigningKey,
+) -> u64 {
+    client.mint_vouch_signed(from, &claim_pubkey(env, sk), &String::from_str(env, "gm"))
+}
+
+/// Run a claim that must fail signature verification. `ed25519_verify` traps with
+/// Error(Crypto, InvalidInput); a `try_` call would narrow that (like any host error) to
+/// Error(Context, InvalidAction), which cannot tell a bad signature from other traps.
+fn assert_bad_signature(claim: impl FnOnce()) {
+    let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(claim))
+        .expect_err("the claim must be rejected");
+    let msg = payload
+        .downcast_ref::<std::string::String>()
+        .map(|s| s.as_str())
+        .or_else(|| payload.downcast_ref::<&str>().copied())
+        .unwrap_or_default();
+    assert!(
+        msg.contains("Error(Crypto, InvalidInput)"),
+        "not a signature failure: {msg}"
+    );
 }
 
 #[test]
-fn signed_claim_only_works_for_the_signed_claimer() {
-    let (env, client, _admin) = setup();
+fn claim_errors_are_appended_after_note_too_long() {
+    // Deployed web builds map #1..#12; the new code must not renumber any of them.
+    assert_eq!(Error::NoteTooLong as u32, 12);
+    assert_eq!(Error::WrongClaimMethod as u32, 13);
+}
+
+#[test]
+fn signed_vouch_claims_for_the_address_the_link_holder_signed() {
+    let (env, client, _admin) = setup_testnet();
     let alice = Address::generate(&env);
     let bob = Address::generate(&env);
-    let seed = [7u8; 32];
-    let id = mint_signed(&env, &client, &alice, &seed, 1);
+    let sk = link_key(7);
 
-    let sig = signed_claim(&env, &client, id, &bob, &seed);
+    let id = mint_signed(&env, &client, &alice, &sk);
+    assert_eq!(client.get_claim_key(&id), Some(claim_pubkey(&env, &sk)));
+    let minted = client.get_vouch(&id).unwrap();
+    assert_eq!(minted.claim_hash, BytesN::from_array(&env, &[0; 32]));
+    assert_eq!(client.get_score(&alice), 15); // stake escrowed, as with mint_vouch
+
+    client.claim_vouch_signed(&bob, &id, &claim_sig(&env, &client, &sk, id, &bob));
+
+    let v = client.get_vouch(&id).unwrap();
+    assert!(v.claimed);
+    assert_eq!(v.claimer, Some(bob.clone()));
+    // Same economics as the legacy path: refund, starter + claim XP, queued bonus, counters.
+    assert_eq!(client.get_score(&alice), 20);
+    assert_eq!(client.get_score(&bob), 30);
+    assert_eq!(client.get_pending(&bob).len(), 1);
+    assert_eq!(client.get_counts(&bob), (1, 0));
+    assert_eq!(client.get_counts(&alice), (0, 1));
+}
+
+#[test]
+fn front_runner_cannot_reuse_a_claim_signature_for_their_own_address() {
+    let (env, client, _admin) = setup_testnet();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let eve = Address::generate(&env);
+    let sk = link_key(7);
+    let id = mint_signed(&env, &client, &alice, &sk);
+
+    // Eve copies Bob's pending claim (signature and all) and swaps in her own address.
+    let bobs_sig = claim_sig(&env, &client, &sk, id, &bob);
+    assert_bad_signature(|| client.claim_vouch_signed(&eve, &id, &bobs_sig));
+    assert!(!client.get_vouch(&id).unwrap().claimed);
+    assert_eq!(client.get_counts(&eve), (0, 0));
+    assert_eq!(client.get_score(&eve), 0);
+
+    // Bob's own claim still lands.
+    client.claim_vouch_signed(&bob, &id, &bobs_sig);
+    assert_eq!(client.get_vouch(&id).unwrap().claimer, Some(bob));
+}
+
+#[test]
+fn claim_signature_does_not_replay_on_another_vouch() {
+    let (env, client, _admin) = setup_testnet();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    // Even a voucher who reuses one link key: the signature names the card.
+    let sk = link_key(7);
+    let first = mint_signed(&env, &client, &alice, &sk);
+    let second = mint_signed(&env, &client, &alice, &sk);
+
+    let sig = claim_sig(&env, &client, &sk, first, &bob);
+    assert_bad_signature(|| client.claim_vouch_signed(&bob, &second, &sig));
+    client.claim_vouch_signed(&bob, &first, &sig);
+    assert!(!client.get_vouch(&second).unwrap().claimed);
+}
+
+#[test]
+fn claim_signature_does_not_replay_on_another_deployment() {
+    let (env, client, admin) = setup_testnet();
+    let other = ReputationContractClient::new(&env, &env.register(ReputationContract, ()));
+    other.init(&admin);
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let sk = link_key(7);
+    // Same key, same id (1) on both deployments.
+    let id = mint_signed(&env, &client, &alice, &sk);
+    assert_eq!(mint_signed(&env, &other, &alice, &sk), id);
+
+    let sig = claim_sig(&env, &client, &sk, id, &bob);
+    assert_bad_signature(|| other.claim_vouch_signed(&bob, &id, &sig));
     client.claim_vouch_signed(&bob, &id, &sig);
+}
+
+#[test]
+fn claim_signature_for_another_network_or_domain_is_rejected() {
+    let (env, client, _admin) = setup_testnet();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let sk = link_key(7);
+    let id = mint_signed(&env, &client, &alice, &sk);
+    let testnet = network_id(&env, TESTNET_ID);
+    let mainnet = network_id(&env, MAINNET_ID);
+
+    // Signed for mainnet, submitted on testnet.
+    let wrong_network = claim_message(&env, CLAIM_DOMAIN, &mainnet, &client.address, id, &bob);
+    assert_bad_signature(|| client.claim_vouch_signed(&bob, &id, &sign(&env, &sk, &wrong_network)));
+    // Right network, wrong domain tag.
+    let wrong_tag = claim_message(&env, "alvinmunk_quest", &testnet, &client.address, id, &bob);
+    assert_bad_signature(|| client.claim_vouch_signed(&bob, &id, &sign(&env, &sk, &wrong_tag)));
+    // The testnet message claims.
+    let right = claim_message(&env, CLAIM_DOMAIN, &testnet, &client.address, id, &bob);
+    client.claim_vouch_signed(&bob, &id, &sign(&env, &sk, &right));
     assert!(client.get_vouch(&id).unwrap().claimed);
 }
 
 #[test]
-#[should_panic]
-fn replaying_a_signature_for_a_different_claimer_reverts() {
-    let (env, client, _admin) = setup();
+fn claim_signature_from_another_key_is_rejected() {
+    let (env, client, _admin) = setup_testnet();
     let alice = Address::generate(&env);
     let bob = Address::generate(&env);
-    let carol = Address::generate(&env);
-    let seed = [9u8; 32];
-    let id = mint_signed(&env, &client, &alice, &seed, 2);
+    let id = mint_signed(&env, &client, &alice, &link_key(7));
 
-    // Bob's signature is copied by Carol, who tries to claim the same card.
-    let sig = signed_claim(&env, &client, id, &bob, &seed);
-    client.claim_vouch_signed(&carol, &id, &sig); // panics: BadSignature
+    let forged = claim_sig(&env, &client, &link_key(8), id, &bob);
+    assert_bad_signature(|| client.claim_vouch_signed(&bob, &id, &forged));
 }
 
 #[test]
-#[should_panic]
-fn signed_claim_with_wrong_seed_reverts() {
-    let (env, client, _admin) = setup();
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn signed_claim_needs_the_claimers_own_auth() {
+    let (env, client, _admin) = setup_testnet();
     let alice = Address::generate(&env);
     let bob = Address::generate(&env);
-    let seed = [3u8; 32];
-    let id = mint_signed(&env, &client, &alice, &seed, 3);
+    let sk = link_key(7);
+    let id = mint_signed(&env, &client, &alice, &sk);
+    let sig = claim_sig(&env, &client, &sk, id, &bob);
 
-    // A different seed produces a signature the stored pubkey rejects.
-    let sig = signed_claim(&env, &client, id, &bob, &[4u8; 32]);
-    client.claim_vouch_signed(&bob, &id, &sig); // panics: BadSignature
+    // A valid signature for Bob, submitted without Bob's authorization.
+    env.set_auths(&[]);
+    client.claim_vouch_signed(&bob, &id, &sig);
+}
+
+#[test]
+fn signed_claim_keeps_the_self_vouch_and_double_claim_guards() {
+    let (env, client, _admin) = setup_testnet();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let sk = link_key(7);
+    let id = mint_signed(&env, &client, &alice, &sk);
+
+    let own = claim_sig(&env, &client, &sk, id, &alice);
+    assert_eq!(
+        client.try_claim_vouch_signed(&alice, &id, &own),
+        Err(Ok(contract_err(Error::SelfVouch)))
+    );
+    let sig = claim_sig(&env, &client, &sk, id, &bob);
+    client.claim_vouch_signed(&bob, &id, &sig);
+    assert_eq!(
+        client.try_claim_vouch_signed(&bob, &id, &sig),
+        Err(Ok(contract_err(Error::AlreadyClaimed)))
+    );
+    assert_eq!(
+        client.try_claim_vouch_signed(&bob, &99, &sig),
+        Err(Ok(contract_err(Error::VouchNotFound)))
+    );
+}
+
+#[test]
+fn each_card_only_claims_through_its_own_entrypoint() {
+    let (env, client, _admin) = setup_testnet();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let sk = link_key(7);
+    let keyed = mint_signed(&env, &client, &alice, &sk);
+    let (secret, hash) = secret_and_hash(&env, 7);
+    let hashed = client.mint_vouch(&alice, &hash, &String::from_str(&env, "x"));
+    assert_eq!(client.get_claim_key(&hashed), None);
+
+    // A keyed card has no secret: not the public key, not the all-zero claim_hash's bytes.
+    let pubkey = Bytes::from_array(&env, &claim_pubkey(&env, &sk).to_array());
+    for guess in [pubkey, Bytes::from_array(&env, &[0; 32]), secret.clone()] {
+        assert_eq!(
+            client.try_claim_vouch(&bob, &keyed, &guess),
+            Err(Ok(contract_err(Error::WrongClaimMethod)))
+        );
+    }
+    // A hash-bound card never accepts a signature.
+    assert_eq!(
+        client.try_claim_vouch_signed(&bob, &hashed, &claim_sig(&env, &client, &sk, hashed, &bob)),
+        Err(Ok(contract_err(Error::WrongClaimMethod)))
+    );
+    // Both still claim the right way.
+    client.claim_vouch(&bob, &hashed, &secret);
+    client.claim_vouch_signed(&bob, &keyed, &claim_sig(&env, &client, &sk, keyed, &bob));
+    assert!(client.get_vouch(&hashed).unwrap().claimed);
+    assert!(client.get_vouch(&keyed).unwrap().claimed);
+}
+
+#[test]
+fn signed_mint_shares_the_note_cap_and_the_daily_cap() {
+    let (env, client, _admin) = setup_testnet();
+    let alice = Address::generate(&env);
+    let key = claim_pubkey(&env, &link_key(7));
+    let over = String::from_str(&env, &"a".repeat(MAX_NOTE_BYTES as usize + 1));
+    assert_eq!(
+        client.try_mint_vouch_signed(&alice, &key, &over),
+        Err(Ok(contract_err(Error::NoteTooLong)))
+    );
+
+    // Half the day's mints one way, half the other: the cap counts both. Each card is
+    // claimed right away so the refund keeps Alice's Social XP above the stake.
+    let bob = Address::generate(&env);
+    let sk = link_key(7);
+    for i in 0..MAX_VOUCH_PER_DAY {
+        if i % 2 == 0 {
+            let id = mint_signed(&env, &client, &alice, &sk);
+            client.claim_vouch_signed(&bob, &id, &claim_sig(&env, &client, &sk, id, &bob));
+        } else {
+            let (s, h) = secret_and_hash(&env, i as u8);
+            let id = client.mint_vouch(&alice, &h, &String::from_str(&env, "b"));
+            client.claim_vouch(&bob, &id, &s);
+        }
+    }
+    assert_eq!(
+        client.try_mint_vouch_signed(&alice, &key, &String::from_str(&env, "c")),
+        Err(Ok(contract_err(Error::DailyCapReached)))
+    );
+}
+
+fn to_hex(bytes: &Bytes) -> std::string::String {
+    bytes.iter().map(|b| std::format!("{b:02x}")).collect()
+}
+
+/// The claim message for vouch 7 on testnet, from contract `C` = 32 × 0x11, for a classic
+/// claimer (G… = 32 × 0x22) and a passkey smart wallet (C… = 32 × 0x33).
+/// apps/web/src/lib/reputation.test.ts pins the web's `claimMessage` to the same bytes.
+const CLAIM_MESSAGE_G: &str = concat!(
+    "000000100000000100000005", // vec of 5
+    "0000000f00000015616c76696e6d756e6b5f766f7563685f636c61696d000000", // Symbol("alvinmunk_vouch_claim")
+    "0000000d00000020cee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472", // BytesN<32> network id
+    "00000012000000011111111111111111111111111111111111111111111111111111111111111111", // Address, contract
+    "000000050000000000000007", // u64 vouch id
+    "0000001200000000000000002222222222222222222222222222222222222222222222222222222222222222", // Address, account (ed25519)
+);
+const CLAIM_MESSAGE_C: &str = concat!(
+    "000000100000000100000005", // vec of 5
+    "0000000f00000015616c76696e6d756e6b5f766f7563685f636c61696d000000", // Symbol("alvinmunk_vouch_claim")
+    "0000000d00000020cee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472", // BytesN<32> network id
+    "00000012000000011111111111111111111111111111111111111111111111111111111111111111", // Address, contract
+    "000000050000000000000007", // u64 vouch id
+    "00000012000000013333333333333333333333333333333333333333333333333333333333333333", // Address, contract
+);
+
+#[test]
+fn claim_message_matches_the_documented_bytes() {
+    let env = Env::default();
+    let testnet = network_id(&env, TESTNET_ID);
+    env.ledger().set_network_id(testnet.to_array());
+    let contract = Address::from_str(
+        &env,
+        "CAIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRDB3V",
+    );
+    env.register_at(&contract, ReputationContract, ());
+    let classic = Address::from_str(
+        &env,
+        "GARCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCFRVX",
+    );
+    let passkey = Address::from_str(
+        &env,
+        "CAZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGGJH",
+    );
+
+    for (claimer, expected) in [(classic, CLAIM_MESSAGE_G), (passkey, CLAIM_MESSAGE_C)] {
+        let msg = env.as_contract(&contract, || {
+            ReputationContract::claim_message(&env, 7, &claimer)
+        });
+        assert_eq!(to_hex(&msg), expected);
+        assert_eq!(
+            msg,
+            claim_message(&env, CLAIM_DOMAIN, &testnet, &contract, 7, &claimer)
+        );
+    }
+}
+
+#[test]
+fn claim_key_entry_is_bumped_like_its_vouch() {
+    for ttls in [TESTNET_TTLS, MAINNET_TTLS] {
+        let (env, client) = setup_with_ttls(ttls);
+        let alice = Address::generate(&env);
+        let id = mint_signed(&env, &client, &alice, &link_key(7));
+        assert_eq!(ttl(&env, &client, &DataKey::ClaimPubkey(id)), BUMP_EXTEND);
+        assert_eq!(ttl(&env, &client, &DataKey::Vouch(id)), BUMP_EXTEND);
+    }
+}
+
+/// A reader compiled against the nine-field `Vouch` (the web's funnel decodes raw ledger
+/// entries, generated bindings decode `get_vouch`). The claim key lives in its own entry,
+/// so a keyed card must still decode as exactly these fields.
+#[contracttype]
+#[derive(Clone)]
+pub struct LegacyVouch {
+    pub id: u64,
+    pub from: Address,
+    pub claim_hash: BytesN<32>,
+    pub note: String,
+    pub claimed: bool,
+    pub claimer: Option<Address>,
+    pub created: u64,
+    pub stake: u64,
+    pub slashed: bool,
+}
+
+#[test]
+fn signed_vouch_keeps_the_nine_field_vouch_shape() {
+    use soroban_sdk::vec;
+    let (env, client, _admin) = setup_testnet();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let sk = link_key(7);
+    let id = mint_signed(&env, &client, &alice, &sk);
+    client.claim_vouch_signed(&bob, &id, &claim_sig(&env, &client, &sk, id, &bob));
+
+    let v: Option<LegacyVouch> = env.invoke_contract(
+        &client.address,
+        &Symbol::new(&env, "get_vouch"),
+        vec![&env, id.into_val(&env)],
+    );
+    let v = v.unwrap();
+    assert_eq!((v.id, v.from, v.claimer), (id, alice, Some(bob)));
+    assert!(v.claimed && !v.slashed);
+    // The raw entry holds the same map, not a tenth field.
+    let raw: LegacyVouch = env.as_contract(&client.address, || {
+        env.storage().persistent().get(&DataKey::Vouch(id)).unwrap()
+    });
+    assert_eq!(raw.stake, VOUCH_STAKE);
+}
+
+#[test]
+fn upgrade_keeps_legacy_vouches_claimable_and_serves_signed_ones() {
+    let (env, client, _admin) = setup_testnet();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let carol = Address::generate(&env);
+    // Half-cards minted by the deployed code, before the upgrade.
+    let (s1, h1) = secret_and_hash(&env, 1);
+    let (_s2, h2) = secret_and_hash(&env, 2);
+    let old = client.mint_vouch(&alice, &h1, &String::from_str(&env, "old"));
+    let other = client.mint_vouch(&alice, &h2, &String::from_str(&env, "old"));
+
+    let hash = env.deployer().upload_contract_wasm(REPUTATION_WASM);
+    client.upgrade(&hash);
+
+    // An old card still claims with its secret, and never through the signed entrypoint.
+    client.claim_vouch(&bob, &old, &s1);
+    assert_eq!(client.get_vouch(&old).unwrap().claimer, Some(bob.clone()));
+    let sk = link_key(9);
+    assert_eq!(
+        client.try_claim_vouch_signed(
+            &carol,
+            &other,
+            &claim_sig(&env, &client, &sk, other, &carol)
+        ),
+        Err(Ok(contract_err(Error::WrongClaimMethod)))
+    );
+
+    // The upgraded build mints key-bound cards and binds them to the signed claimer.
+    let id = mint_signed(&env, &client, &alice, &sk);
+    let bobs_sig = claim_sig(&env, &client, &sk, id, &bob);
+    assert_bad_signature(|| client.claim_vouch_signed(&carol, &id, &bobs_sig));
+    client.claim_vouch_signed(&carol, &id, &claim_sig(&env, &client, &sk, id, &carol));
+    assert_eq!(client.get_vouch(&id).unwrap().claimer, Some(carol));
 }

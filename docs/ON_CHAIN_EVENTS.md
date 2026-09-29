@@ -218,11 +218,6 @@ env.events().publish(
     (symbol_short!("vouch"), symbol_short!("claimed")),
     (vouch_id, vouch.from, claimer));
 
-// Claim (legacy, pre-upgrade cards only):
-env.events().publish(
-    (symbol_short!("vouch"), symbol_short!("claimed")),
-    (vouch_id, vouch.from, claimer));
-
 // Slash:
 env.events().publish(
     (symbol_short!("vouch"), symbol_short!("slashed")),
@@ -631,7 +626,6 @@ pub struct Attestation {
 pub struct Vouch {
     pub id: u64,
     pub from: Address,
-    pub claim_pubkey: Option<BytesN<32>>, // ed25519 pubkey for signed mints; None for legacy
     pub claim_hash: BytesN<32>,  // sha256 of the claim secret
     pub note: String,            // free-text note from the voucher, <= 240 BYTES of UTF-8
     pub claimed: bool,

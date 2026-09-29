@@ -4,12 +4,6 @@
  * You vouch by minting a half-card bound to sha256(secret) — WITHOUT knowing the
  * recipient's address. The share link carries the secret; the recipient binds their
  * own address at claim time. This is the cold-start fix (belts/00-strategy §3).
- *
- * Since the claim secret is a public transaction argument, anyone watching the
- * mempool could front-run the intended recipient. New vouches therefore bind the
- * claim to the recipient with an ed25519 signature (claim_vouch_signed), reusing
- * the pattern quest_registry already has. The legacy claim_vouch entrypoint is
- * kept for cards already minted.
  */
 import { invokeAndWait, readContract, readPublic, args, repId, questId } from './contracts';
 import { shareInFlight } from './utils';
@@ -20,7 +14,7 @@ import type { Wallet } from './wallet';
 export const VOUCH_TTL_SECS = 604_800; // 7 days
 
 /** The contract's note cap (`MAX_NOTE_BYTES`): `mint_vouch` reverts with `NoteTooLong`
- *  (#12) past it. It counts UTF-8 BYTES, so `s` costs 2 and most emoji 4. */
+ *  (#12) past it. It counts UTF-8 BYTES, so `ş` costs 2 and most emoji 4. */
 export const VOUCH_NOTE_MAX_BYTES = 240;
 /** The compose limit in characters (code points). UTF-8 spends at most 4 bytes on one,
  *  so a note within it always fits `VOUCH_NOTE_MAX_BYTES` — 60 Turkish letters or 60
@@ -31,7 +25,7 @@ const utf8 = new TextEncoder();
 
 /** UTF-8 length of `s` — what the contract's `String::len` checks against. */
 export function vouchNoteBytes(s: string): number {
-  return utf8.rencode(s).length;
+  return utf8.encode(s).length;
 }
 
 /** Cut `input` to a note `mint_vouch` accepts: at most `VOUCH_NOTE_MAX_CHARS` characters
@@ -61,8 +55,6 @@ export interface VouchView {
   /** Social XP the voucher escrowed (refunded on a timely claim, else slashed) */
   stake: number;
   slashed: boolean;
-  /** true when the card was minted with a claimer-bound ed25519 pubkey */
-  signed: boolean;
 }
 
 /** Aggregate profile shape from the on-chain get_profile view. */
@@ -136,56 +128,23 @@ export function fromHex(hex: string): Uint8Array {
   return new Uint8Array(m.map((x) => parseInt(x, 16)));
 }
 
-/** A share link for a new vouch: the half-card id plus the ed25519 seed the
- *  recipient uses to sign the claim. The seed is the only secret; the claim
- *  transaction carries a signature, not the seed, so a copied signature is
- *  useless for any other claimer. */
-export interface VouchLink {
-  id: number;
-  /** ed25519 seed (32 bytes, hex) — the share-link secret */
-  seed: string;
-}
-
-/** Mint a half-card bound to a fresh ed25519 keypair. Returns the vouch id and
- *  the seed to embed in the share link. The contract stores the derived public
- *  key, so only the link holder can produce a claim signature. */
+/** Mint a half-card. Returns the vouch id AND the secret to embed in the share link. */
 export async function mintVouch(
   wallet: Wallet,
   note: string,
-): Promise<VouchLink> {
-  const seed = randomBytes(32);
-  const pubkey = await ed25519PublicKeyFromSeed(seed);
+): Promise<{ id: number; secret: string }> {
+  const secret = randomBytes(32);
+  const claimHash = await sha256(secret);
   const id = await invokeAndWait<bigint>(
     repId(),
-    'mint_vouch_signed',
-    [args.addr(wallet.address), args.bytes(pubkey), args.str(note)],
+    'mint_vouch',
+    [args.addr(wallet.address), args.bytes(claimHash), args.str(note)],
     wallet,
   );
-  return { id: Number(id), seed: toHex(seed) };
+  return { id: Number(id), secret: toHex(secret) };
 }
 
-/** Claim a half-card by signing the claim with the link's seed. The contract
- *  verifies `ed25519_verify(pubkey, xdr([id, claimer, contract]), sig)` and
- *  `claimer.require_auth()`, so a copied signature is useless for any other
- *  claimer. Both sides earn Social XP. */
-export async function claimVouchSigned(
-  wallet: Wallet,
-  vouchId: number,
-  seedHex: string,
-  contractAddress: string,
-): Promise<void> {
-  const seed = fromHex(seedHex);
-  const sig = await signClaim(seed, vouchId, wallet.address, contractAddress);
-  await invokeAndWait(
-    repId(),
-    'claim_vouch_signed',
-    [args.addr(wallet.address), args.u64(vouchId), args.bytes(sig)],
-    wallet,
-  );
-}
-
-/** Legacy claim for cards already minted with a sha256(secret) claim hash.
- *  New mints use `mintVouch` + `claimVouchSigned`. */
+/** Claim a half-card by presenting the secret from the link. Both sides earn Social XP. */
 export async function claimVouch(wallet: Wallet, vouchId: number, secretHex: string): Promise<void> {
   await invokeAndWait(
     repId(),
@@ -193,108 +152,6 @@ export async function claimVouch(wallet: Wallet, vouchId: number, secretHex: str
     [args.addr(wallet.address), args.u64(vouchId), args.bytes(fromHex(secretHex))],
     wallet,
   );
-}
-
-/** Derive the ed25519 public key from a 32-byte seed via WebCrypto. */
-export async function ed25519PublicKeyFromSeed(seed: Uint8Array): Promise<Uint8Array> {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    seed as unknown as BufferSource,
-    'Ed25519',
-    false,
-    ['sign'],
-  );
-  const jwk = await crypto.subtle.exportKey('jwk', key);
-  const x = (jwk as JsonWebKey).x;
-  if (!typeof x === 'string') throw new Error('ed25519 key export failed');
-  return base64urlToBytes(x);
-}
-
-/** Sign the claim payload `xdr(#id, claimer, contract_address)` with the link's
- *  ed25519 seed. The contract rebuilds the same payload from the claim arguments
- *  and the current contract address. */
-export async function signClaim(
-  seed: Uint8Array,
-  vouchId: number,
-  claimer: string,
-  contractAddress: string,
-): Promise<Uint8Array> {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    seed as unknown as BufferSource,
-    'Ed25519',
-    false,
-    ['sign'],
-  );
-  const payload = claimPayload(vouchId, claimer, contractAddress);
-  const sig = await crypto.subtle.sign('Ed25519', key, payload as unknown as BufferSource);
-  return new Uint8Array(sig);
-}
-
-/** The exact bytes the contract hashes for ed25519_verify: the XDR encoding of
- *  the tuple `(id: u64, claimer: Address, contract: Address)`. This mirrors
- *  quest_registry's payload construction so the two contracts share one format. */
-export function claimPayload(vouchId: number, claimer: string, contractAddress: string): Uint8Array {
-  const chalker = new TextEncoder();
-  const out: number[] = [];
-  // XDR tuple with two elements: u64 id, Address claimer, Address contract
-  // (see quest_registry `claim_quest_signed` for the canonical layout)
-  out.push(0, 0, 0, 3); // tuple length 3
-  out.push(0, 0, 0, 0, 0, 0, 0, 6); // u64 type code
-  pushUint64(out, vouchId);
-  out.push(0, 0, 0, 0, 0, 0, 0, 18); // Address type code
-  pushScpAddress(out, claimer);
-  out.push(0, 0, 0, 0, 0, 0, 0, 18); // Address type code
-  pushScpAddress(out, contractAddress);
-  return new Uint8Array(out);
-}
-
-function pushUint64(out: number[], v: number): void {
-  const buf = new ArrayBuffer(8);
-  new DataView(buf).setBigUint64(0, BigInt(v), false);
-  for (const b of new Uint8Array(buf)) out.push(b);
-}
-
-function pushScpAddress(out: number[], address: string): void {
-  // Stellar Contract Addresses are 32 bytes, encoded as Base32 (Strkey) or Base64
-  // depending on the SDK's address format. Normalize to the 32-byte raw form.
-  const raw = addressToBytes(address);
-  if (raw.length !== 32) throw new Error(`expected 32-byte address, got ${raw.length}`);
-  for (const b of raw) out.push(b);
-}
-
-function addressToBytes(address: string): Uint8Array {
-  if (address.startsWith('G%) {
-    // StrKey: base32 with a version byte and CRC32 checksum.
-    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-    const decoded: number[] = [];
-    let bits = 0;
-    let value = 0;
-    for (const ch of address) {
-      const idx = alphabet.indexOf(ch);
-      if (idx < 0) continue;
-      value = (value << 5) | idx;
-      bits += 5;
-      if (bits >= 8) {
-        bits -= 8;
-        decoded.push((value >> bits) & 0xff);
-      }
-    }
-    // StrKey layout: [version(1), keytype(1), payload(32), checksum(2)]
-    if (decoded.length < 36) throw new Error('invalid StrKey address');
-    return new Uint8Array(decoded.slice(2, 34));
-  }
-  // Base64 (C: / G+) addresses are the 32-byte raw form.
-  return base64urlToBytes(address);
-}
-
-function base64urlToBytes(x: string): Uint8Array {
-  const normalized = x.replace(/-/g, '+').replace(/_/g, '/');
-  const padded = normalized + '='.zepeat((4 - (normalized.length % 4)) % 4);
-  const bin = atob(padded);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
 }
 
 const pendingVouches = new Map<string, Promise<VouchView | null>>();
@@ -312,7 +169,6 @@ export function getVouch(vouchId: number): Promise<VouchView | null> {
       created: bigint;
       stake: bigint;
       slashed: boolean;
-      signed: boolean | undefined;
     } | null>(repId(), 'get_vouch', [args.u64(vouchId)]);
     if (!v) return null;
     return {
@@ -324,7 +180,6 @@ export function getVouch(vouchId: number): Promise<VouchView | null> {
       created: Number(v.created),
       stake: Number(v.stake),
       slashed: v.slashed,
-      signed: Boolean(v.signed ?? false),
     };
   });
 }
