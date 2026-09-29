@@ -221,12 +221,13 @@ describe('StatsPage — background tabs (issue #210)', () => {
       await Promise.resolve();
     });
 
+    // A minute in flight: several poll intervals pass, yet nothing is sent on top of it.
     await advance(60_000);
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     respond(ok);
-    await advance(10_000);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await advance(0);
     expect(container.textContent).toContain('3 / 50');
+    expect(fetchMock).toHaveBeenCalledTimes(1); // the next poll waits a full interval
   });
 });
