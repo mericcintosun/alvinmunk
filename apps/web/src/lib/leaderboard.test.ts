@@ -104,4 +104,12 @@ describe('fetchLeaderboard', () => {
 
     await expect(fetchLeaderboard({ throwOnError: true })).resolves.toEqual([]);
   });
+
+  it("always scans fresh: the 5s poll must not be served the dashboard's cached window", async () => {
+    vi.mocked(fetchReputationEvents).mockResolvedValue([]);
+
+    await fetchLeaderboard({ throwOnError: true });
+
+    expect(fetchReputationEvents).toHaveBeenLastCalledWith({ throwOnError: true, maxAgeMs: 0 });
+  });
 });

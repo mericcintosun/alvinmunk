@@ -107,3 +107,28 @@ export function shareInFlight<T>(
   pending.set(key, p);
   return p;
 }
+
+/**
+ * A gate that runs at most `limit` tasks at once, starting the rest in call order as slots
+ * free up — so a batch of reads (every stored vouch is one simulation) trickles out
+ * instead of bursting into the public RPC's rate limit. A freed slot passes straight to the
+ * next waiter, so a caller arriving in between can't push the count past `limit`.
+ */
+export function concurrencyLimit(limit: number): <T>(run: () => Promise<T>) => Promise<T> {
+  let active = 0;
+  const waiting: Array<() => void> = [];
+  const release = () => {
+    const next = waiting.shift();
+    if (next) next();
+    else active--;
+  };
+  return async <T>(run: () => Promise<T>): Promise<T> => {
+    if (active < limit) active++;
+    else await new Promise<void>((resolve) => waiting.push(resolve));
+    try {
+      return await run();
+    } finally {
+      release();
+    }
+  };
+}

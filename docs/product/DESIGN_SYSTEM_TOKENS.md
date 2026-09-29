@@ -24,7 +24,7 @@ light theme (`:root.light`) redefines every token (see §8)._
 
   /* Electric violet — primary / on-chain */
   --primary: 265 100% 66%;
-  --primary-foreground: 0 0% 100%;
+  --primary-foreground: 265 60% 6%;
 
   /* Mint green — earned / verified energy */
   --secondary: 157 84% 52%;
@@ -38,7 +38,7 @@ light theme (`:root.light`) redefines every token (see §8)._
   --accent-foreground: 265 60% 6%;
 
   --destructive: 350 82% 62%;
-  --destructive-foreground: 250 30% 97%;
+  --destructive-foreground: 265 60% 6%;
   --success: 157 84% 52%;
   --warning: 38 95% 62%;
 
@@ -53,6 +53,7 @@ light theme (`:root.light`) redefines every token (see §8)._
 
   /* Signature flow + depth surfaces */
   --tertiary: 193 100% 52%;          /* cyan — social / connection */
+  --flow-violet: 265 100% 66%;       /* violet stop of .flow (light: 68%, for its dark label) */
   --surface: 266 34% 9%;
   --surface-2: 266 30% 12%;
   --hairline: 260 60% 100%;
@@ -87,7 +88,7 @@ light theme (`:root.light`) redefines every token (see §8)._
   --accent: 36 100% 55%;
   --accent-foreground: 265 60% 8%;
   --destructive: 350 82% 55%;
-  --destructive-foreground: 250 30% 98%;
+  --destructive-foreground: 265 60% 8%;
   --success: 157 84% 45%;
   --warning: 38 95% 55%;
   --border: 265 26% 85%;
@@ -97,6 +98,7 @@ light theme (`:root.light`) redefines every token (see §8)._
   --onchain: 265 100% 60%;
   --radius: 0.875rem;
   --tertiary: 193 100% 45%;
+  --flow-violet: 265 100% 68%;
   --surface: 266 34% 97%;
   --surface-2: 266 30% 93%;
   --hairline: 260 60% 15%;
@@ -115,9 +117,9 @@ Both blocks define the same tokens; a token added to one must be added to the ot
 
 Tailwind wiring (`apps/web/tailwind.config.ts` `theme.extend.colors`): map each to
 `hsl(var(--token) / <alpha-value>)` exactly as shadcn does. Add `starlight`, `onchain`,
-`tertiary`, `lime`, `surface`, `success`, `warning` as named colors. `hairline` and the
-decorative tokens are not Tailwind colors; only the `.glass`, `.grid-faint`, `.nebula` and
-`.aurora` utilities in `globals.css` read them.
+`tertiary`, `lime`, `surface`, `success`, `warning` as named colors. `hairline`, `flow-violet`
+and the decorative tokens are not Tailwind colors; only the `.glass`, `.grid-faint`, `.nebula`,
+`.aurora` and `.flow` utilities in `globals.css` read them.
 
 **Usage law:** violet/`onchain` = on-chain / verified moments; mint/`secondary` = earned
 energy; gold/`accent` = human warmth (vouch), used sparingly. No raw hex in components —
@@ -127,6 +129,14 @@ every color must trace back to a token in this file.
 named `onchain` uses it: `Badge variant="onchain"` (`border-onchain/30 bg-onchain/10
 text-onchain`), `Button variant="onchain"` (`bg-onchain text-primary-foreground
 shadow-glow-onchain`) and the `shadow-glow-onchain` glow.
+
+**Button labels clear AA (4.5:1) in both themes**, against every colour the background can
+show. White fails on the dark theme's 66% violet (4.19:1), so there `--primary-foreground` is
+the dark label (4.73:1); the light theme's 60% violet keeps white (5.30:1). `flow` labels use
+`--secondary-foreground` over the whole `.flow` sweep (`--flow-violet` → `--tertiary` →
+`--secondary`), which is why the light theme's `--flow-violet` is lighter than its `--primary`
+(5.02:1 at the violet stop, where 60% would give 3.66:1). `destructive` labels are dark too
+(5.61:1 dark, 4.63:1 light). `apps/web/src/app/button-contrast.test.ts` checks every variant.
 
 ## 2. Typography scale
 

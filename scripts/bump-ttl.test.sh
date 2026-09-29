@@ -4,12 +4,16 @@
 # records every call and answers with canned TTL ledgers. If a real `stellar` is installed,
 # the flags the script used are also checked against its `--help` (offline).
 #
-# Usage: bash scripts/bump-ttl.test.sh   (needs bash and grep)
+# The id-loading cases run the real scripts/lib/env.mjs against fixture config roots, so they
+# need node; without it they are skipped.
+#
+# Usage: bash scripts/bump-ttl.test.sh   (needs bash and grep; node for the id-loading cases)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="${1:-$HERE/bump-ttl.sh}"
 REAL_STELLAR="$(command -v stellar || true)"
+REAL_NODE="$(command -v node || true)"
 W="$(mktemp -d "${TMPDIR:-/tmp}/bump-ttl-test.XXXXXX")"
 trap 'rm -rf "$W"' EXIT
 mkdir -p "$W/bin" "$W/tmp"
@@ -68,12 +72,16 @@ case "$cmd" in
 esac
 STUB
 chmod +x "$W/bin/stellar"
+[ -z "$REAL_NODE" ] || ln -s "$REAL_NODE" "$W/bin/node"
 
 export PATH="$W/bin:/usr/bin:/bin"
 export STUB_LOG="$W/stellar.log"
 export TMPDIR="$W/tmp"
 export SOURCE=test-admin NETWORK=testnet LEDGERS=123
 export REPUTATION=CREP QUEST=CQUEST REWARDS=CREWARDS
+# The id-loading cases decide these themselves.
+unset NEXT_PUBLIC_STELLAR_NETWORK NEXT_PUBLIC_NETWORK_PASSPHRASE NEXT_PUBLIC_REPUTATION_CONTRACT_ID \
+  NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID NEXT_PUBLIC_REWARDS_CONTRACT_ID ALVINMUNK_CONFIG_ROOT
 
 PASS=0
 FAIL=0
@@ -145,6 +153,65 @@ if [ -n "$REAL_STELLAR" ]; then
   done
 else
   echo "(no stellar CLI installed: skipped the --help flag check)"
+fi
+
+# --- contract ids from scripts/lib/env.mjs (no REPUTATION/QUEST/REWARDS set) ---
+cid() { printf 'C%55s' "$1" | tr ' ' A; } # a well-formed contract id ending in $1
+M_REP="$(cid REP)" M_QUEST="$(cid QUEST)" M_REWARDS="$(cid REWARDS)" L_REWARDS="$(cid LOCALREWARDS)"
+manifest() { # <config root> <reputation> <quest_registry> <rewards>
+  mkdir -p "$1/deployments"
+  printf '{"network":"testnet","passphrase":"Test SDF Network ; September 2015","contracts":{"reputation":"%s","questRegistry":"%s","rewards":"%s"}}\n' \
+    "$2" "$3" "$4" >"$1/deployments/testnet.json"
+}
+NO_IDS=(-u REPUTATION -u QUEST -u REWARDS)
+EMPTY="$W/cfg-empty" FROM_MANIFEST="$W/cfg-manifest" WITH_LOCAL="$W/cfg-local" BAD="$W/cfg-bad"
+mkdir -p "$EMPTY" "$WITH_LOCAL/apps/web"
+manifest "$FROM_MANIFEST" "$M_REP" "$M_QUEST" "$M_REWARDS"
+manifest "$WITH_LOCAL" "$M_REP" "$M_QUEST" "$M_REWARDS"
+printf 'NEXT_PUBLIC_REWARDS_CONTRACT_ID=%s\n' "$L_REWARDS" >"$WITH_LOCAL/apps/web/.env.local"
+manifest "$BAD" "$M_REP" REPLACE_WITH_QUEST_ID "$M_REWARDS"
+no_calls() { [ ! -s "$STUB_LOG" ]; }
+
+run "${NO_IDS[@]}" ALVINMUNK_CONFIG_ROOT="$EMPTY"
+check "no ids anywhere: exits 2" [ "$RC" = 2 ]
+check "no ids anywhere: names the missing reputation id" out_has "NEXT_PUBLIC_REPUTATION_CONTRACT_ID is not set"
+check "no ids anywhere: names the missing rewards id" out_has "NEXT_PUBLIC_REWARDS_CONTRACT_ID is not set"
+check "no ids anywhere: no stellar call" no_calls
+
+run -u QUEST -u REWARDS ALVINMUNK_CONFIG_ROOT="$FROM_MANIFEST"
+check "partial override: exits 2" [ "$RC" = 2 ]
+check "partial override: says why" out_has "set all of REPUTATION, QUEST and REWARDS, or none of them"
+check "partial override: no stellar call" no_calls
+
+if [ -n "$REAL_NODE" ]; then
+  run "${NO_IDS[@]}" ALVINMUNK_CONFIG_ROOT="$FROM_MANIFEST"
+  check "manifest ids: exits 0" [ "$RC" = 0 ]
+  check "manifest ids: extends exactly the manifest's contracts" \
+    [ "$(log)" = "$(expected "$M_REP" reputation "$M_QUEST" quest_registry "$M_REWARDS" rewards)" ]
+
+  run "${NO_IDS[@]}" ALVINMUNK_CONFIG_ROOT="$WITH_LOCAL"
+  check ".env.local over the manifest: its rewards id wins" [ "$(calls "extend --id $L_REWARDS")" = 1 ]
+  check ".env.local over the manifest: not the manifest's rewards id" [ "$(calls "$M_REWARDS")" = 0 ]
+  check ".env.local over the manifest: the others still come from the manifest" [ "$(calls "extend --id $M_REP")" = 1 ]
+
+  run "${NO_IDS[@]}" ALVINMUNK_CONFIG_ROOT="$WITH_LOCAL" NEXT_PUBLIC_REWARDS_CONTRACT_ID="$(cid ENVREWARDS)"
+  check "env over .env.local" [ "$(calls "extend --id $(cid ENVREWARDS)")" = 1 ]
+
+  run "${NO_IDS[@]}" ALVINMUNK_CONFIG_ROOT="$BAD"
+  check "malformed manifest id: exits 2" [ "$RC" = 2 ]
+  check "malformed manifest id: names it" out_has "NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID \(from deployments/testnet.json\) is not a contract id"
+  check "malformed manifest id: no stellar call" no_calls
+
+  run "${NO_IDS[@]}" ALVINMUNK_CONFIG_ROOT="$FROM_MANIFEST" NETWORK=mainnet
+  check "NETWORK=mainnet never uses the testnet manifest: exits 2" [ "$RC" = 2 ]
+  check "NETWORK=mainnet: looks for deployments/mainnet.json" out_has "deployments/mainnet.json \(not found\)"
+  check "NETWORK=mainnet: no stellar call" no_calls
+
+  run "${NO_IDS[@]}" ALVINMUNK_CONFIG_ROOT="$FROM_MANIFEST" STUB_FAIL="extend --id $M_QUEST"
+  check "manifest ids: a failure still stops the run" [ "$RC" != 0 ]
+  check "manifest ids: later contracts untouched after a failure" [ "$(calls "$M_REWARDS")" = 0 ]
+else
+  echo "(no node installed: skipped the id-loading cases)"
 fi
 
 echo "bump-ttl.sh: $PASS passed, $FAIL failed"

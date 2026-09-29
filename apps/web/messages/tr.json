@@ -253,6 +253,7 @@
   "rewards.title": "Rütbe ödülleri",
   "rewards.earnedXp": "Kazanılan XP",
   "rewards.subtitle": "Kazanılan XP gerçek USDC'nin kilidini açar — rütbe bir şey satın alır. Destekler (Sosyal XP) asla açmaz.",
+  "rewards.dailyLeft": "Bugünkü ödül bütçesinde {amount} USDC kaldı",
   "rewards.noRewards": "Henüz kayıtlı ödül yok.",
   "rewards.noneLeft": "kalmadı",
   "rewards.leftOfCap": "{cap} adetten {left} kaldı",
@@ -320,6 +321,7 @@
   "leaderboard.flaggedTitle": "karşılıklı destek çifti — olası halka",
   "leaderboard.you": "sen",
   "leaderboard.share": "alvinmunk'ta en çok bağlantılı olanlar 🌌 — insanları topla, puan değil.",
+  "leaderboard.rowLabel": "{name}, sıra {rank}, {score} Sosyal XP",
 
   "howItWorks.meta.title": "Nasıl çalışır",
   "howItWorks.meta.desc": "Destek döngüsü, iki izli model ve dürüst sybil karşıtı tasarımımız.",

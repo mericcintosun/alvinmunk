@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { humanizeError, withTimeout, contractErrorCode, shareInFlight } from './utils';
+import { humanizeError, withTimeout, contractErrorCode, shareInFlight, concurrencyLimit } from './utils';
 
 describe('contractErrorCode', () => {
   it('extracts a Soroban contract error code', () => {
@@ -164,5 +164,65 @@ describe('shareInFlight', () => {
     expect(pending.size).toBe(0);
     await expect(shareInFlight(pending, 'k', async () => 2)).resolves.toBe(2);
     expect(pending.size).toBe(0);
+  });
+});
+
+describe('concurrencyLimit', () => {
+  /** A task that stays in flight until the test resolves it. */
+  function deferred() {
+    let resolve!: () => void;
+    let reject!: (e: Error) => void;
+    const promise = new Promise<void>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  it('runs at most `limit` tasks at once and starts the rest in call order', async () => {
+    const gate = concurrencyLimit(2);
+    const tasks = Array.from({ length: 5 }, deferred);
+    const started: number[] = [];
+    let active = 0;
+    let peak = 0;
+    const all = tasks.map((d, i) =>
+      gate(async () => {
+        started.push(i);
+        peak = Math.max(peak, ++active);
+        await d.promise;
+        active--;
+        return i;
+      }),
+    );
+    await flush();
+    expect(started).toEqual([0, 1]);
+
+    tasks[1].resolve();
+    await flush();
+    expect(started).toEqual([0, 1, 2]);
+
+    // A caller arriving while the queue drains waits its turn instead of jumping the limit.
+    const late = deferred();
+    all.push(gate(async () => (started.push(5), await late.promise, 5)));
+    tasks[0].resolve();
+    await flush();
+    expect(started).toEqual([0, 1, 2, 3]);
+
+    tasks[2].resolve();
+    tasks[3].resolve();
+    tasks[4].resolve();
+    late.resolve();
+    expect(await Promise.all(all)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(started).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(peak).toBe(2);
+  });
+
+  it('frees the slot of a task that rejects', async () => {
+    const gate = concurrencyLimit(1);
+    const first = gate(async () => Promise.reject(new Error('rpc')));
+    const second = gate(async () => 'next');
+    await expect(first).rejects.toThrow('rpc');
+    await expect(second).resolves.toBe('next');
   });
 });

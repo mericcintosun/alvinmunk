@@ -1,7 +1,7 @@
 // @vitest-environment node
 // Claim keys hash and sign with stellar-sdk, which needs Node's own Uint8Array; jsdom's
 // cross-realm one fails the SDK's checks.
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Keypair, StrKey } from '@stellar/stellar-sdk';
 
 const readPublicMock = vi.fn();
@@ -13,6 +13,10 @@ const { invokeMock, REP_ID, TESTNET } = vi.hoisted(() => ({
 }));
 
 vi.mock('./stellar', () => ({ networkPassphrase: TESTNET }));
+// The profile and vouch reads go through the app's @alvinmunk/sdk client (its own tests pin
+// the views, arguments and decoding against a mocked RPC); here it is a stub.
+const sdkMock = vi.hoisted(() => ({ getProfile: vi.fn(), getVouch: vi.fn() }));
+vi.mock('./sdk', () => ({ readClient: () => sdkMock }));
 vi.mock('./contracts', () => ({
   repId: () => REP_ID,
   questId: () => 'CQUESTID',
@@ -49,7 +53,11 @@ import {
   getPending,
   getProfile,
   getScores,
+  getVouch,
+  forgetVouch,
   VOUCH_BATCH_MAX,
+  VOUCH_READ_CONCURRENCY,
+  VOUCH_READ_TTL_MS,
   VOUCH_NOTE_MAX_BYTES,
   VOUCH_NOTE_MAX_CHARS,
   vouchNoteBytes,
@@ -140,49 +148,182 @@ describe('vouch note limit', () => {
 });
 
 describe('getProfile', () => {
-  beforeEach(() => readPublicMock.mockReset());
-
-  it('maps the aggregate view to a typed ProfileView', async () => {
-    readPublicMock.mockResolvedValueOnce({ social: 30n, earned: 50n, verified: true });
-    const p = await getProfile('GADDR');
-    expect(p).toEqual({ social: 30, earned: 50, verified: true });
-    expect(readPublicMock).toHaveBeenCalledWith(REP_ID, 'get_profile', expect.any(Array));
+  beforeEach(() => {
+    readPublicMock.mockReset();
+    sdkMock.getProfile.mockReset();
   });
 
-  it('defaults missing fields to zero/false', async () => {
-    readPublicMock.mockResolvedValueOnce(undefined);
+  it("reads the SDK's profile of the address", async () => {
+    sdkMock.getProfile.mockResolvedValueOnce({ social: 30, earned: 50, verified: true });
     const p = await getProfile('GADDR');
-    expect(p).toEqual({ social: 0, earned: 0, verified: false });
+    expect(p).toEqual({ social: 30, earned: 50, verified: true });
+    expect(sdkMock.getProfile).toHaveBeenCalledWith('GADDR');
+    expect(readPublicMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects when the profile cannot be read, so callers never show made-up zeros', async () => {
+    const down = new Error('simulate get_profile failed: fetch failed');
+    sdkMock.getProfile.mockRejectedValueOnce(down);
+    await expect(getProfile('GADDR')).rejects.toBe(down);
   });
 
   it('shares one get_profile read between widgets asking at the same time', async () => {
-    readPublicMock.mockResolvedValue({ social: 1n, earned: 2n, verified: true });
+    sdkMock.getProfile.mockResolvedValue({ social: 1, earned: 2, verified: true });
     const [a, b] = await Promise.all([getProfile('GADDR'), getProfile('GADDR')]);
     expect(a).toEqual(b);
-    expect(readPublicMock).toHaveBeenCalledTimes(1);
+    expect(sdkMock.getProfile).toHaveBeenCalledTimes(1);
     await getProfile('GADDR'); // settled → the next read is fresh
-    expect(readPublicMock).toHaveBeenCalledTimes(2);
+    expect(sdkMock.getProfile).toHaveBeenCalledTimes(2);
   });
 });
 
 describe('getScores', () => {
-  beforeEach(() => readPublicMock.mockReset());
+  beforeEach(() => sdkMock.getProfile.mockReset());
 
-  it('prefers the single get_profile call (1 round-trip)', async () => {
-    readPublicMock.mockResolvedValueOnce({ social: 15n, earned: 5n, verified: false });
+  it('takes both tracks from the single get_profile read (1 round-trip)', async () => {
+    sdkMock.getProfile.mockResolvedValueOnce({ social: 15, earned: 5, verified: false });
     const s = await getScores('GADDR');
     expect(s).toEqual({ social: 15, earned: 5 });
-    expect(readPublicMock).toHaveBeenCalledTimes(1);
+    expect(sdkMock.getProfile).toHaveBeenCalledTimes(1);
   });
 
-  it('falls back to get_score + get_earned when get_profile is unavailable', async () => {
-    readPublicMock
-      .mockRejectedValueOnce(new Error('unknown method get_profile'))
-      .mockResolvedValueOnce(12n) // get_score
-      .mockResolvedValueOnce(8n); // get_earned
-    const s = await getScores('GADDR');
-    expect(s).toEqual({ social: 12, earned: 8 });
-    expect(readPublicMock).toHaveBeenCalledTimes(3);
+  it('shares the read with a getProfile caller asking at the same time', async () => {
+    sdkMock.getProfile.mockResolvedValue({ social: 3, earned: 4, verified: true });
+    const [p, s] = await Promise.all([getProfile('GADDR'), getScores('GADDR')]);
+    expect(p).toEqual({ social: 3, earned: 4, verified: true });
+    expect(s).toEqual({ social: 3, earned: 4 });
+    expect(sdkMock.getProfile).toHaveBeenCalledTimes(1);
+  });
+
+  it('never rejects: an unreadable profile scores zero', async () => {
+    sdkMock.getProfile.mockRejectedValueOnce(new Error('fetch failed'));
+    await expect(getScores('GADDR')).resolves.toEqual({ social: 0, earned: 0 });
+  });
+});
+
+describe('getVouch', () => {
+  beforeEach(() => {
+    sdkMock.getVouch.mockReset();
+    invokeMock.mockReset();
+    forgetVouch();
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  const card = {
+    id: 7,
+    from: 'GFROM',
+    note: 'hi',
+    claimed: false,
+    claimer: null,
+    created: 1,
+    stake: 5,
+    slashed: false,
+  };
+
+  it("reads the SDK's half-card, null for an unknown id", async () => {
+    sdkMock.getVouch.mockResolvedValueOnce(card).mockResolvedValueOnce(null);
+    await expect(getVouch(7)).resolves.toEqual(card);
+    await expect(getVouch(8)).resolves.toBeNull();
+    expect(sdkMock.getVouch.mock.calls).toEqual([[7], [8]]);
+  });
+
+  it('shares one read per id between cards scanning the same vouch at once', async () => {
+    sdkMock.getVouch.mockResolvedValue(card);
+    const [a, b] = await Promise.all([getVouch(7), getVouch(7)]);
+    expect(a).toBe(b);
+    expect(sdkMock.getVouch).toHaveBeenCalledTimes(1);
+  });
+
+  it('reuses a settled read for cards that mount later, until the TTL passes', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    sdkMock.getVouch.mockResolvedValue(card);
+    await getVouch(7); // PendingHalfCards
+    now.mockReturnValue(1_000_000 + VOUCH_READ_TTL_MS - 1);
+    await expect(getVouch(7)).resolves.toEqual(card); // OwedBonuses, a moment later
+    expect(sdkMock.getVouch).toHaveBeenCalledTimes(1);
+
+    // Still unclaimed, so a later poll must look again: it may have been claimed since.
+    now.mockReturnValue(1_000_000 + VOUCH_READ_TTL_MS);
+    await getVouch(7);
+    expect(sdkMock.getVouch).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a claimed card for the session, but not a slashed unclaimed one', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const claimed = { ...card, claimed: true, claimer: 'GCLAIMER' };
+    const slashed = { ...card, id: 8, slashed: true }; // expired: still claimable
+    sdkMock.getVouch.mockImplementation(async (id: number) => (id === 7 ? claimed : slashed));
+    await getVouch(7);
+    await getVouch(8);
+    now.mockReturnValue(1_000_000 + 100 * VOUCH_READ_TTL_MS);
+    await expect(getVouch(7)).resolves.toEqual(claimed);
+    await expect(getVouch(8)).resolves.toEqual(slashed);
+    expect(sdkMock.getVouch.mock.calls).toEqual([[7], [8], [8]]);
+  });
+
+  it('remembers an unknown id only for the TTL (a fresh mint may not be visible yet)', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    sdkMock.getVouch.mockResolvedValueOnce(null).mockResolvedValueOnce(card);
+    await expect(getVouch(7)).resolves.toBeNull();
+    await expect(getVouch(7)).resolves.toBeNull();
+    now.mockReturnValue(1_000_000 + VOUCH_READ_TTL_MS);
+    await expect(getVouch(7)).resolves.toEqual(card);
+    expect(sdkMock.getVouch).toHaveBeenCalledTimes(2);
+  });
+
+  it('never keeps a failed read: the next card reads again', async () => {
+    sdkMock.getVouch.mockRejectedValueOnce(new Error('429')).mockResolvedValueOnce(card);
+    await expect(getVouch(7)).rejects.toThrow('429');
+    await expect(getVouch(7)).resolves.toEqual(card);
+    expect(sdkMock.getVouch).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-reads a card this tab just claimed', async () => {
+    sdkMock.getVouch.mockResolvedValueOnce(card).mockResolvedValueOnce({ ...card, claimed: true });
+    invokeMock.mockResolvedValue(undefined);
+    await getVouch(7);
+    await claimVouch({ address: 'GCLAIMER' } as never, 7, 'ab'.repeat(32));
+    await expect(getVouch(7)).resolves.toMatchObject({ claimed: true });
+    expect(sdkMock.getVouch).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not store a read that started before the card was forgotten', async () => {
+    let finish!: (v: typeof card) => void;
+    sdkMock.getVouch
+      .mockReturnValueOnce(new Promise((r) => (finish = r)))
+      .mockResolvedValueOnce({ ...card, claimed: true });
+    const early = getVouch(7);
+    forgetVouch(7); // e.g. a claim landed while the read was in flight
+    finish(card);
+    await early;
+    await expect(getVouch(7)).resolves.toMatchObject({ claimed: true });
+  });
+
+  it(`reads at most ${VOUCH_READ_CONCURRENCY} cards at once, then the rest as slots free up`, async () => {
+    const release: Array<() => void> = [];
+    let active = 0;
+    let peak = 0;
+    sdkMock.getVouch.mockImplementation(
+      (id: number) =>
+        new Promise((resolve) => {
+          peak = Math.max(peak, ++active);
+          release.push(() => {
+            active--;
+            resolve({ ...card, id });
+          });
+        }),
+    );
+    const ids = Array.from({ length: 20 }, (_, i) => i + 1);
+    const all = Promise.all(ids.map((id) => getVouch(id)));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sdkMock.getVouch).toHaveBeenCalledTimes(VOUCH_READ_CONCURRENCY);
+    while (release.length) {
+      release.shift()!();
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    expect((await all).map((v) => v?.id)).toEqual(ids);
+    expect(sdkMock.getVouch).toHaveBeenCalledTimes(20);
+    expect(peak).toBe(VOUCH_READ_CONCURRENCY);
   });
 });
 

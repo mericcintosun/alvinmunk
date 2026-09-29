@@ -39,7 +39,7 @@ export function FirstStarNudge() {
             setItem(DISMISS_KEY, '1');
             setShow(false);
           }}
-          className="ml-3 text-muted-foreground/60 underline hover:text-foreground"
+          className="ml-3 text-muted-foreground underline hover:text-foreground"
         >
           {t('firstStarNudge.dismiss')}
         </button>

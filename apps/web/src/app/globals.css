@@ -18,7 +18,7 @@
   --popover-foreground: 250 28% 96%;
 
   --primary: 265 100% 66%; /* electric violet — primary / chain */
-  --primary-foreground: 0 0% 100%;
+  --primary-foreground: 265 60% 6%;
 
   --secondary: 157 84% 52%; /* mint green — earned / verified energy */
   --secondary-foreground: 265 60% 6%;
@@ -30,7 +30,7 @@
   --accent-foreground: 265 60% 6%;
 
   --destructive: 350 82% 62%;
-  --destructive-foreground: 250 30% 97%;
+  --destructive-foreground: 265 60% 6%;
   --success: 157 84% 52%;
   --warning: 38 95% 62%;
 
@@ -44,6 +44,8 @@
 
   /* the signature flow + depth surfaces */
   --tertiary: 193 100% 52%; /* cyan — social / connection */
+  /* violet stop of .flow, kept light enough for the dark flow-button label to clear AA */
+  --flow-violet: 265 100% 66%;
   --surface: 266 34% 9%;
   --surface-2: 266 30% 12%;
   --hairline: 260 60% 100%;
@@ -79,7 +81,7 @@
   --accent: 36 100% 55%;
   --accent-foreground: 265 60% 8%;
   --destructive: 350 82% 55%;
-  --destructive-foreground: 250 30% 98%;
+  --destructive-foreground: 265 60% 8%;
   --success: 157 84% 45%;
   --warning: 38 95% 55%;
   --border: 265 26% 85%;
@@ -89,6 +91,7 @@
   --onchain: 265 100% 60%;
   --radius: 0.875rem;
   --tertiary: 193 100% 45%;
+  --flow-violet: 265 100% 68%;
   --surface: 266 34% 97%;
   --surface-2: 266 30% 93%;
   --hairline: 260 60% 15%;
@@ -146,10 +149,10 @@
   .flow {
     background-image: linear-gradient(
       110deg,
-      hsl(var(--primary)),
+      hsl(var(--flow-violet)),
       hsl(var(--tertiary)),
       hsl(var(--secondary)),
-      hsl(var(--primary))
+      hsl(var(--flow-violet))
     );
     background-size: 280% 100%;
     animation: gradient-pan 8s ease-in-out infinite;

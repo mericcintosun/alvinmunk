@@ -14,6 +14,11 @@ vi.mock('./contracts', () => ({
   },
 }));
 
+// checkGate reads through the app's @alvinmunk/sdk client (its own tests pin the view and
+// arguments against a mocked RPC); here it is a stub.
+const sdkMock = vi.hoisted(() => ({ checkGate: vi.fn() }));
+vi.mock('./sdk', () => ({ readClient: () => sdkMock }));
+
 import { TRACK, getGates, checkGate, isUnlocked, unlockGate } from './gate';
 import type { Wallet } from './wallet';
 
@@ -67,37 +72,38 @@ describe('getGates', () => {
 describe('checkGate', () => {
   beforeEach(() => {
     readPublicMock.mockReset();
+    sdkMock.checkGate.mockReset();
     gateIdMock.mockReturnValue('CGATEID');
   });
 
   it('returns true if address passes gate', async () => {
-    readPublicMock.mockResolvedValueOnce(true);
+    sdkMock.checkGate.mockResolvedValueOnce(true);
     const result = await checkGate('GADDR', 1);
-    
+
     expect(result).toBe(true);
-    expect(readPublicMock).toHaveBeenCalledWith('CGATEID', 'check', [
-      { __addr: 'GADDR' },
-      { __u32: 1 },
-    ]);
+    expect(sdkMock.checkGate).toHaveBeenCalledWith('GADDR', 1);
+    expect(readPublicMock).not.toHaveBeenCalled();
   });
 
   it('returns false if address fails gate', async () => {
-    readPublicMock.mockResolvedValueOnce(false);
+    sdkMock.checkGate.mockResolvedValueOnce(false);
     const result = await checkGate('GADDR', 1);
     expect(result).toBe(false);
+    expect(sdkMock.checkGate).toHaveBeenCalledTimes(1);
   });
 
-  it('returns false if readPublic fails', async () => {
-    readPublicMock.mockRejectedValueOnce(new Error('fail'));
+  it('returns false if the read fails', async () => {
+    sdkMock.checkGate.mockRejectedValueOnce(new Error('fail'));
     const result = await checkGate('GADDR', 1);
     expect(result).toBe(false);
+    expect(sdkMock.checkGate).toHaveBeenCalledTimes(1);
   });
-  
+
   it('returns false if gateId is missing', async () => {
     gateIdMock.mockReturnValueOnce('');
     const result = await checkGate('GADDR', 1);
     expect(result).toBe(false);
-    expect(readPublicMock).not.toHaveBeenCalled();
+    expect(sdkMock.checkGate).not.toHaveBeenCalled();
   });
 });
 

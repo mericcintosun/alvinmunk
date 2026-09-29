@@ -591,7 +591,9 @@ env.events().publish(
 ### `gate` / `created`
 
 An access gate is defined or replaced by the admin, with `create_gate` (one rule) or
-`create_gate_rules` (a composite gate). Both emit the same event.
+`create_gate_rules` (a composite gate). Both emit the same event. For an id that already
+exists it marks a new definition: the gate's version (`get_gate_version`) goes up by one
+and unlocks made under the previous definition stop counting.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -606,7 +608,10 @@ An access gate is defined or replaced by the admin, with `create_gate` (one rule
 
 ### `unlocked`
 
-A user claims a gate they pass, recording on-chain proof of unlock.
+A user claims a gate they pass, recording on-chain proof of unlock. The proof holds for the
+definition the gate had at that moment: a later `gate`/`created` for the same `id`
+supersedes it (the user must `unlock` again), and it doesn't count while the gate is
+inactive. See `UnlockRecord` below for the stored record.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -1323,6 +1328,30 @@ pub struct RewardInfo {
 }
 ```
 
+### Reward status per wallet (`get_rewards_for`)
+
+```rust
+pub struct RewardStatus {
+    pub entry: RewardInfo, // the `get_rewards` row
+    pub claimed: bool,     // `is_claimed(entry.id, who)`
+    pub eligible: bool,    // reason == 0
+    pub reason: u32,       // the Error code `claim_reward` would revert with; 0 = none
+}
+
+pub fn get_rewards_for(who: Address) -> (Vec<RewardStatus>, i128)
+```
+
+One simulation for a wallet's whole reward table: every row of `get_rewards` (inactive
+ones included, in the same order) with `who`'s status, and the treasury budget left
+today in stroops — `get_daily_cap() - get_daily_paid()`, floored at `0`, or `-1` when no
+daily cap is set. `reason` runs `claim_reward`'s checks in its order without the
+transfer, so it is the first error the claim would revert with: `Paused` (#5), `Frozen`
+(#10), `NotFunded` (#12), `RewardInactive` (#7), `AlreadyClaimed` (#4), `RewardExhausted`
+(#13), `BelowThreshold` (#3), `QuestRegistryNotSet` (#19), `StreakTooShort` (#18), then
+`DailyCapExceeded` (#9). The first three are per wallet and so the same on every row. The
+Earned-XP and streak cross-reads run at most once per call. The view is read-only and
+takes no auth. A contract deployed before this view has no `get_rewards_for`.
+
 ### Daily cap (`get_daily_cap` / `get_daily_paid`)
 
 Both return `i128` USDC stroops. `get_daily_cap()` is the treasury's max payout per UTC
@@ -1382,7 +1411,8 @@ pub struct GateRules {
 `Gate`, which it writes active with the first rule's `track`/`min`. It reverts with
 `EmptyRules` (#8) for no rules, `TooManyRules` (#7) for more than `MAX_RULES` (4), and
 `BadTrack` (#6) for a track other than 0 or 1. Replacing a composite gate with
-`create_gate` drops its rule set. Replacing a gate either way keeps existing unlocks.
+`create_gate` drops its rule set. Replacing a gate either way starts a new definition, so
+its existing unlocks stop counting (see `UnlockRecord`).
 
 `get_gate_rules(id) -> Option<GateRules>` returns `None` for an unknown gate. A gate
 created by `create_gate`, or before composite gates existed, has no stored set and reads
@@ -1390,6 +1420,33 @@ as one `AllOf` rule built from its `Gate` fields. `check`/`unlock` read each rep
 track at most once per call, however many rules name it. A contract deployed before
 composite gates has no `get_gate_rules` or `create_gate_rules`; its gates keep working
 unchanged after an upgrade.
+
+### `UnlockRecord` (`get_unlock` / `is_unlocked` / `get_gate_version`)
+
+```rust
+pub struct UnlockRecord {
+    pub version: u32, // the gate's version when it was unlocked
+    pub ledger: u32,  // ledger sequence of the unlock
+}
+```
+
+`unlock` stores this under `Unlocked(addr, id)`; unlocking again replaces it.
+`get_gate_version(id) -> u32` counts the gate's redefinitions: `0` for a gate never
+replaced (and for an unknown id), `+1` on every `create_gate` / `create_gate_rules` for an
+existing id — including one that keeps the same rules. `set_gate_active` is not a
+redefinition and leaves the version alone.
+
+`is_unlocked(addr, id) -> bool` is true only while the gate is active **and** the stored
+record's `version` equals `get_gate_version(id)`, so an unlock earned under a weaker rule,
+or on another track, no longer reads as an unlock of the current gate. Disabling a gate
+hides its unlocks; re-enabling it without a redefinition brings them back.
+`get_unlock(addr, id) -> Option<UnlockRecord>` returns the latest record whether or not it
+still counts (`None` if `addr` never unlocked `id`).
+
+Before these records existed, `Unlocked` held a bare `true`. After an upgrade such an entry
+reads as `{ version: 0, ledger: 0 }`: it keeps counting until the gate's first
+redefinition, and the next `unlock` replaces it with a record. A contract deployed before
+this change has no `get_unlock` or `get_gate_version`.
 
 ---
 
@@ -1413,6 +1470,29 @@ export const EVENTS = {
   // handle, meta, gate, unlocked, streak, rwd_set, rwd_cap, rwd_strk, attester are not yet mirrored
 } as const;
 ```
+
+### Reading view structs (`Attestation`, `Vouch`, `Profile`)
+
+`Vouch` and `Profile` mirror the structs above field for field, every `u64` a
+`bigint` (what `scValToNative` hands back), and ship with `decodeVouch` /
+`decodeProfile`. A named-field `#[contracttype]` struct travels as an
+`ScVal::Map` keyed by field name, which `scValToNative` turns into a plain
+object: `Option<T>` is the value or `null` (`ScVal::Void`), `BytesN<32>` a
+32-byte buffer. The decoders take that object and accept exactly the fields in
+`VOUCH_FIELDS` / `PROFILE_FIELDS`, so a field added, dropped or renamed throws
+instead of reading as `undefined`. `get_vouch` for an id never minted decodes
+to `null`. `Attestation` has no decoder: its `value` (an `i128`) is a `bigint`,
+its `timestamp` a `number` of unix seconds.
+
+`contracts/reputation/testdata/read_views.json` holds real `get_vouch` /
+`get_profile` return values (the XDR of each `ScVal`, hex). The contract test
+`read_view_fixtures_match_the_contract` writes it from real calls and fails
+when it is stale (rerun with `UPDATE_READ_VIEWS=1`);
+`packages/shared/src/read-views.test.ts` decodes it through the mirrors and
+checks their field lists against `contracts/reputation/src/lib.rs`, and
+`apps/web/src/lib/read-views.test.ts` checks that the `@alvinmunk/sdk` views
+the app reads through decode it the same way. A drift on either side fails a
+test.
 
 ---
 

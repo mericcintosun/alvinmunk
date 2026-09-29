@@ -3,6 +3,7 @@
  * The composable bit: `check(addr, id)` is a pure on-chain read any app can call.
  */
 import { invokeAndWait, invokeAndWaitHash, readPublic, args, gateId } from './contracts';
+import { readClient } from './sdk';
 import type { Wallet } from './wallet';
 
 export const TRACK = { SOCIAL: 0, EARNED: 1 } as const;
@@ -38,11 +39,9 @@ export async function readGates(): Promise<Gate[]> {
 /** Composable read — does `address` pass gate `id`? (cross-reads reputation on-chain). */
 export async function checkGate(address: string, id: number): Promise<boolean> {
   if (!gateId()) return false;
-  return (
-    (await readPublic<boolean>(gateId(), 'check', [args.addr(address), args.u32(id)]).catch(
-      () => false,
-    )) ?? false
-  );
+  return readClient()
+    .checkGate(address, id)
+    .catch(() => false);
 }
 
 export async function isUnlocked(address: string, id: number): Promise<boolean> {

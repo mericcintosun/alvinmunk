@@ -67,8 +67,11 @@ function typeaheadMatch(
  * only declaring the role: focus moves into the menu on open, arrows / Home / End / typeahead
  * rove through the items, Enter or Space activates, Escape closes and hands focus back to
  * the button, and anything that moves focus out closes the menu.
+ *
+ * `onNavigate` runs when one of its links ("Open app", "View profile") is followed, so a
+ * container such as the mobile nav panel can close itself without reacting to other clicks.
  */
-export function ConnectButton() {
+export function ConnectButton({ onNavigate }: { onNavigate?: () => void } = {}) {
   const t = useTranslations();
   const { locale } = useLocale();
   const { profile, balance, disconnect } = useWallet();
@@ -184,7 +187,7 @@ export function ConnectButton() {
 
   if (!profile) {
     return (
-      <Link href="/app" className={cn(buttonVariants({ size: 'sm' }))}>
+      <Link href="/app" onClick={onNavigate} className={cn(buttonVariants({ size: 'sm' }))}>
         {t('wallet.openApp')}
       </Link>
     );
@@ -240,7 +243,10 @@ export function ConnectButton() {
             <Link
               href={`/u/${profile.handle}`}
               {...itemProps(0)}
-              onClick={() => closeMenu(true)}
+              onClick={() => {
+                closeMenu(true);
+                onNavigate?.();
+              }}
               className={item}
             >
               <User /> {t('wallet.viewProfile')}

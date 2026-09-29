@@ -27,12 +27,13 @@ function saveSnapshot(records: SocialRecord[]): void {
   writeJSON(SNAPSHOT_KEY, records);
 }
 
-/** Pull recent reputation events → social records + claimed vouch pairs. */
+/** Pull recent reputation events → social records + claimed vouch pairs. Always a fresh
+ *  scan (`maxAgeMs: 0`): the board polls every 5s, faster than the shared window's TTL. */
 export async function fetchWindow(options?: { throwOnError?: boolean }): Promise<{ records: SocialRecord[]; pairs: VouchPair[] }> {
   const records: SocialRecord[] = [];
   const pairs: VouchPair[] = [];
 
-  for (const { topics, data, ledger } of await fetchReputationEvents(options)) {
+  for (const { topics, data, ledger } of await fetchReputationEvents({ ...options, maxAgeMs: 0 })) {
     if (topics[0] === EVENTS.SOCIAL) {
       const total = Array.isArray(data) ? Number(data[1]) : Number(data);
       records.push({ address: String(topics[1]), total, ledger });

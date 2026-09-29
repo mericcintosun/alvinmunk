@@ -3,11 +3,17 @@
  * script against a local fake Soroban RPC that decodes every simulated call and answers
  * from canned data (or with a simulation error), and one case points it at a closed port.
  *
+ * Contract ids reach the script as env vars, or through a deployment manifest in a fixture
+ * config root (scripts/lib/env.mjs); every run gets its own root, so a developer's
+ * apps/web/.env.local never leaks in.
+ *
  * Usage: node --test scripts/status.test.mjs   (after `pnpm install`)
  */
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import fs from 'node:fs';
+import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -183,17 +189,35 @@ async function fakeRpc(answer) {
   return { url: `http://127.0.0.1:${srv.address().port}`, calls, close: () => srv.close() };
 }
 
-/** Runs status.mjs with the given RPC URL and contract ids. */
-function run(rpcUrl, env = {}) {
+const IDS = {
+  NEXT_PUBLIC_REPUTATION_CONTRACT_ID: REP,
+  NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID: QUEST,
+  NEXT_PUBLIC_REWARDS_CONTRACT_ID: REWARDS,
+  NEXT_PUBLIC_USDC_SAC_ID: USDC,
+};
+
+const roots = [];
+after(() => roots.forEach((r) => fs.rmSync(r, { recursive: true, force: true })));
+/** A config root for scripts/lib/env.mjs, with deployments/testnet.json when given. */
+function configRoot(manifest) {
+  const root = fs.mkdtempSync(join(os.tmpdir(), 'status-test-'));
+  roots.push(root);
+  if (manifest) {
+    fs.mkdirSync(join(root, 'deployments'));
+    fs.writeFileSync(join(root, 'deployments', 'testnet.json'), JSON.stringify(manifest));
+  }
+  return root;
+}
+
+/** Runs status.mjs with the given RPC URL and contract ids (`ids: {}` passes none). */
+function run(rpcUrl, env = {}, { ids = IDS, root = configRoot() } = {}) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [SCRIPT], {
       env: {
         PATH: process.env.PATH,
-        NEXT_PUBLIC_RPC_URL: rpcUrl,
-        NEXT_PUBLIC_REPUTATION_CONTRACT_ID: REP,
-        NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID: QUEST,
-        NEXT_PUBLIC_REWARDS_CONTRACT_ID: REWARDS,
-        NEXT_PUBLIC_USDC_SAC_ID: USDC,
+        ALVINMUNK_CONFIG_ROOT: root,
+        ...(rpcUrl === undefined ? {} : { NEXT_PUBLIC_RPC_URL: rpcUrl }),
+        ...ids,
         ...env,
       },
     });
@@ -205,10 +229,10 @@ function run(rpcUrl, env = {}) {
   });
 }
 
-async function withRpc(answer, env, check) {
+async function withRpc(answer, env, check, opts) {
   const rpc = await fakeRpc(answer);
   try {
-    await check(await run(rpc.url, env), rpc.calls);
+    await check(await run(rpc.url, env, opts), rpc.calls);
   } finally {
     rpc.close();
   }
@@ -375,3 +399,49 @@ test('an unreachable RPC prints an error for every read and exits 1', async () =
   }
   assert.match(stderr, /7 reads failed/);
 });
+
+test('with no ids in the env, the ids come from deployments/testnet.json', async () => {
+  const rpc = await fakeRpc(healthy);
+  try {
+    const root = configRoot({
+      network: 'testnet',
+      passphrase: Networks.TESTNET,
+      rpcUrl: rpc.url,
+      contracts: { reputation: REP, questRegistry: QUEST, rewards: REWARDS, usdcSac: USDC },
+    });
+    // The manifest's rpcUrl is used too: the env sets no NEXT_PUBLIC_RPC_URL here.
+    const { code, stdout, out } = await run(undefined, {}, { ids: {}, root });
+    assert.equal(code, 0, out);
+    assert.doesNotMatch(out, /ERROR/);
+    assert.match(line(stdout, 'USDC balance'), /\s1234\.567 USDC$/);
+    assert.equal(rpc.calls.filter((c) => c === 'simulateTransaction').length, 6);
+  } finally {
+    rpc.close();
+  }
+});
+
+test('a missing contract id exits 2 naming it, before any RPC call', () =>
+  withRpc(
+    healthy,
+    {},
+    ({ code, stdout, stderr }, calls) => {
+      assert.equal(code, 2);
+      assert.equal(stdout, '');
+      assert.match(stderr, /NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID is not set/);
+      assert.match(stderr, /NEXT_PUBLIC_USDC_SAC_ID is not set/);
+      assert.doesNotMatch(stderr, /NEXT_PUBLIC_REWARDS_CONTRACT_ID/);
+      assert.deepEqual(calls, []);
+    },
+    { ids: { NEXT_PUBLIC_REPUTATION_CONTRACT_ID: REP, NEXT_PUBLIC_REWARDS_CONTRACT_ID: REWARDS } },
+  ));
+
+test('a placeholder id is refused, not simulated against', () =>
+  withRpc(
+    healthy,
+    { NEXT_PUBLIC_REWARDS_CONTRACT_ID: 'REPLACE_WITH_REWARDS_ID' },
+    ({ code, stderr }, calls) => {
+      assert.equal(code, 2);
+      assert.match(stderr, /NEXT_PUBLIC_REWARDS_CONTRACT_ID \(from environment\) is not a contract id/);
+      assert.deepEqual(calls, []);
+    },
+  ));
