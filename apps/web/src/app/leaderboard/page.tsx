@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { fetchLeaderboard } from '@/lib/leaderboard';
 import { type LeaderboardEntry } from '@alvinmunk/shared';
 import { loadProfile } from '@/lib/profile';
-import { reverseHandle } from '@/lib/registry';
+import { reverseHandles } from '@/lib/registry';
 import { Crest } from '@/components/brand/crest';
 import { Frame } from '@/components/fx/frame';
 import { ShareRow } from '@/components/fx/share-row';
@@ -26,9 +26,7 @@ export default function LeaderboardPage() {
     const missing = rows.map((r) => r.address).filter((a) => !(a in handles));
     if (missing.length === 0) return;
     let alive = true;
-    Promise.all(missing.map(async (a) => [a, await reverseHandle(a).catch(() => null)] as const)).then(
-      (pairs) => alive && setHandles((h) => ({ ...h, ...Object.fromEntries(pairs) })),
-    );
+    reverseHandles(missing).then((map) => alive && setHandles((h) => ({ ...h, ...map })));
     return () => { alive = false; };
   }, [rows, handles]);
 

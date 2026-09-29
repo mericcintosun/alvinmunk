@@ -32,6 +32,7 @@ export const gateId = () => config.contracts.gate;
 /** ScVal builders for the contract ABIs. */
 export const args = {
   addr: (g: string) => new Address(g).toScVal(),
+  addrs: (gs: string[]) => xdr.ScVal.scvVec(gs.map((g) => new Address(g).toScVal())),
   u32: (n: number) => nativeToScVal(n, { type: 'u32' }),
   u64: (n: number | bigint) => nativeToScVal(n, { type: 'u64' }),
   i128: (n: bigint) => nativeToScVal(n, { type: 'i128' }),

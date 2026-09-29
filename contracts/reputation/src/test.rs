@@ -1,4 +1,6 @@
 #![cfg(test)]
+extern crate std;
+
 use super::*;
 use soroban_sdk::{
     testutils::{
@@ -23,6 +25,84 @@ fn secret_and_hash(env: &Env, fill: u8) -> (Bytes, BytesN<32>) {
     let secret = Bytes::from_array(env, &[fill; 32]);
     let hash = env.crypto().sha256(&secret).to_bytes();
     (secret, hash)
+}
+
+/// Notes of exactly `MAX_NOTE_BYTES` UTF-8 bytes: ASCII, then 2-, 3- and 4-byte characters.
+fn notes_at_cap() -> [std::string::String; 4] {
+    [
+        "a".repeat(240),
+        "ş".repeat(120),
+        "€".repeat(80),
+        "💧".repeat(60),
+    ]
+}
+
+#[test]
+fn note_too_long_keeps_error_code_12() {
+    // The web app maps #12 to its "note too long" copy; a renumber would break it.
+    assert_eq!(Error::NoteTooLong as u32, 12);
+    assert_eq!(MAX_NOTE_BYTES, 240);
+}
+
+#[test]
+fn mint_vouch_accepts_note_at_240_utf8_bytes() {
+    let (env, client, _admin) = setup();
+    for (i, text) in notes_at_cap().iter().enumerate() {
+        assert_eq!(text.len(), MAX_NOTE_BYTES as usize);
+        let alice = Address::generate(&env);
+        let (_secret, hash) = secret_and_hash(&env, i as u8 + 1);
+        let note = String::from_str(&env, text);
+
+        let id = client.mint_vouch(&alice, &hash, &note);
+
+        let stored = client.get_vouch(&id).unwrap().note;
+        assert_eq!(stored, note);
+        assert_eq!(stored.len(), MAX_NOTE_BYTES);
+    }
+}
+
+#[test]
+fn mint_vouch_rejects_note_at_241_utf8_bytes() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let (_secret, hash) = secret_and_hash(&env, 2);
+    // One byte over, whether the last byte comes from ASCII or from a multi-byte character,
+    // then 61 four-byte characters (one past the web app's 60-character limit).
+    let over = [
+        "a".repeat(241),
+        std::format!("{}é", "a".repeat(239)),
+        std::format!("{}a", "ş".repeat(120)),
+        std::format!("{}a", "💧".repeat(60)),
+        "💧".repeat(61),
+    ];
+    for text in &over {
+        assert!(text.len() > MAX_NOTE_BYTES as usize);
+        assert_eq!(
+            client.try_mint_vouch(&alice, &hash, &String::from_str(&env, text)),
+            Err(Ok(soroban_sdk::Error::from_contract_error(12)))
+        );
+    }
+
+    // Nothing was minted or escrowed: the next vouch is #1 and costs one stake.
+    let id = client.mint_vouch(&alice, &hash, &String::from_str(&env, "ok"));
+    assert_eq!(id, 1);
+    assert_eq!(client.get_score(&alice), STARTER_SOCIAL - VOUCH_STAKE);
+}
+
+#[test]
+fn max_length_note_still_claims() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let (secret, hash) = secret_and_hash(&env, 3);
+    let note = String::from_str(&env, &"💧".repeat(60));
+    let id = client.mint_vouch(&alice, &hash, &note);
+
+    client.claim_vouch(&bob, &id, &secret);
+
+    let v = client.get_vouch(&id).unwrap();
+    assert!(v.claimed);
+    assert_eq!(v.note, note);
 }
 
 #[test]
@@ -819,6 +899,30 @@ fn upgrade_preserves_people_counters() {
     vouch(&env, &client, &alice, &carol, 3);
     assert_eq!(client.get_counts(&bob), (1, 0));
     assert_eq!(client.get_counts(&alice), (0, 2));
+}
+
+#[test]
+fn upgrade_keeps_notes_and_enforces_the_note_cap() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let (secret, h1) = secret_and_hash(&env, 1);
+    let note = String::from_str(&env, &"ş".repeat(120));
+    let id = client.mint_vouch(&alice, &h1, &note);
+
+    let hash = env.deployer().upload_contract_wasm(REPUTATION_WASM);
+    client.upgrade(&hash);
+
+    // A vouch minted before the upgrade decodes and claims as before.
+    client.claim_vouch(&bob, &id, &secret);
+    assert_eq!(client.get_vouch(&id).unwrap().note, note);
+    // The deployed build carries the cap.
+    let (_s2, h2) = secret_and_hash(&env, 2);
+    let over = String::from_str(&env, &std::format!("{}a", "ş".repeat(120)));
+    assert_eq!(
+        client.try_mint_vouch(&alice, &h2, &over),
+        Err(Ok(contract_err(Error::NoteTooLong)))
+    );
 }
 
 #[test]

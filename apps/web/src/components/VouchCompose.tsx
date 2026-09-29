@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Copy, Check, Share2 } from 'lucide-react';
 import { getWallet } from '@/lib/wallet';
-import { mintVouch } from '@/lib/reputation';
+import { clampVouchNote, mintVouch, VOUCH_NOTE_MAX_CHARS } from '@/lib/reputation';
 import { addMyVouch, subscribeToVouchPush } from '@/lib/myvouches';
 import { buildClaimUrl } from '@alvinmunk/shared';
 import { Frame } from '@/components/fx/frame';
@@ -13,17 +13,18 @@ import { Textarea } from '@/components/ui/textarea';
 import { StateArt } from '@/components/ui/state-art';
 import { Sticker } from '@/components/ui/sticker';
 import { humanizeError } from '@/lib/utils';
-import { useTranslations } from '@/lib/i18n';
+import { useTranslations, type TFn } from '@/lib/i18n';
 import { track, trackError } from '@/lib/track';
 import { toast } from '@/components/ui/toaster';
 
 // Reputation contract error codes that can surface on mint_vouch (mirrors the Error enum).
 // Keys map to i18n keys so they're translated too.
-function buildVouchErrors(t: (key: string) => string): Record<number, string> {
+function buildVouchErrors(t: TFn): Record<number, string> {
   return {
     6: t('vouch.error.self'),
     9: t('vouch.error.limit'),
     11: t('vouch.error.xp'),
+    12: t('vouch.error.noteTooLong', { max: String(VOUCH_NOTE_MAX_CHARS) }),
   };
 }
 
@@ -100,8 +101,7 @@ export function VouchCompose() {
         </p>
         <Textarea
           value={note}
-          onChange={(e) => setNote(e.target.value)}
-          maxLength={60}
+          onChange={(e) => setNote(clampVouchNote(e.target.value))}
           rows={2}
           placeholder={t('vouch.compose.placeholder')}
           className="mb-3"
