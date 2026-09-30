@@ -62,6 +62,7 @@ import {
   VOUCH_NOTE_MAX_BYTES,
   VOUCH_NOTE_MAX_CHARS,
   vouchNoteBytes,
+  vouchNoteChars,
 } from './reputation';
 
 function expectBytes(actual: Uint8Array, expected: number[]) {
@@ -111,6 +112,14 @@ describe('vouch note limit', () => {
     expect(vouchNoteBytes('ş')).toBe(2);
     expect(vouchNoteBytes('€')).toBe(3);
     expect(vouchNoteBytes('💧')).toBe(4);
+  });
+
+  it('counts characters the way the cap does, one per emoji', () => {
+    expect(vouchNoteChars('')).toBe(0);
+    expect(vouchNoteChars('gm ş€')).toBe(5);
+    expect(vouchNoteChars('💧💧')).toBe(2);
+    // A clamped note is always exactly at or under the count the composer shows.
+    expect(vouchNoteChars(clampVouchNote('💧'.repeat(61)))).toBe(VOUCH_NOTE_MAX_CHARS);
   });
 
   it('keeps a note of 60 characters, one-byte or four-byte alike', () => {

@@ -1,0 +1,50 @@
+# Weekly dependency updates for the three ecosystems in the repo (#252).
+version: 2
+updates:
+  # The pnpm workspace (apps/web, packages/*), resolved from the root pnpm-lock.yaml.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        patterns:
+          - "*"
+        # Protocol-coupled and pinned exact: every SDK bump gets its own PR
+        # (docs/product/DEPENDENCIES.md §3).
+        exclude-patterns:
+          - "@stellar/stellar-sdk"
+        update-types:
+          - minor
+          - patch
+    # Majors of these are deliberate, one-at-a-time migrations (docs/product/DEPENDENCIES.md §3),
+    # together with the packages that must move in lockstep with them.
+    ignore:
+      - dependency-name: next
+        update-types: ["version-update:semver-major"]
+      - dependency-name: eslint-config-next
+        update-types: ["version-update:semver-major"]
+      - dependency-name: react
+        update-types: ["version-update:semver-major"]
+      - dependency-name: react-dom
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: tailwindcss
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@stellar/stellar-sdk"
+        update-types: ["version-update:semver-major"]
+
+  # The Soroban contracts workspace (contracts/Cargo.lock).
+  - package-ecosystem: cargo
+    directory: /contracts
+    schedule:
+      interval: weekly
+
+  # Actions used by .github/workflows/*.yml.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

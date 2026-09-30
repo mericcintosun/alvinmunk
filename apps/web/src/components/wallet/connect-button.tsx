@@ -226,7 +226,7 @@ export function ConnectButton({ onNavigate }: { onNavigate?: () => void } = {}) 
       </button>
 
       {open && (
-        <div className="absolute right-0 z-50 mt-2 w-60 rounded-xl border border-border bg-popover p-1.5 shadow-card">
+        <div className="absolute right-0 z-50 mt-2 w-60 rounded-xl border border-border bg-popover p-1.5 shadow-popover">
           <div className="px-3 py-2">
             <p className="font-mono text-xs text-muted-foreground">{shortAddr(profile.address)}</p>
             {balance != null && (

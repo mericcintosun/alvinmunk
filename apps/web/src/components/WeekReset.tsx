@@ -83,7 +83,7 @@ export function WeekReset({
   });
   return (
     <span
-      className={cn('font-mono text-[10px] text-muted-foreground', className)}
+      className={cn('font-mono text-2xs text-muted-foreground', className)}
       title={t('quests.week.resetsAt', { when: resetAt })}
     >
       {resetCopy(t, timeUntilReset(bounds, now))}

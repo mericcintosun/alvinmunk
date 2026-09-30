@@ -4,6 +4,8 @@ import {
   saveProfile,
   clearProfile,
   normalizeHandle,
+  removedHandleChars,
+  HANDLE_MAX_CHARS,
   sanitizeBio,
   bioBytes,
   BIO_MAX_BYTES,
@@ -19,6 +21,24 @@ describe('normalizeHandle', () => {
   });
   it('keeps underscores and digits', () => {
     expect(normalizeHandle('dev_007')).toBe('dev_007');
+  });
+});
+
+describe('removedHandleChars (#479)', () => {
+  it('names what normalizeHandle drops, once each, in typing order', () => {
+    expect(removedHandleChars('Ayşe K')).toEqual(['ş', ' ']);
+    expect(removedHandleChars('a.b.c-d')).toEqual(['.', '-']);
+    expect(removedHandleChars('Renée')).toEqual(['é']);
+  });
+  it('does not count upper case as removed: it is lowercased, not dropped', () => {
+    expect(removedHandleChars('KaanDev_7')).toEqual([]);
+    expect(removedHandleChars('')).toEqual([]);
+  });
+  it('agrees with normalizeHandle on what survives', () => {
+    for (const s of ['Ayşe K', 'dev_007', 'x!y?z', '💧drop💧']) {
+      const kept = [...s.toLowerCase()].filter((c) => !removedHandleChars(s).includes(c)).join('');
+      expect(kept.slice(0, HANDLE_MAX_CHARS)).toBe(normalizeHandle(s));
+    }
   });
 });
 

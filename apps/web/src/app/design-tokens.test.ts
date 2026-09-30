@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import tailwindConfig from '../../tailwind.config';
 import { Badge } from '@/components/ui/badge';
@@ -69,5 +71,76 @@ describe('design tokens', () => {
     const button = buttonVariants({ variant: 'onchain' }).split(' ');
     expect(button).toEqual(expect.arrayContaining(['bg-onchain', 'shadow-glow-onchain']));
     for (const cls of [...badge, ...button]) expect(cls).not.toMatch(/secondary/);
+  });
+});
+
+/** A `borderRadius` value in rem: `var(--radius)` or `calc(var(--radius) ± Nrem)`. */
+function radiusRem(css: string, radius: number): number {
+  if (css === 'var(--radius)') return radius;
+  const m = /^calc\(var\(--radius\) ([+-]) ([\d.]+)rem\)$/.exec(css);
+  if (!m) throw new Error(`radius not built from --radius: ${css}`);
+  return radius + (m[1] === '-' ? -1 : 1) * Number(m[2]);
+}
+
+const RADIUS_STEPS = ['sm', 'md', 'lg', 'xl', '2xl', '3xl'] as const;
+
+describe('radius and shadow scales', () => {
+  const radii = tailwindConfig.theme?.extend?.borderRadius as Record<string, string>;
+  const shadows = tailwindConfig.theme?.extend?.boxShadow as Record<string, string>;
+
+  it('every rounded-* step from sm to 3xl is rounder than the one before, in both themes', () => {
+    for (const theme of [dark, light]) {
+      const radius = Number(/^([\d.]+)rem$/.exec(theme.get('--radius') ?? '')?.[1]);
+      expect(radius).toBeGreaterThan(0);
+      const rems = RADIUS_STEPS.map((step) => radiusRem(radii[step] ?? `missing ${step}`, radius));
+      for (let i = 1; i < rems.length; i++) {
+        expect(rems[i], `${RADIUS_STEPS[i]} > ${RADIUS_STEPS[i - 1]}`).toBeGreaterThan(rems[i - 1]);
+      }
+      expect(rems[0]).toBeGreaterThan(0);
+    }
+  });
+
+  it('DESIGN_SYSTEM_TOKENS.md lists the full radius scale with the values the config computes', () => {
+    const radius = Number(/^([\d.]+)rem$/.exec(dark.get('--radius')!)![1]);
+    const documented = Object.fromEntries(
+      [...tokensDoc.matchAll(/`(sm|md|lg|xl|2xl|3xl) ([\d.]+)rem`/g)].map(([, step, rem]) => [step, Number(rem)]),
+    );
+    expect(documented).toEqual(
+      Object.fromEntries(RADIUS_STEPS.map((step) => [step, radiusRem(radii[step], radius)])),
+    );
+  });
+
+  it('every shadow token reads a CSS variable and has no literal colour', () => {
+    for (const [name, css] of Object.entries(shadows)) {
+      expect(css, `boxShadow.${name}`).toMatch(/(hsl|rgb)a?\(var\(--[\w-]+\)/);
+      expect(css, `boxShadow.${name}`).not.toMatch(/#[\da-f]{3,8}\b/i);
+      expect(css, `boxShadow.${name}`).not.toMatch(/(hsl|rgb)a?\(\s*[\d.]/);
+      // every colour in the shadow is a token, not just one of them
+      expect(css.match(/(hsl|rgb)a?\(/g)?.length, `boxShadow.${name}`).toBe(css.match(/(hsl|rgb)a?\(var\(/g)?.length);
+    }
+    expect(Object.keys(shadows)).toEqual(expect.arrayContaining(['card', 'popover', 'toast']));
+    // the drop shadow is theme-aware: the light theme's shadow colour is not the dark one
+    expect(light.get('--glass-shadow')).not.toBe(dark.get('--glass-shadow'));
+  });
+
+  it('DESIGN_SYSTEM_TOKENS.md lists every shadow exactly as the config defines it', () => {
+    const documented = Object.fromEntries(
+      [...tokensDoc.matchAll(/^shadow-([\w-]+):\s+(.+?);/gm)].map(([, name, css]) => [name, css]),
+    );
+    expect(documented).toEqual(shadows);
+  });
+
+  it('components use the shadow tokens, not Tailwind\u2019s default shadow scale', () => {
+    const src = join(dirname(fileURLToPath(import.meta.url)), '..');
+    const offenders = (readdirSync(src, { recursive: true }) as string[])
+      .filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f))
+      .flatMap((f) =>
+        readFileSync(join(src, f), 'utf8')
+          .split('\n')
+          .flatMap((line, i) =>
+            /(^|[\s"'`:])shadow(-(sm|md|lg|xl|2xl|inner))?(?=[\s"'`]|$)/.test(line) ? [`${f}:${i + 1}`] : [],
+          ),
+      );
+    expect(offenders).toEqual([]);
   });
 });

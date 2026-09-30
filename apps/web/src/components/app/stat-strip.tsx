@@ -143,7 +143,7 @@ export function StatStrip({ address }: { address: string }) {
                   <div className="font-display text-3xl font-semibold tabular-nums">
                     {numberFormat.format(value(tile.key))}
                   </div>
-                  <p className="mt-1 hidden text-[11px] text-muted-foreground sm:block">{t(`statStrip.${tile.key}.hint`)}</p>
+                  <p className="mt-1 hidden text-2xs text-muted-foreground sm:block">{t(`statStrip.${tile.key}.hint`)}</p>
                 </div>
               );
             })}
