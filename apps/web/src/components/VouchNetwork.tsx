@@ -120,7 +120,7 @@ export function VouchNetwork({
         />
         {mutual.length > 0 && (
           <div className="p-5" data-testid="vouch-network-mutual">
-            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+            <p className="eyebrow-mono text-muted-foreground">
               {t('vouchNetwork.mutual')}
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-1.5">
@@ -130,7 +130,7 @@ export function VouchNetwork({
           </div>
         )}
       </div>
-      <p className="border-t border-border/50 px-5 py-3 text-[11px] text-muted-foreground">
+      <p className="border-t border-border/50 px-5 py-3 text-2xs text-muted-foreground">
         {t('vouchNetwork.windowNote')}
       </p>
     </Frame>
@@ -176,7 +176,7 @@ function Row({
   return (
     <div className="p-5">
       <div className="flex items-baseline justify-between gap-3">
-        <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
+        <p className="eyebrow-mono text-muted-foreground">{label}</p>
         {count !== undefined && <p className={cn('font-display text-sm font-semibold', accent)}>{count}</p>}
       </div>
       {people === null ? (
@@ -192,7 +192,7 @@ function Row({
           <div className="mt-3 flex flex-wrap gap-1.5">{shown.map(render)}</div>
           <ul className="mt-2 space-y-0.5">
             {shown.map((p) => (
-              <li key={`${p.from}-${p.vouchId}`} className="truncate font-mono text-[11px] text-muted-foreground">
+              <li key={`${p.from}-${p.vouchId}`} className="truncate font-mono text-2xs text-muted-foreground">
                 {line(p)}
               </li>
             ))}
