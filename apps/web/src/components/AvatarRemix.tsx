@@ -62,7 +62,7 @@ export function AvatarRemix({
       <div className="grid w-full max-w-xs grid-cols-1 gap-1.5">
         {CATS.map(({ field, label }) => (
           <div key={field} className="flex items-center justify-between gap-2 rounded-lg bg-surface/40 px-2 py-1">
-            <span className="w-16 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+            <span className="w-16 font-mono text-2xs uppercase tracking-wider text-muted-foreground">
               {label}
             </span>
             <div className="flex items-center gap-1">
@@ -73,7 +73,7 @@ export function AvatarRemix({
               >
                 <ChevronLeft className="size-4" />
               </button>
-              <span className="w-10 text-center font-mono text-[10px] text-foreground/80">
+              <span className="w-10 text-center font-mono text-2xs text-foreground/80">
                 {valueLabel(field)}
               </span>
               <button

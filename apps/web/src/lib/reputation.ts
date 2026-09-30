@@ -43,6 +43,12 @@ export function vouchNoteBytes(s: string): number {
   return utf8.encode(s).length;
 }
 
+/** Characters (code points) in `s` — what `VOUCH_NOTE_MAX_CHARS` counts, and the composer's
+ *  `n/60`. Not `s.length`: an emoji is two UTF-16 units but one character here. */
+export function vouchNoteChars(s: string): number {
+  return [...s].length;
+}
+
 /** Cut `input` to a note `mint_vouch_signed` accepts: at most `VOUCH_NOTE_MAX_CHARS` characters
  *  and `VOUCH_NOTE_MAX_BYTES` bytes, never half a character. The character cap binds
  *  first; the byte check is the contract's own rule, kept so the two can never drift. */

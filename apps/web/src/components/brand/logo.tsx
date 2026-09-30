@@ -27,7 +27,7 @@ export function Logo({
         <circle cx="9" cy="18" r="1.4" fill="hsl(var(--starlight))" />
       </svg>
       {!markOnly && (
-        <span className="select-none font-display text-[19px] font-semibold lowercase tracking-tight text-foreground transition-transform group-hover:-rotate-1">
+        <span className="select-none font-display text-xl font-semibold lowercase tracking-tight text-foreground transition-transform group-hover:-rotate-1">
           alvinmunk
         </span>
       )}

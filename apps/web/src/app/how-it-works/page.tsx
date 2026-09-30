@@ -43,7 +43,7 @@ export default function HowItWorks() {
   return (
     <div className="container max-w-5xl py-16">
       {/* header */}
-      <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-primary/80">{t('howItWorks.eyebrow')}</p>
+      <p className="eyebrow-mono text-primary/80">{t('howItWorks.eyebrow')}</p>
       <h1 className="display-hero mt-4 flex flex-wrap items-center gap-3 font-display text-5xl font-semibold tracking-tight sm:text-6xl">
         {t('howItWorks.title')}
         <Sticker name="star-lime" size={48} className="h-10 w-auto motion-safe:animate-float" />
@@ -124,7 +124,7 @@ export default function HowItWorks() {
                   i >= 1 && 'border-t sm:[&:nth-child(2)]:border-t-0 lg:[&:nth-child(3)]:border-t-0',
                 )}
               >
-                <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-primary/60">{l.id}</span>
+                <span className="eyebrow-mono text-primary/60">{l.id}</span>
                 <h3 className="mt-3 font-semibold">{t(l.tKey)}</h3>
                 <p className="mt-1.5 text-sm text-muted-foreground">{t(l.dKey)}</p>
               </div>

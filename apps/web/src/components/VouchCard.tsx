@@ -25,7 +25,7 @@ export function VouchCard({
 
   return (
     <div
-      className="relative aspect-[1.6/1] w-full overflow-hidden rounded-2xl border border-white/10 shadow-2xl"
+      className="relative aspect-[1.6/1] w-full overflow-hidden rounded-2xl border border-white/10 shadow-popover"
       style={{
         background: `linear-gradient(135deg, hsl(${art.hue} 70% 18%), hsl(${art.hue2} 70% 12%))`,
       }}

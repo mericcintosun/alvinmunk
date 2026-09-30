@@ -47,7 +47,7 @@ export function ConfigStatusBanner() {
       role="alert"
       aria-live="assertive"
       data-testid="config-status-banner"
-      className="fixed inset-x-0 top-0 z-[200] border-b border-destructive/60 bg-destructive px-4 py-3 text-destructive-foreground shadow-lg"
+      className="fixed inset-x-0 top-0 z-[200] border-b border-destructive/60 bg-destructive px-4 py-3 text-destructive-foreground shadow-toast"
     >
       <div className="mx-auto flex max-w-3xl flex-col gap-1">
         <p className="flex items-center gap-2 text-sm font-semibold">

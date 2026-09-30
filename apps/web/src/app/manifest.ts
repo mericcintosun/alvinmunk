@@ -1,4 +1,5 @@
 import type { MetadataRoute } from 'next';
+import { THEME_COLOR } from '@/lib/theme';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
@@ -8,8 +9,10 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: '/app',
     scope: '/',
     display: 'standalone',
-    background_color: '#0B0512',
-    theme_color: '#9A52FF',
+    // The manifest has no per-scheme colours: the installed app opens in the brand's dark
+    // theme, so both are its --background (the page's theme-color metas take over after load).
+    background_color: THEME_COLOR.dark,
+    theme_color: THEME_COLOR.dark,
     icons: [
       {
         src: '/assets/brand/alvinmunk-icon-192.png',
