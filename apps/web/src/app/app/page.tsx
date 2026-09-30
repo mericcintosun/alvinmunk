@@ -78,7 +78,7 @@ export default function AppHome() {
       <FirstStarNudge />
       <InviteNudge />
 
-      {/* Pending bonus nudge: unverified users with queued voucher bonuses — self-hides when verified or empty */}
+      {/* People whose vouch bonus waits on your first verified quest — self-hides when none */}
       <PendingBonusNudge />
 
       {/* Time-sensitive: unclaimed half-cards you minted (stake at risk) — self-hides when empty */}

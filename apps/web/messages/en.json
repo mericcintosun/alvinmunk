@@ -446,8 +446,10 @@
   "inviteNudge.message": "invited you — light a star and send it back to complete the loop.",
   "inviteNudge.dismiss": "Dismiss",
 
-  "pendingBonusNudge.title": "{count} people get +{total} when you complete your first quest",
-  "pendingBonusNudge.body": "Your vouches are waiting on your first verified action — complete a quest to unlock their bonuses.",
+  "pendingBonusNudge.title.one": "1 person gets +{amount} XP when you complete your first quest",
+  "pendingBonusNudge.title.other": "{count} people get +{amount} XP each when you complete your first quest",
+  "pendingBonusNudge.title.mixed": "{count} people get +{total} XP between them when you complete your first quest",
+  "pendingBonusNudge.body": "Their vouch bonus unlocks with your first verified quest — the step that shows you're real.",
   "pendingBonusNudge.action": "Complete a quest →",
 
   "pendingHalfCards.frame": "pending // awaiting_claim",
