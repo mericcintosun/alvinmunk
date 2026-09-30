@@ -413,11 +413,11 @@ export function Quests({ address }: { address: string }) {
         {/* Quest 4 — first-tip: you tipped a wallet you're connected to (only when configured) */}
         {FIRST_TIP_QUEST_ID > 0 && (
           <div className="mt-4 border-t border-border/60 pt-4">
-            <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+            <span className="eyebrow-mono text-muted-foreground">
               {t('quests.firstTipLabel')}
               {tag(FIRST_TIP_QUEST_ID)}
             </span>
-            <p className="mt-1 text-[11px] text-muted-foreground">
+            <p className="mt-1 text-2xs text-muted-foreground">
               {t('quests.firstTipHint', { min: TIP_FLOOR_USDC })}
             </p>
             <Button
