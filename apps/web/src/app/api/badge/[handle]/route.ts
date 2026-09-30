@@ -32,6 +32,9 @@ export const runtime = 'nodejs';
 // Read the chain at REQUEST time; a build-time (prerendered) snapshot would freeze whatever
 // the RPC happened to answer during the deploy.
 export const dynamic = 'force-dynamic';
+// The CDN caches the response (headers below); the chain reads themselves must not land in
+// Next's Data Cache, or the badge would show its first numbers forever.
+export const fetchCache = 'default-no-store';
 
 // 5 minutes at the CDN, an hour of background refresh — mirrors the issue's contract.
 const CACHE_CONTROL = 'public, s-maxage=300, stale-while-revalidate=3600';
