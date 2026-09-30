@@ -70,7 +70,7 @@ describe('LandingOnboard handle field', () => {
     const input = container.querySelector('input')!;
     const wrapper = input.closest('.glass')!;
     expect(wrapper.className).toMatch(/focus-within:ring-2/);
-    expect(wrapper.className).toMatch(/focus-within:ring-ring\/40/);
+    expect(wrapper.className).toMatch(/focus-within:ring-ring(?![/\\w-])/);
   });
 
   it('points the input at the status line with a polite live region', async () => {

@@ -53,7 +53,7 @@ export function LandingOnboard() {
         void createProfile();
       }}
     >
-      <div className="glass flex items-center gap-2 rounded-full p-1.5 focus-within:ring-2 focus-within:ring-ring/40">
+      <div className="glass flex items-center gap-2 rounded-full p-1.5 focus-within:ring-2 focus-within:ring-ring">
         <span className="pl-3 text-lg text-muted-foreground">@</span>
         <Input
           value={handle}
@@ -62,7 +62,7 @@ export function LandingOnboard() {
           aria-label={t('onboard.ariaLabel')}
           aria-describedby="landing-handle-status landing-handle-rules"
           maxLength={HANDLE_MAX_CHARS}
-          className="h-11 flex-1 border-0 bg-transparent focus-visible:ring-0"
+          className="h-11 flex-1 border-0 bg-transparent focus-visible:outline-none"
         />
         <Button type="submit" variant="flow" size="md" disabled={creating || avail === 'taken' || avail === 'reserved'} className="shrink-0">
           {creating ? t('onboard.creating') : t('onboard.startFree')}

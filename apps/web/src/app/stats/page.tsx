@@ -181,7 +181,7 @@ export default function StatsPage() {
                   <Link
                     href={`/score/${a}`}
                     aria-label={`Score for ${shortAddr(a, 6, 6)}`}
-                    className="flex-1 rounded-l-xl px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                    className="flex-1 rounded-l-xl px-3 py-2"
                   >
                     {shortAddr(a, 6, 6)}
                   </Link>
@@ -191,7 +191,7 @@ export default function StatsPage() {
                     rel="noreferrer"
                     aria-label={`${shortAddr(a, 6, 6)} on stellar.expert (opens in a new tab)`}
                     title="stellar.expert"
-                    className="rounded-r-xl px-3 py-2 text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                    className="rounded-r-xl px-3 py-2 text-muted-foreground transition-colors hover:text-foreground"
                   >
                     <ExternalLink className="size-3.5" />
                   </a>

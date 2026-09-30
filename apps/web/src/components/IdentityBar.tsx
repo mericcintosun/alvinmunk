@@ -212,7 +212,7 @@ export function IdentityBar() {
             <button
               onClick={() => setPicking((p) => !p)}
               disabled={savingMeta}
-              className="rounded-full outline-none ring-offset-2 ring-offset-background transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-lime"
+              className="rounded-full transition-transform hover:scale-105"
               aria-label={t('identity.changeFace')}
               title={t('identity.changeFace')}
             >
