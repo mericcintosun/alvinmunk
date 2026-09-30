@@ -73,8 +73,10 @@ caps and a daily circuit breaker bound every payout."*
 - **Claiming:** "Lighting your star…" (TxStatus pending).
 - **Merged (success):** the two halves merge with a bloom, the crest gains a star.
   Headline: **"You're connected."** CTA: **"Now vouch someone back →"** (close the loop).
-- **Already-claimed:** "This star is already lit." → `Go to your passport`.
-- **Invalid/expired:** "This link can't be claimed." → `Open the app` (never a dead end).
+- **Already-claimed:** "This star is already lit." → `Open the app`; the original claimer sees the merged done state.
+- **Missing/invalid:** "This link can't be claimed." → `Open the app` (never a dead end).
+- **Own vouch:** "This is your vouch — share it." Never offer the voucher a claim action.
+- **Late but unclaimed:** keep `Claim your star`; explain that the voucher's stake has lapsed but the star can still light.
 
 ## 6. Profile `/u/[handle]`
 

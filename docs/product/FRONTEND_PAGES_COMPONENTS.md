@@ -57,7 +57,7 @@ shared URL — minimal chrome, maximum funnel.
 ### Funnel & Docs
 | Route | Job | States |
 |-------|-----|--------|
-| `/claim/[id]` **Claim** | THE viral moment; works logged-out | preview(unauth) / connecting / claiming / merged(success) / already-claimed / invalid / expired |
+| `/claim/[id]` **Claim** | THE viral moment; works logged-out | preview(unauth) / connecting / claiming / merged(success) / already-claimed / own-vouch / missing / invalid-code / late-claimable |
 | `/docs/**` | for-devs: read reputation in one call | see [DEV_DOCS_OUTLINE.md](./DEV_DOCS_OUTLINE.md) |
 
 ## 3. Navbar & Footer (exact contents)

@@ -8,7 +8,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 (globalThis as { React?: typeof React }).React = React;
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const { getVouchMock, reverseHandleMock, getMetaMock, claimVouchSignedMock, isVouchCancelledMock, profileHook, walletCtx } = vi.hoisted(() => ({
+const {
+  getVouchMock,
+  reverseHandleMock,
+  getMetaMock,
+  claimVouchSignedMock,
+  profileHook,
+  walletCtx,
+} = vi.hoisted(() => ({
   getVouchMock: vi.fn(),
   reverseHandleMock: vi.fn(),
   getMetaMock: vi.fn(),
@@ -19,11 +26,19 @@ const { getVouchMock, reverseHandleMock, getMetaMock, claimVouchSignedMock, isVo
     current: {} as Record<string, unknown>,
   },
   walletCtx: {
-    connect: (() => Promise.resolve(undefined)) as () => Promise<unknown>,
+    connect: vi.fn(async () => undefined) as () => Promise<unknown>,
     wallet: null as { address: string } | null,
+    profile: null as { address: string; handle: string } | null,
   },
 }));
-const IDLE_HOOK = { handle: '', setHandle: () => {}, normalizedHandle: '', avail: 'idle', creating: false, create: () => {} };
+const IDLE_HOOK = {
+  handle: '',
+  setHandle: () => {},
+  normalizedHandle: '',
+  avail: 'idle',
+  creating: false,
+  create: () => {},
+};
 
 vi.mock('next/link', () => ({
   default: ({ children, href, ...rest }: { children: React.ReactNode; href: string }) => (
@@ -33,7 +48,11 @@ vi.mock('next/link', () => ({
   ),
 }));
 vi.mock('@/components/wallet/wallet-provider', () => ({
-  useWallet: () => ({ connect: walletCtx.connect, wallet: walletCtx.wallet, profile: null }),
+  useWallet: () => ({
+    connect: walletCtx.connect,
+    wallet: walletCtx.wallet,
+    profile: walletCtx.profile,
+  }),
 }));
 vi.mock('@/hooks/use-create-profile', () => ({
   useCreateProfile: () => profileHook.current,
@@ -52,6 +71,7 @@ vi.mock('@/components/ui/sticker', () => ({ Sticker: () => null }));
 import ClaimPage from './page';
 
 const VOUCHER = 'GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H';
+const VALID_CLAIM_CODE = 'ab'.repeat(32);
 
 describe('/claim/[id] — who vouched (#218)', () => {
   let container: HTMLDivElement;
@@ -59,7 +79,10 @@ describe('/claim/[id] — who vouched (#218)', () => {
 
   beforeEach(() => {
     profileHook.current = { ...IDLE_HOOK };
-    window.location.hash = '#k=ab';
+    walletCtx.connect = vi.fn(async () => undefined);
+    walletCtx.profile = null;
+    walletCtx.wallet = null;
+    window.location.hash = `#k=${VALID_CLAIM_CODE}`;
     getVouchMock.mockResolvedValue({
       id: 7,
       from: VOUCHER,
@@ -80,6 +103,8 @@ describe('/claim/[id] — who vouched (#218)', () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    walletCtx.wallet = null;
+    walletCtx.profile = null;
     vi.clearAllMocks();
   });
 
@@ -89,7 +114,9 @@ describe('/claim/[id] — who vouched (#218)', () => {
   }
 
   const claimButton = () =>
-    [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('Claim your star'));
+    [...container.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('Claim your star'),
+    );
 
   it('names the voucher by @handle and face, with a link to their profile', async () => {
     reverseHandleMock.mockResolvedValue('ayse');
@@ -121,6 +148,114 @@ describe('/claim/[id] — who vouched (#218)', () => {
     expect(container.querySelector('h1')?.textContent).toBe('Someone vouched for you.');
   });
 
+  it('shows a missing-vouch state without a claim button or wallet connection', async () => {
+    getVouchMock.mockResolvedValue(null);
+    await renderPage();
+
+    expect(container.querySelector('h1')?.textContent).toBe("This link can't be claimed.");
+    expect(container.textContent).toContain("This vouch couldn't be found.");
+    expect(claimButton()).toBeUndefined();
+    expect(walletCtx.connect).not.toHaveBeenCalled();
+  });
+
+  it('shows already claimed by another person without offering a claim', async () => {
+    getVouchMock.mockResolvedValue({
+      id: 7,
+      from: VOUCHER,
+      note: 'gm',
+      claimed: true,
+      claimer: 'GOTHER',
+      created: Math.floor(Date.now() / 1000),
+      stake: 5,
+      slashed: false,
+    });
+    await renderPage();
+
+    expect(container.querySelector('h1')?.textContent).toBe('This star is already lit.');
+    expect(claimButton()).toBeUndefined();
+    expect(walletCtx.connect).not.toHaveBeenCalled();
+  });
+
+  it('shows the completed state when the current profile claimed this vouch', async () => {
+    const claimer = 'GCLAIMER';
+    walletCtx.profile = { address: claimer, handle: 'claimer' };
+    getVouchMock.mockResolvedValue({
+      id: 7,
+      from: VOUCHER,
+      note: 'gm',
+      claimed: true,
+      claimer,
+      created: Math.floor(Date.now() / 1000),
+      stake: 5,
+      slashed: false,
+    });
+    await renderPage();
+
+    expect(container.querySelector('h1')?.textContent).toBe("You're connected.");
+    expect(container.textContent).toContain('STAR IGNITED');
+    expect(claimButton()).toBeUndefined();
+    expect(walletCtx.connect).not.toHaveBeenCalled();
+  });
+
+  it('tells the voucher to share their link instead of claiming their own vouch', async () => {
+    walletCtx.profile = { address: VOUCHER, handle: 'voucher' };
+    await renderPage();
+
+    expect(container.querySelector('h1')?.textContent).toBe('This is your vouch.');
+    expect(container.textContent).toContain('Share this link with the person you backed.');
+    expect(claimButton()).toBeUndefined();
+    expect(walletCtx.connect).not.toHaveBeenCalled();
+  });
+
+  it('blocks the voucher by connected wallet address even before a profile is loaded', async () => {
+    walletCtx.wallet = { address: VOUCHER };
+    await renderPage();
+
+    expect(container.querySelector('h1')?.textContent).toBe('This is your vouch.');
+    expect(claimButton()).toBeUndefined();
+    expect(walletCtx.connect).not.toHaveBeenCalled();
+  });
+
+  it('keeps late vouches claimable and explains that the stake has lapsed', async () => {
+    getVouchMock.mockResolvedValue({
+      id: 7,
+      from: VOUCHER,
+      note: 'gm',
+      claimed: false,
+      claimer: null,
+      created: Math.floor(Date.now() / 1000) - 604_801,
+      stake: 5,
+      slashed: false,
+    });
+    await renderPage();
+
+    expect(claimButton()).toBeDefined();
+    expect(claimButton()!.disabled).toBe(false);
+    expect(container.textContent).toContain('LATE');
+    expect(container.textContent).toContain('stake lapsed');
+    expect(container.textContent).toContain("The voucher's stake has lapsed");
+  });
+
+  it('does not offer a claim when the link claim code is invalid', async () => {
+    window.location.hash = '#k=bad';
+    await renderPage();
+
+    expect(container.querySelector('h1')?.textContent).toBe("This link can't be claimed.");
+    expect(claimButton()).toBeUndefined();
+    expect(walletCtx.connect).not.toHaveBeenCalled();
+  });
+
+  it('describes contract error #4 as missing, not expired', async () => {
+    claimVouchSignedMock.mockRejectedValueOnce(new Error('Error(Contract, #4)'));
+    await renderPage();
+    await act(async () => claimButton()!.click());
+    for (let i = 0; i < 6; i++) await act(async () => Promise.resolve());
+
+    const message = container.querySelector('.text-destructive')?.textContent ?? '';
+    expect(message).toContain("This vouch doesn't exist.");
+    expect(message).not.toMatch(/expired/i);
+  });
+
   it('keeps a 32-character @handle inside a phone screen (#477)', async () => {
     const long = 'w'.repeat(32);
     reverseHandleMock.mockResolvedValue(long);
@@ -133,10 +268,14 @@ describe('/claim/[id] — who vouched (#218)', () => {
     expect(h1.classList).toContain('text-3xl');
     expect(h1.classList).toContain('sm:text-4xl');
     // The card's name line truncates, and its half of the grid may shrink to allow that.
-    const name = [...container.querySelectorAll('span')].find((el) => el.textContent === `@${long}`)!;
+    const name = [...container.querySelectorAll('span')].find(
+      (el) => el.textContent === `@${long}`,
+    )!;
     expect(name.classList).toContain('truncate');
     expect(name.classList).toContain('max-w-full');
-    expect(name.closest('.grid')?.classList).toContain('grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]');
+    expect(name.closest('.grid')?.classList).toContain(
+      'grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]',
+    );
     expect(container.querySelector(`a[href="/u/${long}"]`)?.classList).toContain('truncate');
   });
 });
@@ -147,6 +286,9 @@ describe('/claim/[id] — the handle picker after a claim (#479)', () => {
 
   beforeEach(() => {
     profileHook.current = { ...IDLE_HOOK };
+    walletCtx.connect = vi.fn(async () => undefined);
+    walletCtx.profile = null;
+    walletCtx.wallet = null;
     window.location.hash = `#k=${'ab'.repeat(32)}`;
     getVouchMock.mockResolvedValue({
       id: 7,
@@ -162,7 +304,10 @@ describe('/claim/[id] — the handle picker after a claim (#479)', () => {
     getMetaMock.mockResolvedValue(null);
     isVouchCancelledMock.mockResolvedValue(false);
     claimVouchSignedMock.mockResolvedValue(undefined);
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(null)));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(null)),
+    );
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -171,6 +316,7 @@ describe('/claim/[id] — the handle picker after a claim (#479)', () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    walletCtx.profile = null;
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
@@ -178,7 +324,9 @@ describe('/claim/[id] — the handle picker after a claim (#479)', () => {
   async function claimed() {
     await act(async () => root.render(<ClaimPage params={{ id: '7' }} />));
     for (let i = 0; i < 6; i++) await act(async () => Promise.resolve());
-    const claim = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('Claim your star'))!;
+    const claim = [...container.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('Claim your star'),
+    )!;
     await act(async () => claim.click());
     for (let i = 0; i < 6; i++) await act(async () => Promise.resolve());
     const input = container.querySelector<HTMLInputElement>('[aria-label="Pick a handle"]');
@@ -209,7 +357,9 @@ describe('/claim/[id] — the handle picker after a claim (#479)', () => {
     expect(status.textContent).toBe('@ayse is reserved until Oct 29, 2026');
     expect(status.className.split(' ')).toContain('min-h-4');
     expect(status.className.split(' ')).not.toContain('h-4');
-    expect(container.querySelector('#claim-handle-rules')!.textContent).toBe('3–20 characters: a–z, 0–9 or _');
+    expect(container.querySelector('#claim-handle-rules')!.textContent).toBe(
+      '3–20 characters: a–z, 0–9 or _',
+    );
   });
 });
 
@@ -220,9 +370,17 @@ describe('/claim/[id] — feedback after a claim (#287)', () => {
 
   beforeEach(() => {
     profileHook.current = { ...IDLE_HOOK };
+    walletCtx.profile = null;
+    walletCtx.wallet = null;
     localStorage.clear();
-    vi.stubEnv('NEXT_PUBLIC_FEEDBACK_FORM_URL', 'https://docs.google.com/forms/d/e/FORM/viewform?entry.2={address}');
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('{}'))));
+    vi.stubEnv(
+      'NEXT_PUBLIC_FEEDBACK_FORM_URL',
+      'https://docs.google.com/forms/d/e/FORM/viewform?entry.2={address}',
+    );
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response('{}'))),
+    );
     window.location.hash = `#k=${'ab'.repeat(32)}`;
     getVouchMock.mockResolvedValue({
       id: 7,
@@ -251,6 +409,7 @@ describe('/claim/[id] — feedback after a claim (#287)', () => {
     act(() => root.unmount());
     container.remove();
     walletCtx.wallet = null;
+    walletCtx.profile = null;
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
@@ -258,12 +417,14 @@ describe('/claim/[id] — feedback after a claim (#287)', () => {
 
   const prompt = () => container.querySelector('section[aria-label="Quick feedback"]');
 
-  it('asks once the star is lit, with the claimer\'s address prefilled', async () => {
+  it("asks once the star is lit, with the claimer's address prefilled", async () => {
     await act(async () => root.render(<ClaimPage params={{ id: '7' }} />));
     for (let i = 0; i < 6; i++) await act(async () => Promise.resolve());
     expect(prompt()).toBeNull(); // not before the claim
 
-    const claim = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('Claim your star'))!;
+    const claim = [...container.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('Claim your star'),
+    )!;
     await act(async () => claim.click());
     for (let i = 0; i < 6; i++) await act(async () => Promise.resolve());
 
