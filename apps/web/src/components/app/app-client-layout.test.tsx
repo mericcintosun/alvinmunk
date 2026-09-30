@@ -3,15 +3,18 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { useWalletMock } = vi.hoisted(() => ({ useWalletMock: vi.fn() }));
+const { useWalletMock, nav } = vi.hoisted(() => ({ useWalletMock: vi.fn(), nav: { search: '' } }));
 
 // The layouts rely on Next's automatic JSX runtime and never import React; vitest compiles
 // JSX to React.createElement, so hand them the global.
 vi.stubGlobal('React', React);
 
 vi.mock('@/components/wallet/wallet-provider', () => ({ useWallet: useWalletMock }));
+vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(nav.search) }));
 vi.mock('@/components/app/onboarding', () => ({
-  Onboarding: () => <div data-testid="onboarding" />,
+  Onboarding: ({ initialHandle }: { initialHandle?: string }) => (
+    <div data-testid="onboarding" data-initial={initialHandle ?? ''} />
+  ),
 }));
 vi.mock('@/components/app/app-shell', () => ({
   AppShell: ({ children }: { children: React.ReactNode }) => <div data-testid="shell">{children}</div>,
@@ -25,6 +28,7 @@ describe('/app layout gate', () => {
   let root: Root;
 
   beforeEach(() => {
+    nav.search = '';
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -52,6 +56,14 @@ describe('/app layout gate', () => {
     expect(container.querySelector('[data-testid="onboarding"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="shell"]')).toBeNull();
     expect(container.querySelector('[data-testid="tab"]')).toBeNull();
+    expect(container.querySelector('[data-testid="onboarding"]')?.getAttribute('data-initial')).toBe('');
+  });
+
+  it('hands ?handle= to onboarding, so a "Claim @x" link arrives prefilled (#485)', () => {
+    nav.search = '?handle=beko';
+    useWalletMock.mockReturnValue({ profile: null });
+    render();
+    expect(container.querySelector('[data-testid="onboarding"]')?.getAttribute('data-initial')).toBe('beko');
   });
 
   it('renders the tab inside the dashboard shell once a profile exists', () => {

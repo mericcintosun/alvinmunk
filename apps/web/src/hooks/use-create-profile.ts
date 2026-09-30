@@ -19,6 +19,9 @@ export type HandleAvailability = 'idle' | 'checking' | 'free' | 'taken' | 'reser
 
 export interface UseCreateProfileOptions {
   from: CreateProfileSource;
+  /** Handle to start with (normalized), e.g. the one a "Claim @x" link on `/u/<x>` carries.
+   *  Read once on mount; its availability check starts right away. */
+  initialHandle?: string;
   /** Chosen avatar face, if the caller offers a face picker. */
   face?: FaceId;
   /** Called once the profile is stored — created, or restored because the address already
@@ -64,11 +67,16 @@ export interface UseCreateProfileResult {
  * server-rendered marketing page, and a static import here would pull stellar-sdk into
  * that bundle (see the NOTE in `landing-onboard.tsx`).
  */
-export function useCreateProfile({ from, face, onCreated }: UseCreateProfileOptions): UseCreateProfileResult {
+export function useCreateProfile({
+  from,
+  face,
+  onCreated,
+  initialHandle,
+}: UseCreateProfileOptions): UseCreateProfileResult {
   const t = useTranslations();
   const { locale } = useLocale();
   const { wallet, connect, setProfile, restoreProfile } = useWallet();
-  const [handle, setHandle] = useState('');
+  const [handle, setHandle] = useState(() => normalizeHandle(initialHandle ?? ''));
   const [creating, setCreating] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [avail, setAvail] = useState<HandleAvailability>('idle');

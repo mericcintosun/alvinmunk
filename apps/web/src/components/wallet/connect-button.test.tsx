@@ -115,8 +115,27 @@ describe('ConnectButton account menu (WAI-ARIA menu button)', () => {
     await openWithClick();
 
     expect(trigger().getAttribute('aria-expanded')).toBe('true');
-    expect(itemNames()).toEqual(['View profile', 'Copy address', 'Disconnect']);
+    expect(itemNames()).toEqual(['Dashboard', 'View profile', 'Copy address', 'Disconnect']);
     expect(document.activeElement).toBe(items()[0]);
+  });
+
+  it('leads with a Dashboard link back to /app that closes the menu (#472)', async () => {
+    const onNavigate = vi.fn();
+    await act(async () => {
+      root.render(<ConnectButton onNavigate={onNavigate} />);
+    });
+    await act(async () => {
+      trigger().click();
+    });
+
+    const dashboard = items()[0];
+    expect(dashboard.tagName).toBe('A');
+    expect(dashboard.getAttribute('href')).toBe('/app');
+    dashboard.addEventListener('click', (e) => e.preventDefault()); // jsdom cannot navigate
+    await press(dashboard, 'Enter');
+    expect(onNavigate).toHaveBeenCalledTimes(1);
+    expect(menu()).toBeNull();
+    expect(document.activeElement).toBe(trigger());
   });
 
   it('points aria-controls at the open menu and labels it from the trigger', async () => {
@@ -132,7 +151,7 @@ describe('ConnectButton account menu (WAI-ARIA menu button)', () => {
     // The address/balance block is information, not an item, so it lives outside the menu.
     expect(menu()!.textContent).not.toContain('XLM');
     const childRoles = Array.from(menu()!.children).map((child) => child.getAttribute('role'));
-    expect(childRoles.filter(Boolean)).toEqual(['menuitem', 'menuitem', 'separator', 'menuitem']);
+    expect(childRoles.filter(Boolean)).toEqual(['menuitem', 'menuitem', 'menuitem', 'separator', 'menuitem']);
   });
 
   it('opens with ArrowDown on the first item and ArrowUp on the last', async () => {
@@ -146,19 +165,21 @@ describe('ConnectButton account menu (WAI-ARIA menu button)', () => {
     await press(items()[0], 'Escape');
     act(() => trigger().focus());
     await press(trigger(), 'ArrowUp');
-    expect(document.activeElement).toBe(items()[2]);
+    expect(document.activeElement).toBe(items()[3]);
   });
 
   it('wraps ArrowDown and ArrowUp around the ends', async () => {
     await openWithClick();
-    expect(activeName()).toBe('View profile');
+    expect(activeName()).toBe('Dashboard');
 
+    await press(document.activeElement!, 'ArrowDown');
+    expect(activeName()).toBe('View profile');
     await press(document.activeElement!, 'ArrowDown');
     expect(activeName()).toBe('Copy address');
     await press(document.activeElement!, 'ArrowDown');
     expect(activeName()).toBe('Disconnect');
     await press(document.activeElement!, 'ArrowDown');
-    expect(activeName()).toBe('View profile');
+    expect(activeName()).toBe('Dashboard');
 
     await press(document.activeElement!, 'ArrowUp');
     expect(activeName()).toBe('Disconnect');
@@ -172,19 +193,19 @@ describe('ConnectButton account menu (WAI-ARIA menu button)', () => {
     await press(document.activeElement!, 'End');
     expect(activeName()).toBe('Disconnect');
     await press(document.activeElement!, 'Home');
-    expect(activeName()).toBe('View profile');
+    expect(activeName()).toBe('Dashboard');
   });
 
   it('keeps a roving tabindex so the menu stays a single tab stop', async () => {
     await openWithClick();
-    expect(items().map((el) => el.tabIndex)).toEqual([0, -1, -1]);
+    expect(items().map((el) => el.tabIndex)).toEqual([0, -1, -1, -1]);
 
     await press(document.activeElement!, 'ArrowDown');
-    expect(items().map((el) => el.tabIndex)).toEqual([-1, 0, -1]);
+    expect(items().map((el) => el.tabIndex)).toEqual([-1, 0, -1, -1]);
     expect(document.activeElement).toBe(items()[1]);
 
     await press(document.activeElement!, 'End');
-    expect(items().map((el) => el.tabIndex)).toEqual([-1, -1, 0]);
+    expect(items().map((el) => el.tabIndex)).toEqual([-1, -1, -1, 0]);
   });
 
   it('jumps to an item by the letters of its name', async () => {
@@ -196,6 +217,11 @@ describe('ConnectButton account menu (WAI-ARIA menu button)', () => {
     expect(activeName()).toBe('Copy address');
     await pressAfterGap(document.activeElement!, 'v');
     expect(activeName()).toBe('View profile');
+    // Two items start with "d": the search moves on from the focused one and wraps.
+    await pressAfterGap(document.activeElement!, 'd');
+    expect(activeName()).toBe('Disconnect');
+    await pressAfterGap(document.activeElement!, 'd');
+    expect(activeName()).toBe('Dashboard');
   });
 
   it('reads keys typed close together as one search', async () => {
@@ -211,12 +237,13 @@ describe('ConnectButton account menu (WAI-ARIA menu button)', () => {
     await openWithClick();
 
     await pressAfterGap(document.activeElement!, 'z');
-    expect(activeName()).toBe('View profile');
+    expect(activeName()).toBe('Dashboard');
   });
 
   it('activates the focused item with Enter and hands focus back to the trigger', async () => {
     await openWithClick();
 
+    await press(document.activeElement!, 'ArrowDown');
     await press(document.activeElement!, 'ArrowDown'); // Copy address
     expect(activeName()).toBe('Copy address');
 
@@ -265,7 +292,7 @@ describe('ConnectButton account menu (WAI-ARIA menu button)', () => {
   it('stays open while focus moves between its own items', async () => {
     await openWithClick();
 
-    act(() => items()[2].focus());
+    act(() => items()[3].focus());
 
     expect(menu()).not.toBeNull();
   });
