@@ -21,7 +21,8 @@ vi.mock('@/lib/registry', () => ({
   reverseHandles: reverseHandlesMock,
 }));
 // The key, then any vars as name=value, so a test can read what a label was built from.
-vi.mock('@/lib/i18n', () => ({
+vi.mock('@/lib/i18n', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/i18n')>()),
   useTranslations: () => (k: string, vars?: Record<string, string>) =>
     vars ? [k, ...Object.entries(vars).map(([n, v]) => `${n}=${v}`)].join(' ') : k,
 }));
@@ -34,6 +35,7 @@ vi.mock('@/lib/read-network', () => ({
 
 // Fix for default exports
 import LeaderboardPage from './page';
+import { I18nProvider } from '@/lib/i18n';
 
 describe('LeaderboardPage', () => {
   let root: Root;
@@ -430,5 +432,47 @@ describe('LeaderboardPage — rows link to the person (issue #216)', () => {
     expect(items[0].querySelector('a')?.getAttribute('aria-label')).toBe(
       'leaderboard.rowLabel name=@alice rank=1 score=42, leaderboard.you, leaderboard.flaggedTitle',
     );
+  });
+
+  it('labels the score as XP in the locale digit grouping, and counts the entries (#493)', async () => {
+    const items = await renderRows([
+      { address: ALICE, score: 1234, rank: 1, flagged: false },
+      { address: NOHANDLE, score: 7, rank: 2, flagged: false },
+    ]);
+    // "★ 1234" read like a star count; the value is Social XP, grouped like everywhere else.
+    expect(items[0].textContent).toContain('1,234 XP');
+    expect(items[1].textContent).toContain('7 XP');
+    expect(container.textContent).not.toContain('★');
+    expect(items[0].querySelector('a')?.getAttribute('aria-label')).toBe(
+      'leaderboard.rowLabel name=@alice rank=1 score=1,234',
+    );
+    // The frame index is a translated count, not a hard-coded English "N entries".
+    expect(container.textContent).toContain('leaderboard.entries.other count=2');
+    expect(container.textContent).not.toContain('2 entries');
+  });
+
+  it('uses the singular entry label for a single row', async () => {
+    await renderRows([{ address: ALICE, score: 5, rank: 1, flagged: false }]);
+    expect(container.textContent).toContain('leaderboard.entries.one');
+  });
+
+  it('groups the score with a dot on the Turkish locale', async () => {
+    localStorage.setItem('alvinmunk_locale', 'tr');
+    try {
+      fetchLeaderboardMock.mockResolvedValue([{ address: ALICE, score: 12_345, rank: 1, flagged: false }]);
+      await act(async () => {
+        root.render(
+          <I18nProvider>
+            <LeaderboardPage />
+          </I18nProvider>,
+        );
+        await Promise.resolve();
+      });
+      const row = container.querySelector('ol > li')!;
+      expect(row.textContent).toContain('12.345 XP');
+      expect(row.querySelector('a')?.getAttribute('aria-label')).toContain('score=12.345');
+    } finally {
+      localStorage.removeItem('alvinmunk_locale');
+    }
   });
 });

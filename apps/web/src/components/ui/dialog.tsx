@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
+import { lockScroll } from '@/lib/scroll-lock';
 
 const FOCUSABLE =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -19,7 +20,8 @@ interface DialogProps {
 /**
  * A modal dialog: focus moves in on open and back to where it was on close, Tab cycles
  * inside it (the content may change while open, so the focusable set is read on every
- * Tab), and Escape or a backdrop click closes it.
+ * Tab), and Escape or a backdrop click closes it. While open the page behind can't scroll
+ * (lib/scroll-lock), and a panel taller than a short screen scrolls inside itself (#489).
  */
 export function Dialog({ open, onClose, labelledBy, children, className }: DialogProps) {
   const contentRef = useRef<HTMLDivElement>(null);
@@ -30,6 +32,7 @@ export function Dialog({ open, onClose, labelledBy, children, className }: Dialo
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
+    const unlockScroll = lockScroll();
     const focusables = () => [...(contentRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])];
     (focusables()[0] ?? contentRef.current)?.focus();
 
@@ -59,6 +62,7 @@ export function Dialog({ open, onClose, labelledBy, children, className }: Dialo
     document.addEventListener('keydown', onKeyDown);
     return () => {
       document.removeEventListener('keydown', onKeyDown);
+      unlockScroll();
       previous?.focus?.();
     };
   }, [open]);
@@ -66,8 +70,10 @@ export function Dialog({ open, onClose, labelledBy, children, className }: Dialo
   if (!open) return null;
 
   return (
+    // `my-auto` centres the panel but, unlike items-center, never pushes its top off-screen;
+    // data-lenis-prevent hands wheel/touch inside the panel to native scrolling.
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-50 flex justify-center overflow-y-auto bg-black/60 p-4"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -78,7 +84,11 @@ export function Dialog({ open, onClose, labelledBy, children, className }: Dialo
         aria-modal="true"
         aria-labelledby={labelledBy}
         tabIndex={-1}
-        className={cn('w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-popover outline-none', className)}
+        data-lenis-prevent
+        className={cn(
+          'my-auto max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl border border-border bg-card p-6 shadow-popover outline-none motion-safe:animate-fade-up',
+          className,
+        )}
       >
         {children}
       </div>

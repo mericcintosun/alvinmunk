@@ -156,7 +156,7 @@ export function VouchClaimedNotice() {
     <div
       role="status"
       aria-live="polite"
-      className="fixed bottom-20 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-border/60 bg-surface/90 px-4 py-3 shadow-toast backdrop-blur-sm sm:bottom-6"
+      className="fixed bottom-20 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-border/60 bg-surface/90 px-4 py-3 shadow-toast backdrop-blur-sm sm:bottom-6 print:hidden"
     >
       <Bell className="size-4 shrink-0 text-primary" aria-hidden />
       <p className="text-sm text-foreground">

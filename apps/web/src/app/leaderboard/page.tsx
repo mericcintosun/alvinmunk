@@ -14,7 +14,7 @@ import { ShareRow } from '@/components/fx/share-row';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StateArt } from '@/components/ui/state-art';
 import { Sticker } from '@/components/ui/sticker';
-import { useTranslations } from '@/lib/i18n';
+import { useFormat, useTranslations } from '@/lib/i18n';
 import { shortAddr } from '@alvinmunk/shared';
 import { cn } from '@/lib/utils';
 import { readNetworkFor, withReadNetwork, type ReadNetwork } from '@/lib/read-network';
@@ -33,6 +33,7 @@ export default function LeaderboardPage({
 
 function Leaderboard({ net }: { net: ReadNetwork | null }) {
   const t = useTranslations();
+  const format = useFormat();
   const [rows, setRows] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [handles, setHandles] = useState<Record<string, string | null>>({});
@@ -128,7 +129,15 @@ function Leaderboard({ net }: { net: ReadNetwork | null }) {
         <ShareRow path={withReadNetwork('/leaderboard', net)} text={t('leaderboard.share')} />
       </div>
 
-      <Frame label={t('leaderboard.frame')} index={`${rows.length || '—'} entries`} className="mt-6">
+      <Frame
+        label={t('leaderboard.frame')}
+        index={
+          rows.length === 1
+            ? t('leaderboard.entries.one')
+            : t('leaderboard.entries.other', { count: rows.length ? format.number(rows.length) : '—' })
+        }
+        className="mt-6"
+      >
         {loading ? (
           <div className="flex flex-col gap-px">
             {[0, 1, 2, 3, 4].map((i) => (
@@ -178,7 +187,7 @@ function Leaderboard({ net }: { net: ReadNetwork | null }) {
                 t('leaderboard.rowLabel', {
                   name: handle ? `@${handle}` : shortAddr(e.address),
                   rank: String(e.rank),
-                  score: String(e.score),
+                  score: format.number(e.score),
                 }),
                 isMe && t('leaderboard.you'),
                 e.flagged && t('leaderboard.flaggedTitle'),
@@ -221,7 +230,9 @@ function Leaderboard({ net }: { net: ReadNetwork | null }) {
                         )}
                       </div>
                     </div>
-                    <span className="font-display text-lg font-semibold text-primary">★ {e.score}</span>
+                    <span className="font-display text-lg font-semibold text-primary">
+                      {format.number(e.score)} XP
+                    </span>
                   </Link>
                 </li>
               );

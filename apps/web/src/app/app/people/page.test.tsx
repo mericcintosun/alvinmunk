@@ -15,12 +15,14 @@ const {
   suggestPeopleMock,
   reverseHandlesMock,
   resolveHandleMock,
+  getScoresMock,
 } = vi.hoisted(() => ({
   store: { profile: { address: 'G'.padEnd(56, 'M'), handle: 'me', createdAt: 1 } as { address: string } | null },
   fetchEventsMock: vi.fn(),
   suggestPeopleMock: vi.fn(),
   reverseHandlesMock: vi.fn(),
   resolveHandleMock: vi.fn(),
+  getScoresMock: vi.fn(),
 }));
 
 vi.mock('@/components/wallet/wallet-provider', () => ({
@@ -32,7 +34,7 @@ vi.mock('@/lib/registry', () => ({
   resolveHandle: resolveHandleMock,
   reverseHandles: reverseHandlesMock,
 }));
-vi.mock('@/lib/reputation', () => ({ getScores: vi.fn() }));
+vi.mock('@/lib/reputation', () => ({ getScores: getScoresMock }));
 vi.mock('@/components/Avatar', () => ({ Avatar: () => null }));
 // A plain anchor that forwards every prop, so aria-label/href reach the DOM as they would.
 vi.mock('next/link', () => ({
@@ -116,6 +118,11 @@ describe('PeoplePage suggestions (idle state)', () => {
     // alice has a handle → a real, enabled profile link.
     const aliceLink = Array.from(container.querySelectorAll('a')).find((a) => a.getAttribute('href') === '/u/alice');
     expect(aliceLink).toBeTruthy();
+    // The link IS the button (#487): one tab stop, no <button> nested in the <a>.
+    expect(aliceLink!.querySelector('button')).toBeNull();
+    expect(aliceLink!.className).toContain('rounded-full');
+    expect(aliceLink!.getAttribute('aria-label')).toBeTruthy();
+    expect(container.querySelector('a button')).toBeNull();
 
     // B has no claimed handle yet → `/u/[handle]` would 404 on a raw address, so the
     // View action must be a disabled button, never a link to a broken profile page.
@@ -123,5 +130,59 @@ describe('PeoplePage suggestions (idle state)', () => {
     expect(brokenLink).toBeUndefined();
     const disabledButtons = Array.from(container.querySelectorAll('button')).filter((b) => b.disabled);
     expect(disabledButtons.length).toBeGreaterThan(0);
+  });
+});
+
+describe('PeoplePage search result', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    store.profile = { address: ME };
+    fetchEventsMock.mockReset().mockResolvedValue([]);
+    suggestPeopleMock.mockReset().mockReturnValue([]);
+    reverseHandlesMock.mockReset().mockResolvedValue({});
+    resolveHandleMock.mockReset().mockResolvedValue(A1);
+    getScoresMock.mockReset().mockResolvedValue({ social: 1234, earned: 56_789 });
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  async function searchFor(term: string) {
+    await act(async () => root.render(<PeoplePage />));
+    const input = container.querySelector<HTMLInputElement>('input[aria-label="Search users by handle"]')!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      setter.call(input, term);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => {
+      input.form!.requestSubmit();
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    });
+  }
+
+  it('renders the Vouch CTA as a single link styled as the button (#487)', async () => {
+    await searchFor('alice');
+    expect(resolveHandleMock).toHaveBeenCalledWith('alice');
+    const vouch = container.querySelector<HTMLAnchorElement>('a[href="/app/vouch"]');
+    expect(vouch).not.toBeNull();
+    expect(vouch!.textContent).toContain('Vouch');
+    expect(vouch!.querySelector('button')).toBeNull();
+    // Same look as the old <Button variant="flow" size="sm">: the variant classes sit on the link.
+    for (const c of ['flow', 'rounded-full', 'h-9', 'gap-1.5']) expect(vouch!.classList).toContain(c);
+    expect(container.querySelector('a button')).toBeNull();
+  });
+
+  it('shows the scores with the locale digit grouping (#493)', async () => {
+    await searchFor('@alice');
+    expect(container.textContent).toContain('1,234 Social');
+    expect(container.textContent).toContain('56,789 Earned');
   });
 });

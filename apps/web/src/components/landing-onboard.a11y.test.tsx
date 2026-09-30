@@ -8,17 +8,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 (globalThis as { React?: typeof React }).React = React;
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const { handleAvailabilityMock, pushMock } = vi.hoisted(() => ({
+const { handleAvailabilityMock, pushMock, wallet } = vi.hoisted(() => ({
   handleAvailabilityMock: vi.fn(),
   pushMock: vi.fn(),
+  wallet: { profile: null as { address: string; handle: string } | null },
 }));
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: pushMock }) }));
-vi.mock('next/link', () => ({ default: (p: { children: React.ReactNode }) => p.children }));
+// A plain anchor that forwards every prop, as next/link renders one.
+vi.mock('next/link', () => ({
+  default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
+}));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('@/components/wallet/wallet-provider', () => ({
   useWallet: () => ({
-    profile: null,
+    profile: wallet.profile,
     connect: async () => ({ kind: 'dev', address: 'GME' }),
     setProfile: vi.fn(),
     restoreProfile: vi.fn(),
@@ -121,5 +129,40 @@ describe('LandingOnboard handle field', () => {
     await render();
     await typeHandle('ada');
     expect(container.querySelector('#landing-handle-status')!.textContent).toBe('✓ @ada is free');
+  });
+});
+
+describe('LandingOnboard returning-user CTA (#487)', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    wallet.profile = { address: 'GME', handle: 'ada' };
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    wallet.profile = null;
+  });
+
+  it('is one link styled as the button, not a <button> nested in an <a>', async () => {
+    await act(async () => {
+      root.render(<LandingOnboard />);
+    });
+    const links = container.querySelectorAll('a');
+    expect(links).toHaveLength(1);
+    expect(links[0].getAttribute('href')).toBe('/app');
+    expect(links[0].textContent).toContain('Open your app');
+    // One tab stop: no focusable control inside the link.
+    expect(container.querySelector('a button')).toBeNull();
+    expect(container.querySelectorAll('button')).toHaveLength(0);
+    // Same look as the old <Button variant="flow" size="lg">.
+    for (const c of ['flow', 'rounded-full', 'h-12', 'px-7', 'focus-visible:ring-2']) {
+      expect(links[0].classList).toContain(c);
+    }
   });
 });

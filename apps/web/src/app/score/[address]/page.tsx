@@ -10,6 +10,7 @@ import { isStellarAddress, shortAddr } from '@alvinmunk/shared';
 import { ReputationSnippet } from '@/components/ReputationSnippet';
 import { ReadOnlyBanner } from '@/components/read-only-banner';
 import { readNetworkFor } from '@/lib/read-network';
+import { FormattedDate, FormattedNumber } from '@/components/formatted';
 
 // Chain reads go through the Stellar SDK's fetch; without this Next caches them in the Data
 // Cache forever, so the score page would never change after its first render.
@@ -117,10 +118,10 @@ export default async function ScorePage({ params, searchParams }: ScorePageProps
               <span className="text-sm font-medium text-muted-foreground">Vouched by</span>
             </div>
             <p className="mt-2 font-display text-4xl font-semibold tabular-nums">
-              {people.vouchedBy.toLocaleString()}
+              <FormattedNumber value={people.vouchedBy} />
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              People in their sky · backed {people.backed.toLocaleString()}
+              People in their sky · backed <FormattedNumber value={people.backed} />
             </p>
           </div>
 
@@ -131,7 +132,7 @@ export default async function ScorePage({ params, searchParams }: ScorePageProps
               <span className="text-sm font-medium text-muted-foreground">Social XP</span>
             </div>
             <p className="mt-2 font-display text-4xl font-semibold tabular-nums text-tertiary">
-              {scores.social.toLocaleString()}
+              <FormattedNumber value={scores.social} />
             </p>
             <p className="mt-1 text-xs text-muted-foreground">Clout · not cashable</p>
           </div>
@@ -143,7 +144,7 @@ export default async function ScorePage({ params, searchParams }: ScorePageProps
               <span className="text-sm font-medium text-muted-foreground">Earned XP</span>
             </div>
             <p className="mt-2 font-display text-4xl font-semibold tabular-nums text-secondary">
-              {scores.earned.toLocaleString()}
+              <FormattedNumber value={scores.earned} />
             </p>
             <p className="mt-1 text-xs text-muted-foreground">Verified · unlocks USDC</p>
           </div>
@@ -156,10 +157,12 @@ export default async function ScorePage({ params, searchParams }: ScorePageProps
           <div className="flex items-center gap-4 p-6">
             <Sticker name="stamp-verified" size={48} className="h-10 w-auto" />
             <div>
-              <p className="font-display text-2xl font-semibold">{Number(questAttestation.value)} XP</p>
+              <p className="font-display text-2xl font-semibold">
+                <FormattedNumber value={Number(questAttestation.value)} /> XP
+              </p>
               <p className="text-sm text-muted-foreground">
                 Earned from verified quests · latest on{' '}
-                {new Date(questAttestation.timestamp * 1000).toLocaleDateString('en-US', { dateStyle: 'medium' })}
+                <FormattedDate value={questAttestation.timestamp * 1000} />
               </p>
             </div>
           </div>

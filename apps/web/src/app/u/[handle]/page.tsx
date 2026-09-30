@@ -20,6 +20,7 @@ import { shortAddr } from '@alvinmunk/shared';
 import { cn } from '@/lib/utils';
 import { readNetworkFor, withReadNetwork } from '@/lib/read-network';
 import { ReadOnlyBanner } from '@/components/read-only-banner';
+import { useFormat } from '@/lib/i18n';
 
 /**
  * Public profile. The handle is resolved ON-CHAIN via the registry, so ANY claimed
@@ -236,6 +237,7 @@ function Field({
   accent: 'primary' | 'secondary' | 'tertiary';
 }) {
   const c = accent === 'primary' ? 'text-primary' : accent === 'secondary' ? 'text-secondary' : 'text-tertiary';
+  const format = useFormat();
   return (
     <div className="p-5">
       <p className="eyebrow-mono text-muted-foreground">{label}</p>
@@ -243,7 +245,7 @@ function Field({
         // h-9 = text-3xl's line height, so the cell keeps its height when the number lands.
         <Skeleton className="mt-2 h-9 w-12" />
       ) : (
-        <p className={cn('mt-2 font-display text-3xl font-semibold', c)}>{value}</p>
+        <p className={cn('mt-2 font-display text-3xl font-semibold', c)}>{format.number(value)}</p>
       )}
     </div>
   );

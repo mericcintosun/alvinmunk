@@ -20,7 +20,10 @@ vi.mock('@/lib/registry', () => ({ resolveHandle: m.resolveHandle, getMeta: m.ge
 vi.mock('@/lib/reputation', () => ({ getScores: m.getScores }));
 vi.mock('@/lib/constellation', () => ({ getPeopleCounts: m.getPeopleCounts }));
 vi.mock('@/components/wallet/wallet-provider', () => ({ useWallet: () => ({ profile: m.profile }) }));
-vi.mock('@/lib/i18n', () => ({ useTranslations: () => (k: string) => k }));
+vi.mock('@/lib/i18n', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/i18n')>()),
+  useTranslations: () => (k: string) => k,
+}));
 // lib/read-network decides what an override is (tested there); here `testnet` is one.
 vi.mock('@/lib/read-network', () => ({
   readNetworkFor: (p?: string | string[]) => (p === 'testnet' ? m.net : null),
@@ -153,6 +156,15 @@ describe('/u/[handle] on a ?network= override (#290)', () => {
     await render({ network: 'testnet' });
     expect(q('a[href^="/app"]')).toBeNull();
     expect(container.textContent).toContain('Nobody held this handle on testnet');
+  });
+
+  it('groups the stat values for the locale (#493)', async () => {
+    m.getScores.mockResolvedValue({ social: 0, earned: 12_345 });
+    m.getPeopleCounts.mockResolvedValue({ vouchedBy: 1_234, backed: 5 });
+    await render();
+    expect(container.textContent).toContain('1,234');
+    expect(container.textContent).toContain('12,345');
+    expect(container.textContent).not.toContain('12345');
   });
 
   describe('with a 32-character @handle on a phone (#477)', () => {
