@@ -3,10 +3,11 @@
  *
  * Flow:
  *  1. registerServiceWorker()   — idempotent; call once on app boot
- *  2. subscribeToPush(walletAddress, vouchId)
+ *  2. subscribeToPush(walletAddress, vouchId?)
  *       → requests Notification permission (if not yet granted)
  *       → creates/reuses a PushSubscription bound to this device
- *       → POSTs {subscription, walletAddress, vouchIds:[vouchId]} to /api/push/subscribe
+ *       → POSTs {subscription, walletAddress, vouchIds:[vouchId]} to /api/push/subscribe —
+ *         or `vouchIds: []` without a vouch: the general opt-in tip notifications use (#297)
  *  3. unsubscribeFromPush()     — removes subscription server-side + browser-side
  *
  * When the VAPID public key env-var is absent (local dev without push infra),
@@ -205,7 +206,8 @@ export async function requestPermission(): Promise<NotificationPermission> {
 
 /**
  * Subscribe this device to push notifications for `walletAddress`.
- * Associates `vouchId` so the server knows which vouches to notify about.
+ * Associates `vouchId`, when given, so the server knows which vouches to notify about;
+ * without one it is a general opt-in (tips received, #297) — no mint needed.
  *
  * - If permission is 'default', prompts the user first.
  * - If VAPID key is missing, logs a warning and returns early (safe for local dev).
@@ -216,7 +218,7 @@ export async function requestPermission(): Promise<NotificationPermission> {
  */
 export async function subscribeToPush(
   walletAddress: string,
-  vouchId: number,
+  vouchId?: number,
 ): Promise<PushSubscription | null> {
   if (!isPushSupported()) return null;
 
@@ -250,7 +252,7 @@ export async function subscribeToPush(
 
   // Register with the server (idempotent — server upserts on endpoint).
   try {
-    await registerSubscription(sub, walletAddress, [vouchId]);
+    await registerSubscription(sub, walletAddress, vouchId === undefined ? [] : [vouchId]);
   } catch (err) {
     // Network failure — subscription is still valid locally; server will retry next time.
     console.warn('[push] failed to register subscription with server:', err);

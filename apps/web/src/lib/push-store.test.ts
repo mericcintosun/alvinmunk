@@ -6,6 +6,8 @@ import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vite
 const { RedisMock, fake } = vi.hoisted(() => {
   const fake = {
     strings: new Map<string, string>(),
+    /** TTL (seconds) each key was set with, when it had one. */
+    ttls: new Map<string, number>(),
     sets: new Map<string, Set<string>>(),
     srem: null as unknown as Mock<(key: string, member: string) => Promise<number>>,
   };
@@ -18,8 +20,10 @@ const { RedisMock, fake } = vi.hoisted(() => {
         const raw = fake.strings.get(key);
         return raw === undefined ? null : JSON.parse(raw);
       },
-      set: async (key: string, value: unknown) => {
+      set: async (key: string, value: unknown, opts?: { nx?: boolean; ex?: number }) => {
+        if (opts?.nx && fake.strings.has(key)) return null;
         fake.strings.set(key, JSON.stringify(value));
+        if (opts?.ex !== undefined) fake.ttls.set(key, opts.ex);
         return 'OK';
       },
       del: async (key: string) => (fake.strings.delete(key) ? 1 : 0),
@@ -62,6 +66,7 @@ beforeEach(async () => {
   delete process.env.KV_REST_API_URL;
   delete process.env.KV_REST_API_TOKEN;
   fake.strings.clear();
+  fake.ttls.clear();
   fake.sets.clear();
   RedisMock.mockClear();
   errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -205,6 +210,48 @@ describe('push-store with KV configured', () => {
 
     expect(await store.moveSubscription(A, B, sub(B), 'GABC')).toBe('conflict');
     expect(JSON.parse(fake.strings.get(`sub:${B}`)!).vouchIds).toEqual([42]);
+  });
+
+  describe('tip-notification cron state (#297)', () => {
+    it('round-trips the cursor through KV, always as a string', async () => {
+      expect(await store.getCursor()).toBeNull();
+      await store.setCursor('0000123-0000000001');
+      expect(await store.getCursor()).toBe('0000123-0000000001');
+      // The client JSON-decodes reads: a numeric-looking value still comes back a string.
+      fake.strings.set('cursor:notify:tip', '123');
+      expect(await store.getCursor()).toBe('123');
+    });
+
+    it('claims an event exactly once, with a TTL, through SET NX', async () => {
+      expect(await store.claimEvent('e1')).toBe(true);
+      expect(await store.claimEvent('e1')).toBe(false);
+      expect(await store.claimEvent('e2')).toBe(true);
+      expect(fake.ttls.get('seen:notify:tip:e1')).toBe(store.EVENT_CLAIM_TTL_SECONDS);
+      expect(store.EVENT_CLAIM_TTL_SECONDS).toBeGreaterThan(24 * 60 * 60);
+    });
+
+    it('stores a general opt-in with no vouch, indexed for its wallet', async () => {
+      await store.saveGeneralSubscription(sub(A), 'GABC');
+      expect(JSON.parse(fake.strings.get(`sub:${A}`)!)).toMatchObject({
+        endpoint: A,
+        walletAddress: 'gabc',
+        vouchIds: [],
+      });
+      expect(await store.getSubscriptionsForWallet('GABC')).toHaveLength(1);
+    });
+
+    it('keeps the vouch IDs a device already registered when it opts in generally', async () => {
+      await store.saveSubscription(sub(A), 'GABC', 7);
+      await store.saveGeneralSubscription(sub(A), 'GABC');
+      expect(JSON.parse(fake.strings.get(`sub:${A}`)!).vouchIds).toEqual([7]);
+    });
+
+    it('does not hand a wallet the device that re-subscribed for another wallet', async () => {
+      await store.saveGeneralSubscription(sub(A), 'GOLD');
+      await store.saveGeneralSubscription(sub(A), 'GNEW'); // same browser, new wallet
+      expect(await store.getSubscriptionsForWallet('GNEW')).toHaveLength(1);
+      expect(await store.getSubscriptionsForWallet('GOLD')).toEqual([]);
+    });
   });
 });
 
@@ -375,5 +422,32 @@ describe('push-store without KV', () => {
     expect(moved!.subscription).toEqual(sub(A));
     expect(moved!.vouchIds).toEqual([7]);
     expect(await store.getSubscriptionsForWallet('gabc')).toHaveLength(1);
+  });
+
+  it('keeps the cron cursor and event claims in memory (#297)', async () => {
+    expect(await store.getCursor()).toBeNull();
+    await store.setCursor('c-1');
+    expect(await store.getCursor()).toBe('c-1');
+    expect(await store.claimEvent('e1')).toBe(true);
+    expect(await store.claimEvent('e1')).toBe(false);
+    expect(RedisMock).not.toHaveBeenCalled();
+  });
+
+  it('lets an in-memory claim lapse after its TTL', async () => {
+    vi.useFakeTimers();
+    try {
+      expect(await store.claimEvent('e1')).toBe(true);
+      vi.advanceTimersByTime(store.EVENT_CLAIM_TTL_SECONDS * 1000 + 1);
+      expect(await store.claimEvent('e1')).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not hand a wallet the in-memory device that re-subscribed for another wallet', async () => {
+    await store.saveGeneralSubscription(sub(A), 'GOLD');
+    await store.saveGeneralSubscription(sub(A), 'GNEW');
+    expect(await store.getSubscriptionsForWallet('GNEW')).toHaveLength(1);
+    expect(await store.getSubscriptionsForWallet('GOLD')).toEqual([]);
   });
 });

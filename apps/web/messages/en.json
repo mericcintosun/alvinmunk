@@ -442,8 +442,8 @@
 
   "vouchNotice.claimed.one": "🌟 Your vouch ignited — \"{note}\" was claimed.",
   "vouchNotice.claimed.many": "🌟 {count} of your vouches were claimed — your sky grew.",
-  "vouchNotice.push.enabled": "🔔 Push notifications enabled — we'll tell you when your star is claimed.",
-  "vouchNotice.push.prompt": "Get notified when someone claims your vouch.",
+  "vouchNotice.push.enabled": "🔔 Push notifications enabled — we'll tell you when your star is claimed or a tip arrives.",
+  "vouchNotice.push.prompt": "Get notified when someone claims your vouch or tips you.",
   "vouchNotice.push.enabling": "Enabling…",
   "vouchNotice.push.enable": "Enable",
   "vouchNotice.push.installHint": "Add to Home Screen to get notified.",

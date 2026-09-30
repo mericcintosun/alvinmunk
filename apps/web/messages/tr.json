@@ -442,8 +442,8 @@
 
   "vouchNotice.claimed.one": "🌟 Desteğin yıldızını yaktı — \"{note}\" talep edildi.",
   "vouchNotice.claimed.many": "🌟 {count} desteğin talep edildi — gökyüzün büyüdü.",
-  "vouchNotice.push.enabled": "🔔 Anlık bildirimler açıldı — yıldızın talep edildiğinde haber vereceğiz.",
-  "vouchNotice.push.prompt": "Birisi desteğini talep ettiğinde bildirim al.",
+  "vouchNotice.push.enabled": "🔔 Anlık bildirimler açıldı — yıldızın talep edildiğinde ya da bahşiş geldiğinde haber vereceğiz.",
+  "vouchNotice.push.prompt": "Birisi desteğini talep ettiğinde ya da sana bahşiş gönderdiğinde bildirim al.",
   "vouchNotice.push.enabling": "Açılıyor…",
   "vouchNotice.push.enable": "Aç",
   "vouchNotice.push.installHint": "Bildirim almak için Ana Ekrana Ekle.",

@@ -190,6 +190,7 @@ describe('POST /api/attest quest ↔ evidence binding', () => {
   it('binds a quest id configured in env, not its default', async () => {
     vi.resetModules();
     vi.stubEnv('QUEST_GITHUB_ID', '1');
+    vi.stubEnv('QUEST_GITHUB_REPOS', 'o/r');
     vi.stubEnv('NEXT_PUBLIC_VOUCHBACK_QUEST_ID', '5');
     ({ POST } = (await import('./route')) as { POST: Post });
     // quest 4 is no longer the vouch_back quest
@@ -489,8 +490,11 @@ describe('POST /api/attest — status codes (issue #180)', () => {
   it('422 when PR is not merged', async () => {
     vi.resetModules();
     vi.stubEnv('QUEST_GITHUB_ID', '1');
+    vi.stubEnv('QUEST_GITHUB_REPOS', 'owner/repo');
     ({ POST } = (await import('./route')) as { POST: Post });
-    fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ merged: false }), { status: 200 }));
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ merged: false, body: 'Binds to ' + RECIPIENT }), { status: 200 }),
+    );
     const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#42' } });
     expect(res.status).toBe(422);
     const body = (await res.json()) as { error: string };
@@ -500,6 +504,7 @@ describe('POST /api/attest — status codes (issue #180)', () => {
   it('422 when GitHub API returns non-200', async () => {
     vi.resetModules();
     vi.stubEnv('QUEST_GITHUB_ID', '1');
+    vi.stubEnv('QUEST_GITHUB_REPOS', 'owner/repo');
     ({ POST } = (await import('./route')) as { POST: Post });
     fetchSpy.mockResolvedValueOnce(new Response('', { status: 404 }));
     const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#99' } });
@@ -508,13 +513,148 @@ describe('POST /api/attest — status codes (issue #180)', () => {
     expect(body.error).toMatch(/github 404/i);
   });
 
+  // ── 422: recipient binding (#163) ─────────────────────────────────────────
+
+  it('422 when QUEST_GITHUB_REPOS is unset (fail closed)', async () => {
+    vi.resetModules();
+    vi.stubEnv('QUEST_GITHUB_ID', '1');
+    // QUEST_GITHUB_REPOS deliberately not stubbed
+    ({ POST } = (await import('./route')) as { POST: Post });
+    const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#1' } });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/no repo allowlist/i);
+  });
+
+  it('422 when the PR body has no Stellar address', async () => {
+    vi.resetModules();
+    vi.stubEnv('QUEST_GITHUB_ID', '1');
+    vi.stubEnv('QUEST_GITHUB_REPOS', 'owner/repo');
+    ({ POST } = (await import('./route')) as { POST: Post });
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ merged: true, body: 'no address here' }), { status: 200 }),
+    );
+    const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#1' } });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/must include your Stellar address/i);
+  });
+
+  it('422 when the PR body names two different Stellar addresses', async () => {
+    vi.resetModules();
+    vi.stubEnv('QUEST_GITHUB_ID', '1');
+    vi.stubEnv('QUEST_GITHUB_REPOS', 'owner/repo');
+    ({ POST } = (await import('./route')) as { POST: Post });
+    const other = Keypair.random().publicKey();
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ merged: true, body: `Binds to ${RECIPIENT} not ${other}` }),
+        { status: 200 },
+      ),
+    );
+    const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#1' } });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/more than one/i);
+  });
+
+  it('422 when the PR body address is not the recipient’s', async () => {
+    vi.resetModules();
+    vi.stubEnv('QUEST_GITHUB_ID', '1');
+    vi.stubEnv('QUEST_GITHUB_REPOS', 'owner/repo');
+    ({ POST } = (await import('./route')) as { POST: Post });
+    const other = Keypair.random().publicKey();
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ merged: true, body: `Binds to ${other}` }), { status: 200 }),
+    );
+    const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#1' } });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/is not yours/i);
+  });
+
+  it('422 when the PR author is a bot', async () => {
+    vi.resetModules();
+    vi.stubEnv('QUEST_GITHUB_ID', '1');
+    vi.stubEnv('QUEST_GITHUB_REPOS', 'owner/repo');
+    ({ POST } = (await import('./route')) as { POST: Post });
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          merged: true,
+          body: `Binds to ${RECIPIENT}`,
+          user: { type: 'Bot' },
+        }),
+        { status: 200 },
+      ),
+    );
+    const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#1' } });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/bots do not qualify/i);
+  });
+
+  async function withGithubQuest(repos = 'owner/repo') {
+    vi.resetModules();
+    vi.stubEnv('QUEST_GITHUB_ID', '1');
+    vi.stubEnv('QUEST_GITHUB_REPOS', repos);
+    ({ POST } = (await import('./route')) as { POST: Post });
+  }
+  const mergedPr = (body: string | null) =>
+    new Response(JSON.stringify({ merged: true, body, user: { type: 'User' } }), { status: 200 });
+
+  it('rejects github_pr without asking GitHub when no allowlist is configured', async () => {
+    await withGithubQuest('');
+    const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#1' } });
+    expect(res.status).toBe(422);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('lets only the wallet a PR names redeem it: not a wallet citing it, but its author', async () => {
+    await withGithubQuest();
+    const author = Keypair.random().publicKey();
+    // Someone else cites the author's merged PR…
+    fetchSpy.mockResolvedValueOnce(mergedPr(`Fixes #3\n\nStellar address: ${author}`));
+    const stolen = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#3' } });
+    expect(stolen.status).toBe(422);
+    expect(((await stolen.json()) as { sig?: string }).sig).toBeUndefined();
+    // …while the author, naming it, gets the signature.
+    fetchSpy.mockResolvedValueOnce(mergedPr(`Fixes #3\n\nStellar address: ${author}`));
+    const own = await attest({ recipient: author, questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#3' } });
+    expect(own.status).toBe(200);
+    expect(((await own.json()) as { recipient: string }).recipient).toBe(author);
+  });
+
+  it('refuses a PR naming the recipient next to another wallet, so it cannot pay both', async () => {
+    await withGithubQuest();
+    const accomplice = Keypair.random().publicKey();
+    for (const recipient of [RECIPIENT, accomplice]) {
+      fetchSpy.mockResolvedValueOnce(mergedPr(`${RECIPIENT}\n<!-- ${accomplice} -->`));
+      const res = await attest({ recipient, questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#4' } });
+      expect(res.status).toBe(422);
+    }
+  });
+
+  it('accepts the recipient’s address named more than once, and rejects a PR with no body', async () => {
+    await withGithubQuest();
+    fetchSpy.mockResolvedValueOnce(mergedPr(`${RECIPIENT}\n\nsame wallet: ${RECIPIENT}`));
+    const ok = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#5' } });
+    expect(ok.status).toBe(200);
+    fetchSpy.mockResolvedValueOnce(mergedPr(null));
+    const none = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#6' } });
+    expect(none.status).toBe(422);
+  });
+
   // ── signing: local, never fed by an RPC node (issue #142) ───────────────────
 
   it('signs with no RPC read but the period and completion checks, so a failing node can neither block nor feed it', async () => {
     vi.resetModules();
     vi.stubEnv('QUEST_GITHUB_ID', '1');
+    vi.stubEnv('QUEST_GITHUB_REPOS', 'owner/repo');
     ({ POST } = (await import('./route')) as { POST: Post });
-    fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ merged: true }), { status: 200 }));
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ merged: true, body: 'Binds to ' + RECIPIENT }), { status: 200 }),
+    );
     simulateSpy.mockRejectedValue(new Error('rpc timeout'));
     const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#1' } });
     expect(res.status).toBe(200);
@@ -525,8 +665,11 @@ describe('POST /api/attest — status codes (issue #180)', () => {
     vi.resetModules();
     vi.stubEnv('ATTESTER_SECRET_KEY', 'SNOTASECRET');
     vi.stubEnv('QUEST_GITHUB_ID', '1');
+    vi.stubEnv('QUEST_GITHUB_REPOS', 'owner/repo');
     ({ POST } = (await import('./route')) as { POST: Post });
-    fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ merged: true }), { status: 200 }));
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ merged: true, body: 'Binds to ' + RECIPIENT }), { status: 200 }),
+    );
     const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#1' } });
     expect(res.status).toBe(500);
     expect(((await res.json()) as { sig?: string }).sig).toBeUndefined();
@@ -539,8 +682,11 @@ describe('POST /api/attest — status codes (issue #180)', () => {
     vi.resetModules();
     vi.stubEnv('ATTESTER_SECRET_KEY', attesterKp.secret());
     vi.stubEnv('QUEST_GITHUB_ID', '5');
+    vi.stubEnv('QUEST_GITHUB_REPOS', 'owner/repo');
     ({ POST } = (await import('./route')) as { POST: Post });
-    fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ merged: true }), { status: 200 }));
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ merged: true, body: 'Binds to ' + RECIPIENT }), { status: 200 }),
+    );
 
     const res = await attest({
       questId: 5,
@@ -638,6 +784,7 @@ describe('POST /api/attest — upstream failures (issue #173)', () => {
       async setup() {
         vi.resetModules();
         vi.stubEnv('QUEST_GITHUB_ID', '1');
+        vi.stubEnv('QUEST_GITHUB_REPOS', 'owner/repo');
         ({ POST } = (await import('./route')) as { POST: Post });
         simulateSpy.mockResolvedValueOnce(oneShot()).mockResolvedValueOnce(open()); // one-shot, not completed yet (#156)
       },
@@ -744,9 +891,12 @@ describe('POST /api/attest — upstream failures (issue #173)', () => {
   it('still sends GITHUB_TOKEN with the timed GitHub read', async () => {
     vi.resetModules();
     vi.stubEnv('QUEST_GITHUB_ID', '1');
+    vi.stubEnv('QUEST_GITHUB_REPOS', 'owner/repo');
     vi.stubEnv('GITHUB_TOKEN', 'ghp_test');
     ({ POST } = (await import('./route')) as { POST: Post });
-    fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ merged: true }), { status: 200 }));
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ merged: true, body: `wallet: ${RECIPIENT}` }), { status: 200 }),
+    );
     const res = await attest({ questId: 1, evidence: { type: 'github_pr', ref: 'owner/repo#1' } });
     expect(res.status).toBe(200);
     const init = fetchSpy.mock.calls[0][1] as RequestInit;
@@ -803,13 +953,16 @@ describe('POST /api/attest repeatable quests (issue #154)', () => {
   const ctx = { contractId: QUEST_CONTRACT, passphrase: Networks.TESTNET };
   const iso = (secs: number) => new Date(secs * 1000).toISOString();
   const pr = (mergedAt: number) =>
-    new Response(JSON.stringify({ merged: true, merged_at: iso(mergedAt) }), { status: 200 });
+    new Response(JSON.stringify({ merged: true, merged_at: iso(mergedAt), body: `wallet: ${RECIPIENT}` }), {
+      status: 200,
+    });
 
   beforeEach(async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime((THU + 3 * 86_400) * 1000); // mid-week
     vi.resetModules();
     vi.stubEnv('QUEST_GITHUB_ID', '1');
+    vi.stubEnv('QUEST_GITHUB_REPOS', 'owner/repo');
     ({ POST } = (await import('./route')) as { POST: Post });
   });
 
@@ -837,7 +990,7 @@ describe('POST /api/attest repeatable quests (issue #154)', () => {
     for (const merged of [THU - 1, NaN]) {
       fetchSpy.mockResolvedValueOnce(
         Number.isNaN(merged)
-          ? new Response(JSON.stringify({ merged: true }), { status: 200 }) // undated
+          ? new Response(JSON.stringify({ merged: true, body: `wallet: ${RECIPIENT}` }), { status: 200 }) // undated
           : pr(merged),
       );
       simulateSpy.mockResolvedValueOnce(period(WEEK_SECS)).mockResolvedValueOnce(open());
