@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { FocusEvent, KeyboardEvent } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { User, Copy, LogOut, ChevronDown } from 'lucide-react';
+import { LayoutDashboard, User, Copy, LogOut, ChevronDown } from 'lucide-react';
 import { useWallet } from './wallet-provider';
 import { Crest } from '@/components/brand/crest';
 import { buttonVariants } from '@/components/ui/button';
@@ -60,16 +60,17 @@ function typeaheadMatch(
 
 /**
  * Navbar identity. No profile → a primary "Open app" CTA (onboarding lives in /app).
- * Connected → a crest+handle chip that opens an account menu (View profile, Copy
- * address, Disconnect) — the disconnect path that was previously missing.
+ * Connected → a crest+handle chip that opens an account menu (Dashboard, View profile,
+ * Copy address, Disconnect) — the disconnect path that was previously missing.
  *
  * The chip is a WAI-ARIA **menu button**, so it implements that pattern in full rather than
  * only declaring the role: focus moves into the menu on open, arrows / Home / End / typeahead
  * rove through the items, Enter or Space activates, Escape closes and hands focus back to
  * the button, and anything that moves focus out closes the menu.
  *
- * `onNavigate` runs when one of its links ("Open app", "View profile") is followed, so a
- * container such as the mobile nav panel can close itself without reacting to other clicks.
+ * `onNavigate` runs when one of its links ("Open app", "Dashboard", "View profile") is
+ * followed, so a container such as the mobile nav panel can close itself without reacting to
+ * other clicks.
  */
 export function ConnectButton({ onNavigate }: { onNavigate?: () => void } = {}) {
   const t = useTranslations();
@@ -241,8 +242,19 @@ export function ConnectButton({ onNavigate }: { onNavigate?: () => void } = {}) 
           <div className="my-1 h-px bg-border" />
           <div id={menuId} role="menu" aria-labelledby={triggerId}>
             <Link
-              href={`/u/${profile.handle}`}
+              href="/app"
               {...itemProps(0)}
+              onClick={() => {
+                closeMenu(true);
+                onNavigate?.();
+              }}
+              className={item}
+            >
+              <LayoutDashboard /> {t('nav.dashboard')}
+            </Link>
+            <Link
+              href={`/u/${profile.handle}`}
+              {...itemProps(1)}
               onClick={() => {
                 closeMenu(true);
                 onNavigate?.();
@@ -251,12 +263,12 @@ export function ConnectButton({ onNavigate }: { onNavigate?: () => void } = {}) 
             >
               <User /> {t('wallet.viewProfile')}
             </Link>
-            <button {...itemProps(1)} onClick={copyAddress} className={item}>
+            <button {...itemProps(2)} onClick={copyAddress} className={item}>
               <Copy /> {t('wallet.copyAddress')}
             </button>
             <div role="separator" className="my-1 h-px bg-border" />
             <button
-              {...itemProps(2)}
+              {...itemProps(3)}
               onClick={() => {
                 disconnect();
                 closeMenu(true);
