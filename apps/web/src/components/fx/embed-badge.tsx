@@ -44,7 +44,7 @@ export function EmbedBadge({ handle }: { handle: string }) {
         </div>
         <Snippet label={t('embed.label.markdown')} code={markdown} />
         <Snippet label={t('embed.label.html')} code={html} />
-        <p className="font-mono text-[11px] leading-relaxed text-muted-foreground">
+        <p className="font-mono text-2xs leading-relaxed text-muted-foreground">
           {t('embed.styleHint')}
         </p>
       </div>
@@ -69,7 +69,7 @@ function Snippet({ label, code }: { label: string; code: string }) {
   return (
     <div>
       <div className="mb-1 flex items-center justify-between gap-2">
-        <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+        <span className="eyebrow-mono">
           {label}
         </span>
         <button

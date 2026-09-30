@@ -14,6 +14,8 @@
  *   - `card`: the full panel, with both stats labelled and the verified stamp.
  */
 
+import { BRAND_DARK } from './brand-palette';
+
 /** The flat badge canvas: shields-style height, so it lines up with other README badges. */
 const FLAT_H = 28;
 
@@ -23,15 +25,18 @@ const FONT = 'ui-monospace,SFMono-Regular,Menlo,Consolas,monospace';
 /** Width of one glyph, in em — monospace advances are uniform. */
 const ADVANCE = 0.6;
 
-// Brand palette (mirrors lib/og-card's literal colors: SVG has no CSS variables).
-const BG = '#0B0512';
-const PANEL = '#1A1327';
-const VIOLET = '#9945FF';
-const GOLD = '#FFB257';
-const GREEN = '#14F195';
-const LIME = '#C4FA4E';
-const FG = '#F4F1FA';
-const MUTED = '#8B86A8';
+// The design tokens as hex (lib/brand-palette, like the OG cards): an embedded SVG has no
+// CSS variables, and it is always the dark theme.
+const {
+  background: BG,
+  nebula: PANEL,
+  violet: VIOLET,
+  gold: GOLD,
+  green: GREEN,
+  lime: LIME,
+  foreground: FG,
+  muted: MUTED,
+} = BRAND_DARK;
 
 /**
  * What the badge says about the handle:
