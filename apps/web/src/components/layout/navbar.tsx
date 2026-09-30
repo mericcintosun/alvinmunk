@@ -9,6 +9,7 @@ import { ConnectButton } from '@/components/wallet/connect-button';
 import { NetworkBadge } from '@/components/layout/network-badge';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { useTranslations } from '@/lib/i18n';
+import { useWallet } from '@/components/wallet/wallet-provider';
 import { cn } from '@/lib/utils';
 import { isReadOnlyView } from '@/lib/read-network';
 
@@ -32,6 +33,7 @@ function WalletButtonUnlessReadOnly(props: { onNavigate?: () => void }) {
 export function Navbar() {
   const t = useTranslations();
   const pathname = usePathname();
+  const { profile } = useWallet();
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
@@ -40,7 +42,12 @@ export function Navbar() {
     { href: '/leaderboard', label: t('nav.leaderboard') },
     { href: '/stats', label: t('nav.stats') },
     { href: '/wallet', label: t('nav.wallet') },
+    // Signed in, the handle chip replaces "Open app": this is the one-click way back (#472).
+    ...(profile ? [{ href: '/app', label: t('nav.dashboard') }] : []),
   ];
+  // The dashboard stays current across its whole /app tree; every other link is one page.
+  const isActive = (href: string) =>
+    href === '/app' ? pathname === '/app' || pathname.startsWith('/app/') : pathname === href;
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 12);
@@ -69,7 +76,7 @@ export function Navbar() {
 
         <div className="hidden items-center gap-1 md:flex">
           {LINKS.map((l) => {
-            const active = pathname === l.href;
+            const active = isActive(l.href);
             return (
               <Link
                 key={l.href}
@@ -108,7 +115,7 @@ export function Navbar() {
         <div id="mobile-nav" className="border-t border-border/60 bg-background/95 md:hidden">
           <div className="container flex flex-col gap-1 py-4">
             {LINKS.map((l) => {
-              const active = pathname === l.href;
+              const active = isActive(l.href);
               return (
                 <Link
                   key={l.href}

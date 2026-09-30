@@ -2,7 +2,7 @@
 // The quest payload is built and signed with stellar-sdk, which needs Node's own Uint8Array;
 // jsdom's cross-realm one fails the SDK's checks.
 import { describe, it, expect } from 'vitest';
-import { Keypair } from '@stellar/stellar-sdk';
+import { Keypair, StrKey } from '@stellar/stellar-sdk';
 import {
   questPayload,
   signQuestPayload,
@@ -10,6 +10,8 @@ import {
   isValidQuestId,
   parseRepoAllowlist,
   repoAllowed,
+  prBodyNamesRecipient,
+  addressesInText,
   decodeDataEntry,
   judgeReferral,
   judgeFirstTip,
@@ -93,8 +95,64 @@ describe('repo allowlist', () => {
     expect(repoAllowed(allow, 'owner', 'repo')).toBe(true);
     expect(repoAllowed(allow, 'foo', 'bar')).toBe(true);
     expect(repoAllowed(allow, 'evil', 'repo')).toBe(false);
-    // no allowlist configured -> any repo passes
-    expect(repoAllowed(null, 'anything', 'goes')).toBe(true);
+    // Fail closed (#163): no allowlist means no repo is eligible.
+    expect(repoAllowed(null, 'anything', 'goes')).toBe(false);
+  });
+});
+
+describe('github_pr body binding (#163)', () => {
+  const ME = Keypair.random().publicKey();
+  const OTHER = Keypair.random().publicKey();
+  const MY_C = StrKey.encodeContract(Buffer.alloc(32, 4));
+  // A 56-char G… token whose checksum is wrong: not an address anyone can hold.
+  const LOOKALIKE = `${ME.slice(0, -1)}${ME.endsWith('A') ? 'B' : 'A'}`;
+
+  it('accepts a body naming only the recipient — repeated, in prose, a link or a comment', () => {
+    for (const body of [
+      ME,
+      `Closes #12\n\nStellar: ${ME}`,
+      `wallet ${ME}, again: ${ME}.`,
+      `https://stellar.expert/explorer/testnet/account/${ME}`,
+      `<!-- ${ME} -->`,
+    ]) {
+      expect(prBodyNamesRecipient(body, ME)).toEqual({ ok: true });
+    }
+    expect(prBodyNamesRecipient(`passkey wallet: ${MY_C}`, MY_C)).toEqual({ ok: true });
+  });
+
+  it('rejects someone else’s PR: its body names another wallet', () => {
+    const res = prBodyNamesRecipient(`reward ${OTHER}`, ME);
+    expect(res).toMatchObject({ ok: false, reason: expect.stringMatching(/not yours/) });
+  });
+
+  it('rejects a body naming two different addresses, even if one is the recipient', () => {
+    for (const body of [`${ME} ${OTHER}`, `${OTHER}\n<!-- ${ME} -->`, `${ME} and ${MY_C}`]) {
+      expect(prBodyNamesRecipient(body, ME)).toMatchObject({
+        ok: false,
+        reason: expect.stringMatching(/more than one/),
+      });
+    }
+  });
+
+  it('rejects a body without the address: empty, null, lowercased, or glued into a longer token', () => {
+    for (const body of [null, undefined, '', 'no wallet here', ME.toLowerCase(), `X${ME}`, `${ME}Q`, `${ME}2`]) {
+      expect(prBodyNamesRecipient(body, ME)).toMatchObject({
+        ok: false,
+        reason: expect.stringMatching(/must include your Stellar address/),
+      });
+    }
+  });
+
+  it('ignores lookalike tokens with a bad checksum', () => {
+    expect(addressesInText(`${LOOKALIKE} ${ME}`)).toEqual([ME]);
+    expect(prBodyNamesRecipient(`${LOOKALIKE} ${ME}`, ME)).toEqual({ ok: true });
+    // …and a lookalike of the recipient is not the recipient.
+    expect(prBodyNamesRecipient(LOOKALIKE, ME)).toMatchObject({ ok: false });
+  });
+
+  it('lists each distinct valid address once, G… and C…', () => {
+    expect(addressesInText(`${ME} ${MY_C} ${ME}`)).toEqual([ME, MY_C]);
+    expect(addressesInText(null)).toEqual([]);
   });
 });
 

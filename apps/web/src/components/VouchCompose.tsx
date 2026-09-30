@@ -25,6 +25,8 @@ import { humanizeError } from '@/lib/utils';
 import { useTranslations, type TFn } from '@/lib/i18n';
 import { track, trackError } from '@/lib/track';
 import { toast } from '@/components/ui/toaster';
+import { useWallet } from '@/components/wallet/wallet-provider';
+import { FeedbackPrompt } from '@/components/FeedbackPrompt';
 
 // Reputation contract error codes that can surface on mint_vouch_signed / mint_vouches
 // (mirrors the Error enum). Keys map to i18n keys so they're translated too.
@@ -56,6 +58,7 @@ interface BatchCard {
 
 export function VouchCompose() {
   const t = useTranslations();
+  const { profile } = useWallet();
   const [mode, setMode] = useState<'one' | 'many'>('one');
   const [note, setNote] = useState('');
   const [link, setLink] = useState<string | null>(null);
@@ -302,6 +305,16 @@ export function VouchCompose() {
               </div>
             )}
           </>
+        )}
+
+        {/* After the first vouch — a single card or a cohort — ask once (#287). */}
+        {(mode === 'one' ? link !== null : cards.length > 0) && (
+          <FeedbackPrompt
+            action="vouch"
+            handle={profile?.handle}
+            address={profile?.address}
+            className="mt-3"
+          />
         )}
 
         {error && <p className="mt-2 text-sm text-destructive">{error}</p>}

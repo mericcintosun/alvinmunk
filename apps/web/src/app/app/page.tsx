@@ -78,7 +78,7 @@ export default function AppHome() {
       <InviteNudge />
 
       {/* Time-sensitive: unclaimed half-cards you minted (stake at risk) — self-hides when empty */}
-      <PendingHalfCards />
+      <PendingHalfCards hideWhenEmpty />
 
       {/* Voucher bonuses still waiting on the people you vouched to verify — self-hides when none */}
       <OwedBonuses />

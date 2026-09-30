@@ -217,4 +217,49 @@ describe('Navbar', () => {
     expect(panel()).toBeNull();
     expect(menuButton().getAttribute('aria-expanded')).toBe('false');
   });
+
+  describe('Dashboard link for a signed-in user (#472)', () => {
+    beforeEach(() => {
+      wallet.profile = { handle: 'damian', address: 'G'.padEnd(56, 'A'), createdAt: 0 };
+    });
+    /** The nav-row Dashboard links (not the account menu's item). */
+    const dashboard = (scope: ParentNode) =>
+      Array.from(scope.querySelectorAll<HTMLAnchorElement>('a[href="/app"]')).filter(
+        (a) => a.textContent?.trim() === 'Dashboard' && !a.closest('[role="menu"]'),
+      );
+
+    it('reaches /app in one click from a public page, on desktop and in the mobile panel', async () => {
+      nav.pathname = '/leaderboard';
+      await mount();
+      expect(dashboard(container)).toHaveLength(1);
+      expect(current(container)).toEqual([['/leaderboard', 'page']]);
+
+      const mobile = await openPanel();
+      expect(dashboard(mobile)).toHaveLength(1);
+      await act(async () => dashboard(mobile)[0].click());
+      expect(panel()).toBeNull();
+    });
+
+    it.each(['/app', '/app/vouch', '/app/people'])('is the current page on %s', async (path) => {
+      nav.pathname = path;
+      await mount();
+      expect(current(container)).toEqual([['/app', 'page']]);
+      const mobile = await openPanel();
+      expect(current(mobile)).toEqual([['/app', 'page']]);
+    });
+
+    it('is not current on a route that only starts with the same letters', async () => {
+      nav.pathname = '/apple';
+      await mount();
+      expect(current(container)).toEqual([]);
+    });
+  });
+
+  it('shows no Dashboard link when signed out: the "Open app" button is the way in', async () => {
+    await mount();
+    const mobile = await openPanel();
+    const labels = Array.from(container.querySelectorAll('a')).map((a) => a.textContent?.trim());
+    expect(labels).not.toContain('Dashboard');
+    expect(mobile.querySelector('a[href="/app"]')?.textContent).toBe('Open app');
+  });
 });

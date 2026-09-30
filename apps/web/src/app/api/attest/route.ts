@@ -8,7 +8,9 @@
  * pubkey must be allowlisted via `quest_registry.add_attester_key`.
  *
  * Only cryptographically / API-verifiable quests are accepted (00-strategy §1):
- *   - github_pr   : evidence.ref = "owner/repo#123" -> PR must be merged
+ *   - github_pr   : evidence.ref = "owner/repo#123" -> PR must be merged, in a repo on the
+ *                   QUEST_GITHUB_REPOS allowlist (none set = none eligible), not by a bot, and
+ *                   its description must name the recipient's address and no other (#163)
  *   - referral_tx : evidence.ref = a G… or C… address -> must be active (Social score > 0)
  *                   and name the recipient as its inviter: registry `invited_by` (any wallet
  *                   kind), else a classic account's "referral" manageData entry
@@ -22,7 +24,7 @@
  *
  * Defense-in-depth (belts/08 §security): on-chain recipient.require_auth() ownership +
  * on-chain replay guard (the hard cap), each quest id bound to one evidence type, per-IP
- * rate limit, bounded body, optional GitHub repo allowlist, self-referral guard. The
+ * rate limit, bounded body, required GitHub repo allowlist, self-referral guard. The
  * signature is only redeemable by the recipient (they must satisfy require_auth), so
  * issuing it carries no transfer of funds.
  */
@@ -51,6 +53,7 @@ import {
   judgeFirstTips,
   judgeReferral,
   parseRepoAllowlist,
+  prBodyNamesRecipient,
   questWindow,
   repoAllowed,
   signQuestPayload,
@@ -267,17 +270,39 @@ async function verifyEvidence(
     const m = ev.ref.match(/^([\w.-]+)\/([\w.-]+)#(\d+)$/);
     if (!m) return { ok: false, reason: 'ref must be owner/repo#number' };
     const [, owner, repo, num] = m;
+
+    // Fail closed: an unset allowlist used to allow every repo, so any merged PR on
+    // GitHub qualified. Until a repo is explicitly allowed, reject github_pr evidence.
+    if (REPO_ALLOWLIST === null) {
+      return {
+        ok: false,
+        reason:
+          'github_pr is disabled — no repo allowlist is configured (set QUEST_GITHUB_REPOS)',
+      };
+    }
     if (!repoAllowed(REPO_ALLOWLIST, owner, repo)) {
       return { ok: false, reason: 'repo not eligible for this quest' };
     }
+
     const headers: Record<string, string> = { accept: 'application/vnd.github+json' };
     if (process.env.GITHUB_TOKEN) headers.authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
     const url = `https://api.github.com/repos/${owner}/${repo}/pulls/${num}`;
     const r = await getJson('github', url, headers);
     if (!r.ok) return r;
     if (!r.found) return { ok: false, reason: 'github 404' };
-    const pr = r.body as { merged?: boolean; merged_at?: string | null } | null;
+    const pr = r.body as {
+      merged?: boolean;
+      merged_at?: string | null;
+      body?: string | null;
+      user?: { type?: string } | null;
+    } | null;
     if (pr?.merged !== true) return { ok: false, reason: 'PR not merged' };
+    if (pr.user?.type === 'Bot') return { ok: false, reason: 'PRs authored by bots do not qualify' };
+    // Bind the PR to the recipient (#163): its body must name the recipient's address and no
+    // other, so one PR maps to one wallet. Without this any wallet could cite any merged PR,
+    // since the on-chain replay guard is keyed by (quest_id, recipient) alone.
+    const bound = prBodyNamesRecipient(pr.body, recipient);
+    if (!bound.ok) return bound;
     if (since !== null && !(Date.parse(pr.merged_at ?? '') / 1000 >= since)) {
       return { ok: false, reason: 'that PR was merged before this round — this quest needs a new one' };
     }

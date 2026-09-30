@@ -12,7 +12,13 @@ import { track as vercelTrack } from '@vercel/analytics';
 type Props = Record<string, string | number | boolean | null>;
 
 /** Well-known product event names, kept in one place so call sites stay typo-free. */
-export type TrackEvent = 'profile_created' | 'vouch_minted' | 'vouch_batch_minted' | 'client_error';
+export type TrackEvent =
+  | 'profile_created'
+  | 'vouch_minted'
+  | 'vouch_batch_minted'
+  | 'feedback_rated'
+  | 'feedback_form_opened'
+  | 'client_error';
 
 /** Fire a product/usage event, e.g. track('vouch_minted', { hasNote: true }). */
 export function track(event: string, props?: Props): void {

@@ -48,6 +48,7 @@ vi.mock('@/components/wallet/wallet-provider', () => ({
 vi.mock('next/navigation', () => ({
   usePathname: () => state.pathname,
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 vi.mock('next/link', () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
