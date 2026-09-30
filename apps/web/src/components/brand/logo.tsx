@@ -1,6 +1,28 @@
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 
+/**
+ * The constellation mark on its own, for places that are not a link home (the /app loading
+ * placeholder). scripts/brand-icons.mjs draws every favicon and app icon from this geometry.
+ */
+export function LogoMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={cn('size-7 shrink-0', className)} role="img" aria-hidden>
+      <polyline
+        points="5,8 12,5 18,11 9,18"
+        fill="none"
+        stroke="hsl(var(--starlight))"
+        strokeOpacity="0.3"
+        strokeWidth="1"
+      />
+      <circle cx="12" cy="5" r="2" fill="hsl(var(--primary))" />
+      <circle cx="5" cy="8" r="1.4" fill="hsl(var(--starlight))" />
+      <circle cx="18" cy="11" r="1.4" fill="hsl(var(--starlight))" />
+      <circle cx="9" cy="18" r="1.4" fill="hsl(var(--starlight))" />
+    </svg>
+  );
+}
+
 /** The alvinmunk logo — a small constellation mark + the lowercase wordmark. */
 export function Logo({
   href = '/',
@@ -13,19 +35,7 @@ export function Logo({
 }) {
   return (
     <Link href={href} className={cn('group inline-flex items-center gap-2', className)} aria-label="alvinmunk home">
-      <svg viewBox="0 0 24 24" className="size-7 shrink-0" role="img" aria-hidden>
-        <polyline
-          points="5,8 12,5 18,11 9,18"
-          fill="none"
-          stroke="hsl(var(--starlight))"
-          strokeOpacity="0.3"
-          strokeWidth="1"
-        />
-        <circle cx="12" cy="5" r="2" fill="hsl(var(--primary))" />
-        <circle cx="5" cy="8" r="1.4" fill="hsl(var(--starlight))" />
-        <circle cx="18" cy="11" r="1.4" fill="hsl(var(--starlight))" />
-        <circle cx="9" cy="18" r="1.4" fill="hsl(var(--starlight))" />
-      </svg>
+      <LogoMark />
       {!markOnly && (
         <span className="select-none font-display text-xl font-semibold lowercase tracking-tight text-foreground transition-transform group-hover:-rotate-1">
           alvinmunk

@@ -4,6 +4,10 @@ import { loadFont } from '@/lib/og-assets';
 import { getVouch, VOUCH_TTL_SECS } from '@/lib/reputation';
 import { getMeta, reverseHandle } from '@/lib/registry';
 
+// Chain reads go through the Stellar SDK's fetch; without this Next caches them in the Data
+// Cache forever, so the claim card would never change after its first render.
+export const fetchCache = 'default-no-store';
+
 // The install funnel: what a pasted /claim/<id> link unfurls into. Built from the public
 // vouch id alone. The claim code rides in the URL fragment (#k=…), which no server ever
 // receives; the oldest links' `?s=` query reaches the page request, never this one. The

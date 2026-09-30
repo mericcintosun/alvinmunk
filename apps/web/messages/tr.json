@@ -126,6 +126,9 @@
   "claim.voucher.headlineHandle": "@{handle} seni destekledi.",
   "claim.voucher.headlineFallback": "Biri seni destekledi.",
   "claim.voucher.viewProfile": "@{handle} profilini görüntüle →",
+  "claim.cancelled.frame": "// destek_iptal",
+  "claim.cancelled.title": "Bu link iptal edildi.",
+  "claim.cancelled.body": "Gönderen kişi bu desteği kimse talep etmeden iptal etti, bu yüzden artık talep edilemez. Sana gönderilmişse, senin için yeniden destek vermesini iste.",
 
   "appHome.whatNow": "Ne yapılacak",
   "appHome.recentActivity": "Son aktivite",
@@ -486,6 +489,12 @@
   "feedback.prompt.more": "Biraz daha anlat →",
   "feedback.prompt.dismiss": "Kapat",
 
+  "pendingBonusNudge.title.one": "İlk görevini tamamladığında 1 kişi +{amount} XP kazanacak",
+  "pendingBonusNudge.title.other": "İlk görevini tamamladığında {count} kişi kişi başı +{amount} XP kazanacak",
+  "pendingBonusNudge.title.mixed": "İlk görevini tamamladığında {count} kişi toplam +{total} XP kazanacak",
+  "pendingBonusNudge.body": "Destek bonusları ilk doğrulanmış görevinle açılır — gerçek biri olduğunu gösteren adım bu.",
+  "pendingBonusNudge.action": "Bir görev tamamla →",
+
   "pendingHalfCards.frame": "bekleyen // talep_bekliyor",
   "pendingHalfCards.empty.title": "Bekleyen yarım kart yok",
   "pendingHalfCards.empty.body": "Henüz kimsenin talep etmediği bir destek oluşturduğunda, bu panel onu yeniden paylaşman için nazikçe hatırlatır.",
@@ -495,6 +504,14 @@
   "pendingHalfCards.atRisk": "bahsin riskte · kesilmeden önce yeniden paylaş",
   "pendingHalfCards.copied": "kopyalandı",
   "pendingHalfCards.copyLink": "linki_kopyala",
+  "pendingHalfCards.revoke": "linki_iptal_et",
+  "pendingHalfCards.revokeConfirm": "Bu link iptal edilsin mi? Destek artık talep edilemez ve bahsin iade edilmez.",
+  "pendingHalfCards.revokeYes": "İptal et",
+  "pendingHalfCards.revokeNo": "Vazgeç",
+  "pendingHalfCards.revoking": "İptal ediliyor…",
+  "pendingHalfCards.revokeError.notYours": "Bu desteği yalnızca onu oluşturan cüzdan iptal edebilir.",
+  "pendingHalfCards.revokeError.claimed": "Çok geç — bu destek zaten talep edildi.",
+  "pendingHalfCards.revokeError.cancelled": "Bu link zaten iptal edildi.",
 
   "activityFeed.frame": "kayıt // son_aktivite",
   "activityFeed.live": "CANLI",

@@ -28,7 +28,7 @@ export function Onboarding({ initialHandle }: { initialHandle?: string }) {
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 -z-10 opacity-[0.05] [mask-image:radial-gradient(circle_at_top,black,transparent_70%)]"
-        style={{ backgroundImage: `url(${asset('backgrounds/app-bg.png')})`, backgroundSize: 'cover', backgroundPosition: 'top' }}
+        style={{ backgroundImage: `url(${asset('backgrounds/tile-256.png')})`, backgroundSize: '180px' }}
       />
       <div className="text-center">
         <p className="eyebrow mb-3">{t('onboard.eyebrow')}</p>

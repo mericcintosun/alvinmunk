@@ -46,9 +46,9 @@ export default function HowItWorks() {
       <p className="eyebrow-mono text-primary/80">{t('howItWorks.eyebrow')}</p>
       <h1 className="display-hero mt-4 flex flex-wrap items-center gap-3 font-display text-5xl font-semibold tracking-tight sm:text-6xl">
         {t('howItWorks.title')}
-        <Sticker name="star-lime" size={48} className="h-10 w-auto motion-safe:animate-float" />
-        <Sticker name="star-arc" size={56} className="hidden h-8 w-auto opacity-80 sm:block" />
-        <Sticker name="doodle-spiral" size={30} className="hidden h-6 w-auto opacity-70 sm:block" />
+        <Sticker name="star-lime" size={48} priority className="h-10 w-auto motion-safe:animate-float" />
+        <Sticker name="star-arc" size={56} priority className="hidden h-8 w-auto opacity-80 sm:block" />
+        <Sticker name="doodle-spiral" size={30} priority className="hidden h-6 w-auto opacity-70 sm:block" />
       </h1>
       <p className="mt-5 max-w-xl text-lg text-muted-foreground text-balance">
         {t('howItWorks.subtitle')}

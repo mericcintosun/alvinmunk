@@ -84,6 +84,9 @@ pub enum Error {
     LengthMismatch = 14,
     /// `mint_vouches` got no cards, or more than `MAX_BATCH_VOUCH`.
     BadBatchSize = 15,
+    /// The voucher cancelled the half-card (`cancel_vouch`): it can no longer be claimed,
+    /// or cancelled again.
+    Cancelled = 16,
 }
 
 #[contracttype]
@@ -104,6 +107,7 @@ pub enum DataKey {
     VouchedBy(Address),        // u32 — distinct people who vouched for this address
     Backed(Address),           // u32 — distinct people this address vouched for
     ClaimPubkey(u64),          // vouch id -> ed25519 claim key (mint_vouch_signed / mint_vouches)
+    Cancelled(u64),            // vouch id -> true once its voucher cancelled it (cancel_vouch)
 }
 
 /// Async half-card vouch. `mint_vouch_signed` binds it to an ed25519 claim key (stored
@@ -343,6 +347,42 @@ impl ReputationContract {
         );
     }
 
+    /// `from` cancels an unclaimed half-card whose share link leaked, so nobody can claim
+    /// it. Only the card's voucher may cancel (`NotAuthorized`), only while it is unclaimed
+    /// (`AlreadyClaimed`) and only once (`Cancelled`). It works before and after the claim
+    /// window, since a late claim would still land. The cancellation is its own entry,
+    /// `DataKey::Cancelled(vouch_id)`, because the stored `Vouch` shape is frozen; the card
+    /// itself is not rewritten (read `is_cancelled`). There is NO stake refund: the stake is
+    /// what makes an unclaimed vouch cost something, and a refunding cancel would make
+    /// spray-vouching free again, so cancelling is a voluntary slash. Both claim entrypoints
+    /// then revert with `Cancelled`. Emits `vouch`/`cancelled` (vouch_id, from).
+    pub fn cancel_vouch(env: Env, from: Address, vouch_id: u64) {
+        from.require_auth();
+        let vouch: Vouch = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Vouch(vouch_id))
+            .unwrap_or_else(|| panic_with_error!(&env, Error::VouchNotFound));
+        if vouch.from != from {
+            panic_with_error!(&env, Error::NotAuthorized);
+        }
+        if vouch.claimed {
+            panic_with_error!(&env, Error::AlreadyClaimed);
+        }
+        let key = DataKey::Cancelled(vouch_id);
+        if env.storage().persistent().has(&key) {
+            panic_with_error!(&env, Error::Cancelled);
+        }
+        env.storage().persistent().set(&key, &true);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_EXTEND);
+        env.events().publish(
+            (symbol_short!("vouch"), symbol_short!("cancelled")),
+            (vouch_id, from),
+        );
+    }
+
     // --- Attester-issued XP (verifiable quests) ---
 
     /// Allowlisted attester (or the QuestRegistry contract) credits the EARNED
@@ -406,6 +446,14 @@ impl ReputationContract {
         env.storage()
             .persistent()
             .get(&DataKey::ClaimPubkey(vouch_id))
+    }
+
+    /// True once the voucher cancelled half-card `vouch_id` (`cancel_vouch`); false for a
+    /// live, claimed or unknown card. A cancelled card can no longer be claimed.
+    pub fn is_cancelled(env: Env, vouch_id: u64) -> bool {
+        env.storage()
+            .persistent()
+            .has(&DataKey::Cancelled(vouch_id))
     }
 
     /// True once `addr` has performed a verified (Earned) action — this is the gate
@@ -536,13 +584,21 @@ impl ReputationContract {
         id
     }
 
-    /// The half-card `vouch_id`, reverting unless it exists and is still unclaimed.
+    /// The half-card `vouch_id`, reverting unless it exists, is still unclaimed and was not
+    /// cancelled by its voucher.
     fn unclaimed_vouch(env: &Env, vouch_id: u64) -> Vouch {
         let vouch: Vouch = env
             .storage()
             .persistent()
             .get(&DataKey::Vouch(vouch_id))
             .unwrap_or_else(|| panic_with_error!(env, Error::VouchNotFound));
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::Cancelled(vouch_id))
+        {
+            panic_with_error!(env, Error::Cancelled);
+        }
         if vouch.claimed {
             panic_with_error!(env, Error::AlreadyClaimed);
         }

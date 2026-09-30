@@ -128,6 +128,17 @@
   * {
     @apply border-border;
   }
+  /* Selected text: translucent brand violet under the foreground colour, so coloured text
+     (mint, cyan, violet) stays readable when selected in either theme (#509). */
+  ::selection {
+    background-color: hsl(var(--primary) / 0.35);
+    color: hsl(var(--foreground));
+  }
+  /* Thin scrollbars in the border token; scrollbar-color inherits into every scroll box. */
+  html {
+    scrollbar-color: hsl(var(--border)) transparent;
+    scrollbar-width: thin;
+  }
   body {
     @apply bg-background text-foreground font-sans antialiased;
     min-height: 100dvh;
@@ -300,5 +311,128 @@
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
+  }
+}
+
+/* Print / save as PDF (#509): dark-on-light paper without the fixed screen layers. The
+   starfield canvas, navbar, footer, config banner and vouch notice carry `print:hidden`. */
+@media print {
+  /* The light theme's tokens (keep in step with :root.light — theme-print.test.ts checks),
+     forced over the dark default; only the page itself is plain paper white. */
+  :root,
+  :root.dark {
+    color-scheme: light;
+
+    --background: 0 0% 100%; /* paper white */
+    --foreground: 265 40% 12%;
+    --card: 266 38% 98%;
+    --card-foreground: 265 40% 12%;
+    --popover: 266 40% 99%;
+    --popover-foreground: 265 40% 12%;
+    --primary: 265 100% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 157 84% 45%;
+    --secondary-foreground: 265 60% 8%;
+    --muted: 265 20% 94%;
+    --muted-foreground: 252 14% 40%;
+    --accent: 36 100% 55%;
+    --accent-foreground: 265 60% 8%;
+    --destructive: 350 82% 55%;
+    --destructive-foreground: 265 60% 8%;
+    --success: 157 84% 45%;
+    --warning: 38 95% 55%;
+    --primary-text: 265 100% 54%;
+    --onchain-text: 265 100% 54%;
+    --secondary-text: 157 84% 24%;
+    --success-text: 157 84% 24%;
+    --accent-text: 36 100% 28%;
+    --warning-text: 38 95% 28%;
+    --destructive-text: 350 82% 42%;
+    --tertiary-text: 193 100% 27%;
+    --lime-text: 79 94% 22%;
+    --border: 265 26% 85%;
+    --input: 265 26% 85%;
+    --ring: 265 100% 60%;
+    --starlight: 265 60% 15%;
+    --onchain: 265 100% 60%;
+    --radius: 0.875rem;
+    --tertiary: 193 100% 45%;
+    --flow-violet: 265 100% 68%;
+    --surface: 266 34% 97%;
+    --surface-2: 266 30% 93%;
+    --hairline: 260 60% 15%;
+    --lime: 79 94% 45%;
+    --lime-foreground: 265 60% 8%;
+    --nebula-a: 255 60% 80%;
+    --nebula-b: 24 70% 82%;
+    --aurora-base: 228 40% 96%;
+    --glass-shadow: 230 40% 30%;
+  }
+
+  body,
+  main {
+    min-height: auto !important;
+  }
+
+  [data-sonner-toaster],
+  .grain::after {
+    display: none !important;
+  }
+
+  /* Screen-only depth and motion */
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  .nebula,
+  .aurora,
+  .grid-faint {
+    background: none !important;
+  }
+
+  .glass {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  .spotlight::before {
+    display: none !important;
+  }
+
+  /* Gradient text prints as solid foreground */
+  .text-gradient {
+    background: none !important;
+    -webkit-text-fill-color: hsl(var(--foreground)) !important;
+    color: hsl(var(--foreground)) !important;
+  }
+
+  /* Paper can't be clicked: print where an external link goes (share intents excluded) */
+  a[href^="http"]:not([href*="twitter.com/intent"]):not([href*="x.com/intent"])::after {
+    content: ' (' attr(href) ')';
+    font-size: 0.85em;
+    font-weight: normal;
+    color: hsl(var(--muted-foreground));
+    word-break: break-all;
+  }
+
+  pre,
+  blockquote,
+  table,
+  figure {
+    break-inside: avoid;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    break-after: avoid;
   }
 }

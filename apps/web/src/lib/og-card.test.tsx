@@ -16,8 +16,8 @@ vi.mock('./registry', () => ({
 vi.mock('./reputation', () => ({ getScores: async () => ({ social: 40, earned: 7 }) }));
 vi.mock('./constellation', () => ({ getPeopleCounts: async () => ({ vouchedBy: 3, backed: 2 }) }));
 
-import { ogResolve, ogCard, claimCard, claimNameSize, handleFontSize, type OgScores } from './og-card';
-import { shortAddr } from '@alvinmunk/shared';
+import { ogResolve, ogCard, claimCard, claimNameSize, handleFontSize, siteCard, type OgScores } from './og-card';
+import { shortAddr, stampArt } from '@alvinmunk/shared';
 import { loadPng } from './og-assets';
 import { FACE_IDS, defaultAvatarId, faceFile, kitFile, type KitAvatar } from './avatar';
 
@@ -126,6 +126,31 @@ describe('ogCard', () => {
     const doc = render(ogCard({ handle: 'free', address: null, scores, bio: 'stale' }));
     expect(srcs(doc)).toEqual([]);
     expect(doc.body.textContent).not.toContain('stale');
+  });
+
+  it('draws the handle’s seeded constellation in place of a face when unclaimed', () => {
+    const doc = render(ogCard({ handle: 'free', address: null, scores }));
+    const first = stampArt('unclaimed-free', 7).points.split(' ')[0].split(',');
+    const stars = [...doc.querySelectorAll('svg circle')].slice(1); // [0] is the halo
+    expect(stars).toHaveLength(7);
+    expect([stars[0].getAttribute('cx'), stars[0].getAttribute('cy')]).toEqual([String(Number(first[0])), String(Number(first[1]))]);
+  });
+});
+
+describe('siteCard', () => {
+  it('shows the logo, the tagline and a constellation, with no raster art', () => {
+    const doc = render(siteCard());
+    const text = doc.body.textContent ?? '';
+    expect(text).toContain('alvinmunk');
+    expect(text).toContain('Collect people, not points.');
+    const [mark, constellation] = [...doc.querySelectorAll('svg')];
+    expect(mark.querySelectorAll('circle')).toHaveLength(4); // the navbar logo's four stars
+    expect(constellation.querySelectorAll('circle')).toHaveLength(8); // halo + seven stars
+    expect(srcs(doc)).toEqual([]);
+  });
+
+  it('never shows the retired "passport" name (#505)', () => {
+    expect(render(siteCard()).body.textContent?.toLowerCase()).not.toContain('passport');
   });
 });
 

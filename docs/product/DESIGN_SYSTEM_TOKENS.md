@@ -280,3 +280,10 @@ modal-overlay 70 · modal 80`.
   since metas and the manifest take no CSS variables). Toasts get the `<html>` class, not the OS.
 - Tokens are the **only** color source — no raw hex in components. A color not in this
   file does not exist in the product.
+- Selected text is `--foreground` on `--primary` at 35% (readable over any text colour in
+  both themes); scrollbars are thin, `--border` on a transparent track.
+- Print (`@media print` in `globals.css`) forces the light tokens over the dark default —
+  a copy of `:root.light` with `--background` set to paper white, kept in step by
+  `theme-print.test.ts` — and drops the fixed screen layers: the starfield, navbar, footer,
+  config banner and vouch notice carry `print:hidden`, and the grain and toasts are hidden
+  by the print block. External links print their URL after the link text.
