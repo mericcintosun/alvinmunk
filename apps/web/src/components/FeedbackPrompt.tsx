@@ -86,7 +86,7 @@ export function FeedbackPrompt({
               track('feedback_form_opened', { action });
               setRated(true); // keep the link mounted: a detached <a> doesn't navigate
             }}
-            className="font-mono text-[10px] uppercase tracking-wider text-primary/80 underline underline-offset-2 transition-colors hover:text-primary"
+            className="font-mono text-2xs uppercase tracking-wider text-primary/80 underline underline-offset-2 transition-colors hover:text-primary"
           >
             {t('feedback.prompt.more')}
           </a>
