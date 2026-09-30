@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { VouchFunnel } from '@/lib/vouch-funnel';
 import { LoopHealth } from './LoopHealth';
+import { I18nProvider } from '@/lib/i18n';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -86,5 +87,37 @@ describe('LoopHealth', () => {
     );
     expect(container.textContent).toContain('No vouches yet.');
     expect(container.textContent).not.toMatch(/Gate reached|Below gate/);
+  });
+
+  it('groups every count for the locale (#493)', async () => {
+    const big = funnel({
+      minted: 12_345,
+      open: 1_234,
+      unread: 2_000,
+      weeklyCohorts: [
+        { week: '2026-01-05', minted: 12_345, claimed: 6_000, completionRate: 0.5, open: 1_234, expiredUnclaimed: 5_111 },
+      ],
+    });
+    render(<LoopHealth funnel={big} loading={false} />);
+    expect(tile('Minted')).toContain('12,345');
+    expect(tile('Minted')).toContain('1,234 still open');
+    const cells = Array.from(container.querySelectorAll('tbody td')).map((td) => td.textContent);
+    expect(cells.slice(1, 5)).toEqual(['12,345', '6,000', '1,234', '5,111']);
+    expect(container.textContent).toContain('Not counted: 2,000 half-cards');
+
+    localStorage.setItem('alvinmunk_locale', 'tr');
+    try {
+      await act(async () =>
+        root.render(
+          <I18nProvider>
+            <LoopHealth funnel={big} loading={false} />
+          </I18nProvider>,
+        ),
+      );
+      expect(tile('Minted')).toContain('12.345');
+      expect(tile('Minted')).toContain('1.234 still open');
+    } finally {
+      localStorage.removeItem('alvinmunk_locale');
+    }
   });
 });

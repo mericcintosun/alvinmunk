@@ -11,6 +11,10 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { HandleTransfer } from '@/components/HandleTransfer';
 import { isStellarAddress, shortAddr } from '@alvinmunk/shared';
+import { useFormat } from '@/lib/i18n';
+
+/** A balance always shows two decimals, grouped for the locale: 1,234.50 | 1.234,50. */
+const TWO_DECIMALS = { minimumFractionDigits: 2, maximumFractionDigits: 2 };
 
 /**
  * Level 1 + 2 multi-wallet demo: connect via the Stellar Wallets Kit picker (Freighter,
@@ -19,6 +23,7 @@ import { isStellarAddress, shortAddr } from '@alvinmunk/shared';
  * where a user outgrowing the in-app key moves its @handle to the connected wallet.
  */
 export default function WalletPage() {
+  const format = useFormat();
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [balance, setBalance] = useState<string | null>(null);
   const [to, setTo] = useState('');
@@ -89,7 +94,7 @@ export default function WalletPage() {
                 <p className="mt-2 text-sm">
                   Balance:{' '}
                   <span className="font-semibold text-primary">
-                    {balance ? `${Number(balance).toFixed(2)} XLM` : '…'}
+                    {balance ? `${format.number(Number(balance), TWO_DECIMALS)} XLM` : '…'}
                   </span>
                 </p>
               </div>

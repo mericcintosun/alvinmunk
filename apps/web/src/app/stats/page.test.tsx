@@ -50,6 +50,27 @@ describe('StatsPage', () => {
     expect(container.textContent).toContain('stale');
   });
 
+  it('groups the wallet count and goal for the locale (#493)', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        network: 'testnet',
+        configured: true,
+        users: 1_234,
+        target: 5_000,
+        addresses: [],
+        funnel: null,
+      }),
+    });
+    await act(async () => {
+      root.render(<StatsPage />);
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain('1,234');
+    expect(container.textContent).toContain('/ 5,000');
+    expect(container.textContent).not.toContain('1234');
+  });
+
   it('switches to stale when API poll fails', async () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,

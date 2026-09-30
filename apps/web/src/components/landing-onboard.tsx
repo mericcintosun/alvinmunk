@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { useWallet } from '@/components/wallet/wallet-provider';
 import { normalizeHandle } from '@/lib/profile';
@@ -9,9 +10,8 @@ import { useCreateProfile } from '@/hooks/use-create-profile';
 import { AvatarPicker } from '@/components/AvatarPicker';
 import type { FaceId } from '@/lib/avatar';
 import { useTranslations } from '@/lib/i18n';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { OpenAppLink } from '@/components/cta-links';
 
 /**
  * One-field onboarding, right on the landing hero. Type a handle, tap once, and we silently
@@ -33,12 +33,13 @@ export function LandingOnboard() {
     onCreated: () => router.push('/app'),
   });
 
-  // Returning user: skip straight to the app.
+  // Returning user: skip straight to the app. The link itself is styled as the button — a
+  // <button> inside an <a> is invalid HTML and a second tab stop (#487).
   if (profile) {
     return (
-      <OpenAppLink>
+      <Link href="/app" className={buttonVariants({ variant: 'flow', size: 'lg' })}>
         {t('onboard.openApp')} <ArrowRight className="size-4" />
-      </OpenAppLink>
+      </Link>
     );
   }
 
