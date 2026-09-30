@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { Frame } from '@/components/fx/frame';
+import { Button } from '@/components/ui/button';
 import { Sticker } from '@/components/ui/sticker';
 import { useWallet } from '@/components/wallet/wallet-provider';
 import { useTranslations } from '@/lib/i18n';
@@ -45,9 +46,16 @@ export function InviteNudge() {
         <p className="flex-1 text-sm">
           <span className="font-mono text-secondary">@{ref}</span> {t('inviteNudge.message')}
         </p>
-        <button onClick={dismiss} aria-label={t('inviteNudge.dismiss')} className="shrink-0 text-muted-foreground hover:text-foreground">
-          <X className="size-4" />
-        </button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          onClick={dismiss}
+          aria-label={t('inviteNudge.dismiss')}
+          className="-m-2 shrink-0 text-muted-foreground"
+        >
+          <X />
+        </Button>
       </div>
     </Frame>
   );

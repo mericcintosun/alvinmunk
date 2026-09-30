@@ -33,12 +33,26 @@ export function clearProfile(): void {
   remove(KEY);
 }
 
+/** Handle length bounds: the registry takes 3–20 characters of `a–z`, `0–9` and `_`. */
+export const HANDLE_MIN_CHARS = 3;
+export const HANDLE_MAX_CHARS = 20;
+
 /** Normalize a user-typed handle: lowercase, alnum + underscore, <= 20 chars. */
 export function normalizeHandle(input: string): string {
   return input
     .toLowerCase()
     .replace(/[^a-z0-9_]/g, '')
-    .slice(0, 20);
+    .slice(0, HANDLE_MAX_CHARS);
+}
+
+/** The characters `normalizeHandle` drops from `input` (after lowercasing), each once and in
+ *  typing order, so a form can say why "Ayşe K" became "@ayek". */
+export function removedHandleChars(input: string): string[] {
+  const removed: string[] = [];
+  for (const ch of input.toLowerCase()) {
+    if (!/[a-z0-9_]/.test(ch) && !removed.includes(ch)) removed.push(ch);
+  }
+  return removed;
 }
 
 /** The registry's bio cap. It counts UTF-8 BYTES, so `ş` costs 2 and most emoji 4. */

@@ -267,7 +267,7 @@ describe('Quests', () => {
 
   describe('repeatable quests (#154)', () => {
     const WEEK = 604_800;
-    const labels = () => [...container.querySelectorAll('label, span.font-mono')].map((l) => l.textContent);
+    const labels = () => [...container.querySelectorAll('label, span.eyebrow-mono')].map((l) => l.textContent);
 
     it('tags a repeatable quest and shows it done only for this period', async () => {
       getQuestPeriodsMock.mockResolvedValue(
@@ -337,6 +337,42 @@ describe('Quests', () => {
       });
       expect(getCompletedMock).toHaveBeenCalledTimes(1);
       expect(labels().some((l) => l?.includes('repeats'))).toBe(false);
+    });
+  });
+
+  describe('first-tip quest (#272)', () => {
+    afterEach(() => vi.unstubAllEnvs());
+
+    it('stays hidden while NEXT_PUBLIC_FIRST_TIP_QUEST_ID is unset (no seeded quest id)', async () => {
+      await mount();
+      expect(buttons()).toHaveLength(3);
+      expect(container.textContent).not.toContain('first tip');
+      expect(getCompletedMock).toHaveBeenCalledWith(ADDRESS, [REFER, INVITE, VOUCHBACK], ADDRESS);
+    });
+
+    it('claims the configured quest id with first_tip evidence and no ref', async () => {
+      vi.stubEnv('NEXT_PUBLIC_FIRST_TIP_QUEST_ID', '6');
+      vi.resetModules();
+      const { Quests: Configured } = await import('./Quests');
+      await act(async () => root.render(<Configured address={ADDRESS} />));
+
+      expect(getCompletedMock).toHaveBeenCalledWith(
+        ADDRESS,
+        [REFER, INVITE, VOUCHBACK, 6],
+        ADDRESS,
+      );
+      expect(container.textContent).toContain('Tip 0.5+ USDC to someone you vouched for');
+      const firstTip = buttons()[3];
+      expect(firstTip.textContent).toBe('Claim first-tip');
+      await act(async () => {
+        firstTip.click();
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+      });
+      expect(completeQuestMock).toHaveBeenCalledWith({ kind: 'dev', address: ADDRESS }, 6, {
+        type: 'first_tip',
+        ref: '',
+      });
+      expectReportedSuccess();
     });
   });
 });

@@ -78,7 +78,7 @@ export function Dialog({ open, onClose, labelledBy, children, className }: Dialo
         aria-modal="true"
         aria-labelledby={labelledBy}
         tabIndex={-1}
-        className={cn('w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-lg outline-none', className)}
+        className={cn('w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-popover outline-none', className)}
       >
         {children}
       </div>

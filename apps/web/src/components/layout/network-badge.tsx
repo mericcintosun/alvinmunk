@@ -24,8 +24,9 @@ export function resolveNetwork(
 /**
  * A pill that states which Stellar network the app is pointed at, linking to
  * `/api/health` for live status. Testnet and mainnet differ in **text** (not
- * colour alone) so they are never confused: an amber "Testnet · test funds" vs a
- * distinct green "Mainnet". Rendered in both the navbar and the footer.
+ * colour alone) so they are never confused: a warning-gold "Testnet · test funds" vs a
+ * distinct secondary-green "Mainnet". Rendered in both the navbar and the footer.
+ * Token colours only: text-* reads the AA text variants, so both themes stay legible.
  */
 export function NetworkBadge({ className }: { className?: string }) {
   const t = useTranslations();
@@ -40,15 +41,15 @@ export function NetworkBadge({ className }: { className?: string }) {
       className={cn(
         'inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
         isMainnet
-          ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300'
-          : 'border-amber-500/40 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-300',
+          ? 'border-secondary/40 bg-secondary/10 text-secondary hover:bg-secondary/20'
+          : 'border-warning/40 bg-warning/10 text-warning hover:bg-warning/20',
         className,
       )}
       data-network={isMainnet ? 'mainnet' : 'testnet'}
     >
       <span
         aria-hidden
-        className={cn('size-1.5 rounded-full', isMainnet ? 'bg-emerald-500' : 'bg-amber-500')}
+        className={cn('size-1.5 rounded-full', isMainnet ? 'bg-secondary' : 'bg-warning')}
       />
       {label}
     </Link>

@@ -16,7 +16,17 @@
  *     or down is a retryable 5xx, never a 422 (which says the evidence is wrong).
  */
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
-import { Address, Keypair, Networks, StrKey, nativeToScVal, rpc, scValToNative, xdr } from '@stellar/stellar-sdk';
+import {
+  Address,
+  Contract,
+  Keypair,
+  Networks,
+  StrKey,
+  nativeToScVal,
+  rpc,
+  scValToNative,
+  xdr,
+} from '@stellar/stellar-sdk';
 import { QUEST_SIG_TTL_SECS, WEEK_SECS, questPayload, questWindow } from '../../../lib/attest';
 
 const RECIPIENT = Keypair.random().publicKey();
@@ -25,6 +35,8 @@ const QUEST_CONTRACT = StrKey.encodeContract(Buffer.alloc(32, 7));
 const ATTESTER = Keypair.random();
 const REGISTRY_CONTRACT = StrKey.encodeContract(Buffer.alloc(32, 9));
 const PASSKEY_REFERRED = StrKey.encodeContract(Buffer.alloc(32, 3));
+const REWARDS_CONTRACT = StrKey.encodeContract(Buffer.alloc(32, 11));
+const USDC_SAC = StrKey.encodeContract(Buffer.alloc(32, 12));
 
 /** One simulation reply: a view's return value, or a simulation error. */
 const sim = (retval: unknown) =>
@@ -906,5 +918,373 @@ describe('POST /api/attest repeatable quests (issue #154)', () => {
     const body = (await res.json()) as { sig: string; expiresAt: number };
     const sig = Buffer.from(body.sig, 'base64');
     expect(ATTESTER.verify(questPayload(ctx, 1, RECIPIENT, body.expiresAt), sig)).toBe(true);
+  });
+});
+
+describe('POST /api/attest first_tip (issue #272)', () => {
+  const QUEST = 6;
+  const FRIEND = Keypair.random().publicKey();
+  const OTHER = Keypair.random().publicKey();
+  const FLOOR = 5_000_000n; // 0.5 USDC
+  const ISSUER = Keypair.random().publicKey();
+  const ctx = { contractId: QUEST_CONTRACT, passphrase: Networks.TESTNET };
+  const FIRST_TIP = { type: 'first_tip', ref: '' };
+
+  interface Ev {
+    contract: string;
+    topic: xdr.ScVal[];
+    value: xdr.ScVal;
+    tx: string;
+    ok?: boolean;
+  }
+  const event = ({ contract, topic, value, tx, ok = true }: Ev) => ({
+    contractId: new Contract(contract),
+    topic,
+    value,
+    txHash: tx,
+    inSuccessfulContractCall: ok,
+    ledgerClosedAt: new Date().toISOString(),
+  });
+  /** `rewards.tip` emits `('tipped', from, to) · amount` … */
+  const tipped = (
+    to: string,
+    amount: bigint,
+    tx: string,
+    over: Partial<Ev> & { from?: string } = {},
+  ) =>
+    event({
+      contract: REWARDS_CONTRACT,
+      topic: [
+        xdr.ScVal.scvSymbol('tipped'),
+        new Address(over.from ?? RECIPIENT).toScVal(),
+        new Address(to).toScVal(),
+      ],
+      value: nativeToScVal(amount, { type: 'i128' }),
+      tx,
+      ...over,
+    });
+  /** … after the USDC SAC's own `('transfer', from, to, asset) · amount` in the same tx. */
+  const transfer = (
+    to: string,
+    amount: bigint,
+    tx: string,
+    over: Partial<Ev> & { from?: string } = {},
+  ) =>
+    event({
+      contract: USDC_SAC,
+      topic: [
+        xdr.ScVal.scvSymbol('transfer'),
+        new Address(over.from ?? RECIPIENT).toScVal(),
+        new Address(to).toScVal(),
+        nativeToScVal(`USDC:${ISSUER}`), // the SEP-11 asset name
+      ],
+      value: nativeToScVal(amount, { type: 'i128' }),
+      tx,
+      ...over,
+    });
+  /** A real tip: both events of one `rewards.tip` transaction. */
+  const tip = (to: string, amount: bigint, tx: string) => [
+    tipped(to, amount, tx),
+    transfer(to, amount, tx),
+  ];
+  /** `reputation` emits `('vouch', 'claimed') · (id, from, claimer)`. */
+  const claim = (n: number, from: string, claimer: string) => ({
+    value: nativeToScVal([n, from, claimer]),
+    ledgerClosedAt: new Date().toISOString(),
+  });
+  const page = (list: unknown[]) =>
+    ({ events: list, cursor: undefined }) as unknown as rpc.Api.GetEventsResponse;
+  const UNFROZEN = sim(nativeToScVal(false));
+  const FROZEN = sim(nativeToScVal(true));
+
+  let events: MockInstance<rpc.Server['getEvents']>;
+  /** Serve the tip scan (rewards + USDC filters) and the vouch scan (reputation) apart. */
+  function chain(tips: unknown[], claims: unknown[] = []) {
+    events.mockImplementation(async (req) => {
+      const [first] = (req as { filters: { contractIds: string[] }[] }).filters;
+      return page(first.contractIds[0] === REWARDS_CONTRACT ? tips : claims);
+    });
+  }
+  const scans = () =>
+    events.mock.calls.map(([req]) =>
+      (req as { filters: { contractIds: string[] }[] }).filters.map((f) => f.contractIds[0]),
+    );
+  /** The wallets `is_frozen` was asked about, in order. */
+  const frozenAsked = () =>
+    simulateSpy.mock.calls
+      .map(
+        ([tx]) =>
+          (tx as unknown as { operations: { func: xdr.HostFunction }[] }).operations[0].func,
+      )
+      .filter((f) => f.invokeContract().functionName().toString() === 'is_frozen')
+      .map((f) => scValToNative(f.invokeContract().args()[0]) as string);
+
+  async function claimQuest(evidence: Record<string, unknown> = FIRST_TIP) {
+    const res = await attest({ questId: QUEST, evidence });
+    const body = (await res.json()) as {
+      error?: string;
+      sig?: string;
+      expiresAt?: number;
+      retryable?: boolean;
+    };
+    return { status: res.status, body };
+  }
+  const verifies = (body: { sig?: string; expiresAt?: number }) =>
+    ATTESTER.verify(
+      questPayload(ctx, QUEST, RECIPIENT, body.expiresAt!),
+      Buffer.from(body.sig ?? '', 'base64'),
+    );
+
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.stubEnv('NEXT_PUBLIC_REWARDS_CONTRACT_ID', REWARDS_CONTRACT);
+    vi.stubEnv('NEXT_PUBLIC_USDC_SAC_ID', USDC_SAC);
+    vi.stubEnv('NEXT_PUBLIC_FIRST_TIP_QUEST_ID', String(QUEST));
+    vi.spyOn(rpc.Server.prototype, 'getHealth').mockResolvedValue({
+      oldestLedger: 1,
+    } as unknown as rpc.Api.GetHealthResponse);
+    events = vi.spyOn(rpc.Server.prototype, 'getEvents');
+    events.mockRejectedValue(new Error('unexpected getEvents'));
+    ({ POST } = (await import('./route')) as { POST: Post });
+  });
+
+  // ── verifies ────────────────────────────────────────────────────────────
+
+  it('verifies a floor-sized USDC tip to a wallet the recipient vouched for', async () => {
+    chain(tip(FRIEND, FLOOR, 'tx1'), [claim(1, RECIPIENT, FRIEND)]);
+    simulateSpy
+      .mockResolvedValueOnce(oneShot())
+      .mockResolvedValueOnce(open())
+      .mockResolvedValueOnce(UNFROZEN);
+
+    const { status, body } = await claimQuest();
+    expect(status).toBe(200);
+    expect(verifies(body)).toBe(true);
+    expect(methods()).toEqual(['get_quest_periods', 'is_completed', 'is_frozen']);
+    expect(frozenAsked()).toEqual([FRIEND]);
+    // One tip scan over the rewards contract and the configured USDC SAC, then one vouch scan.
+    expect(scans()).toEqual([[REWARDS_CONTRACT, USDC_SAC], [QUEST_CONTRACT]]);
+  });
+
+  it('counts a connection in the other direction: the receiver vouched for the recipient', async () => {
+    chain(tip(FRIEND, FLOOR + 1n, 'tx1'), [claim(1, FRIEND, RECIPIENT)]);
+    simulateSpy
+      .mockResolvedValueOnce(oneShot())
+      .mockResolvedValueOnce(open())
+      .mockResolvedValueOnce(UNFROZEN);
+    const { status, body } = await claimQuest();
+    expect(status).toBe(200);
+    expect(verifies(body)).toBe(true);
+  });
+
+  it('passes on a later qualifying tip after earlier ones that do not count', async () => {
+    chain(
+      [
+        ...tip(OTHER, FLOOR, 'tx1'),
+        ...tip(FRIEND, FLOOR - 1n, 'tx2'),
+        ...tip(FRIEND, FLOOR, 'tx3'),
+      ],
+      [claim(1, RECIPIENT, FRIEND)],
+    );
+    simulateSpy
+      .mockResolvedValueOnce(oneShot())
+      .mockResolvedValueOnce(open())
+      .mockResolvedValueOnce(UNFROZEN);
+    const { status } = await claimQuest();
+    expect(status).toBe(200);
+    expect(frozenAsked()).toEqual([FRIEND]); // the unconnected and sub-floor tips cost no read
+  });
+
+  // ── the tip comes off the chain, never from the request ─────────────────
+
+  it('ignores whatever the request puts in evidence.ref', async () => {
+    chain([]); // the chain has no tip at all
+    simulateSpy.mockResolvedValueOnce(oneShot()).mockResolvedValueOnce(open());
+    const { status, body } = await claimQuest({ type: 'first_tip', ref: FRIEND });
+    expect(status).toBe(422);
+    expect(body.error).toMatch(/haven’t tipped anyone/);
+    expect(body.sig).toBeUndefined();
+    expect(scans()).toEqual([[REWARDS_CONTRACT, USDC_SAC]]);
+  });
+
+  it('refuses someone else’s tip, even when the RPC returns it for this sender', async () => {
+    chain(
+      [
+        tipped(FRIEND, FLOOR, 'tx1', { from: OTHER }),
+        transfer(FRIEND, FLOOR, 'tx1', { from: OTHER }),
+      ],
+      [claim(1, RECIPIENT, FRIEND)],
+    );
+    simulateSpy.mockResolvedValueOnce(oneShot()).mockResolvedValueOnce(open());
+    const { status, body } = await claimQuest();
+    expect(status).toBe(422);
+    expect(body.error).toMatch(/haven’t tipped anyone/);
+    expect(frozenAsked()).toEqual([]);
+  });
+
+  it('refuses a `tipped` event from any contract but the configured rewards one', async () => {
+    const FAKE = StrKey.encodeContract(Buffer.alloc(32, 13));
+    chain(
+      [tipped(FRIEND, FLOOR, 'tx1', { contract: FAKE }), transfer(FRIEND, FLOOR, 'tx1')],
+      [claim(1, RECIPIENT, FRIEND)],
+    );
+    simulateSpy.mockResolvedValueOnce(oneShot()).mockResolvedValueOnce(open());
+    const { status, body } = await claimQuest();
+    expect(status).toBe(422);
+    expect(body.error).toMatch(/haven’t tipped anyone/);
+  });
+
+  it('skips an event from a failed contract call', async () => {
+    chain(
+      [tipped(FRIEND, FLOOR, 'tx1', { ok: false }), transfer(FRIEND, FLOOR, 'tx1', { ok: false })],
+      [claim(1, RECIPIENT, FRIEND)],
+    );
+    simulateSpy.mockResolvedValueOnce(oneShot()).mockResolvedValueOnce(open());
+    const { status, body } = await claimQuest();
+    expect(status).toBe(422);
+    expect(body.error).toMatch(/haven’t tipped anyone/);
+  });
+
+  // ── the tip moved the configured USDC ───────────────────────────────────
+
+  it('refuses a tip whose transaction moved no USDC through the configured SAC', async () => {
+    const TOKEN = StrKey.encodeContract(Buffer.alloc(32, 14));
+    const cases = [
+      [tipped(FRIEND, FLOOR, 'tx1')], // no SAC transfer at all
+      [tipped(FRIEND, FLOOR, 'tx1'), transfer(FRIEND, FLOOR, 'tx1', { contract: TOKEN })], // another token
+      [tipped(FRIEND, FLOOR, 'tx1'), transfer(FRIEND, FLOOR, 'tx2')], // another transaction
+      [tipped(FRIEND, FLOOR, 'tx1'), transfer(FRIEND, 1n, 'tx1')], // another amount
+      [tipped(FRIEND, FLOOR, 'tx1'), transfer(OTHER, FLOOR, 'tx1')], // another receiver
+    ];
+    for (const tips of cases) {
+      chain(tips, [claim(1, RECIPIENT, FRIEND)]);
+      simulateSpy.mockResolvedValueOnce(oneShot()).mockResolvedValueOnce(open());
+      const { status, body } = await claimQuest();
+      expect(status).toBe(422);
+      expect(body.error).toMatch(/only USDC tips count/);
+      expect(body.sig).toBeUndefined();
+    }
+    expect(frozenAsked()).toEqual([]);
+  });
+
+  // ── self, floor, connection, freeze ─────────────────────────────────────
+
+  it('refuses a self-tip (from a rewards contract that predates the on-chain rule)', async () => {
+    chain(tip(RECIPIENT, FLOOR, 'tx1'), [claim(1, RECIPIENT, RECIPIENT)]);
+    simulateSpy.mockResolvedValueOnce(oneShot()).mockResolvedValueOnce(open());
+    const { status, body } = await claimQuest();
+    expect(status).toBe(422);
+    expect(body.error).toBe('a tip to your own wallet doesn’t count');
+  });
+
+  it('refuses a tip below the floor (0.5 USDC), with the floor as the reason', async () => {
+    chain(tip(FRIEND, FLOOR - 1n, 'tx1'), [claim(1, RECIPIENT, FRIEND)]);
+    simulateSpy.mockResolvedValueOnce(oneShot()).mockResolvedValueOnce(open());
+    const { status, body } = await claimQuest();
+    expect(status).toBe(422);
+    expect(body.error).toMatch(/tip at least 0\.5 USDC/);
+    expect(scans()).toEqual([[REWARDS_CONTRACT, USDC_SAC]]); // no vouch scan for it
+  });
+
+  it('refuses a tip to a wallet that shares no claimed vouch with the recipient', async () => {
+    for (const claims of [
+      [],
+      [claim(1, FRIEND, OTHER)],
+      [claim(1, OTHER, FRIEND)],
+      [claim(1, RECIPIENT, OTHER)],
+    ]) {
+      chain(tip(FRIEND, FLOOR, 'tx1'), claims);
+      simulateSpy.mockResolvedValueOnce(oneShot()).mockResolvedValueOnce(open());
+      const { status, body } = await claimQuest();
+      expect(status).toBe(422);
+      expect(body.error).toMatch(/tip someone you’re connected to/);
+    }
+    expect(frozenAsked()).toEqual([]);
+  });
+
+  it('refuses a tip to a frozen wallet', async () => {
+    chain(tip(FRIEND, FLOOR, 'tx1'), [claim(1, RECIPIENT, FRIEND)]);
+    simulateSpy
+      .mockResolvedValueOnce(oneShot())
+      .mockResolvedValueOnce(open())
+      .mockResolvedValueOnce(FROZEN);
+    const { status, body } = await claimQuest();
+    expect(status).toBe(422);
+    expect(body.error).toMatch(/frozen/);
+  });
+
+  // ── one tip, one award ──────────────────────────────────────────────────
+
+  it('stops a recipient who already completed the quest before reading any tip', async () => {
+    chain(tip(FRIEND, FLOOR, 'tx1'), [claim(1, RECIPIENT, FRIEND)]);
+    simulateSpy.mockResolvedValueOnce(oneShot()).mockResolvedValueOnce(completed(true));
+    const { status, body } = await claimQuest();
+    expect(status).toBe(409);
+    expect(body.sig).toBeUndefined();
+    expect(events).not.toHaveBeenCalled();
+  });
+
+  it('refuses a repeatable first-tip quest, so one tip cannot pay every period', async () => {
+    simulateSpy.mockResolvedValueOnce(period(WEEK_SECS));
+    const { status, body } = await claimQuest();
+    expect(status).toBe(422);
+    expect(body.error).toMatch(/a first tip only counts once/);
+    expect(events).not.toHaveBeenCalled();
+  });
+
+  it('binds first_tip to its own quest id only', async () => {
+    const other = await attest({ questId: 4, evidence: FIRST_TIP });
+    expect(other.status).toBe(422);
+    expect(await other.json()).toEqual({ error: 'evidence type does not match this quest' });
+    const swapped = await attest({ questId: QUEST, evidence: { type: 'vouch_back', ref: '' } });
+    expect(swapped.status).toBe(422);
+    expectNoNetwork();
+    expect(events).not.toHaveBeenCalled();
+  });
+
+  // ── failures ────────────────────────────────────────────────────────────
+
+  it('answers a failed tip or vouch scan with a retryable 503, not a verdict', async () => {
+    events.mockRejectedValueOnce(new Error('rpc down'));
+    simulateSpy.mockResolvedValueOnce(oneShot()).mockResolvedValueOnce(open());
+    const scan = await claimQuest();
+    expect(scan.status).toBe(503);
+    expect(scan.body).toEqual({
+      error: 'couldn’t read your tips right now — try again',
+      retryable: true,
+    });
+
+    events
+      .mockResolvedValueOnce(page(tip(FRIEND, FLOOR, 'tx1')))
+      .mockRejectedValueOnce(new Error('rpc down'));
+    simulateSpy.mockResolvedValueOnce(oneShot()).mockResolvedValueOnce(open());
+    const vouches = await claimQuest();
+    expect(vouches.status).toBe(503);
+    expect(vouches.body.sig).toBeUndefined();
+  });
+
+  it('never takes a freeze status it could not read as unfrozen', async () => {
+    for (const reply of [simError('HostError: boom'), sim(undefined)]) {
+      chain(tip(FRIEND, FLOOR, 'tx1'), [claim(1, RECIPIENT, FRIEND)]);
+      simulateSpy
+        .mockResolvedValueOnce(oneShot())
+        .mockResolvedValueOnce(open())
+        .mockResolvedValueOnce(reply);
+      const { status, body } = await claimQuest();
+      expect(status).toBe(503);
+      expect(body.retryable).toBe(true);
+      expect(body.sig).toBeUndefined();
+    }
+  });
+
+  it('refuses to verify while the USDC SAC id is not configured', async () => {
+    vi.resetModules();
+    vi.stubEnv('NEXT_PUBLIC_USDC_SAC_ID', '');
+    ({ POST } = (await import('./route')) as { POST: Post });
+    simulateSpy.mockResolvedValueOnce(oneShot()).mockResolvedValueOnce(open());
+    const { status, body } = await claimQuest();
+    expect(status).toBe(422);
+    expect(body.error).toBe('USDC contract not configured');
+    expect(events).not.toHaveBeenCalled();
   });
 });
