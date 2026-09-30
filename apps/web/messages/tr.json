@@ -522,6 +522,8 @@
   "people.suggest.footnote": "Öneriler son zincir üstü kefalet etkinliğine dayanır — yeni kefaletler onaylandıkça güncellenir.",
   "people.suggest.view": "Görüntüle",
   "people.suggest.viewAria": "{label} profilini görüntüle",
+  "people.suggest.viewReputation": "İtibarı görüntüle",
+  "people.suggest.viewReputationAria": "{label} itibarını görüntüle",
 
   "configBanner.title": "Bu dağıtım yanlış yapılandırılmış — düzeltilene kadar hiçbir işlem gönderilemez.",
 

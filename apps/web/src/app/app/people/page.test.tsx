@@ -117,11 +117,20 @@ describe('PeoplePage suggestions (idle state)', () => {
     const aliceLink = Array.from(container.querySelectorAll('a')).find((a) => a.getAttribute('href') === '/u/alice');
     expect(aliceLink).toBeTruthy();
 
-    // B has no claimed handle yet → `/u/[handle]` would 404 on a raw address, so the
-    // View action must be a disabled button, never a link to a broken profile page.
+    // B has no claimed handle yet → `/u/[handle]` would 404 on a raw address, so the card
+    // opens B's reputation at /score/<address> instead of a dead, disabled button (#486).
     const brokenLink = Array.from(container.querySelectorAll('a')).find((a) => a.getAttribute('href') === `/u/${B1}`);
     expect(brokenLink).toBeUndefined();
-    const disabledButtons = Array.from(container.querySelectorAll('button')).filter((b) => b.disabled);
-    expect(disabledButtons.length).toBeGreaterThan(0);
+    const scoreLink = Array.from(container.querySelectorAll('a')).find((a) => a.getAttribute('href') === `/score/${B1}`);
+    expect(scoreLink).toBeTruthy();
+    expect(scoreLink!.textContent).toContain('View reputation');
+    // The accessible name carries the short address, since there is no handle to name.
+    expect(scoreLink!.getAttribute('aria-label')).toBe("View GBBBBB…BBBB's reputation");
+    expect(aliceLink!.getAttribute('aria-label')).toBe("View @alice's profile");
+    // Every suggestion card has a working link; nothing is left disabled.
+    expect(Array.from(container.querySelectorAll('button')).filter((b) => b.disabled && b.closest('.rounded-xl'))).toEqual(
+      [],
+    );
+    expect(container.querySelectorAll('a[href^="/u/"], a[href^="/score/"]')).toHaveLength(2);
   });
 });
