@@ -465,6 +465,15 @@
   "shareRow.tweet": "tweet",
   "shareRow.copied": "copied",
   "shareRow.copyLink": "copy_link",
+
+  "embed.title": "Embed your badge",
+  "embed.body": "Drop @{handle}'s live reputation into a README, a hackathon profile or any site. The badge is a read-only SVG, cached at the edge.",
+  "embed.label.markdown": "Markdown",
+  "embed.label.html": "HTML",
+  "embed.copy": "copy",
+  "embed.copied": "copied",
+  "embed.styleHint": "Shape the badge with ?style=card, and pick the size in your own markup. Unclaimed handles render neutral — never a broken image.",
+
   "vouch.compose.defaultNote": "vouched for you",
   "vouch.compose.shareXSuffix": "— claim your half of the sky:",
 

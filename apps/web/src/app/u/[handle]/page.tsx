@@ -11,6 +11,7 @@ import { Avatar } from '@/components/Avatar';
 import { Frame } from '@/components/fx/frame';
 import { Stamp } from '@/components/fx/stamp';
 import { ShareRow } from '@/components/fx/share-row';
+import { EmbedBadge } from '@/components/fx/embed-badge';
 import { BadgeGallery } from '@/components/BadgeGallery';
 import { VouchNetwork } from '@/components/VouchNetwork';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -186,6 +187,15 @@ export default function ProfilePage({
           }
         />
       </div>
+
+      {/* The embeddable SVG badge (#283). Only on the deployment's own network: the badge
+          route always reads THAT network, so offering it on a ?network= override would
+          hand out a badge for the wrong profile. */}
+      {!net && (
+        <div className="mt-5">
+          <EmbedBadge handle={handle} />
+        </div>
+      )}
     </div>
   );
 }

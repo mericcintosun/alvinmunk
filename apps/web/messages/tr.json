@@ -465,6 +465,15 @@
   "shareRow.tweet": "gönder",
   "shareRow.copied": "kopyalandı",
   "shareRow.copyLink": "linki_kopyala",
+
+  "embed.title": "Rozetini göm",
+  "embed.body": "@{handle} adlı kişinin canlı itibarını bir README'ye, hackathon profiline ya da herhangi bir siteye ekle. Rozet salt okunur bir SVG'dir ve CDN'de önbelleğe alınır.",
+  "embed.label.markdown": "Markdown",
+  "embed.label.html": "HTML",
+  "embed.copy": "kopyala",
+  "embed.copied": "kopyalandı",
+  "embed.styleHint": "Rozeti ?style=card ile şekillendir, boyutu kendi işaretlemede seç. Sahipsiz takma adlar nötr görünür — asla bozuk resim olmaz.",
+
   "vouch.compose.defaultNote": "sana destek verdi",
   "vouch.compose.shareXSuffix": "— gökyüzünün yarısını talep et:",
 
