@@ -70,7 +70,7 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
   return (
     <div className="container max-w-lg py-16">
       <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-primary/80">{'// you_are_invited'}</p>
-      <h1 className="mt-4 font-display text-4xl font-semibold tracking-tight text-balance">
+      <h1 className="mt-4 font-display text-3xl sm:text-4xl font-semibold tracking-tight text-balance [overflow-wrap:anywhere]">
         @{handle} wants you in their <AuroraText>constellation.</AuroraText>
       </h1>
       <p className="mt-3 text-muted-foreground text-balance">
@@ -86,7 +86,7 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
             <Crest address={`unclaimed-${handle}`} size={96} points={7} animate />
           )}
           <div className="min-w-0">
-            <div className="font-display text-2xl font-semibold">@{handle}</div>
+            <div className="font-display text-2xl font-semibold truncate">@{handle}</div>
             <p className="mt-1 font-mono text-xs text-muted-foreground">
               {address ? shortAddr(address) : 'new to the sky'}
             </p>

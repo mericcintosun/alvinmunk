@@ -99,7 +99,7 @@ export default function ProfilePage({
         <Frame label={`profile // @${handle}`} index="FREE">
           <div className="flex flex-col items-center gap-4 p-8 text-center">
             <Crest address={`unclaimed-${handle}`} size={120} points={5} />
-            <h1 className="font-display text-2xl font-semibold">@{handle}</h1>
+            <h1 className="font-display text-2xl font-semibold [overflow-wrap:anywhere]">@{handle}</h1>
             {net ? (
               <p className="text-sm text-muted-foreground text-balance">
                 Nobody held this handle on {net.network}.
@@ -129,7 +129,7 @@ export default function ProfilePage({
         <div className="grid gap-6 p-7 sm:grid-cols-[auto_1fr] sm:items-center sm:p-8">
           <Avatar address={address} avatar={avatar} handle={handle} size={140} />
           <div>
-            <h1 className="font-display text-3xl font-semibold">@{handle}</h1>
+            <h1 className="font-display text-2xl sm:text-3xl font-semibold [overflow-wrap:anywhere]">@{handle}</h1>
             <p className="mt-1 font-mono text-xs text-muted-foreground">{shortAddr(address)}</p>
             {bio && <p className="mt-2 break-words text-sm text-foreground/80">{bio}</p>}
             <div className="mt-3">

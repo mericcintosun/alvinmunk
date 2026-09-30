@@ -118,10 +118,10 @@ function ClaimInner({ params }: { params: { id: string } }) {
     let alive = true;
     reverseHandle(from)
       .then((h) => alive && setVoucherHandle(h))
-      .catch(() => {});
+      .catch(() => { });
     getMeta(from)
       .then((meta) => alive && setVoucherAvatar(meta?.avatar))
-      .catch(() => {});
+      .catch(() => { });
     return () => {
       alive = false;
     };
@@ -162,7 +162,7 @@ function ClaimInner({ params }: { params: { id: string } }) {
             voucherAddress: vouch.from,
             note: vouch.note ?? undefined,
           }),
-        }).catch(() => {});
+        }).catch(() => { });
       }
     } catch (e) {
       setError(claimErrorMessage(e));
@@ -229,7 +229,7 @@ function ClaimInner({ params }: { params: { id: string } }) {
       <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-primary/80">
         {done ? '// connected' : '// incoming_vouch'}
       </p>
-      <h1 className="mt-4 font-display text-4xl font-semibold tracking-tight">
+      <h1 className="mt-4 font-display text-3xl sm:text-4xl font-semibold tracking-tight [overflow-wrap:anywhere]">
         {done
           ? "You're connected."
           : voucherHandle
