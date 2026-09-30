@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { cookies } from 'next/headers';
 import './globals.css';
 import { fontVars } from '@/lib/fonts';
 import { Starfield } from '@/components/brand/starfield';
@@ -11,6 +12,7 @@ import { ConfigStatusBanner } from '@/components/config-status-banner';
 import { WalletProvider } from '@/components/wallet/wallet-provider';
 import { MotionProvider } from '@/components/motion/motion-provider';
 import { I18nProvider } from '@/lib/i18n';
+import { LOCALE_KEY, parseLocale } from '@/lib/locale';
 import { rootMetadata } from '@/lib/metadata';
 import { rootViewport, THEME_INIT } from '@/lib/theme';
 
@@ -23,14 +25,17 @@ export const metadata: Metadata = rootMetadata;
 export const viewport: Viewport = rootViewport;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  // The saved language, read here so the server HTML — text and <html lang> — is already in
+  // it (#236). Reading a cookie renders every page per request.
+  const savedLocale = parseLocale(cookies().get(LOCALE_KEY)?.value);
   return (
-    <html lang="en" className={`${fontVars} dark`} suppressHydrationWarning>
+    <html lang={savedLocale ?? 'en'} className={`${fontVars} dark`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
       </head>
       <body className="grain min-h-dvh" suppressHydrationWarning>
         <WalletProvider>
-          <I18nProvider>
+          <I18nProvider initialLocale={savedLocale ?? undefined}>
           <MotionProvider>
           <SmoothScroll />
           <Starfield />

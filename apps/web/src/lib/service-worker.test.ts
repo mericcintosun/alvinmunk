@@ -68,4 +68,35 @@ describe('service worker', () => {
       expect(pngSize(file), path).toBe(size);
     }
   });
+
+  describe('push payload url and tag (#297)', () => {
+    function show(payload: Record<string, unknown>) {
+      const { self, listeners } = loadWorker();
+      listeners.push({ data: { json: () => payload }, waitUntil: vi.fn() });
+      const [title, options] = self.registration.showNotification.mock.calls[0] as [
+        string,
+        { tag: string; data: { url: string } },
+      ];
+      return { title, tag: options.tag, url: options.data.url };
+    }
+
+    it('opens the server-supplied path and keeps each tip under its own tag', () => {
+      expect(show({ title: '💸 You received a tip', body: 'x', url: '/app/inbox', tag: 'tip-e1' })).toEqual({
+        title: '💸 You received a tip',
+        tag: 'tip-e1',
+        url: '/app/inbox',
+      });
+    });
+
+    it('never opens another site from a payload', () => {
+      for (const url of ['https://evil.example/', '//evil.example/x', 'javascript:alert(1)', 42]) {
+        expect(show({ vouchId: 7, url }).url).toBe('/app');
+        expect(show({ url }).url).toBe('https://alvinmunk.test');
+      }
+    });
+
+    it('keeps the vouch-claimed defaults without a url or tag', () => {
+      expect(show({ vouchId: 7 })).toMatchObject({ tag: 'vouch-claimed-7', url: '/app' });
+    });
+  });
 });

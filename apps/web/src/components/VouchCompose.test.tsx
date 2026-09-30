@@ -35,6 +35,9 @@ vi.mock('@/lib/myvouches', () => ({
   subscribeToVouchPush: vi.fn(async () => {}),
 }));
 vi.mock('@/lib/track', () => ({ track: vi.fn(), trackError: vi.fn() }));
+vi.mock('@/components/wallet/wallet-provider', () => ({
+  useWallet: () => ({ profile: { handle: 'me', address: WALLET.address, createdAt: 0 } }),
+}));
 vi.mock('@/components/ui/toaster', () => ({ toast: toastMock }));
 vi.mock('@/components/fx/frame', () => ({
   Frame: (p: { children: React.ReactNode }) => p.children,
@@ -327,5 +330,73 @@ describe('VouchCompose for several people (#271)', () => {
     // Editing another row that fits moves the notice off the cut one.
     await type(a, 'ada lovelace');
     expect(statusOf(b).textContent).toBe('');
+  });
+});
+
+describe('VouchCompose feedback prompt (#287)', () => {
+  const FORM = 'https://docs.google.com/forms/d/e/FORM/viewform';
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    localStorage.clear();
+    vi.stubEnv('NEXT_PUBLIC_FEEDBACK_FORM_URL', `${FORM}?entry.1={handle}&entry.2={address}`);
+    mintVouchMock.mockReset().mockResolvedValue({ id: 7, seed: 'ab' });
+    mintVouchesMock
+      .mockReset()
+      .mockImplementation(async (_w: unknown, notes: string[]) => notes.map((_, i) => ({ id: 20 + i, seed: `${i}` })));
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllEnvs();
+  });
+
+  const button = (text: string) => [...container.querySelectorAll('button')].find((b) => b.textContent === text)!;
+  const prompt = () => container.querySelector('section[aria-label="Quick feedback"]');
+  async function click(el: HTMLElement) {
+    await act(async () => el.click());
+    await act(async () => {
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    });
+  }
+  async function remount() {
+    act(() => root.unmount());
+    root = createRoot(container);
+    await act(async () => root.render(<VouchCompose />));
+  }
+
+  it('asks after the first vouch, with the handle and address prefilled, then never again', async () => {
+    await act(async () => root.render(<VouchCompose />));
+    expect(prompt()).toBeNull(); // nothing to react to before a vouch
+    await click(button('Light their star'));
+    expect(prompt()).not.toBeNull();
+    const href = new URL(prompt()!.querySelector('a')!.href);
+    expect(Object.fromEntries(href.searchParams)).toEqual({ 'entry.1': '@me', 'entry.2': WALLET.address });
+
+    await remount();
+    await click(button('Light their star'));
+    expect(container.querySelector('code')?.textContent).toContain('/claim/7');
+    expect(prompt()).toBeNull();
+  });
+
+  it('asks after a first cohort vouch too', async () => {
+    await act(async () => root.render(<VouchCompose />));
+    await click(button('Several people'));
+    await click(button('Light 2 stars'));
+    expect(container.textContent).toContain('2 stars are lit');
+    expect(prompt()).not.toBeNull();
+  });
+
+  it('stays out of the way when no form is configured', async () => {
+    vi.stubEnv('NEXT_PUBLIC_FEEDBACK_FORM_URL', '');
+    await act(async () => root.render(<VouchCompose />));
+    await click(button('Light their star'));
+    expect(container.querySelector('code')?.textContent).toContain('/claim/7');
+    expect(prompt()).toBeNull();
   });
 });

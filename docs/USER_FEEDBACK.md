@@ -24,7 +24,7 @@ Settings: collect email off (field 2 captures it), one response per person off (
 
 **Export:** Responses tab → link to Google Sheets → File → Download → Microsoft Excel (.xlsx). Commit the file to the repo as `docs/feedback/responses.xlsx` (or link the shared Sheet, view-only) and reference it from the README.
 
-**Getting the 10 / 50 / 20-mainnet users:** onboard whole cohorts where people already know each other (a student club, a builder Discord, an ambassador group). Because a vouch names a specific person, seed 3–4 real users and have each vouch 3 people; the share links pull the rest in. Keep the form link in the app footer and in the post-vouch success toast.
+**Getting the 10 / 50 / 20-mainnet users:** onboard whole cohorts where people already know each other (a student club, a builder Discord, an ambassador group). Because a vouch names a specific person, seed 3–4 real users and have each vouch 3 people; the share links pull the rest in. Keep the form link in the app footer and in front of people right after a claim and their first vouch: set `NEXT_PUBLIC_FEEDBACK_FORM_URL` (see `.env.example`) and the app does both — a footer link, and a one-time 👍 / 👎 + "Tell us more" prompt that opens the form with their handle and wallet prefilled.
 
 ---
 

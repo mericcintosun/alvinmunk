@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 (globalThis as { React?: typeof React }).React = React;
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const { getVouchMock, reverseHandleMock, getMetaMock, claimVouchSignedMock, profileHook } = vi.hoisted(() => ({
+const { getVouchMock, reverseHandleMock, getMetaMock, claimVouchSignedMock, profileHook, walletCtx } = vi.hoisted(() => ({
   getVouchMock: vi.fn(),
   reverseHandleMock: vi.fn(),
   getMetaMock: vi.fn(),
@@ -16,6 +16,10 @@ const { getVouchMock, reverseHandleMock, getMetaMock, claimVouchSignedMock, prof
   /** What the mocked useCreateProfile returns; a test may overwrite fields. */
   profileHook: {
     current: {} as Record<string, unknown>,
+  },
+  walletCtx: {
+    connect: (() => Promise.resolve(undefined)) as () => Promise<unknown>,
+    wallet: null as { address: string } | null,
   },
 }));
 const IDLE_HOOK = { handle: '', setHandle: () => {}, normalizedHandle: '', avail: 'idle', creating: false, create: () => {} };
@@ -28,7 +32,7 @@ vi.mock('next/link', () => ({
   ),
 }));
 vi.mock('@/components/wallet/wallet-provider', () => ({
-  useWallet: () => ({ connect: vi.fn(), profile: null }),
+  useWallet: () => ({ connect: walletCtx.connect, wallet: walletCtx.wallet, profile: null }),
 }));
 vi.mock('@/hooks/use-create-profile', () => ({
   useCreateProfile: () => profileHook.current,
@@ -183,5 +187,65 @@ describe('/claim/[id] — the handle picker after a claim (#479)', () => {
     expect(status.className.split(' ')).toContain('min-h-4');
     expect(status.className.split(' ')).not.toContain('h-4');
     expect(container.querySelector('#claim-handle-rules')!.textContent).toBe('3–20 characters: a–z, 0–9 or _');
+  });
+});
+
+describe('/claim/[id] — feedback after a claim (#287)', () => {
+  const CLAIMER = 'GCLAIMERCLAIMERCLAIMERCLAIMERCLAIMERCLAIMERCLAIMERCLAIM';
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    profileHook.current = { ...IDLE_HOOK };
+    localStorage.clear();
+    vi.stubEnv('NEXT_PUBLIC_FEEDBACK_FORM_URL', 'https://docs.google.com/forms/d/e/FORM/viewform?entry.2={address}');
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('{}'))));
+    window.location.hash = `#k=${'ab'.repeat(32)}`;
+    getVouchMock.mockResolvedValue({
+      id: 7,
+      from: VOUCHER,
+      note: 'gm',
+      claimed: false,
+      claimer: null,
+      created: Math.floor(Date.now() / 1000),
+      stake: 5,
+      slashed: false,
+    });
+    reverseHandleMock.mockResolvedValue(null);
+    getMetaMock.mockResolvedValue(null);
+    claimVouchSignedMock.mockResolvedValue(undefined);
+    walletCtx.connect = async () => {
+      walletCtx.wallet = { address: CLAIMER };
+      return walletCtx.wallet;
+    };
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    walletCtx.wallet = null;
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  const prompt = () => container.querySelector('section[aria-label="Quick feedback"]');
+
+  it('asks once the star is lit, with the claimer\'s address prefilled', async () => {
+    await act(async () => root.render(<ClaimPage params={{ id: '7' }} />));
+    for (let i = 0; i < 6; i++) await act(async () => Promise.resolve());
+    expect(prompt()).toBeNull(); // not before the claim
+
+    const claim = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('Claim your star'))!;
+    await act(async () => claim.click());
+    for (let i = 0; i < 6; i++) await act(async () => Promise.resolve());
+
+    expect(claimVouchSignedMock).toHaveBeenCalledWith({ address: CLAIMER }, 7, 'ab'.repeat(32));
+    expect(container.textContent).toContain('STAR IGNITED');
+    const href = new URL(prompt()!.querySelector('a')!.href);
+    expect(href.searchParams.get('entry.2')).toBe(CLAIMER);
   });
 });
