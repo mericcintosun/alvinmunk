@@ -26,6 +26,10 @@ export const runtime = 'nodejs';
 // "Sensitive" secrets (ATTESTER_SECRET_KEY/USDC_ISSUER_SECRET_KEY) are absent, so the
 // probe would falsely report them unconfigured even though they exist at runtime.
 export const dynamic = 'force-dynamic';
+// `dynamic` alone doesn't stop Next caching fetches made by a GET route handler: the Stellar
+// SDK's JSON-RPC calls are POSTs through the patched fetch, and they'd be served from the
+// Data Cache forever (this route would keep reporting the first ledger it ever saw).
+export const fetchCache = 'default-no-store';
 
 // Bound how long the probe waits on the RPC before giving up, so a slow/dead
 // endpoint fails the check instead of hanging the request indefinitely.

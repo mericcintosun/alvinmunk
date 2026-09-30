@@ -121,7 +121,7 @@ export default function LandingPage() {
           <div className="flex w-max motion-safe:animate-marquee gap-10 pr-10">
             {[...TICKER, ...TICKER].map((tick, i) => (
               <span key={i} className="flex items-center gap-2 whitespace-nowrap font-mono text-xs text-muted-foreground">
-                <Sticker name={TICKER_ICONS[i % TICKER_ICONS.length]} size={20} className="h-4 w-auto" />
+                <Sticker name={TICKER_ICONS[i % TICKER_ICONS.length]} size={20} priority className="h-4 w-auto" />
                 {tick}
               </span>
             ))}
@@ -276,7 +276,7 @@ export default function LandingPage() {
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 opacity-[0.05] [mask-image:radial-gradient(circle_at_center,black,transparent_70%)]"
-          style={{ backgroundImage: `url(${asset('backgrounds/landing-hero.png')})`, backgroundSize: 'cover', backgroundPosition: 'center' }}
+          style={{ backgroundImage: `url(${asset('backgrounds/tile-256.png')})`, backgroundSize: '180px' }}
         />
         <Meteors number={18} />
         <Sticker name="burst-wow" size={92} rotate={-12} className="pointer-events-none absolute left-[12%] top-16 hidden motion-safe:animate-float md:block" />

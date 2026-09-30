@@ -11,6 +11,10 @@ import { ReputationSnippet } from '@/components/ReputationSnippet';
 import { ReadOnlyBanner } from '@/components/read-only-banner';
 import { readNetworkFor } from '@/lib/read-network';
 
+// Chain reads go through the Stellar SDK's fetch; without this Next caches them in the Data
+// Cache forever, so the score page would never change after its first render.
+export const fetchCache = 'default-no-store';
+
 interface ScorePageProps {
   params: Promise<{ address: string }>;
   /** `?network=testnet` reads the testnet deployment, read-only (lib/read-network). */
@@ -71,7 +75,7 @@ export default async function ScorePage({ params, searchParams }: ScorePageProps
         {net && <ReadOnlyBanner network={net.network} />}
         <p className="eyebrow-mono text-primary/80">{'// not_found'}</p>
         <div className="mt-6 flex flex-col items-center gap-4 text-center">
-          <StateArt kind="empty-leaderboard" size={300} className="motion-safe:animate-float" />
+          <StateArt kind="empty-leaderboard" size={300} priority className="motion-safe:animate-float" />
           <h1 className="font-display text-2xl font-semibold">No reputation yet</h1>
           <p className="text-muted-foreground">
             This address hasn&apos;t earned any Social XP, Earned XP, or completed any quests yet.

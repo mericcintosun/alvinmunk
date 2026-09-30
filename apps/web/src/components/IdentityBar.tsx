@@ -236,7 +236,9 @@ export function IdentityBar() {
           </>
         )}
       </div>
-      <div className="flex shrink-0 items-center gap-3">
+      {/* max-w-full + wrap: a longer locale's labels drop the share row to its own line on
+          a phone instead of widening the page. */}
+      <div className="flex max-w-full shrink-0 flex-wrap items-center gap-3">
         <Link href={`/u/${profile.handle}`} className="text-sm text-primary hover:underline">
           {t('identity.viewProfile')}
         </Link>
