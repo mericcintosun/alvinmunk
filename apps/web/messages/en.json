@@ -509,6 +509,7 @@
   "badges.frame": "badges // milestones",
   "badges.heading": "Milestone badges",
   "badges.loading": "Loading badges…",
+  "badges.summary": "{earned}/{total} badges earned",
   "badges.earned": "earned",
   "badges.locked": "locked",
   "badges.error": "Couldn't read badges from the chain right now.",

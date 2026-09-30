@@ -83,8 +83,9 @@ export default function AppHome() {
       {/* Voucher bonuses still waiting on the people you vouched to verify — self-hides when none */}
       <OwedBonuses />
 
-      {/* Quick actions — the three focused routes, one job each */}
-      <section>
+      {/* Quick actions — the three focused routes, one job each. On phones they lead the
+          page, above the hero (#474); from sm up they keep their place below the nudges. */}
+      <section className="order-first sm:order-none">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           {t('appHome.whatNow')}
         </h2>
