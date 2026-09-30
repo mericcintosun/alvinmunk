@@ -16,6 +16,7 @@ import { Frame } from '@/components/fx/frame';
 import { useWallet } from '@/components/wallet/wallet-provider';
 import { useTranslations, type TFn } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { SuggestionViewLink, VouchActionLink } from '@/components/cta-links';
 
 type SearchResult = {
   handle: string;
@@ -210,12 +211,10 @@ export default function PeoplePage() {
                     </span>
                   </div>
                 </div>
-                <Link href="/app/vouch">
-                  <Button variant="flow" size="sm" className="gap-1.5">
-                    Vouch
-                    <ArrowRight className="size-3.5" />
-                  </Button>
-                </Link>
+                <VouchActionLink>
+                  Vouch
+                  <ArrowRight className="size-3.5" />
+                </VouchActionLink>
               </div>
 
               {/* Quick link to their public profile */}
@@ -331,12 +330,13 @@ function SuggestionCard({ suggestion: s, t }: { suggestion: Suggestion; t: TFn }
       {/* `/u/[handle]` resolves ON-CHAIN by handle — an address with no claimed handle
           has no profile route yet, so don't link somewhere that can only ever 404. */}
       {s.handle ? (
-        <Link href={`/u/${s.handle}`} aria-label={t('people.suggest.viewAria', { label })}>
-          <Button variant="outline" size="sm" className="shrink-0 gap-1 text-xs">
-            <UserPlus className="size-3.5" />
-            {t('people.suggest.view')}
-          </Button>
-        </Link>
+        <SuggestionViewLink
+          href={`/u/${s.handle}`}
+          ariaLabel={t('people.suggest.viewAria', { label })}
+        >
+          <UserPlus className="size-3.5" />
+          {t('people.suggest.view')}
+        </SuggestionViewLink>
       ) : (
         <Button variant="outline" size="sm" className="shrink-0 gap-1 text-xs" disabled>
           <UserPlus className="size-3.5" />

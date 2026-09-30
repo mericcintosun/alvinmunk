@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { useWallet } from '@/components/wallet/wallet-provider';
 import { normalizeHandle } from '@/lib/profile';
@@ -12,6 +11,7 @@ import type { FaceId } from '@/lib/avatar';
 import { useTranslations } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { OpenAppLink } from '@/components/cta-links';
 
 /**
  * One-field onboarding, right on the landing hero. Type a handle, tap once, and we silently
@@ -36,11 +36,9 @@ export function LandingOnboard() {
   // Returning user: skip straight to the app.
   if (profile) {
     return (
-      <Link href="/app" className="inline-flex">
-        <Button variant="flow" size="lg">
-          {t('onboard.openApp')} <ArrowRight className="size-4" />
-        </Button>
-      </Link>
+      <OpenAppLink>
+        {t('onboard.openApp')} <ArrowRight className="size-4" />
+      </OpenAppLink>
     );
   }
 
