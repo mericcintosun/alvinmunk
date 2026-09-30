@@ -145,6 +145,47 @@ describe('VouchCompose note', () => {
     await act(async () => toggle.click());
     expect(container.querySelector('[data-testid="qr"]')).toBeNull();
   });
+
+  // #492: the note field is named, counts as you type, and says when the cap cut text.
+  const counter = () => document.getElementById(textarea().getAttribute('aria-describedby')!)!;
+  const status = () => container.querySelector('[role="status"]')!;
+
+  it('has a visible label as its accessible name', async () => {
+    await mount();
+    const label = container.querySelector(`label[for="${textarea().id}"]`);
+    expect(textarea().id).not.toBe('');
+    expect(label?.textContent).toBe('Your note');
+  });
+
+  it('counts characters, not UTF-16 units, as you type', async () => {
+    await mount();
+    expect(counter().querySelector('[aria-hidden="true"]')?.textContent).toBe('0/60');
+    await typeNote('gm');
+    expect(counter().querySelector('[aria-hidden="true"]')?.textContent).toBe('2/60');
+    expect(counter().querySelector('.sr-only')?.textContent).toBe('2 of 60 characters');
+    await typeNote('💧💧ş');
+    expect(counter().querySelector('[aria-hidden="true"]')?.textContent).toBe('3/60');
+  });
+
+  it('only announces the count once the note nears the cap', async () => {
+    await mount();
+    await typeNote('a'.repeat(49));
+    expect(counter().getAttribute('aria-live')).toBe('off');
+    await typeNote('a'.repeat(50));
+    expect(counter().getAttribute('aria-live')).toBe('polite');
+  });
+
+  it('announces when a paste was cut to the cap, and clears it on the next fitting edit', async () => {
+    await mount();
+    // The live region is mounted up front, so its message is announced when it appears.
+    expect(status().textContent).toBe('');
+    await typeNote('💧'.repeat(75));
+    expect(textarea().value).toBe('💧'.repeat(60));
+    expect(status().textContent).toBe('Notes are limited to 60 characters — the extra text was cut.');
+    expect(counter().querySelector('[aria-hidden="true"]')?.textContent).toBe('60/60');
+    await typeNote('💧'.repeat(59));
+    expect(status().textContent).toBe('');
+  });
 });
 
 describe('VouchCompose for several people (#271)', () => {
@@ -260,5 +301,31 @@ describe('VouchCompose for several people (#271)', () => {
     expect(toastMock.error).toHaveBeenCalledWith("You've hit today's vouch limit — try again tomorrow.");
     expect(container.querySelectorAll('li code')).toHaveLength(0);
     expect(addMyVouchMock).not.toHaveBeenCalled();
+  });
+
+  it('gives every row its own counter and says which row the cap cut (#492)', async () => {
+    await openBatch();
+    const counterOf = (row: HTMLInputElement) =>
+      document.getElementById(row.getAttribute('aria-describedby')!)!;
+    const shown = (row: HTMLInputElement) =>
+      counterOf(row).querySelector('[aria-hidden="true"]')?.textContent;
+    const statusOf = (row: HTMLInputElement) => row.closest('li')!.querySelector('[role="status"]')!;
+
+    const [a, b] = rows();
+    expect(a.getAttribute('aria-describedby')).not.toBe(b.getAttribute('aria-describedby'));
+    await type(a, 'ada');
+    expect(shown(a)).toBe('3/60');
+    expect(shown(b)).toBe('0/60');
+
+    await type(b, 'x'.repeat(64));
+    expect(rows()[1].value).toBe('x'.repeat(60));
+    expect(shown(b)).toBe('60/60');
+    expect(counterOf(b).getAttribute('aria-live')).toBe('polite');
+    expect(statusOf(b).textContent).toBe('Notes are limited to 60 characters — the extra text was cut.');
+    expect(statusOf(a).textContent).toBe('');
+
+    // Editing another row that fits moves the notice off the cut one.
+    await type(a, 'ada lovelace');
+    expect(statusOf(b).textContent).toBe('');
   });
 });

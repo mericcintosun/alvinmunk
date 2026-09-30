@@ -145,6 +145,12 @@ and the decorative tokens are not Tailwind colors; only the `.glass`, `.grid-fai
 energy; gold/`accent` = human warmth (vouch), used sparingly. No raw hex in components —
 every color must trace back to a token in this file.
 
+**Canvas, three.js and OG images can't read CSS variables.** The starfield, the 3D
+constellation scenes and the Satori OG cards take their colours from
+`apps/web/src/lib/brand-palette.ts` instead: these tokens resolved to hex, per theme.
+`brand-palette.test.ts` recomputes every entry from `globals.css` and fails on drift, and fails
+on any hex literal in `components/brand/*` or `lib/og-card.tsx`. "You" is always `accent`.
+
 **`onchain` is one colour:** `--onchain` equals `--primary` in both themes, and everything
 named `onchain` uses it: `Badge variant="onchain"` (`border-onchain/30 bg-onchain/10
 text-onchain`), `Button variant="onchain"` (`bg-onchain text-primary-foreground

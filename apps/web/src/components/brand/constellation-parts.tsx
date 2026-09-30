@@ -4,7 +4,8 @@
  * Shared 3D constellation primitives (R3F / three.js) used by the app hero
  * (constellation-3d) and the marketing backdrop (constellation-backdrop): the glow
  * sprite texture, a sphere-distribution helper, a glowing Star, and a live OrbitRing.
- * Additive-blended glow, no postprocessing dependency.
+ * Additive-blended glow on the dark sky, normal blending on the light one (an additive
+ * halo washes out to white there); no postprocessing dependency.
  */
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useFrame } from '@react-three/fiber';
@@ -74,6 +75,11 @@ export function fibonacciSphere(n: number, radius: number): THREE.Vector3[] {
 /** Global size multiplier for every star sprite — tune the whole sky in one place. */
 const STAR_SCALE = 0.6;
 
+/** Additive glow adds light, which only reads on a dark sky; the light theme paints over it. */
+export function glowBlending(light: boolean): THREE.Blending {
+  return light ? THREE.NormalBlending : THREE.AdditiveBlending;
+}
+
 /** A glowing five-point star sprite (no solid core dot; the sprite is the star). */
 export function Star({
   glow,
@@ -83,6 +89,7 @@ export function Star({
   hovered = false,
   opacity = 0.7,
   reduced = false,
+  light = false,
   onOver,
   onOut,
   onClick,
@@ -94,6 +101,7 @@ export function Star({
   hovered?: boolean;
   opacity?: number;
   reduced?: boolean;
+  light?: boolean;
   onOver?: () => void;
   onOut?: () => void;
   onClick?: () => void;
@@ -113,7 +121,7 @@ export function Star({
           color={color}
           transparent
           opacity={hovered ? 0.98 : opacity}
-          blending={THREE.AdditiveBlending}
+          blending={glowBlending(light)}
           depthWrite={false}
         />
       </sprite>
@@ -135,6 +143,7 @@ export function OrbitRing({
   color,
   glow,
   reduced,
+  light = false,
 }: {
   radius: number;
   rotation: [number, number, number];
@@ -142,6 +151,7 @@ export function OrbitRing({
   color: string;
   glow: THREE.Texture;
   reduced: boolean;
+  light?: boolean;
 }) {
   const dot = useRef<THREE.Group>(null);
   const a = useRef(Math.random() * Math.PI * 2);
@@ -153,7 +163,7 @@ export function OrbitRing({
     <group rotation={rotation}>
       <mesh>
         <torusGeometry args={[radius, 0.006, 8, 128]} />
-        <meshBasicMaterial color={color} transparent opacity={0.22} toneMapped={false} />
+        <meshBasicMaterial color={color} transparent opacity={light ? 0.4 : 0.22} toneMapped={false} />
       </mesh>
       <group ref={dot}>
         <sprite scale={0.5}>
@@ -162,7 +172,7 @@ export function OrbitRing({
             color={color}
             transparent
             opacity={0.95}
-            blending={THREE.AdditiveBlending}
+            blending={glowBlending(light)}
             depthWrite={false}
           />
         </sprite>

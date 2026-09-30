@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useId, useState } from 'react';
 import { Copy, Check, Share2, Plus, X, QrCode as QrCodeIcon } from 'lucide-react';
 import { getWallet } from '@/lib/wallet';
 import {
@@ -10,6 +10,7 @@ import {
   mintVouches,
   VOUCH_BATCH_MAX,
   VOUCH_NOTE_MAX_CHARS,
+  vouchNoteChars,
 } from '@/lib/reputation';
 import { addMyVouch, subscribeToVouchPush } from '@/lib/myvouches';
 import { Frame } from '@/components/fx/frame';
@@ -40,6 +41,12 @@ function buildVouchErrors(t: TFn): Record<number, string> {
 /** Rows the "several people" form opens with — fewer is the one-person form. */
 const BATCH_MIN_ROWS = 2;
 
+/** From this many characters left, the counter speaks up (aria-live) as you type. */
+const NOTE_NEAR_LIMIT = 10;
+
+/** True when the note cap cut something off `raw` (a long paste, or typing past the cap). */
+const wasCut = (raw: string) => clampVouchNote(raw) !== raw;
+
 /** One card of a batch, as the result list shows it. */
 interface BatchCard {
   id: number;
@@ -58,6 +65,8 @@ export function VouchCompose() {
   const [copied, setCopied] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showQr, setShowQr] = useState(false);
+  const [noteCut, setNoteCut] = useState(false);
+  const noteId = useId();
 
   function switchMode(next: 'one' | 'many') {
     if (busy || next === mode) return;
@@ -212,13 +221,22 @@ export function VouchCompose() {
           />
         ) : (
           <>
+            <label htmlFor={noteId} className="mb-1 block text-sm font-medium">
+              {t('vouch.compose.note.label')}
+            </label>
             <Textarea
+              id={noteId}
               value={note}
-              onChange={(e) => setNote(clampVouchNote(e.target.value))}
+              onChange={(e) => {
+                setNoteCut(wasCut(e.target.value));
+                setNote(clampVouchNote(e.target.value));
+              }}
               rows={2}
               placeholder={t('vouch.compose.placeholder')}
-              className="mb-3"
+              aria-describedby={`${noteId}-count`}
+              className="mb-1"
             />
+            <NoteMeta id={noteId} t={t} value={note} cut={noteCut} className="mb-3" />
             <div className="relative w-full overflow-hidden rounded-full">
               <Button variant="flow" onClick={onMint} disabled={busy} className="w-full">
                 {busy ? t('vouch.compose.buttonBusy') : t('vouch.compose.button')}
@@ -292,6 +310,47 @@ export function VouchCompose() {
   );
 }
 
+/**
+ * Under a note field: the live `n/60` counter (announced politely once the note nears the
+ * cap, silent before that so every keystroke isn't read out), and a status line that says
+ * when the cap cut text off. The status element is always mounted so its message is
+ * announced when it appears.
+ */
+function NoteMeta({
+  id,
+  t,
+  value,
+  cut,
+  className,
+}: {
+  id: string;
+  t: TFn;
+  value: string;
+  cut: boolean;
+  className?: string;
+}) {
+  const count = vouchNoteChars(value);
+  const near = count >= VOUCH_NOTE_MAX_CHARS - NOTE_NEAR_LIMIT;
+  const vars = { count: String(count), max: String(VOUCH_NOTE_MAX_CHARS) };
+  return (
+    <div className={`flex items-center justify-between gap-2 text-xs ${className ?? ''}`}>
+      <p role="status" className="text-destructive">
+        {cut ? t('vouch.compose.note.truncated', { max: vars.max }) : ''}
+      </p>
+      <p
+        id={`${id}-count`}
+        aria-live={near ? 'polite' : 'off'}
+        className={`shrink-0 font-mono ${near ? 'text-foreground' : 'text-muted-foreground'}`}
+      >
+        <span aria-hidden="true">
+          {count}/{VOUCH_NOTE_MAX_CHARS}
+        </span>
+        <span className="sr-only">{t('vouch.compose.note.count', vars)}</span>
+      </p>
+    </div>
+  );
+}
+
 /** The cohort form: one note per person, minted together, then every link listed. */
 function BatchForm({
   t,
@@ -318,6 +377,9 @@ function BatchForm({
   onCopy: (card: BatchCard) => void;
   onCopyAll: () => void;
 }) {
+  const rowId = useId();
+  /** The row whose last edit the cap cut, if any. */
+  const [cutRow, setCutRow] = useState<number | null>(null);
   return (
     <>
       <p className="mb-2 text-xs text-muted-foreground">
@@ -326,27 +388,38 @@ function BatchForm({
       <ol className="mb-3 flex flex-col gap-2">
         {notes.map((n, i) => {
           const label = t('vouch.compose.batch.cardLabel', { n: String(i + 1) });
+          const id = `${rowId}-${i}`;
           return (
-            <li key={i} className="flex items-center gap-2">
-              <span className="w-6 shrink-0 font-mono text-xs text-muted-foreground">{i + 1}</span>
-              <Input
-                value={n}
-                onChange={(e) => onRow(i, e.target.value)}
-                placeholder={t('vouch.compose.placeholder')}
-                aria-label={label}
-                disabled={busy}
-              />
-              {notes.length > BATCH_MIN_ROWS && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => onRemove(i)}
+            <li key={i} className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <span className="w-6 shrink-0 font-mono text-xs text-muted-foreground">{i + 1}</span>
+                <Input
+                  value={n}
+                  onChange={(e) => {
+                    setCutRow(wasCut(e.target.value) ? i : null);
+                    onRow(i, e.target.value);
+                  }}
+                  placeholder={t('vouch.compose.placeholder')}
+                  aria-label={label}
+                  aria-describedby={`${id}-count`}
                   disabled={busy}
-                  aria-label={t('vouch.compose.batch.remove', { n: String(i + 1) })}
-                >
-                  <X className="size-4" />
-                </Button>
-              )}
+                />
+                {notes.length > BATCH_MIN_ROWS && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => {
+                      setCutRow(null); // rows below shift up; the notice would land on another
+                      onRemove(i);
+                    }}
+                    disabled={busy}
+                    aria-label={t('vouch.compose.batch.remove', { n: String(i + 1) })}
+                  >
+                    <X className="size-4" />
+                  </Button>
+                )}
+              </div>
+              <NoteMeta id={id} t={t} value={n} cut={cutRow === i} className="pl-8" />
             </li>
           );
         })}
