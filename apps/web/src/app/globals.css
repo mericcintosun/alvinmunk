@@ -127,6 +127,12 @@
 @layer base {
   * {
     @apply border-border;
+    /* The focus ring's colour and geometry rest on every element; :focus-visible below only
+       switches it on. A `transition-all` control (Button, the app tabs) then fades the ring
+       in, instead of morphing it from the UA default (3px, currentColor, no offset). */
+    outline-color: hsl(var(--ring));
+    outline-width: 2px;
+    outline-offset: 2px;
   }
   body {
     @apply bg-background text-foreground font-sans antialiased;

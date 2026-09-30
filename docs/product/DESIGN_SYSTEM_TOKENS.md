@@ -180,13 +180,18 @@ own tint. No raw Tailwind palette colours (`amber-400`, `emerald-500`, …): use
 That one rule covers everything: navbar links, the theme toggle, the mobile menu button, the
 logo, footer links, language pills, buttons, inputs and the `/app` tabs all show the same ring
 on keyboard focus, and no component falls back to a browser default that differs per browser.
+The ring's colour, width and offset also rest on every element (`*` in `@layer base`), so
+`:focus-visible` only switches the style on and a `transition-all` control fades the ring in
+instead of morphing it from the browser's 3px default. The ring sits 4px outside its element:
+a scroll box (`overflow-x-auto`) clips it unless it pads that much — the `/app` tab row uses
+`p-1 -m-1` for exactly that.
 
 **Components never hand-pick a focus ring colour.** Do not add `focus-visible:ring-primary`,
 `ring-lime`, `ring-inset` or a bare `outline-none` to opt out — `ring-*` is for decoration and
-suppressing the global outline hides focus from keyboard users. The one sanctioned opt-out is a
-deliberately scoped `focus-visible:outline-none`, and only where a wrapper shows the ring
-instead: the landing handle pill, whose input is borderless
-(`focus-within:ring-2 focus-within:ring-ring` on the wrapper). The ring clears 3:1 on every
+suppressing the global outline hides focus from keyboard users. The only sanctioned opt-out is a
+deliberately scoped `focus-visible:outline-none`, in two places: the landing handle pill, whose
+borderless input lets the wrapper show the ring (`focus-within:ring-2 focus-within:ring-ring`),
+and the dialog panel, which takes focus only programmatically when it opens. The ring clears 3:1 on every
 surface in both themes (worst case 3.93:1 — dark `--ring` on `--muted`; 4.70:1 on the light
 background). `apps/web/src/app/focus-ring.test.ts` asserts the rule, the contrast and the ban.
 

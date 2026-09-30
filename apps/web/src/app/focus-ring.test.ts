@@ -32,7 +32,12 @@ type Rgb = [number, number, number];
 
 /** `265 100% 66%` (or `265 100% 66% / 0.4`) → sRGB 0–1. */
 function toRgb(value: string): Rgb {
-  const [h, s, l] = value.replace(/\/\s*[\d.]+\s*$/, '').trim().split(/\s+/).map(Number);
+  const [h, s, l] = value
+    .replace(/\/\s*[\d.]+\s*$/, '')
+    .trim()
+    .split(/\s+/)
+    .map((part) => Number(part.replace('%', '')));
+  if ([h, s, l].some(Number.isNaN)) throw new Error(`bad hsl triple: ${value}`);
   const sat = s / 100;
   const lig = l / 100;
   const c = (1 - Math.abs(2 * lig - 1)) * sat;
@@ -72,6 +77,21 @@ describe('focus ring', () => {
   it('globals.css applies one ring globally, in @layer base', () => {
     expect(rule.get('outline')).toBe('2px solid hsl(var(--ring))');
     expect(rule.get('outline-offset')).toBe('2px');
+  });
+
+  it('rests the ring colour and geometry on every element, so focus only switches it on', () => {
+    // Otherwise a `transition-all` control animates the ring in from the UA default outline
+    // (3px, currentColor, no offset) on every focus.
+    const layer = /@layer base\s*\{([\s\S]*?)\n\}/.exec(globals)![1];
+    const body = /(?:^|\n)\s*\*\s*\{([^}]*)\}/.exec(layer)?.[1];
+    expect(body, '* rule in @layer base').toBeDefined();
+    const decls = new Map<string, string>();
+    for (const [, prop, value] of body!.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([\w-]+)\s*:\s*([^;]+);/g)) {
+      decls.set(prop, value.trim());
+    }
+    expect(decls.get('outline-color')).toBe('hsl(var(--ring))');
+    expect(decls.get('outline-width')).toBe(rule.get('outline')!.split(' ')[0]);
+    expect(decls.get('outline-offset')).toBe(rule.get('outline-offset'));
   });
 
   for (const [theme, tokens] of Object.entries(THEMES)) {
