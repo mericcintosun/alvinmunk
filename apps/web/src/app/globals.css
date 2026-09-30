@@ -115,6 +115,15 @@
   h1, h2, h3, h4 {
     @apply font-display tracking-tight;
   }
+
+  /* One focus ring for the whole app. Declared once, here, so navbar links, the theme
+     toggle, footer links, language pills and every input get the same brand ring instead
+     of a browser default that differs per browser. Components must not hand-pick a ring
+     colour — `--ring` is the only focus colour (see docs/product/DESIGN_SYSTEM_TOKENS.md). */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
 }
 
 @layer utilities {

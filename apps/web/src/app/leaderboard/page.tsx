@@ -192,7 +192,6 @@ function Leaderboard({ net }: { net: ReadNetwork | null }) {
                     aria-label={label}
                     className={cn(
                       'flex items-center gap-4 px-4 py-3 transition-colors hover:bg-surface/40',
-                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset',
                       isMe && 'bg-primary/5',
                     )}
                   >

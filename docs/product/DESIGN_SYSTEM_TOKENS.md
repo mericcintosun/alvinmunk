@@ -138,6 +138,28 @@ the dark label (4.73:1); the light theme's 60% violet keeps white (5.30:1). `flo
 (5.02:1 at the violet stop, where 60% would give 3.66:1). `destructive` labels are dark too
 (5.61:1 dark, 4.63:1 light). `apps/web/src/app/button-contrast.test.ts` checks every variant.
 
+`--ring` is the **only** focus colour. `globals.css` declares it once, in `@layer base`:
+
+```css
+:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+```
+
+That one rule covers everything: navbar links, the theme toggle, the mobile menu button, the
+logo, footer links, language pills, buttons, inputs and the `/app` tabs all show the same ring
+on keyboard focus, and no component falls back to a browser default that differs per browser.
+
+**Components never hand-pick a focus ring colour.** Do not add `focus-visible:ring-primary`,
+`ring-lime`, `ring-inset` or a bare `outline-none` to opt out — `ring-*` is for decoration and
+suppressing the global outline hides focus from keyboard users. The one sanctioned opt-out is a
+deliberately scoped `focus-visible:outline-none`, and only where a wrapper shows the ring
+instead: the landing handle pill, whose input is borderless
+(`focus-within:ring-2 focus-within:ring-ring` on the wrapper). The ring clears 3:1 on every
+surface in both themes (worst case 3.93:1 — dark `--ring` on `--muted`; 4.70:1 on the light
+background). `apps/web/src/app/focus-ring.test.ts` asserts the rule, the contrast and the ban.
+
 ## 2. Typography scale
 
 ```css
