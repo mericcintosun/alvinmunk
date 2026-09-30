@@ -12,7 +12,7 @@ jobs:
         working-directory: contracts
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.96.0
+      - uses: dtolnay/rust-toolchain@1.120.0
         with:
           targets: wasm32-unknown-unknown
           components: clippy, rustfmt
