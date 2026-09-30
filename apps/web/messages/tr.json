@@ -484,6 +484,12 @@
   "feedback.prompt.more": "Biraz daha anlat →",
   "feedback.prompt.dismiss": "Kapat",
 
+  "pendingBonusNudge.title.one": "İlk görevini tamamladığında 1 kişi +{amount} XP kazanacak",
+  "pendingBonusNudge.title.other": "İlk görevini tamamladığında {count} kişi kişi başı +{amount} XP kazanacak",
+  "pendingBonusNudge.title.mixed": "İlk görevini tamamladığında {count} kişi toplam +{total} XP kazanacak",
+  "pendingBonusNudge.body": "Destek bonusları ilk doğrulanmış görevinle açılır — gerçek biri olduğunu gösteren adım bu.",
+  "pendingBonusNudge.action": "Bir görev tamamla →",
+
   "pendingHalfCards.frame": "bekleyen // talep_bekliyor",
   "pendingHalfCards.empty.title": "Bekleyen yarım kart yok",
   "pendingHalfCards.empty.body": "Henüz kimsenin talep etmediği bir destek oluşturduğunda, bu panel onu yeniden paylaşman için nazikçe hatırlatır.",
@@ -518,6 +524,7 @@
   "badges.frame": "rozetler // kilometre_taşları",
   "badges.heading": "Kilometre taşı rozetleri",
   "badges.loading": "Rozetler yükleniyor…",
+  "badges.summary": "{earned}/{total} rozet kazanıldı",
   "badges.earned": "kazanıldı",
   "badges.locked": "kilitli",
   "badges.error": "Rozetler şu anda zincirden okunamadı.",

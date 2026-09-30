@@ -13,14 +13,14 @@ describe('asset()', () => {
 describe('asset registries', () => {
   it('every state illustration has a file + intrinsic size', () => {
     for (const meta of Object.values(STATE)) {
-      expect(meta.file).toMatch(/^states\/.+\.png$/);
+      expect(meta.file).toMatch(/^states\/.+\.webp$/);
       expect(meta.w).toBeGreaterThan(0);
       expect(meta.h).toBeGreaterThan(0);
     }
   });
   it('stickers, tape, and brand entries are well-formed', () => {
     for (const meta of [...Object.values(STICKER), ...Object.values(TAPE), ...Object.values(BRAND)]) {
-      expect(meta.file).toMatch(/\.png$/);
+      expect(meta.file).toMatch(/\.(png|webp)$/);
       expect(meta.w).toBeGreaterThan(0);
       expect(meta.h).toBeGreaterThan(0);
     }

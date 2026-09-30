@@ -484,6 +484,12 @@
   "feedback.prompt.more": "Tell us more →",
   "feedback.prompt.dismiss": "Dismiss",
 
+  "pendingBonusNudge.title.one": "1 person gets +{amount} XP when you complete your first quest",
+  "pendingBonusNudge.title.other": "{count} people get +{amount} XP each when you complete your first quest",
+  "pendingBonusNudge.title.mixed": "{count} people get +{total} XP between them when you complete your first quest",
+  "pendingBonusNudge.body": "Their vouch bonus unlocks with your first verified quest — the step that shows you're real.",
+  "pendingBonusNudge.action": "Complete a quest →",
+
   "pendingHalfCards.frame": "pending // awaiting_claim",
   "pendingHalfCards.empty.title": "No half-cards waiting",
   "pendingHalfCards.empty.body": "When you mint a vouch that nobody claims yet, this panel becomes your friendly reminder to share it again.",
@@ -518,6 +524,7 @@
   "badges.frame": "badges // milestones",
   "badges.heading": "Milestone badges",
   "badges.loading": "Loading badges…",
+  "badges.summary": "{earned}/{total} badges earned",
   "badges.earned": "earned",
   "badges.locked": "locked",
   "badges.error": "Couldn't read badges from the chain right now.",

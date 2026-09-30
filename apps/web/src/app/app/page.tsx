@@ -5,12 +5,13 @@ import Link from 'next/link';
 import { Star, Target, Coins, ArrowRight } from 'lucide-react';
 import { useWallet } from '@/components/wallet/wallet-provider';
 import { FOCUS_MODE } from '@/lib/focus';
-import { asset, BRAND } from '@/lib/assets';
+import { LogoMark } from '@/components/brand/logo';
 import { HERO_BOX } from '@/components/brand/hero-box';
 import { FirstStarNudge } from '@/components/FirstStarNudge';
 import { InviteNudge } from '@/components/InviteNudge';
 import { PendingHalfCards } from '@/components/PendingHalfCards';
 import { OwedBonuses } from '@/components/OwedBonuses';
+import { PendingBonusNudge } from '@/components/PendingBonusNudge';
 import { ActivityFeed } from '@/components/ActivityFeed';
 import { useTranslations } from '@/lib/i18n';
 
@@ -21,14 +22,7 @@ const ConstellationHero3D = dynamic(() => import('@/components/brand/constellati
   loading: () => (
     <div className="overflow-hidden rounded-3xl border border-border/60">
       <div className={`aurora flex ${HERO_BOX} w-full items-center justify-center`}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={asset(BRAND['logo-mark'].file)}
-          alt=""
-          width={48}
-          height={68}
-          className="select-none opacity-80 motion-safe:animate-breathe"
-        />
+        <LogoMark className="size-16 opacity-80 motion-safe:animate-breathe" />
       </div>
     </div>
   ),
@@ -77,14 +71,18 @@ export default function AppHome() {
       <FirstStarNudge />
       <InviteNudge />
 
+      {/* People whose vouch bonus waits on your first verified quest — self-hides when none */}
+      <PendingBonusNudge />
+
       {/* Time-sensitive: unclaimed half-cards you minted (stake at risk) — self-hides when empty */}
       <PendingHalfCards hideWhenEmpty />
 
       {/* Voucher bonuses still waiting on the people you vouched to verify — self-hides when none */}
       <OwedBonuses />
 
-      {/* Quick actions — the three focused routes, one job each */}
-      <section>
+      {/* Quick actions — the three focused routes, one job each. On phones they lead the
+          page, above the hero (#474); from sm up they keep their place below the nudges. */}
+      <section className="order-first sm:order-none">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           {t('appHome.whatNow')}
         </h2>

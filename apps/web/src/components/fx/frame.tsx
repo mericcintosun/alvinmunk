@@ -77,8 +77,9 @@ export function Frame({
       {tape && <Tape corner={tape} size={64} className="z-10" />}
       {(label || index) && (
         <div className="flex items-center justify-between border-b border-border/60 px-4 py-2 eyebrow-mono text-muted-foreground">
-          <span>{label}</span>
-          {index && <span className="text-primary/70">{index}</span>}
+          {/* A label can carry an unbreakable @handle: let it wrap, never push the index out. */}
+          <span className="min-w-0 [overflow-wrap:anywhere]">{label}</span>
+          {index && <span className="shrink-0 text-primary/70">{index}</span>}
         </div>
       )}
       {children}

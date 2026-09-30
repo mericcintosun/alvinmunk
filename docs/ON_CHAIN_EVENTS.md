@@ -1058,7 +1058,10 @@ its voucher and removes the queue, so the view is empty from then on — as it i
 address with nothing queued. Bonuses for an already-verified claimer are paid at claim
 time and never queued. At most `MAX_PENDING` (64) entries; bonuses past the cap are
 dropped. Keyed by claimer only: "what am I owed" means reading `get_pending` for each
-person you vouched and keeping the entries whose `voucher` is you.
+person you vouched and keeping the entries whose `voucher` is you. The web app reads it
+both ways: the dashboard nudge (`PendingBonusNudge`) reads your own queue to tell you how
+many people wait on your first verified quest, and `getOwedBonuses` reads the queue of
+each person you vouched.
 
 ### Handle lookups (`resolve` / `reverse` / `reverse_many`)
 

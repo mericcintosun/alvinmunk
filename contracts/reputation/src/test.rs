@@ -578,20 +578,127 @@ fn second_order_bonus_unlocks_on_verified_action() {
     let (env, client, _admin) = setup();
     let attester = Address::generate(&env);
     client.add_attester(&attester);
+    let bob = Address::generate(&env);
+    let mut vouchers = Vec::new(&env);
+
+    for i in 0..3u8 {
+        let voucher = Address::generate(&env);
+        let (secret, hash) = secret_and_hash(&env, i);
+        let id = client.mint_vouch(&voucher, &hash, &String::from_str(&env, "x"));
+        client.claim_vouch(&bob, &id, &secret); // refund -> voucher 20; bonus PENDING
+        vouchers.push_back(voucher);
+    }
+
+    // Bob is unverified, so every bonus is queued (in claim order) and none is paid yet.
+    assert!(!client.is_verified(&bob));
+    let pending = client.get_pending(&bob);
+    assert_eq!(pending.len(), 3);
+    for (queued, voucher) in pending.iter().zip(vouchers.iter()) {
+        assert_eq!(
+            (queued.voucher, queued.amount),
+            (voucher.clone(), BONUS_VOUCHER)
+        );
+        assert_eq!(client.get_score(&voucher), 20);
+    }
+
+    // Bob's first verified action releases every queued voucher bonus and drops the queue.
+    client.award_xp(&attester, &bob, &2u32, &50u64);
+    assert!(client.is_verified(&bob));
+    for voucher in vouchers.iter() {
+        assert_eq!(client.get_score(&voucher), 20 + BONUS_VOUCHER);
+    }
+    assert_eq!(client.get_pending(&bob).len(), 0);
+    let pending_stored = env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .has(&DataKey::Pending(bob.clone()))
+    });
+    assert!(!pending_stored, "the released queue must be removed");
+    assert_eq!(client.get_earned(&bob), 50);
+
+    // Further verified awards must not release the same queue a second time.
+    client.award_xp(&attester, &bob, &2u32, &25u64);
+    for voucher in vouchers.iter() {
+        assert_eq!(client.get_score(&voucher), 20 + BONUS_VOUCHER);
+    }
+    assert_eq!(client.get_pending(&bob).len(), 0);
+    assert_eq!(client.get_earned(&bob), 75);
+}
+
+#[test]
+fn pending_bonus_cap_pays_only_first_64_vouchers() {
+    // The cap this test pins; the web and docs describe the queue as at most 64 long.
+    assert_eq!(MAX_PENDING, 64);
+    let (env, client, _admin) = setup();
+    let attester = Address::generate(&env);
+    client.add_attester(&attester);
+    let claimer = Address::generate(&env);
+    let mut vouchers = Vec::new(&env);
+    let mut last_id = 0;
+
+    for i in 0..(MAX_PENDING + 1) {
+        let voucher = Address::generate(&env);
+        let (secret, hash) = secret_and_hash(&env, i as u8);
+        last_id = client.mint_vouch(&voucher, &hash, &String::from_str(&env, "x"));
+        client.claim_vouch(&claimer, &last_id, &secret);
+        vouchers.push_back(voucher);
+    }
+
+    // The 65th claim itself succeeds and is a fresh pair (claim XP, counters) — only its
+    // voucher's bonus is dropped: the queue holds exactly the first 64 vouchers.
+    assert!(client.get_vouch(&last_id).unwrap().claimed);
+    assert_eq!(client.get_counts(&claimer), (MAX_PENDING + 1, 0));
+    assert_eq!(
+        client.get_score(&claimer),
+        STARTER_SOCIAL + XP_CLAIMER * u64::from(MAX_PENDING + 1)
+    );
+    let pending = client.get_pending(&claimer);
+    assert_eq!(pending.len(), MAX_PENDING);
+    for i in 0..MAX_PENDING {
+        assert_eq!(pending.get(i).unwrap().voucher, vouchers.get(i).unwrap());
+    }
+
+    client.award_xp(&attester, &claimer, &2u32, &50u64);
+
+    for i in 0..MAX_PENDING {
+        assert_eq!(
+            client.get_score(&vouchers.get(i).unwrap()),
+            20 + BONUS_VOUCHER
+        );
+    }
+    assert_eq!(client.get_score(&vouchers.get(MAX_PENDING).unwrap()), 20);
+    assert_eq!(client.get_pending(&claimer).len(), 0);
+}
+
+#[test]
+fn first_pair_is_directional_and_repeats_do_not_queue_bonuses() {
+    let (env, client, _admin) = setup();
     let alice = Address::generate(&env);
     let bob = Address::generate(&env);
 
-    let (s, h) = secret_and_hash(&env, 7);
-    let id = client.mint_vouch(&alice, &h, &String::from_str(&env, "x"));
-    client.claim_vouch(&bob, &id, &s); // refund -> alice 20; bonus PENDING (bob unverified)
-    assert_eq!(client.get_score(&alice), 20);
-    assert!(!client.is_verified(&bob));
+    vouch(&env, &client, &alice, &bob, 1);
+    assert_eq!(client.get_score(&bob), 30);
+    assert_eq!(client.get_pending(&bob).len(), 1);
 
-    // Bob does a verified quest -> his FIRST Earned action releases Alice's bonus.
-    client.award_xp(&attester, &bob, &2u32, &50u64);
-    assert!(client.is_verified(&bob));
-    assert_eq!(client.get_score(&alice), 25); // +BONUS_VOUCHER
-    assert_eq!(client.get_earned(&bob), 50);
+    // Reversing the pair is a distinct first pair: it credits Alice and queues Bob's bonus
+    // on Alice.
+    vouch(&env, &client, &bob, &alice, 2);
+    assert_eq!(client.get_score(&alice), 30);
+    let alice_pending = client.get_pending(&alice);
+    assert_eq!(alice_pending.len(), 1);
+    assert_eq!(alice_pending.get(0).unwrap().voucher, bob);
+    assert_eq!(client.get_counts(&alice), (1, 1));
+    assert_eq!(client.get_counts(&bob), (1, 1));
+
+    // Repeating either direction grants no more claim XP or pending bonus.
+    vouch(&env, &client, &alice, &bob, 3);
+    vouch(&env, &client, &bob, &alice, 4);
+    assert_eq!(client.get_score(&alice), 30);
+    assert_eq!(client.get_score(&bob), 30);
+    assert_eq!(client.get_pending(&alice).len(), 1);
+    assert_eq!(client.get_pending(&bob).len(), 1);
+    assert_eq!(client.get_counts(&alice), (1, 1));
+    assert_eq!(client.get_counts(&bob), (1, 1));
 }
 
 #[test]

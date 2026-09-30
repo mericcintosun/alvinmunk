@@ -232,7 +232,7 @@ function ClaimInner({ params }: { params: { id: string } }) {
       <p className="eyebrow-mono text-primary/80">
         {done ? '// connected' : '// incoming_vouch'}
       </p>
-      <h1 className="mt-4 font-display text-4xl font-semibold tracking-tight">
+      <h1 className="mt-4 font-display text-3xl font-semibold tracking-tight [overflow-wrap:anywhere] sm:text-4xl">
         {done
           ? "You're connected."
           : voucherHandle
@@ -247,14 +247,15 @@ function ClaimInner({ params }: { params: { id: string } }) {
 
       <Frame label={`vouch // #${id}`} index={status} className="mt-7">
         {/* the two halves */}
-        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 p-6">
+        {/* minmax(0, …): a long @handle truncates instead of widening its half (#477). */}
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 p-6">
           <div className="flex flex-col items-center gap-2 text-center">
             {vouch ? (
               <Avatar address={vouch.from} avatar={voucherAvatar} handle={voucherHandle ?? undefined} size={88} />
             ) : (
               <Crest address={`voucher-${id}`} size={88} points={6} animate />
             )}
-            <span className="font-mono text-2xs uppercase tracking-wider text-muted-foreground">
+            <span className="max-w-full truncate font-mono text-2xs uppercase tracking-wider text-muted-foreground">
               {voucherHandle ? `@${voucherHandle}` : vouch ? shortAddr(vouch.from) : 'from'}
             </span>
             {voucherHandle && vouch && !done && (
@@ -262,7 +263,7 @@ function ClaimInner({ params }: { params: { id: string } }) {
                 href={`/u/${voucherHandle}`}
                 target="_blank"
                 rel="noreferrer"
-                className="font-mono text-2xs uppercase tracking-wider text-primary/70 underline underline-offset-2 hover:text-primary transition-colors"
+                className="max-w-full truncate font-mono text-2xs uppercase tracking-wider text-primary/70 underline underline-offset-2 hover:text-primary transition-colors"
               >
                 {t('claim.voucher.viewProfile', { handle: voucherHandle })}
               </Link>

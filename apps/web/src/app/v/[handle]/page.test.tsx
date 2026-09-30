@@ -77,6 +77,27 @@ describe('/v/[handle] invite ref', () => {
     expect(sessionStorage.getItem(KEY)).toBeNull();
   });
 
+  it('keeps a 32-character @handle inside a phone screen (#477)', async () => {
+    const long = 'w'.repeat(32);
+    resolveHandleMock.mockResolvedValue(BOB);
+    await visit(long);
+
+    // The headline wraps anywhere and steps down a size below sm; desktop keeps text-4xl.
+    const h1 = container.querySelector('h1')!;
+    expect(h1.textContent).toContain(`@${long}`);
+    expect(h1.classList).toContain('[overflow-wrap:anywhere]');
+    expect(h1.classList).toContain('text-3xl');
+    expect(h1.classList).toContain('sm:text-4xl');
+    // The card's name line truncates inside its min-w-0 column.
+    const name = [...container.querySelectorAll('div')].find((el) => el.textContent === `@${long}`)!;
+    expect(name.classList).toContain('truncate');
+    expect(name.parentElement?.classList).toContain('min-w-0');
+    // The frame header label wraps rather than pushing its index out.
+    const label = [...container.querySelectorAll('span')].find((el) => el.textContent === `invite // @${long}`)!;
+    expect(label.classList).toContain('[overflow-wrap:anywhere]');
+    expect(label.classList).toContain('min-w-0');
+  });
+
   it('keeps an earlier inviter when the new link is unclaimed', async () => {
     sessionStorage.setItem(KEY, 'carol');
     resolveHandleMock.mockResolvedValue(null);
@@ -118,6 +139,16 @@ describe('/v/[handle] invite ref', () => {
       expect(cta()?.textContent).toContain('Vouch @bob back');
       expect(container.textContent).not.toContain('Create your profile');
       expect(container.querySelector('[data-testid="share-row"]')).toBeNull();
+    });
+
+    it('truncates a long @handle in the vouch-back button instead of widening the page (#477)', async () => {
+      const long = 'w'.repeat(32);
+      wallet.profile = { handle: 'carol', address: CAROL };
+      resolveHandleMock.mockResolvedValue(BOB);
+      await visit(long);
+      expect(cta()?.classList).toContain('max-w-full');
+      expect(cta()?.querySelector('span.truncate')?.textContent).toBe(`Vouch @${long} back`);
+      expect(cta()?.parentElement?.classList).toContain('max-w-full');
     });
 
     it('shows a signed-in visitor nothing until the handle resolves (owner or not)', async () => {

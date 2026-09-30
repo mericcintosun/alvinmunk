@@ -57,7 +57,12 @@ function pollWhileVisible(load: () => void, ms: number): () => void {
   };
 }
 
-export function StatStrip({ address }: { address: string }) {
+/**
+ * `compact` (the app shell off its home route, #474): below `sm` the tiles and the
+ * zero-state card give way to one inline row of the three numbers, so the stats fit beside
+ * the handle. From `sm` up nothing changes. One component either way, so one set of polls.
+ */
+export function StatStrip({ address, compact = false }: { address: string; compact?: boolean }) {
   const t = useTranslations();
   const { locale } = useLocale();
   const numberFormat = new Intl.NumberFormat(locale === 'tr' ? 'tr-TR' : 'en-US');
@@ -116,52 +121,74 @@ export function StatStrip({ address }: { address: string }) {
     (scores?.earned ?? 0) > 0;
 
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-3 gap-3">
-        {busy
-          ? TILES.map((tile) => {
-              const Icon = tile.icon;
-              return (
-                <div key={tile.key} className="glass rounded-2xl p-4">
-                  <div className="mb-2 flex items-center gap-2">
-                    <Icon className={cn('size-4', tile.tint)} />
-                    <span className="text-xs font-medium text-muted-foreground">{t(`statStrip.${tile.key}.label`)}</span>
+    <>
+      {compact && (
+        <dl className="flex items-center gap-3 sm:hidden" data-testid="stat-strip-compact">
+          {TILES.map((tile) => {
+            const Icon = tile.icon;
+            return (
+              <div key={tile.key}>
+                <dt className="sr-only">{t(`statStrip.${tile.key}.label`)}</dt>
+                <dd className="flex items-center gap-1 font-display text-sm font-semibold tabular-nums">
+                  <Icon className={cn('size-3.5', tile.tint)} aria-hidden />
+                  {busy ? (
+                    <span className="inline-block h-4 w-5 animate-pulse rounded bg-muted/40" />
+                  ) : (
+                    numberFormat.format(value(tile.key))
+                  )}
+                </dd>
+              </div>
+            );
+          })}
+        </dl>
+      )}
+      <div className={cn('space-y-3', compact && 'hidden sm:block')}>
+        <div className="grid grid-cols-3 gap-3">
+          {busy
+            ? TILES.map((tile) => {
+                const Icon = tile.icon;
+                return (
+                  <div key={tile.key} className="glass rounded-2xl p-4">
+                    <div className="mb-2 flex items-center gap-2">
+                      <Icon className={cn('size-4', tile.tint)} />
+                      <span className="text-xs font-medium text-muted-foreground">{t(`statStrip.${tile.key}.label`)}</span>
+                    </div>
+                    <div className="h-9 w-16 animate-pulse rounded bg-muted/40" />
+                    <div className="mt-2 h-2 w-20 animate-pulse rounded bg-muted/30" />
                   </div>
-                  <div className="h-9 w-16 animate-pulse rounded bg-muted/40" />
-                  <div className="mt-2 h-2 w-20 animate-pulse rounded bg-muted/30" />
-                </div>
-              );
-            })
-          : TILES.map((tile) => {
-              const Icon = tile.icon;
-              return (
-                <div key={tile.key} className="glass rounded-2xl p-4">
-                  <div className="mb-2 flex items-center gap-2">
-                    <Icon className={cn('size-4', tile.tint)} />
-                    <span className="text-xs font-medium text-muted-foreground">{t(`statStrip.${tile.key}.label`)}</span>
+                );
+              })
+            : TILES.map((tile) => {
+                const Icon = tile.icon;
+                return (
+                  <div key={tile.key} className="glass rounded-2xl p-4">
+                    <div className="mb-2 flex items-center gap-2">
+                      <Icon className={cn('size-4', tile.tint)} />
+                      <span className="text-xs font-medium text-muted-foreground">{t(`statStrip.${tile.key}.label`)}</span>
+                    </div>
+                    <div className="font-display text-3xl font-semibold tabular-nums">
+                      {numberFormat.format(value(tile.key))}
+                    </div>
+                    <p className="mt-1 hidden text-2xs text-muted-foreground sm:block">{t(`statStrip.${tile.key}.hint`)}</p>
                   </div>
-                  <div className="font-display text-3xl font-semibold tabular-nums">
-                    {numberFormat.format(value(tile.key))}
-                  </div>
-                  <p className="mt-1 hidden text-2xs text-muted-foreground sm:block">{t(`statStrip.${tile.key}.hint`)}</p>
-                </div>
-              );
-            })}
-      </div>
+                );
+              })}
+        </div>
 
-      {!busy && !hasAnySignal && (
-        <div className="glass rounded-2xl border border-dashed border-primary/30 p-4">
-          <div className="flex items-start gap-3">
-            <StateArt kind="empty-leaderboard" size={96} className="shrink-0" />
-            <div>
-              <p className="font-display text-lg text-foreground">{t('statStrip.empty.title')}</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {t('statStrip.empty.body')}
-              </p>
+        {!busy && !hasAnySignal && (
+          <div className="glass rounded-2xl border border-dashed border-primary/30 p-4">
+            <div className="flex items-start gap-3">
+              <StateArt kind="empty-leaderboard" size={96} className="shrink-0" />
+              <div>
+                <p className="font-display text-lg text-foreground">{t('statStrip.empty.title')}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {t('statStrip.empty.body')}
+                </p>
+              </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+    </>
   );
 }
