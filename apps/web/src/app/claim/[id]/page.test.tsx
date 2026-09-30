@@ -117,6 +117,25 @@ describe('/claim/[id] — who vouched (#218)', () => {
     expect(claimButton()!.disabled).toBe(false);
     expect(container.querySelector('h1')?.textContent).toBe('Someone vouched for you.');
   });
+
+  it('keeps a 32-character @handle inside a phone screen (#477)', async () => {
+    const long = 'w'.repeat(32);
+    reverseHandleMock.mockResolvedValue(long);
+    await renderPage();
+
+    // The headline wraps anywhere and steps down a size below sm; desktop keeps text-4xl.
+    const h1 = container.querySelector('h1')!;
+    expect(h1.textContent).toBe(`@${long} vouched for you.`);
+    expect(h1.classList).toContain('[overflow-wrap:anywhere]');
+    expect(h1.classList).toContain('text-3xl');
+    expect(h1.classList).toContain('sm:text-4xl');
+    // The card's name line truncates, and its half of the grid may shrink to allow that.
+    const name = [...container.querySelectorAll('span')].find((el) => el.textContent === `@${long}`)!;
+    expect(name.classList).toContain('truncate');
+    expect(name.classList).toContain('max-w-full');
+    expect(name.closest('.grid')?.classList).toContain('grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]');
+    expect(container.querySelector(`a[href="/u/${long}"]`)?.classList).toContain('truncate');
+  });
 });
 
 describe('/claim/[id] — the handle picker after a claim (#479)', () => {
