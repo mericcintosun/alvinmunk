@@ -21,8 +21,13 @@
   - `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` (in `contracts/`)
   - `pnpm typecheck` (`tsc --noEmit` and `tsc --noEmit -p tsconfig.test.json`), `pnpm lint` (ESLint via `next lint`), `pnpm test` (`vitest run`)
 - [ ] UI change: `pnpm --dir apps/web e2e:smoke` passes (the CI `web-e2e` job)
+- [ ] UI change: token and contrast tests pass (`design-tokens.test.ts`, `button-contrast.test.ts`, `muted-foreground-contrast.test.ts`)
 
 ## Screenshots (if UI change)
+
+- [ ] Light theme screenshot
+- [ ] Dark theme screenshot
+- [ ] Mobile viewport screenshot
 
 <!-- Add screenshots to show visual changes -->
 
@@ -30,4 +35,4 @@
 
 - [ ] My code follows the project's code style
 - [ ] I've updated documentation as needed
-
+- [ ] UI change: all user-facing strings are added to both `en.json` and `tr.json`

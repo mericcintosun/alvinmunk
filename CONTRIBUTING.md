@@ -74,3 +74,26 @@ alvinmunk/
 
 Open an issue or refer to `belts/00-strategy.md` for architectural context.
 
+## Working on the UI
+
+The frontend has its own rules on top of the general workflow above. Read
+[`docs/product/DESIGN_SYSTEM_TOKENS.md`](docs/product/DESIGN_SYSTEM_TOKENS.md) and
+[`BRAND_DESIGN.md`](BRAND_DESIGN.md) before touching anything visual.
+
+- **Use tokens only.** No raw hex (or `rgb()`/`hsl()`) in components — every colour, radius and
+  spacing value comes from the tokens defined in
+  [`docs/product/DESIGN_SYSTEM_TOKENS.md`](docs/product/DESIGN_SYSTEM_TOKENS.md). The
+  `apps/web/src/app/design-tokens.test.ts` suite enforces this.
+- **Check both light and dark themes.** Every surface must be legible in both; the
+  `apps/web/src/app/button-contrast.test.ts` and
+  `apps/web/src/app/muted-foreground-contrast.test.ts` suites assert the contrast ratios.
+- **Add every string to both `en.json` and `tr.json`.** The message files live alongside the app
+  and must stay in sync — a key in one without the other is a bug.
+- **Use `<Sticker>` / `<StateArt>` for artwork** rather than ad-hoc `<img>` tags, and register any
+  new asset's intrinsic size in [`apps/web/src/lib/assets.ts`](apps/web/src/lib/assets.ts) so
+  layouts can reserve space and avoid CLS.
+- **Gate ambient motion with `motion-safe:`.** Decorative animation must be wrapped so it is
+  disabled under `prefers-reduced-motion: reduce`.
+- **Run the token and contrast tests** (`pnpm test`) before opening a PR, and include light, dark
+  and mobile screenshots.
+

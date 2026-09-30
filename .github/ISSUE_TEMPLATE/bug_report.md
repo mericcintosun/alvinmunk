@@ -3,6 +3,7 @@ name: Bug Report
 about: Report a bug to help improve alvinmunk
 title: "[Bug] "
 labels: bug
+
 ---
 
 ## Description
@@ -15,6 +16,9 @@ labels: bug
 - Browser: [e.g. Chrome, Safari]
 - Node version:
 - pnpm version:
+- Theme: [e.g. light, dark]
+- Language: [e.g. English, Türkçe]
+- Viewport width: [e.g. 375px, medium, desktop]
 
 ## Steps to Reproduce
 
@@ -33,4 +37,3 @@ labels: bug
 ## Screenshots / Logs
 
 <!-- If applicable -->
-
