@@ -9,6 +9,9 @@ import { submitSigned } from './submit';
 import type { Wallet } from './wallet';
 
 const FEE = '1000'; // stroops; sponsored in the passkey flow.
+export const GENESIS_TIMEOUT_SECONDS = 60;
+// Poll once per second beyond the transaction's validity window, with a small safety margin.
+const GENESIS_WAIT_TRIES = GENESIS_TIMEOUT_SECONDS + 5;
 
 /** Sign + submit the Genesis tx. Returns the tx hash. */
 export async function recordGenesis(wallet: Wallet, handle: string): Promise<string> {
@@ -20,7 +23,7 @@ export async function recordGenesis(wallet: Wallet, handle: string): Promise<str
         value: handle.slice(0, 28), // manageData value <= 64 bytes; handle is short
       }),
     )
-    .setTimeout(60)
+    .setTimeout(GENESIS_TIMEOUT_SECONDS)
     .build();
 
   const signedXdr = await wallet.sign(tx.toXDR());
@@ -29,6 +32,6 @@ export async function recordGenesis(wallet: Wallet, handle: string): Promise<str
 
   // Wait for it to land so the follow-up claim tx builds on an advanced sequence
   // number (otherwise the two back-to-back txs collide with txBAD_SEQ).
-  await waitForTransaction(hash);
+  await waitForTransaction(hash, GENESIS_WAIT_TRIES);
   return hash;
 }
