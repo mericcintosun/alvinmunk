@@ -148,7 +148,7 @@ export default function StatsPage() {
             <p className="mt-2 text-xs text-muted-foreground">
               {users === undefined ? '—' : pct}% toward {TABS.find((t) => t.key === tab)?.goal}
               {s?.latestLedger ? ` · ledger ${s.latestLedger}` : ''}
-              <span className={cn('ml-2 inline-flex items-center gap-1', isStale ? 'text-amber-400/90' : 'text-secondary/80')} title={isStale ? 'Sync delayed' : 'Live'}>
+              <span className={cn('ml-2 inline-flex items-center gap-1', isStale ? 'text-warning' : 'text-secondary')} title={isStale ? 'Sync delayed' : 'Live'}>
                 <Activity className="size-3" /> {isStale ? 'stale' : 'live'}
               </span>
             </p>

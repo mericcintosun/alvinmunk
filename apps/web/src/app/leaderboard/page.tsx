@@ -106,7 +106,7 @@ function Leaderboard({ net }: { net: ReadNetwork | null }) {
         <span
           className={cn(
             'inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.15em]',
-            stale && rows.length > 0 ? 'text-amber-400/90' : (stale ? 'text-destructive/80' : 'text-secondary/80'),
+            stale && rows.length > 0 ? 'text-warning' : stale ? 'text-destructive' : 'text-secondary',
           )}
           title={stale ? t('leaderboard.syncTitle.stale') : t('leaderboard.syncTitle.live')}
         >
@@ -114,7 +114,7 @@ function Leaderboard({ net }: { net: ReadNetwork | null }) {
             <span
               className={cn(
                 'size-1.5 rounded-full',
-                stale ? 'bg-amber-400' : 'bg-secondary motion-safe:animate-glow-pulse',
+                stale ? 'bg-warning' : 'bg-secondary motion-safe:animate-glow-pulse',
               )}
             />
           )}

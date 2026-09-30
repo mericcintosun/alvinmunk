@@ -64,7 +64,7 @@ export function ConnectWalletModal({
       onClick={onClose}
     >
       <div
-        className="grid w-full max-w-2xl overflow-hidden rounded-3xl border border-border/70 bg-card shadow-2xl md:grid-cols-2"
+        className="grid w-full max-w-2xl overflow-hidden rounded-3xl border border-border/70 bg-card shadow-popover md:grid-cols-2"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Learn more */}

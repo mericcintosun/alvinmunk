@@ -26,7 +26,7 @@ export function GenesisStamp({
 
   return (
     <figure
-      className="relative aspect-[1.6/1] w-full overflow-hidden rounded-2xl border border-white/10 shadow-2xl"
+      className="relative aspect-[1.6/1] w-full overflow-hidden rounded-2xl border border-white/10 shadow-popover"
       style={{ background: `linear-gradient(135deg, hsl(${dna.hue} 70% 18%), hsl(${dna.hue2} 70% 12%))` }}
       aria-label={`Genesis profile stamp for ${handle}, a ${dna.vertices}-point sigil`}
     >
