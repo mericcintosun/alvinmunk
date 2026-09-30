@@ -113,6 +113,14 @@ describe('VouchNetwork (#277)', () => {
     expect(container.querySelector('[data-testid="vouch-network-mutual"]')).toBeNull();
   });
 
+  it('lets a row label carrying a long @handle wrap beside its count (#477)', async () => {
+    const long = 'w'.repeat(32);
+    await render({ handle: long });
+    const label = [...container.querySelectorAll('p')].find((p) => p.textContent === `@${long} backed`)!;
+    expect(label.classList).toContain('min-w-0');
+    expect(label.classList).toContain('[overflow-wrap:anywhere]');
+  });
+
   it('says nobody only once the read is done — a skeleton while it runs', async () => {
     let resolve!: (v: unknown[]) => void;
     m.vouchers.mockReturnValue(new Promise((r) => (resolve = r)));
