@@ -96,9 +96,10 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
     );
   } else if (address) {
     cta = (
-      <span className="relative inline-flex overflow-hidden rounded-full">
-        <Link href="/app/vouch" className={cn(buttonVariants({ variant: 'flow', size: 'lg' }))}>
-          {t('invite.cta.vouchBack', { handle })} <ArrowRight className="size-4" />
+      <span className="relative inline-flex max-w-full overflow-hidden rounded-full">
+        {/* A long @handle truncates rather than pushing the page sideways (#477). */}
+        <Link href="/app/vouch" className={cn(buttonVariants({ variant: 'flow', size: 'lg' }), 'max-w-full')}>
+          <span className="truncate">{t('invite.cta.vouchBack', { handle })}</span> <ArrowRight className="size-4" />
         </Link>
         <BorderBeam size={60} duration={6} colorTo="hsl(var(--tertiary))" />
       </span>

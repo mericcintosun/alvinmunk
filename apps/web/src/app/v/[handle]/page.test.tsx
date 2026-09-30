@@ -141,6 +141,16 @@ describe('/v/[handle] invite ref', () => {
       expect(container.querySelector('[data-testid="share-row"]')).toBeNull();
     });
 
+    it('truncates a long @handle in the vouch-back button instead of widening the page (#477)', async () => {
+      const long = 'w'.repeat(32);
+      wallet.profile = { handle: 'carol', address: CAROL };
+      resolveHandleMock.mockResolvedValue(BOB);
+      await visit(long);
+      expect(cta()?.classList).toContain('max-w-full');
+      expect(cta()?.querySelector('span.truncate')?.textContent).toBe(`Vouch @${long} back`);
+      expect(cta()?.parentElement?.classList).toContain('max-w-full');
+    });
+
     it('shows a signed-in visitor nothing until the handle resolves (owner or not)', async () => {
       wallet.profile = { handle: 'bob', address: BOB };
       let resolve!: (addr: string) => void;
