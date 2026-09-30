@@ -249,7 +249,7 @@
   "quests.vouchBackHint": "Vouch for {min} people, then claim — rewards backing others, not just being backed.",
   "quests.claimVouchBack": "Claim vouch-back ({min}+ vouches)",
   "quests.firstTipLabel": "first tip",
-  "quests.firstTipHint": "Tip {min}+ USDC to someone you're connected to, then claim — rewards the spend side of the loop.",
+  "quests.firstTipHint": "Tip {min}+ USDC to someone you vouched for (or who vouched for you), then claim — rewards the spend side of the loop.",
   "quests.claimFirstTip": "Claim first-tip",
   "quests.completed": "Completed",
   "quests.repeatsWeekly": "repeats weekly",

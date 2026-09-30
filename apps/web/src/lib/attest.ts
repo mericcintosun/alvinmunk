@@ -108,6 +108,7 @@ export function questWindow(nowSecs: number, periodSecs: number): QuestWindow | 
  * The evidence types a REPEATABLE quest can take: each is checked for an action dated inside
  * the current period (a PR merged, a vouch claimed). A referral has no date the attester can
  * read — the invite marker just stands — so it would pay out every period for one referral.
+ * A first tip is one-shot by definition (#272): the replay guard pays it once per wallet.
  */
 export const FRESH_EVIDENCE: ReadonlySet<EvidenceType> = new Set([
   'github_pr',
@@ -293,56 +294,97 @@ export function judgeReferral(
 
 /** Minimum tip the `first_tip` quest counts, in USDC stroops (USDC has 7 dp): 0.5 USDC. */
 export const TIP_FLOOR_STROOPS = 5_000_000n;
-/** The same floor as copy, for a rejection reason. */
+/** The same floor as copy, for the quest hint and a rejection reason. */
 export const TIP_FLOOR_USDC = '0.5';
 
 /**
- * What the attester read about one tip the quest recipient sent. `to` and `amount` come
- * from the `tipped` event; `connected` is whether the receiver shares a claimed vouch edge
- * with the recipient (either direction) and `frozen` is `rewards.is_frozen(receiver)`.
- * `undefined` on a boolean means the read failed — never treated as a value.
+ * What the attester read off the chain about one `tipped` event the quest recipient sent
+ * (the configured rewards contract's `('tipped', from, to)` · amount):
+ *  - `to`, `amount`: the event's receiver and amount;
+ *  - `usdc`: the same transaction carries the configured USDC SAC's `transfer` of exactly
+ *    that amount from the recipient to `to`, so the tip moved this network's USDC;
+ *  - `connected`: `to` shares a claimed vouch with the recipient, in either direction;
+ *  - `frozen`: `rewards.is_frozen(to)`, only read for a tip that passes every other check.
+ *    Unset means not read, and is never taken as "not frozen".
  */
 export interface TipFacts {
   to: string;
   amount: bigint;
-  connected: boolean | undefined;
-  frozen: boolean | undefined;
+  usdc: boolean;
+  connected: boolean;
+  frozen?: boolean;
 }
 
 /**
- * Decide the `first_tip` quest from one candidate tip. Each rejection names its reason so
- * the UI can tell self-tips, sub-floor tips and unconnected or frozen receivers apart; a
- * read that failed is refused (and retryable), never assumed to pass.
+ * Why a tip doesn't count, ranked by how far it got through `judgeFirstTip`'s checks. An
+ * unread freeze status ranks last: a retry can still pass it.
+ */
+export const FIRST_TIP_REJECTIONS = [
+  'self',
+  'not_usdc',
+  'below_floor',
+  'unconnected',
+  'frozen',
+  'unread',
+] as const;
+export type FirstTipRejection = (typeof FIRST_TIP_REJECTIONS)[number];
+
+const FIRST_TIP_REASONS: Record<FirstTipRejection | 'none', string> = {
+  none:
+    `you haven’t tipped anyone yet — tip at least ${TIP_FLOOR_USDC} USDC to someone you’re ` +
+    'connected to, then try again',
+  self: 'a tip to your own wallet doesn’t count',
+  not_usdc: 'that tip didn’t move this network’s USDC — only USDC tips count',
+  below_floor: `tip at least ${TIP_FLOOR_USDC} USDC — smaller tips don’t count`,
+  unconnected:
+    'tip someone you’re connected to — a wallet you vouched for or that vouched for you ' +
+    '(only vouches claimed inside the network’s recent event window can be seen for now)',
+  frozen: 'that wallet is frozen — tips to it don’t count',
+  unread: 'couldn’t read that wallet’s status right now — try again',
+};
+
+/**
+ * Decide whether one tip completes the `first_tip` quest. Each rejection names its reason
+ * so the UI can tell a self-tip, a non-USDC or sub-floor tip, an unconnected and a frozen
+ * receiver apart; a freeze status that wasn't read is refused, never assumed to pass.
  */
 export function judgeFirstTip(
   facts: TipFacts,
   recipient: string,
-): { ok: true } | { ok: false; reason: string } {
-  if (facts.to === recipient) {
-    return { ok: false, reason: 'a tip to your own wallet doesn’t count' };
-  }
-  if (facts.amount < TIP_FLOOR_STROOPS) {
-    return {
-      ok: false,
-      reason: `tip at least ${TIP_FLOOR_USDC} USDC to someone you’re connected to`,
-    };
-  }
-  if (facts.frozen === undefined) {
-    return { ok: false, reason: 'couldn’t read that wallet’s status right now — try again' };
-  }
-  if (facts.frozen) {
-    return { ok: false, reason: 'that wallet is frozen — tips to it don’t count' };
-  }
-  if (facts.connected === undefined) {
-    return { ok: false, reason: 'couldn’t read your vouch history right now — try again' };
-  }
-  if (!facts.connected) {
-    return {
-      ok: false,
-      reason: 'tip someone you’re connected to — a wallet that shares a claimed vouch with you',
-    };
-  }
+): { ok: true } | { ok: false; code: FirstTipRejection; reason: string } {
+  const no = (code: FirstTipRejection) => ({
+    ok: false as const,
+    code,
+    reason: FIRST_TIP_REASONS[code],
+  });
+  if (facts.to === recipient) return no('self');
+  if (!facts.usdc) return no('not_usdc');
+  if (facts.amount < TIP_FLOOR_STROOPS) return no('below_floor');
+  if (!facts.connected) return no('unconnected');
+  if (facts.frozen === undefined) return no('unread');
+  if (facts.frozen) return no('frozen');
   return { ok: true };
+}
+
+/**
+ * Decide the `first_tip` quest from every tip the recipient sent: one tip that passes is
+ * enough. Otherwise the reason is the one of the tip that got furthest through the checks
+ * (a tip to a frozen friend says more than an older self-tip), and no tip at all says so.
+ */
+export function judgeFirstTips(
+  tips: readonly TipFacts[],
+  recipient: string,
+): { ok: true } | { ok: false; reason: string } {
+  let furthest = -1;
+  for (const tip of tips) {
+    const verdict = judgeFirstTip(tip, recipient);
+    if (verdict.ok) return { ok: true };
+    furthest = Math.max(furthest, FIRST_TIP_REJECTIONS.indexOf(verdict.code));
+  }
+  return {
+    ok: false,
+    reason: FIRST_TIP_REASONS[furthest < 0 ? 'none' : FIRST_TIP_REJECTIONS[furthest]],
+  };
 }
 
 /**

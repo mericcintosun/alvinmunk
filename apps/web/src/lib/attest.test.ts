@@ -13,6 +13,7 @@ import {
   decodeDataEntry,
   judgeReferral,
   judgeFirstTip,
+  judgeFirstTips,
   evidenceMatchesQuest,
   buildQuestEvidenceMap,
   REFERRAL_MARKER_KEY,
@@ -24,6 +25,7 @@ import {
   QUEST_SIG_TTL_SECS,
   FRESH_EVIDENCE,
   TIP_FLOOR_STROOPS,
+  FIRST_TIP_REJECTIONS,
   WEEK_SECS,
   questWindow,
   signatureExpiry,
@@ -66,6 +68,9 @@ describe('validateEvidence', () => {
   it('accepts first_tip with no ref, like vouch_back', () => {
     expect(validateEvidence({ type: 'first_tip', ref: '' }, G)).toEqual({ ok: true });
     expect(validateEvidence({ type: 'first_tip', ref: '' }, C)).toEqual({ ok: true });
+    // The ref is never read for first_tip (the tip comes off the chain), so whatever a client
+    // puts there changes nothing.
+    expect(validateEvidence({ type: 'first_tip', ref: G2 }, G)).toEqual({ ok: true });
   });
 });
 
@@ -217,45 +222,124 @@ describe('judgeFirstTip', () => {
   const facts = (over: Partial<TipFacts> = {}): TipFacts => ({
     to: FRIEND,
     amount: TIP_FLOOR_STROOPS,
+    usdc: true,
+    connected: true,
+    frozen: false,
+    ...over,
+  });
+  const code = (f: TipFacts) => {
+    const verdict = judgeFirstTip(f, RECIPIENT);
+    return verdict.ok ? 'ok' : verdict.code;
+  };
+  const reason = (f: TipFacts) => {
+    const verdict = judgeFirstTip(f, RECIPIENT);
+    return verdict.ok ? '' : verdict.reason;
+  };
+
+  it('passes a floor-sized USDC tip to a connected, unfrozen wallet', () => {
+    expect(judgeFirstTip(facts(), RECIPIENT)).toEqual({ ok: true });
+    expect(judgeFirstTip(facts({ amount: TIP_FLOOR_STROOPS + 1n }), RECIPIENT)).toEqual({
+      ok: true,
+    });
+    expect(judgeFirstTip(facts({ to: C }), RECIPIENT)).toEqual({ ok: true }); // a passkey friend
+  });
+
+  it('keeps the floor at 0.5 USDC (7 decimals)', () => {
+    expect(TIP_FLOOR_STROOPS).toBe(5_000_000n);
+  });
+
+  it('rejects a self-tip', () => {
+    expect(code(facts({ to: RECIPIENT }))).toBe('self');
+    expect(reason(facts({ to: RECIPIENT }))).toBe('a tip to your own wallet doesn’t count');
+  });
+
+  it('rejects a tip that did not move the configured USDC', () => {
+    expect(code(facts({ usdc: false }))).toBe('not_usdc');
+    expect(reason(facts({ usdc: false }))).toMatch(/USDC/);
+  });
+
+  it('rejects a tip below the floor, one stroop short included', () => {
+    expect(code(facts({ amount: TIP_FLOOR_STROOPS - 1n }))).toBe('below_floor');
+    expect(code(facts({ amount: 0n }))).toBe('below_floor');
+    expect(code(facts({ amount: -TIP_FLOOR_STROOPS }))).toBe('below_floor');
+    expect(reason(facts({ amount: 1n }))).toMatch(/0\.5 USDC/);
+  });
+
+  it('rejects a tip to an unconnected wallet with a reason', () => {
+    expect(code(facts({ connected: false }))).toBe('unconnected');
+    expect(reason(facts({ connected: false }))).toMatch(/connected to/);
+  });
+
+  it('rejects a tip to a frozen wallet', () => {
+    expect(code(facts({ frozen: true }))).toBe('frozen');
+    expect(reason(facts({ frozen: true }))).toMatch(/frozen/);
+  });
+
+  it('never takes a freeze status it did not read as unfrozen', () => {
+    expect(code(facts({ frozen: undefined }))).toBe('unread');
+    expect(reason(facts({ frozen: undefined }))).toMatch(/try again/);
+  });
+
+  it('checks in a fixed order, so a tip fails on the first thing wrong with it', () => {
+    const bad = { to: RECIPIENT, usdc: false, amount: 1n, connected: false, frozen: true };
+    expect(code(facts(bad))).toBe('self');
+    expect(code(facts({ ...bad, to: FRIEND }))).toBe('not_usdc');
+    expect(code(facts({ ...bad, to: FRIEND, usdc: true }))).toBe('below_floor');
+    expect(code(facts({ ...bad, to: FRIEND, usdc: true, amount: TIP_FLOOR_STROOPS }))).toBe(
+      'unconnected',
+    );
+    expect(FIRST_TIP_REJECTIONS).toEqual([
+      'self',
+      'not_usdc',
+      'below_floor',
+      'unconnected',
+      'frozen',
+      'unread',
+    ]);
+  });
+});
+
+describe('judgeFirstTips', () => {
+  const RECIPIENT = G;
+  const tip = (over: Partial<TipFacts> = {}): TipFacts => ({
+    to: G2,
+    amount: TIP_FLOOR_STROOPS,
+    usdc: true,
     connected: true,
     frozen: false,
     ...over,
   });
 
-  it('passes a floor-sized tip to a connected, unfrozen wallet', () => {
-    expect(judgeFirstTip(facts(), RECIPIENT)).toEqual({ ok: true });
-    expect(judgeFirstTip(facts({ amount: TIP_FLOOR_STROOPS + 1n }), RECIPIENT)).toEqual({ ok: true });
+  it('says so when the recipient never tipped', () => {
+    const r = judgeFirstTips([], RECIPIENT);
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.reason).toMatch(/haven’t tipped anyone/);
   });
 
-  it('rejects a self-tip', () => {
-    expect(judgeFirstTip(facts({ to: RECIPIENT }), RECIPIENT)).toEqual({
-      ok: false,
-      reason: 'a tip to your own wallet doesn’t count',
+  it('passes when any one tip passes', () => {
+    expect(
+      judgeFirstTips([tip({ amount: 1n }), tip({ connected: false }), tip()], RECIPIENT),
+    ).toEqual({
+      ok: true,
     });
   });
 
-  it('rejects a tip below the floor', () => {
-    const below = judgeFirstTip(facts({ amount: TIP_FLOOR_STROOPS - 1n }), RECIPIENT);
-    expect(below.ok).toBe(false);
-    expect(!below.ok && below.reason).toMatch(/0\.5 USDC/);
-    expect(judgeFirstTip(facts({ amount: 0n }), RECIPIENT).ok).toBe(false);
-  });
-
-  it('rejects a tip to an unconnected wallet with a reason', () => {
-    const r = judgeFirstTip(facts({ connected: false }), RECIPIENT);
+  it('reports the tip that got furthest through the checks', () => {
+    const r = judgeFirstTips(
+      [
+        tip({ to: RECIPIENT }),
+        tip({ amount: 1n }),
+        tip({ connected: false }),
+        tip({ usdc: false }),
+      ],
+      RECIPIENT,
+    );
     expect(r.ok).toBe(false);
-    expect(!r.ok && r.reason).toMatch(/connected/);
-  });
-
-  it('rejects a tip to a frozen wallet', () => {
-    const r = judgeFirstTip(facts({ frozen: true }), RECIPIENT);
-    expect(r.ok).toBe(false);
-    expect(!r.ok && r.reason).toMatch(/frozen/);
-  });
-
-  it('never passes on a read it could not make', () => {
-    expect(judgeFirstTip(facts({ frozen: undefined }), RECIPIENT).ok).toBe(false);
-    expect(judgeFirstTip(facts({ connected: undefined }), RECIPIENT).ok).toBe(false);
+    expect(!r.ok && r.reason).toMatch(/connected to/);
+    const frozen = judgeFirstTips([tip({ connected: false }), tip({ frozen: true })], RECIPIENT);
+    expect(!frozen.ok && frozen.reason).toMatch(/frozen/);
+    const only = judgeFirstTips([tip({ amount: TIP_FLOOR_STROOPS - 1n })], RECIPIENT);
+    expect(!only.ok && only.reason).toMatch(/0\.5 USDC/);
   });
 });
 
@@ -500,5 +584,7 @@ describe('questPayload for a repeatable quest', () => {
   it('only takes evidence the attester can date', () => {
     expect([...FRESH_EVIDENCE].sort()).toEqual(['github_pr', 'invite_converts', 'vouch_back']);
     expect(FRESH_EVIDENCE.has('referral_tx')).toBe(false);
+    // A first tip is one-shot: a repeatable quest must never pay the same tip every period.
+    expect(FRESH_EVIDENCE.has('first_tip')).toBe(false);
   });
 });
