@@ -19,6 +19,8 @@ import {
 } from './constellation-parts';
 import { brandPalette } from '@/lib/brand-palette';
 import { useLightTheme } from '@/lib/use-light-theme';
+import { WebGLErrorBoundary } from './webgl-boundary';
+import { hasWebGL } from './webgl';
 
 const HUES = [265, 157, 193, 280, 200, 157, 265, 40, 193, 270, 157, 265];
 
@@ -79,71 +81,110 @@ function Scene({ reduced, light }: { reduced: boolean; light: boolean }) {
       <group ref={skyTilt}>
         {/* Near-white additive points vanish on the light theme; the page starfield covers it. */}
         {!light && (
-          <Stars radius={75} depth={55} count={3000} factor={4.2} saturation={0} fade speed={reduced ? 0 : 0.5} />
+          <Stars
+            radius={75}
+            depth={55}
+            count={3000}
+            factor={4.2}
+            saturation={0}
+            fade
+            speed={reduced ? 0 : 0.5}
+          />
         )}
       </group>
       <group ref={shift}>
-      <group ref={tilt}>
-        <OrbitRing radius={1.7} rotation={[1.2, 0.3, 0]} speed={0.42} color={palette.violet} glow={glow} reduced={reduced} light={light} />
-        <OrbitRing radius={2.5} rotation={[0.5, 1.1, 0.4]} speed={-0.3} color={palette.green} glow={glow} reduced={reduced} light={light} />
-        <OrbitRing radius={3.1} rotation={[1.7, 0.8, 0.9]} speed={0.18} color={palette.cyan} glow={glow} reduced={reduced} light={light} />
-        <group ref={spin}>
-          {positions.map((p, i) => (
-            <Line
-              key={`l-${i}`}
-              points={[[0, 0, 0], [p.x, p.y, p.z]]}
-              color={palette.muted}
-              lineWidth={0.6}
-              transparent
-              opacity={0.16}
-            />
-          ))}
-          {/* The "you" star: the gold accent, the same as the app hero. */}
-          <Star
+        <group ref={tilt}>
+          <OrbitRing
+            radius={1.7}
+            rotation={[1.2, 0.3, 0]}
+            speed={0.42}
+            color={palette.violet}
             glow={glow}
-            color={palette.gold}
-            coreSize={0.3}
-            glowScale={3}
-            opacity={0.9}
             reduced={reduced}
             light={light}
           />
-          {positions.map((p, i) => (
-            <group key={i} position={p}>
-              <Star
-                glow={glow}
-                color={colors[i % colors.length]}
-                coreSize={0.1}
-                glowScale={0.74}
-                opacity={0.85}
-                reduced={reduced}
-                light={light}
+          <OrbitRing
+            radius={2.5}
+            rotation={[0.5, 1.1, 0.4]}
+            speed={-0.3}
+            color={palette.green}
+            glow={glow}
+            reduced={reduced}
+            light={light}
+          />
+          <OrbitRing
+            radius={3.1}
+            rotation={[1.7, 0.8, 0.9]}
+            speed={0.18}
+            color={palette.cyan}
+            glow={glow}
+            reduced={reduced}
+            light={light}
+          />
+          <group ref={spin}>
+            {positions.map((p, i) => (
+              <Line
+                key={`l-${i}`}
+                points={[
+                  [0, 0, 0],
+                  [p.x, p.y, p.z],
+                ]}
+                color={palette.muted}
+                lineWidth={0.6}
+                transparent
+                opacity={0.16}
               />
-            </group>
-          ))}
+            ))}
+            {/* The "you" star: the gold accent, the same as the app hero. */}
+            <Star
+              glow={glow}
+              color={palette.gold}
+              coreSize={0.3}
+              glowScale={3}
+              opacity={0.9}
+              reduced={reduced}
+              light={light}
+            />
+            {positions.map((p, i) => (
+              <group key={i} position={p}>
+                <Star
+                  glow={glow}
+                  color={colors[i % colors.length]}
+                  coreSize={0.1}
+                  glowScale={0.74}
+                  opacity={0.85}
+                  reduced={reduced}
+                  light={light}
+                />
+              </group>
+            ))}
+          </group>
         </group>
-      </group>
       </group>
     </>
   );
 }
 
 export default function ConstellationBackdrop() {
+  const webglAvailable = useMemo(hasWebGL, []);
   const reduced = usePrefersReducedMotion();
   const light = useLightTheme();
   const wrapRef = useRef<HTMLDivElement>(null);
   const frameloop = useFrameloop(wrapRef, reduced);
+  if (!webglAvailable) return null;
   return (
     <div ref={wrapRef} style={{ width: '100%', height: '100%' }}>
-      <Canvas
-        camera={{ position: [0, 0, 8.4], fov: 52 }}
-        dpr={[1, 1.5]}
-        gl={{ alpha: true, antialias: true }}
-        style={{ background: 'transparent' }}
-        frameloop={frameloop}
-      >
-        <Scene reduced={reduced} light={light} />
-      </Canvas>
+      <WebGLErrorBoundary fallback={null}>
+        <Canvas
+          camera={{ position: [0, 0, 8.4], fov: 52 }}
+          dpr={[1, 1.5]}
+          gl={{ alpha: true, antialias: true }}
+          style={{ background: 'transparent' }}
+          frameloop={frameloop}
+        >
+          <Scene reduced={reduced} light={light} />
+        </Canvas>
+      </WebGLErrorBoundary>
     </div>
   );
 }

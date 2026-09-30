@@ -31,6 +31,9 @@ import { useLocale, useTranslations } from '@/lib/i18n';
 import { brandPalette } from '@/lib/brand-palette';
 import { useLightTheme } from '@/lib/use-light-theme';
 import { HERO_BOX } from './hero-box';
+import { Crest } from './crest';
+import { WebGLErrorBoundary } from './webgl-boundary';
+import { hasWebGL } from './webgl';
 
 const RADIUS = 3.0;
 
@@ -74,7 +77,10 @@ function Scene({
   );
   // Each voucher keeps its address hue; the light sky needs a darker tone of it to show.
   const colors = useMemo(
-    () => vouchers.map((v) => new THREE.Color().setHSL(addrHue(v.from) / 360, 0.72, light ? 0.45 : 0.66)),
+    () =>
+      vouchers.map((v) =>
+        new THREE.Color().setHSL(addrHue(v.from) / 360, 0.72, light ? 0.45 : 0.66),
+      ),
     [vouchers, light],
   );
 
@@ -99,14 +105,46 @@ function Scene({
         {/* The distant sky is near-white additive points: invisible on the light theme, where
             the page starfield (dark stars) stands in for it. */}
         {!light && (
-          <Stars radius={70} depth={50} count={2600} factor={4} saturation={0} fade speed={reduced ? 0 : 0.5} />
+          <Stars
+            radius={70}
+            depth={50}
+            count={2600}
+            factor={4}
+            saturation={0}
+            fade
+            speed={reduced ? 0 : 0.5}
+          />
         )}
       </group>
 
       <group ref={tilt}>
-        <OrbitRing radius={1.55} rotation={[1.2, 0.3, 0]} speed={0.5} color={palette.violet} glow={glow} reduced={reduced} light={light} />
-        <OrbitRing radius={2.15} rotation={[0.5, 1.1, 0.4]} speed={-0.34} color={palette.green} glow={glow} reduced={reduced} light={light} />
-        <OrbitRing radius={2.7} rotation={[1.7, 0.8, 0.9]} speed={0.22} color={palette.cyan} glow={glow} reduced={reduced} light={light} />
+        <OrbitRing
+          radius={1.55}
+          rotation={[1.2, 0.3, 0]}
+          speed={0.5}
+          color={palette.violet}
+          glow={glow}
+          reduced={reduced}
+          light={light}
+        />
+        <OrbitRing
+          radius={2.15}
+          rotation={[0.5, 1.1, 0.4]}
+          speed={-0.34}
+          color={palette.green}
+          glow={glow}
+          reduced={reduced}
+          light={light}
+        />
+        <OrbitRing
+          radius={2.7}
+          rotation={[1.7, 0.8, 0.9]}
+          speed={0.22}
+          color={palette.cyan}
+          glow={glow}
+          reduced={reduced}
+          light={light}
+        />
 
         <group ref={spin}>
           {!empty &&
@@ -115,7 +153,10 @@ function Scene({
               return (
                 <Line
                   key={`l-${vouchers[i].vouchId}`}
-                  points={[[0, 0, 0], [p.x, p.y, p.z]]}
+                  points={[
+                    [0, 0, 0],
+                    [p.x, p.y, p.z],
+                  ]}
                   color={on ? palette.starlight : palette.muted}
                   lineWidth={on ? 1.5 : 0.7}
                   transparent
@@ -125,12 +166,28 @@ function Scene({
             })}
 
           {/* Your star: the gold accent, the same "you" as the landing backdrop. */}
-          <Star glow={glow} color={palette.gold} coreSize={0.26} glowScale={2.6} opacity={0.85} reduced={reduced} light={light} />
+          <Star
+            glow={glow}
+            color={palette.gold}
+            coreSize={0.26}
+            glowScale={2.6}
+            opacity={0.85}
+            reduced={reduced}
+            light={light}
+          />
 
           {empty
             ? positions.map((p, i) => (
                 <group key={`ghost-${i}`} position={p}>
-                  <Star glow={glow} color={palette.muted} coreSize={0.055} glowScale={0.4} opacity={0.28} reduced={reduced} light={light} />
+                  <Star
+                    glow={glow}
+                    color={palette.muted}
+                    coreSize={0.055}
+                    glowScale={0.4}
+                    opacity={0.28}
+                    reduced={reduced}
+                    light={light}
+                  />
                 </group>
               ))
             : positions.map((p, i) => {
@@ -154,7 +211,12 @@ function Scene({
                       <Html position={[0, 0.34, 0]} center distanceFactor={9} zIndexRange={[40, 0]}>
                         <div className="pointer-events-none -translate-y-2 whitespace-nowrap rounded-full border border-border bg-popover/90 px-2.5 py-1 text-2xs text-foreground backdrop-blur">
                           <span className="font-mono">{shortAddr(v.from)}</span>
-                          {v.created ? <span className="text-muted-foreground"> · {timeAgo(v.created, locale)}</span> : null}
+                          {v.created ? (
+                            <span className="text-muted-foreground">
+                              {' '}
+                              · {timeAgo(v.created, locale)}
+                            </span>
+                          ) : null}
                         </div>
                       </Html>
                     )}
@@ -167,7 +229,13 @@ function Scene({
   );
 }
 
-export default function ConstellationHero3D({ address, handle }: { address: string; handle: string }) {
+export default function ConstellationHero3D({
+  address,
+  handle,
+}: {
+  address: string;
+  handle: string;
+}) {
   const t = useTranslations();
   const { locale } = useLocale();
   const numberFormat = new Intl.NumberFormat(locale === 'tr' ? 'tr-TR' : 'en-US');
@@ -182,6 +250,7 @@ export default function ConstellationHero3D({ address, handle }: { address: stri
   const reduced = usePrefersReducedMotion();
   const light = useLightTheme();
   const frameloop = useFrameloop(containerRef, reduced);
+  const webglAvailable = useMemo(hasWebGL, []);
 
   useEffect(() => {
     let alive = true;
@@ -228,24 +297,44 @@ export default function ConstellationHero3D({ address, handle }: { address: stri
       <div className="grid-faint absolute inset-0" />
 
       <div ref={containerRef} className={`relative ${HERO_BOX} w-full`}>
-        <Canvas
-          camera={{ position: [0, 0, 7.6], fov: 50 }}
-          dpr={[1, 2]}
-          gl={{ alpha: true, antialias: true }}
-          frameloop={frameloop}
-          style={{ background: 'transparent' }}
-        >
-          <InvalidateBridge invalidateRef={invalidateRef} />
-          <Scene
+        {webglAvailable ? (
+          <WebGLErrorBoundary
+            fallback={
+              <FallbackVisual
+                address={address}
+                vouchers={vouchers ?? []}
+                locale={locale}
+                label={t('constellation.peopleVouchedFor', { count: numberFormat.format(count) })}
+              />
+            }
+          >
+            <Canvas
+              camera={{ position: [0, 0, 7.6], fov: 50 }}
+              dpr={[1, 2]}
+              gl={{ alpha: true, antialias: true }}
+              frameloop={frameloop}
+              style={{ background: 'transparent' }}
+            >
+              <InvalidateBridge invalidateRef={invalidateRef} />
+              <Scene
+                vouchers={vouchers ?? []}
+                reduced={reduced}
+                light={light}
+                onSelect={setSelected}
+                hoverId={hoverId}
+                setHoverId={setHoverId}
+                locale={locale}
+              />
+            </Canvas>
+          </WebGLErrorBoundary>
+        ) : (
+          <FallbackVisual
+            address={address}
             vouchers={vouchers ?? []}
-            reduced={reduced}
-            light={light}
-            onSelect={setSelected}
-            hoverId={hoverId}
-            setHoverId={setHoverId}
             locale={locale}
+            label={t('constellation.peopleVouchedFor', { count: numberFormat.format(count) })}
           />
-        </Canvas>
+        )}
 
         <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-5 sm:p-7">
           <div>
@@ -270,7 +359,10 @@ export default function ConstellationHero3D({ address, handle }: { address: stri
         {/* Accessible, non-visual mirror of the sky: keyboard/screen-reader users get the
             same social proof the 3D hover tooltips show sighted-mouse users. */}
         {shown > 0 && (
-          <ul className="sr-only" aria-label={t('constellation.peopleVouchedFor', { count: numberFormat.format(count) })}>
+          <ul
+            className="sr-only"
+            aria-label={t('constellation.peopleVouchedFor', { count: numberFormat.format(count) })}
+          >
             {vouchers!.map((v) => (
               <li key={v.vouchId}>
                 {shortAddr(v.from)}
@@ -282,7 +374,10 @@ export default function ConstellationHero3D({ address, handle }: { address: stri
         )}
 
         {selected && (
-          <div className="pointer-events-auto absolute bottom-5 right-5 max-w-[16rem] rounded-2xl glass p-3.5 sm:bottom-7 sm:right-7" onPointerEnter={invalidate}>
+          <div
+            className="pointer-events-auto absolute bottom-5 right-5 max-w-[16rem] rounded-2xl glass p-3.5 sm:bottom-7 sm:right-7"
+            onPointerEnter={invalidate}
+          >
             <button
               onClick={() => setSelected(null)}
               className="absolute right-2 top-2 text-xs text-muted-foreground hover:text-foreground"
@@ -308,7 +403,52 @@ export default function ConstellationHero3D({ address, handle }: { address: stri
   );
 }
 
-function InvalidateBridge({ invalidateRef }: { invalidateRef: MutableRefObject<(() => void) | null> }) {
+function FallbackVisual({
+  address,
+  vouchers,
+  locale,
+  label,
+}: {
+  address: string;
+  vouchers: VoucherStar[];
+  locale: string;
+  label: string;
+}) {
+  return (
+    <div className="pointer-events-none absolute inset-0" data-testid="constellation-2d-fallback">
+      <Crest
+        address={address}
+        size={160}
+        animate
+        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-80"
+      />
+      {vouchers.length > 0 && (
+        <ul
+          className="absolute bottom-5 right-5 max-h-[42%] max-w-[min(42%,16rem)] space-y-1 overflow-hidden text-right text-xs text-muted-foreground sm:bottom-7 sm:right-7"
+          aria-label={label}
+          aria-hidden="true"
+        >
+          {vouchers.map((v) => (
+            <li
+              key={v.vouchId}
+              className="truncate rounded-full bg-background/50 px-2 py-1 backdrop-blur"
+            >
+              <span className="font-mono">{shortAddr(v.from)}</span>
+              {v.note ? ` · “${v.note}”` : ''}
+              {v.created ? ` · ${timeAgo(v.created, locale)}` : ''}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function InvalidateBridge({
+  invalidateRef,
+}: {
+  invalidateRef: MutableRefObject<(() => void) | null>;
+}) {
   const { invalidate } = useThree();
   useEffect(() => {
     invalidateRef.current = invalidate;

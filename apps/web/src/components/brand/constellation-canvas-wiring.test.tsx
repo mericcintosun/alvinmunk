@@ -14,9 +14,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.stubGlobal('React', React);
 
 const canvasPropsMock = vi.fn();
+const canvasThrowsMock = vi.hoisted(() => ({ current: false }));
 
 vi.mock('@react-three/fiber', () => ({
   Canvas: (props: Record<string, unknown>) => {
+    if (canvasThrowsMock.current) throw new Error('Error creating WebGL context.');
     canvasPropsMock(props);
     return React.createElement('div', {
       'data-testid': 'canvas',
@@ -66,6 +68,7 @@ describe('canvas frameloop wiring', () => {
   let container: HTMLDivElement;
   let root: Root;
   let originalIntersectionObserver: unknown;
+  let originalGetContext: HTMLCanvasElement['getContext'];
   // usePrefersReducedMotion subscribes to changes, so the stub needs the listener API too.
   const mediaQuery = (matches: boolean) => ({
     matches,
@@ -79,6 +82,10 @@ describe('canvas frameloop wiring', () => {
     // vi.unstubAllGlobals() in afterEach wipes a module-level stub, so it has to be redone
     // every test (matches the pattern in app-client-layout.test.tsx).
     vi.stubGlobal('React', React);
+    canvasThrowsMock.current = false;
+    originalGetContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext =
+      (() => ({})) as unknown as HTMLCanvasElement['getContext'];
     MockIntersectionObserver.instances = [];
     originalIntersectionObserver = (globalThis as { IntersectionObserver?: unknown })
       .IntersectionObserver;
@@ -99,9 +106,11 @@ describe('canvas frameloop wiring', () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    HTMLCanvasElement.prototype.getContext = originalGetContext;
     (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver =
       originalIntersectionObserver;
     canvasPropsMock.mockClear();
+    canvasThrowsMock.current = false;
     vi.clearAllMocks();
     vi.unstubAllGlobals();
   });
@@ -156,5 +165,62 @@ describe('canvas frameloop wiring', () => {
     expect(container.querySelector('[data-frameloop]')?.getAttribute('data-frameloop')).toBe(
       'demand',
     );
+  });
+
+  it('skips both Canvas instances and shows the 2D app hero when WebGL is unavailable', async () => {
+    const originalGetContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = (() =>
+      null) as typeof HTMLCanvasElement.prototype.getContext;
+    fetchVouchersOfMock.mockResolvedValue([
+      {
+        from: 'GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H',
+        vouchId: 12,
+        note: 'always shows up',
+        created: 0,
+      },
+    ]);
+    try {
+      await act(async () => {
+        root.render(
+          <>
+            <ConstellationBackdrop />
+            <ConstellationHero3D address={'G'.padEnd(56, 'A')} handle="alice" />
+          </>,
+        );
+      });
+      expect(container.querySelector('[data-testid="canvas"]')).toBeNull();
+      expect(container.querySelector('[data-testid="constellation-2d-fallback"]')).not.toBeNull();
+      expect(
+        container.querySelector('[data-testid="constellation-2d-fallback"]')?.textContent,
+      ).toContain('always shows up');
+    } finally {
+      HTMLCanvasElement.prototype.getContext = originalGetContext;
+    }
+  });
+
+  it.each([
+    ['app hero', () => <ConstellationHero3D address={'G'.padEnd(56, 'C')} handle="carol" />],
+    ['landing backdrop', () => <ConstellationBackdrop />],
+  ])('%s contains a Canvas error without unmounting its page sibling', (_name, scene) => {
+    canvasThrowsMock.current = true;
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      act(() => {
+        root.render(
+          <>
+            {scene()}
+            <p data-testid="page-content">The rest of the page</p>
+          </>,
+        );
+      });
+      expect(container.querySelector('[data-testid="page-content"]')?.textContent).toBe(
+        'The rest of the page',
+      );
+      if (_name === 'app hero') {
+        expect(container.querySelector('[data-testid="constellation-2d-fallback"]')).not.toBeNull();
+      }
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 });
