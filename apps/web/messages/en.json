@@ -470,7 +470,7 @@
   "vouchNetwork.windowNote": "Showing recent on-chain vouches. Older connections still count in the numbers above, even when they don't appear here.",
 
   "firstStarNudge.title": "Your sky starts with one star ✦",
-  "firstStarNudge.body": "alvinmunk begins by backing someone. Vouch for one person you trust below — they don’t even need an account yet. Their star ignites when they claim it.",
+  "firstStarNudge.body": "alvinmunk begins by backing someone. Vouch for one person you trust — they don’t even need an account yet. Their star ignites when they claim it.",
   "firstStarNudge.action": "light your first star",
   "firstStarNudge.dismiss": "dismiss",
   "inviteNudge.frame": "invite // pending",
@@ -509,6 +509,7 @@
   "badges.frame": "badges // milestones",
   "badges.heading": "Milestone badges",
   "badges.loading": "Loading badges…",
+  "badges.summary": "{earned}/{total} badges earned",
   "badges.earned": "earned",
   "badges.locked": "locked",
   "badges.error": "Couldn't read badges from the chain right now.",

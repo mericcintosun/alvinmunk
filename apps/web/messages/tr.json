@@ -470,7 +470,7 @@
   "vouchNetwork.windowNote": "Zincirdeki son destekler gösteriliyor. Eski bağlantılar burada görünmese de yukarıdaki sayılara dahildir.",
 
   "firstStarNudge.title": "Gökyüzün tek bir yıldızla başlar ✦",
-  "firstStarNudge.body": "alvinmunk birini destekleyerek başlar. Aşağıdan güvendiğin birini destekle — henüz hesabı olması bile gerekmiyor. Yıldızı, desteğini talep ettiğinde parlar.",
+  "firstStarNudge.body": "alvinmunk birini destekleyerek başlar. Güvendiğin birini destekle — henüz hesabı olması bile gerekmiyor. Yıldızı, desteğini talep ettiğinde parlar.",
   "firstStarNudge.action": "ilk yıldızını yak",
   "firstStarNudge.dismiss": "kapat",
   "inviteNudge.frame": "davet // bekliyor",
@@ -509,6 +509,7 @@
   "badges.frame": "rozetler // kilometre_taşları",
   "badges.heading": "Kilometre taşı rozetleri",
   "badges.loading": "Rozetler yükleniyor…",
+  "badges.summary": "{earned}/{total} rozet kazanıldı",
   "badges.earned": "kazanıldı",
   "badges.locked": "kilitli",
   "badges.error": "Rozetler şu anda zincirden okunamadı.",

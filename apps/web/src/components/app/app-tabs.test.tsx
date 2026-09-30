@@ -14,13 +14,19 @@ const { nav, focus, wallet, loadInboxMock } = vi.hoisted(() => ({
 }));
 
 vi.mock('next/navigation', () => ({ usePathname: () => nav.pathname }));
-// A plain anchor that forwards every prop, so ARIA attributes reach the DOM as they would.
+// A plain anchor that forwards every prop (and its ref, as next/link does), so ARIA attributes
+// reach the DOM and the active pill can be scrolled to.
 vi.mock('next/link', () => ({
-  default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
-    <a href={href} {...rest}>
-      {children}
-    </a>
-  ),
+  default: React.forwardRef<HTMLAnchorElement, { href: string; children: React.ReactNode }>(function Link(
+    { href, children, ...rest },
+    ref,
+  ) {
+    return (
+      <a href={href} ref={ref} {...rest}>
+        {children}
+      </a>
+    );
+  }),
 }));
 vi.mock('@/lib/focus', () => ({
   get FOCUS_MODE() {
@@ -107,6 +113,104 @@ describe('AppTabs', () => {
       loadInboxMock.mockResolvedValue({ items: [], unread: new Set(['tip:1']) });
       await currentAt('/app/inbox');
       expect(dot()).toBeNull();
+      expect(container.querySelector('[data-testid="inbox-dot-mirror"]')).toBeNull();
+    });
+
+    it('is mirrored on Home for phones, where the Inbox pill can be scrolled away (#473)', async () => {
+      wallet.profile = { address: 'GME' };
+      loadInboxMock.mockResolvedValue({ items: [], unread: new Set(['tip:1']) });
+      await currentAt('/app/people');
+      const mirror = container.querySelector('a[href="/app"] [data-testid="inbox-dot-mirror"]');
+      expect(mirror).not.toBeNull();
+      // Phone-only and silent: the announced dot stays on the Inbox pill.
+      expect(mirror!.classList).toContain('sm:hidden');
+      expect(mirror!.getAttribute('aria-hidden')).toBe('true');
+      expect(container.querySelector('a[href="/app/inbox"] [data-testid="inbox-dot"]')).not.toBeNull();
+
+      await act(async () => window.dispatchEvent(new Event('alvinmunk:inbox-read')));
+      expect(container.querySelector('[data-testid="inbox-dot-mirror"]')).toBeNull();
+    });
+  });
+
+  describe('on a phone-width strip (#473)', () => {
+    /** Lays the strip out as `width` px showing pills of `pill` px each (4px gaps), scrolled to `left`. */
+    let layout = { width: 272, pill: 40, left: 0 };
+    let scrollTo: ReturnType<typeof vi.fn>;
+    let reduced = false;
+    const strip = () => container.querySelector<HTMLElement>('nav .overflow-x-auto')!;
+    const fade = (side: 'left' | 'right') => container.querySelector(`[data-testid="tabs-fade-${side}"]`)!;
+
+    beforeEach(() => {
+      layout = { width: 272, pill: 40, left: 0 };
+      reduced = false;
+      scrollTo = vi.fn();
+      const rect = (x: number, w: number) => ({ left: x, right: x + w, x, y: 0, top: 0, bottom: 36, width: w, height: 36 }) as DOMRect;
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+        if (this === strip()) return rect(0, layout.width);
+        const i = [...strip().children].indexOf(this);
+        return rect(i * (layout.pill + 4) - layout.left, layout.pill);
+      });
+      vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function (this: HTMLElement) {
+        return this.children.length * (layout.pill + 4) - 4;
+      });
+      vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => layout.width);
+      vi.spyOn(HTMLElement.prototype, 'scrollLeft', 'get').mockImplementation(() => layout.left);
+      HTMLElement.prototype.scrollTo = scrollTo as unknown as HTMLElement['scrollTo'];
+      HTMLElement.prototype.scrollIntoView = vi.fn();
+      window.matchMedia = vi.fn().mockImplementation(() => ({ matches: reduced })) as unknown as typeof window.matchMedia;
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('goes icon-only below sm and keeps every label for screen readers', async () => {
+      await currentAt('/app');
+      for (const a of container.querySelectorAll('nav a')) {
+        const label = a.querySelector('span')!;
+        expect([...label.classList]).toEqual(['sr-only', 'sm:not-sr-only']);
+        expect(label.textContent).toBeTruthy();
+      }
+    });
+
+    it('scrolls the strip (never the page) to bring the active pill clear of the fades', async () => {
+      // 7 pills of 40px = 304px in a 272px strip: Inbox (the last) is past the right edge.
+      await currentAt('/app/inbox');
+      expect(scrollTo).toHaveBeenCalledTimes(1);
+      // Clamped to the end of the strip (304 - 272), smoothly.
+      expect(scrollTo).toHaveBeenCalledWith({ left: 32, behavior: 'smooth' });
+      expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+    });
+
+    it('jumps instead of gliding under reduced motion, and leaves a visible pill alone', async () => {
+      reduced = true;
+      await currentAt('/app/people');
+      // People (the sixth pill, 220–260px) clears the right fade at scrollLeft 20.
+      expect(scrollTo).toHaveBeenLastCalledWith({ left: 20, behavior: 'auto' });
+
+      scrollTo.mockClear();
+      await currentAt('/app/vouch'); // the second pill: already on screen at scrollLeft 0
+      expect(scrollTo).not.toHaveBeenCalled();
+    });
+
+    it('shows an edge fade only where more pills sit past the edge', async () => {
+      await currentAt('/app');
+      expect(fade('left').classList).toContain('opacity-0');
+      expect(fade('right').classList).toContain('opacity-100');
+      expect(fade('right').classList).toContain('sm:hidden');
+
+      layout.left = 32; // scrolled to the end
+      await act(async () => strip().dispatchEvent(new Event('scroll')));
+      expect(fade('left').classList).toContain('opacity-100');
+      expect(fade('right').classList).toContain('opacity-0');
+    });
+
+    it('shows no fades when every pill fits', async () => {
+      layout.width = 400;
+      await currentAt('/app/inbox');
+      expect(fade('left').classList).toContain('opacity-0');
+      expect(fade('right').classList).toContain('opacity-0');
+      expect(scrollTo).not.toHaveBeenCalled();
     });
   });
 });
