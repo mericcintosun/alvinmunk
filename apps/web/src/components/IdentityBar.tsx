@@ -266,7 +266,7 @@ export function IdentityBar() {
               aria-label={t('identity.bio.label')}
             />
             <span
-              className="shrink-0 font-mono text-[10px] text-muted-foreground"
+              className="shrink-0 font-mono text-2xs text-muted-foreground"
               title={t('identity.bio.bytesHint')}
             >
               {bioBytes(bioValue)}/{BIO_MAX_BYTES}
@@ -290,7 +290,7 @@ export function IdentityBar() {
             {profile.bio ? (
               <p className="min-w-0 truncate text-xs text-muted-foreground">{profile.bio}</p>
             ) : (
-              <span className="font-mono text-[10px] text-muted-foreground">
+              <span className="font-mono text-2xs text-muted-foreground">
                 {t('identity.bio.add')}
               </span>
             )}
@@ -309,7 +309,7 @@ export function IdentityBar() {
               <Pencil />
             </Button>
             {savingMeta && (
-              <span className="font-mono text-[10px] text-muted-foreground" aria-live="polite">
+              <span className="font-mono text-2xs text-muted-foreground" aria-live="polite">
                 {t('identity.meta.saving')}
               </span>
             )}
@@ -325,7 +325,7 @@ export function IdentityBar() {
                 key={faceTab}
                 onClick={() => setTab(faceTab)}
                 className={cn(
-                  'rounded-full px-3 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors',
+                  'rounded-full px-3 py-1 font-mono text-2xs uppercase tracking-wider transition-colors',
                   tab === faceTab ? 'bg-lime text-lime-foreground' : 'text-muted-foreground hover:text-foreground',
                 )}
               >

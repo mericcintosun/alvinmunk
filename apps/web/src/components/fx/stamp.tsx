@@ -22,7 +22,7 @@ export function Stamp({
   return (
     <span
       className={cn(
-        'inline-flex -rotate-3 items-center gap-1.5 rounded-sm border-2 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.15em]',
+        'inline-flex -rotate-3 items-center gap-1.5 rounded-sm border-2 px-2 py-0.5 eyebrow-mono font-bold',
         c,
         className,
       )}

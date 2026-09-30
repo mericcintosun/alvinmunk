@@ -39,7 +39,7 @@ export default async function ScorePage({ params, searchParams }: ScorePageProps
   if (!isStellarAddress(address)) {
     return (
       <div className="container max-w-2xl py-14">
-        <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-primary/80">{'// error'}</p>
+        <p className="eyebrow-mono text-primary/80">{'// error'}</p>
         <div className="mt-6 flex flex-col items-center gap-4 text-center">
           <AlertCircle className="size-12 text-destructive" />
           <h1 className="font-display text-2xl font-semibold">Invalid address</h1>
@@ -69,7 +69,7 @@ export default async function ScorePage({ params, searchParams }: ScorePageProps
     return (
       <div className="container max-w-2xl py-14">
         {net && <ReadOnlyBanner network={net.network} />}
-        <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-primary/80">{'// not_found'}</p>
+        <p className="eyebrow-mono text-primary/80">{'// not_found'}</p>
         <div className="mt-6 flex flex-col items-center gap-4 text-center">
           <StateArt kind="empty-leaderboard" size={300} className="motion-safe:animate-float" />
           <h1 className="font-display text-2xl font-semibold">No reputation yet</h1>
@@ -86,7 +86,7 @@ export default async function ScorePage({ params, searchParams }: ScorePageProps
     <div className="container max-w-2xl py-14">
       {net && <ReadOnlyBanner network={net.network} />}
       {/* Header */}
-      <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-primary/80">{'// public_reputation'}</p>
+      <p className="eyebrow-mono text-primary/80">{'// public_reputation'}</p>
       <div className="mt-4 flex items-end justify-between border-b border-border/60 pb-3">
         <h1 className="font-display text-4xl font-semibold tracking-tight">Reputation</h1>
         <span className="font-mono text-xs text-muted-foreground">read_only</span>

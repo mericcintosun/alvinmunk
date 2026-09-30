@@ -193,7 +193,7 @@ export function Quests({ address }: { address: string }) {
   const tag = (id: number) => {
     const text = repeats(id);
     return text ? (
-      <span className="ml-2 font-mono text-[10px] normal-case tracking-normal text-secondary">
+      <span className="ml-2 font-mono text-2xs normal-case tracking-normal text-secondary">
         · {text}
       </span>
     ) : null;
@@ -249,7 +249,7 @@ export function Quests({ address }: { address: string }) {
         )}
         {streak && (
           <div className="mt-3 flex flex-wrap items-center gap-3">
-            <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+            <span className="eyebrow-mono text-muted-foreground">
               {t('quests.weeklyStamp')}
             </span>
             <div className="flex gap-1.5">
@@ -263,7 +263,7 @@ export function Quests({ address }: { address: string }) {
                 />
               ))}
             </div>
-            <span className="flex items-center gap-1 font-mono text-[10px] text-secondary">
+            <span className="flex items-center gap-1 font-mono text-2xs text-secondary">
               <Flame className="size-3.5" />
               {streak.weeks}
               {streak.best > streak.weeks && (
@@ -278,7 +278,7 @@ export function Quests({ address }: { address: string }) {
         )}
         {/* Quest 1 — refer an active wallet */}
         <div className="mt-4">
-          <label htmlFor="quest-ref" className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+          <label htmlFor="quest-ref" className="eyebrow-mono text-muted-foreground">
             {t('quests.referLabel')}
             {tag(REFERRAL_QUEST_ID)}
           </label>
@@ -304,7 +304,7 @@ export function Quests({ address }: { address: string }) {
               )}
             </div>
           )}
-          <p id="quest-ref-hint" className="mt-1 text-[11px] text-muted-foreground">
+          <p id="quest-ref-hint" className="mt-1 text-2xs text-muted-foreground">
             {resolvedRef && resolvedRef === address
               ? t('quests.refSelf')
               : refTrim && !resolvingRef && !validRef
@@ -327,7 +327,7 @@ export function Quests({ address }: { address: string }) {
 
         {/* Quest 2 — invite-converts: someone you invited opened a profile + got vouched for */}
         <div className="mt-4 border-t border-border/60 pt-4">
-          <label htmlFor="quest-invite" className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+          <label htmlFor="quest-invite" className="eyebrow-mono text-muted-foreground">
             {t('quests.inviteLabel')}
             {tag(INVITE_QUEST_ID)}
           </label>
@@ -353,7 +353,7 @@ export function Quests({ address }: { address: string }) {
               )}
             </div>
           )}
-          <p id="quest-invite-hint" className="mt-1 text-[11px] text-muted-foreground">
+          <p id="quest-invite-hint" className="mt-1 text-2xs text-muted-foreground">
             {resolvedInvite && resolvedInvite === address
               ? t('quests.inviteSelf')
               : inviteTrim && !resolvingInvite && !validInvite
@@ -376,11 +376,11 @@ export function Quests({ address }: { address: string }) {
 
         {/* Quest 3 — vouch-back: you've vouched for ≥N people */}
         <div className="mt-4 border-t border-border/60 pt-4">
-          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+          <span className="eyebrow-mono text-muted-foreground">
             {t('quests.vouchBackLabel')}
             {tag(VOUCHBACK_QUEST_ID)}
           </span>
-          <p className="mt-1 text-[11px] text-muted-foreground">
+          <p className="mt-1 text-2xs text-muted-foreground">
             {t('quests.vouchBackHint', { min: String(VOUCH_BACK_MIN) })}
           </p>
           <Button

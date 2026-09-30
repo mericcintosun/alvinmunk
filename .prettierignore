@@ -1,0 +1,11 @@
+# Prettier also skips every path in .gitignore. The generated dirs are repeated here so the
+# list stands on its own; the rest are tracked files it must never rewrite.
+pnpm-lock.yaml
+.next/
+contracts/target/
+test_snapshots/
+apps/web/public/assets/
+# binary / exported docs
+*.pdf
+*.csv
+*.xlsx

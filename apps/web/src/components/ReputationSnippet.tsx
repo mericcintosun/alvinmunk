@@ -10,7 +10,7 @@ export function ReputationSnippet({ address, className }: { address?: string; cl
         <span className="size-2.5 rounded-full bg-destructive/70" />
         <span className="size-2.5 rounded-full bg-warning/70" />
         <span className="size-2.5 rounded-full bg-secondary/70" />
-        <span className="ml-2 font-mono text-[10px] text-muted-foreground">{REPUTATION_READ_FILE}</span>
+        <span className="ml-2 font-mono text-2xs text-muted-foreground">{REPUTATION_READ_FILE}</span>
       </div>
       <pre className="overflow-x-auto p-5 font-mono text-xs leading-relaxed text-foreground/80">
         {reputationReadSnippet(address)}

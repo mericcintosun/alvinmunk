@@ -41,7 +41,7 @@ export function GenesisStamp({
       </svg>
 
       <figcaption className="absolute inset-0 flex flex-col justify-between p-4">
-        <span className="text-[11px] uppercase tracking-widest text-white/40">
+        <span className="text-2xs uppercase tracking-widest text-white/40">
           alvinmunk
         </span>
         <div className="flex items-center gap-3">

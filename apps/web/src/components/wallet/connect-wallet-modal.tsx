@@ -122,7 +122,7 @@ export function ConnectWalletModal({
                     {busy ? (
                       <span className="text-xs text-muted-foreground">Connecting…</span>
                     ) : !enabled ? (
-                      <span className="rounded-full bg-muted px-2.5 py-1 text-[10px] font-medium text-muted-foreground">
+                      <span className="rounded-full bg-muted px-2.5 py-1 text-2xs font-medium text-muted-foreground">
                         Not available
                       </span>
                     ) : null}
@@ -134,7 +134,7 @@ export function ConnectWalletModal({
 
           {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
 
-          <p className="mt-4 text-center text-[11px] text-muted-foreground">
+          <p className="mt-4 text-center text-2xs text-muted-foreground">
             Testnet only · your keys never leave your wallet.
           </p>
         </div>

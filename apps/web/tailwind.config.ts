@@ -63,6 +63,10 @@ const config: Config = {
           2: 'hsl(var(--surface-2) / <alpha-value>)',
         },
       },
+      fontSize: {
+        // The floor of the type scale (11px): dense metadata, chips, hints. Nothing goes below it.
+        '2xs': ['0.6875rem', { lineHeight: '1rem' }],
+      },
       // text-* reads each semantic colour's *-text variant (4.5:1 on every surface in both
       // themes); bg-, border-, ring- and the rest keep the brighter fill from `colors`.
       textColor: {
