@@ -151,7 +151,7 @@ env.events().publish(
 
 ### `vouch` (Async Half-Card Lifecycle)
 
-Three sub-types track the lifecycle of an async vouch (the cold-start fix /
+Four sub-types track the lifecycle of an async vouch (the cold-start fix /
 install funnel).
 
 #### `vouch` / `minted`
@@ -224,7 +224,28 @@ Both paths store `slashed: true` on the vouch and emit the same event shape:
 | 1 | `Address` | `from` — the voucher whose stake was slashed |
 | 2 | `u64` | `stake` — the slashed amount |
 
-**Contract source**: `reputation/src/lib.rs` → `fn mint()` (shared by `mint_vouch_signed` / `mint_vouches` / `mint_vouch`) / `fn settle_claim()` (shared by `claim_vouch_signed` / `claim_vouch`) / `fn expire_vouch()`
+#### `vouch` / `cancelled`
+
+The voucher withdrew an unclaimed half-card with `cancel_vouch(from, vouch_id)`, typically
+because its link leaked. See [Cancelled cards](#cancelled-cards-cancel_vouch--is_cancelled).
+Nothing is refunded, so no `social` event accompanies it: cancelling forfeits the stake
+like a slash. The stored `Vouch` is not rewritten (it keeps `claimed: false`, and
+`slashed: false` until `expire_vouch` slashes it after the window, which is still allowed
+and emits `vouch` / `slashed` as usual).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol("vouch")` | Event discriminator |
+| **topics[1]** | `Symbol("cancelled")` | Sub-type |
+
+**Data tuple**:
+
+| Index | Type | Description |
+|-------|------|-------------|
+| 0 | `u64` | `vouch_id` |
+| 1 | `Address` | `from` — the voucher who cancelled it |
+
+**Contract source**: `reputation/src/lib.rs` → `fn mint()` (shared by `mint_vouch_signed` / `mint_vouches` / `mint_vouch`) / `fn settle_claim()` (shared by `claim_vouch_signed` / `claim_vouch`) / `fn expire_vouch()` / `fn cancel_vouch()`
 
 ```rust
 // Mint:
@@ -248,6 +269,10 @@ env.events().publish(
 env.events().publish(
     (symbol_short!("vouch"), symbol_short!("claimed")),
     (vouch_id, vouch.from, claimer));
+
+// Cancel by the voucher (unclaimed card, no refund):
+env.events().publish(
+    (symbol_short!("vouch"), symbol_short!("cancelled")), (vouch_id, from));
 ```
 
 ---
@@ -814,7 +839,7 @@ Quick-reference table of all event discriminators and their sub-types.
 | `xp` | *(none)* | Reputation | [↑](#xp-earned-track-total) |
 | `social` | *(none)* | Reputation | [↑](#social-social-track-total) |
 | `attester` | `add`, `rm` | Reputation | [↑](#attester-allowlist-change) |
-| `vouch` | `minted`, `claimed`, `slashed` | Reputation | [↑](#vouch-async-half-card-lifecycle) |
+| `vouch` | `minted`, `claimed`, `slashed`, `cancelled` | Reputation | [↑](#vouch-async-half-card-lifecycle) |
 | `quest` | `created`, `awarded`, `period`, `att_bind`, `att_clear` | QuestRegistry | [↑](#2-questregistry-contract) |
 | `streak` | *(none)* | QuestRegistry | [↑](#streak-weekly-retention) |
 | `att_key` | `budget`, `near_cap` | QuestRegistry | [↑](#att_key--budget-attester-budget-set) |
@@ -997,6 +1022,32 @@ a deployment that predates it has no such function, so upgrade the contract befo
 shipping a web build that calls it. The web app calls it from the "Several people" mode
 of the vouch composer (`mintVouches` in `apps/web/src/lib/reputation.ts`).
 
+### Cancelled cards (`cancel_vouch` / `is_cancelled`)
+
+`cancel_vouch(from, vouch_id)` lets the voucher withdraw a half-card whose link leaked, so
+whoever holds the link can no longer claim it. It needs `from`'s auth, and works before
+and after the claim window (a late claim would still land otherwise). The cancellation is
+its own persistent entry, `DataKey::Cancelled(vouch_id)` (storage key
+`Vec[Symbol("Cancelled"), U64(id)]`, value `true`, TTL bumped to ~150 days at cancel),
+because the `Vouch` shape above is frozen. **No refund**: the stake is what makes an
+unclaimed vouch cost something, so cancelling forfeits it like a slash. Emits
+`vouch` / `cancelled` (vouch_id, from).
+
+| Error | Code | When |
+|-------|------|------|
+| `VouchNotFound` | #4 | no card has this id |
+| `NotAuthorized` | #3 | `from` is not the card's voucher |
+| `AlreadyClaimed` | #5 | the card was claimed already |
+| `Cancelled` | #16 | the card was cancelled already |
+
+Once cancelled, `claim_vouch_signed` and `claim_vouch` revert with `Cancelled` (#16), before
+any signature or secret check. `is_cancelled(vouch_id) -> bool` reads the flag: `true` once
+cancelled, `false` for a live, claimed or unknown card. Both functions are new in this
+upgrade: a deployment that predates it has neither, so treat a failed `is_cancelled` read
+as "not cancelled" (nothing could have cancelled the card there) and hide the cancel
+action. The web app reads it for the claim page's cancelled state and the dashboard's
+pending half-cards (`isVouchCancelled` / `cancelVouch` in `apps/web/src/lib/reputation.ts`).
+
 ### `Profile` (`get_profile`)
 
 `get_profile(addr)` returns Social + Earned + verified in one call. It is computed on
@@ -1058,7 +1109,10 @@ its voucher and removes the queue, so the view is empty from then on — as it i
 address with nothing queued. Bonuses for an already-verified claimer are paid at claim
 time and never queued. At most `MAX_PENDING` (64) entries; bonuses past the cap are
 dropped. Keyed by claimer only: "what am I owed" means reading `get_pending` for each
-person you vouched and keeping the entries whose `voucher` is you.
+person you vouched and keeping the entries whose `voucher` is you. The web app reads it
+both ways: the dashboard nudge (`PendingBonusNudge`) reads your own queue to tell you how
+many people wait on your first verified quest, and `getOwedBonuses` reads the queue of
+each person you vouched.
 
 ### Handle lookups (`resolve` / `reverse` / `reverse_many`)
 

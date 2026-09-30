@@ -25,7 +25,7 @@ export const EVENTS = {
   XP: 'xp',
   /** topics ('social', addr) · data (amount, newTotal) — Social track total (leaderboard source). `amount` is unsigned: compare newTotal with the previous total for the direction */
   SOCIAL: 'social',
-  /** topics ('vouch', 'minted'|'claimed'|'slashed') · data minted (id, from) · claimed (id, from, claimer) · slashed (id, from, stake) */
+  /** topics ('vouch', 'minted'|'claimed'|'slashed'|'cancelled') · data minted (id, from) · claimed (id, from, claimer) · slashed (id, from, stake) · cancelled (id, from) */
   VOUCH: 'vouch',
   /** topics ('quest', 'created'|'awarded') · data created id · awarded (quest_id, recipient) */
   QUEST: 'quest',
