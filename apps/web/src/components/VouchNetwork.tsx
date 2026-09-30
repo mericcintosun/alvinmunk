@@ -176,7 +176,9 @@ function Row({
   return (
     <div className="p-5">
       <div className="flex items-baseline justify-between gap-3">
-        <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
+        <p className="min-w-0 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground [overflow-wrap:anywhere]">
+          {label}
+        </p>
         {count !== undefined && <p className={cn('font-display text-sm font-semibold', accent)}>{count}</p>}
       </div>
       {people === null ? (
