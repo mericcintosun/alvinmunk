@@ -52,7 +52,7 @@ export function Footer() {
           </p>
           {/* Which Stellar network these funds are real on — links to /api/health. It replaces a
               static "Live on Stellar testnet" pill that would have kept saying testnet on mainnet. */}
-          <NetworkBadge className="mt-1" />
+          <NetworkBadge className="mt-1 text-secondary-text" />
           {/* Language switcher lives here — prominent but not distracting */}
           <LanguageSwitcher variant="pill" className="mt-1 w-fit" />
         </div>

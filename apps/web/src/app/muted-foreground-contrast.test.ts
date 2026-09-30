@@ -10,14 +10,14 @@ function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
     const full = join(dir, entry);
     if (statSync(full).isDirectory()) return walk(full);
-    return /\.tsx?$/.test(entry) && !/\.test\.tsx?$/.test(entry) ? [full] : [];
+    return /\.(tsx|ts)$/.test(entry) && !/\.(test|spec)\.(tsx|ts)$/.test(entry) ? [full] : [];
   });
 }
 
 /** Declarations of the first `selector { … }` block, comments stripped. */
 function block(css: string, selector: ':root' | ':root.light'): Map<string, string> {
   const escaped = selector.replace('.', '\\.');
-  const body = new RegExp(`(^|\\n)${escaped}\\s*\\{([^}]*)\\}`).exec(css)?.[2];
+  const body = new RegExp(`(.|\\n)${escaped}\\s*\\{([^}]*)\\}`).exec(css)?.[2];
   if (body === undefined) throw new Error(`no ${selector} block`);
   const decls = new Map<string, string>();
   for (const [, prop, value] of body
@@ -56,15 +56,29 @@ const globals = readFileSync(join(srcDir, 'app/globals.css'), 'utf8');
 const THEMES = { dark: block(globals, ':root'), light: block(globals, ':root.light') };
 const SURFACES = ['--background', '--surface', '--surface-2', '--card', '--muted'];
 
-describe('secondary text contrast', () => {
+/** Semantic colours used as text, and the token that holds their text variant. */
+const TEXT_TOKENS = [
+  '--muted-foreground',
+  '--primary-text',
+  '--secondary-text',
+  '--accent-text',
+  '--destructive-text',
+  '--success-text',
+  '--warning-text',
+  '--tertiary-text',
+  '--lime-text',
+  '--onchain-text',
+];
+
+describe('semantic text contrast', () => {
   for (const [theme, tokens] of Object.entries(THEMES)) {
     const color = (token: string) => toRgb(tokens.get(token)!);
 
-    it(`full-strength muted-foreground clears AA on every ${theme} surface`, () => {
+    it.each(TEXT_TOKENS)(`%s is at least 4.5:1 on every ${theme} surface`, (token) => {
       for (const surface of SURFACES) {
         expect(
-          contrast(color('--muted-foreground'), color(surface)),
-          surface,
+          contrast(color(token), color(surface)),
+          `${token} on ${surface}`,
         ).toBeGreaterThanOrEqual(4.5);
       }
     });
@@ -90,5 +104,20 @@ describe('secondary text contrast', () => {
     for (const file of walk(srcDir)) {
       expect(readFileSync(file, 'utf8'), file).not.toMatch(/placeholder:text-muted-foreground\//);
     }
+  });
+
+  // Guard: no raw Tailwind palette colours for text — they fail AA in light mode.
+  it('does not use raw amber-* / yellow-* classes', () => {
+    const offenders: string[] = [];
+    for (const file of walk(srcDir)) {
+      readFileSync(file, 'utf8')
+        .split('\n')
+        .forEach((line, i) => {
+          if /((?:^|[^\w-])(amber|yellow)-(?:\d{1}3|[1-9]00|\d{1,3})\b/.test(line) {
+            offenders.push(`${file.replace(srcDir, '')}:${i + 1}`);
+          }
+        });
+    }
+    expect(offenders).toEqual([]);
   });
 });

@@ -201,7 +201,7 @@ export default function PeoplePage() {
                   </p>
                   <div className="mt-1.5 flex items-center gap-4 font-mono text-xs text-muted-foreground">
                     <span className="inline-flex items-center gap-1">
-                      <Star className={cn('size-3.5', result.social > 0 ? 'text-yellow-400' : 'text-muted-foreground/40')} />
+                      <Star className={cn('size-3.5', result.social > 0 ? 'text-accent' : 'text-muted-foreground/40')} />
                       {result.social} Social
                     </span>
                     <span className="inline-flex items-center gap-1">
