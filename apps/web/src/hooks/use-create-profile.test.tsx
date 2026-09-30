@@ -159,6 +159,41 @@ describe('useCreateProfile', () => {
     expect(latest.avail).toBe('taken');
   });
 
+  it('reports a failed check as error, never free, and checks again on retry (#188)', async () => {
+    await mount('app');
+    availabilityMock.mockRejectedValue(new Error('rpc 503'));
+    await setHandle('newbie');
+    await advance(400);
+    await flush();
+    expect(latest.avail).toBe('error');
+
+    availabilityMock.mockResolvedValue(FREE);
+    await act(async () => latest.retryAvailability());
+    expect(latest.avail).toBe('checking');
+    await advance(400);
+    await flush();
+    expect(availabilityMock).toHaveBeenCalledTimes(2);
+    expect(latest.avail).toBe('free');
+  });
+
+  it('claims nothing when the submit-time check cannot read the registry', async () => {
+    store.wallet = DEV_WALLET;
+    await mount('app');
+    await setHandle('newbie');
+    await advance(400);
+    await flush();
+    availabilityMock.mockRejectedValue(new Error('rpc 503'));
+
+    await act(async () => {
+      await latest.createProfile();
+    });
+
+    expect(recordGenesisMock).not.toHaveBeenCalled();
+    expect(claimHandleMock).not.toHaveBeenCalled();
+    expect(setProfileMock).not.toHaveBeenCalled();
+    expect(toastMock.error).toHaveBeenCalled();
+  });
+
   it('reuses an already-connected wallet instead of calling connect() again (claim flow)', async () => {
     // The claim page already connected a wallet to submit claimVouch before this hook
     // ever renders — picking a handle right after must NOT trigger a second connect()

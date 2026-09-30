@@ -16,12 +16,21 @@ import { HandleHint } from '@/components/handle-hint';
 export function Onboarding({ initialHandle }: { initialHandle?: string }) {
   const t = useTranslations();
   const [face, setFace] = useState<FaceId | undefined>();
-  const { handle, setHandle, avail, reservedUntil, creating, createProfile, restoring, restoreAccount } =
-    useCreateProfile({
-      from: 'app',
-      face,
-      initialHandle,
-    });
+  const {
+    handle,
+    setHandle,
+    avail,
+    retryAvailability,
+    reservedUntil,
+    creating,
+    createProfile,
+    restoring,
+    restoreAccount,
+  } = useCreateProfile({
+    from: 'app',
+    face,
+    initialHandle,
+  });
 
   return (
     <div className="relative container flex max-w-md flex-col items-center gap-8 py-20">
@@ -68,11 +77,19 @@ export function Onboarding({ initialHandle }: { initialHandle?: string }) {
           {avail === 'free' && <span className="text-secondary">{t('onboard.handleFree', { handle: normalizeHandle(handle) })}</span>}
           {avail === 'taken' && <span className="text-destructive">{t('onboard.handleTaken', { handle: normalizeHandle(handle) })}</span>}
           {avail === 'reserved' && reservedUntil && <span className="text-destructive">{t('onboard.handleReserved', { handle: normalizeHandle(handle), date: reservedUntil })}</span>}
+          {avail === 'error' && (
+            <span className="text-destructive">
+              {t('onboard.checkError', { handle: normalizeHandle(handle) })}{' '}
+              <button type="button" onClick={retryAvailability} className="underline underline-offset-2">
+                {t('onboard.retryCheck')}
+              </button>
+            </span>
+          )}
         </p>
         <Button
           type="submit"
           size="lg"
-          disabled={creating || restoring || avail === 'taken' || avail === 'reserved'}
+          disabled={creating || restoring || avail === 'taken' || avail === 'reserved' || avail === 'error'}
           className="w-full"
         >
           {creating ? t('onboard.creating') : t('onboard.submit')}

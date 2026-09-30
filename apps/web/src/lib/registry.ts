@@ -15,12 +15,17 @@ import { shareInFlight } from './utils';
 /** The registry to read: `net`'s (the ?network= override) or the deployment's. */
 const registryOf = (net?: ReadNetwork | null) => (net ? net.contracts.registry : registryId());
 
-/** Resolve `@handle` → address (public, wallet-free). null if unclaimed/unconfigured. */
+/** What a registry handle can be at all: a Soroban `Symbol` (`[A-Za-z0-9_]`, at most 32). */
+const SYMBOL = /^[A-Za-z0-9_]{1,32}$/;
+
+/**
+ * Resolve `@handle` → address (public, wallet-free). null when nobody holds it, when no
+ * registry is configured, or when `handle` can never be one (no read then). A read that
+ * FAILS rejects instead (#188): an RPC outage must never pass for a free handle.
+ */
 export async function resolveHandle(handle: string, net?: ReadNetwork | null): Promise<string | null> {
-  if (!registryOf(net) || !handle) return null;
-  return (net?.client ?? readClient())
-    .resolveHandle(handle)
-    .catch(() => null);
+  if (!registryOf(net) || !SYMBOL.test(handle)) return null;
+  return (net?.client ?? readClient()).resolveHandle(handle);
 }
 
 /**
@@ -120,7 +125,8 @@ export type HandleAvailability =
 /**
  * Can `address` (anyone, when omitted) claim `handle`? Taken while someone holds it;
  * reserved while it cools down after its holder released it or renamed away, except for
- * that previous holder, who may take it back any time.
+ * that previous holder, who may take it back any time. Rejects when the holder can't be
+ * read, so a caller shows "couldn't check" rather than "free".
  */
 export async function handleAvailability(
   handle: string,

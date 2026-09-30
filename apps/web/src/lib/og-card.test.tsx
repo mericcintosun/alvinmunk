@@ -62,7 +62,7 @@ describe('ogResolve', () => {
     const avatar = { kind: 'face', id: 'face-04' };
     resolveHandleMock.mockResolvedValueOnce(G);
     getMetaMock.mockResolvedValueOnce({ avatar, bio: 'hello' });
-    await expect(ogResolve('alice')).resolves.toEqual({ address: G, scores, avatar, bio: 'hello' });
+    await expect(ogResolve('alice')).resolves.toEqual({ address: G, lookup: 'ok', scores, avatar, bio: 'hello' });
     expect(getMetaMock).toHaveBeenCalledWith(G);
   });
 
@@ -78,12 +78,41 @@ describe('ogResolve', () => {
 
   it('never asks for a profile when the handle is unclaimed', async () => {
     resolveHandleMock.mockResolvedValueOnce(null);
-    await expect(ogResolve('free')).resolves.toMatchObject({ address: null, bio: '' });
+    await expect(ogResolve('free')).resolves.toMatchObject({ address: null, lookup: 'ok', bio: '' });
     expect(getMetaMock).not.toHaveBeenCalled();
+  });
+
+  it('marks a failed lookup as an error, not as an unclaimed handle (#188)', async () => {
+    resolveHandleMock.mockRejectedValueOnce(new Error('rpc down'));
+    await expect(ogResolve('alice')).resolves.toMatchObject({ address: null, lookup: 'error' });
+    expect(getMetaMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps a resolved handle when only its profile read fails', async () => {
+    resolveHandleMock.mockResolvedValueOnce(G);
+    getMetaMock.mockRejectedValueOnce(new Error('rpc down'));
+    await expect(ogResolve('alice')).resolves.toMatchObject({ address: G, lookup: 'ok', scores, bio: '' });
+  });
+
+  it('never looks up a handle the app could not create', async () => {
+    for (const h of ['a-b', 'ab', 'a'.repeat(33)]) {
+      await expect(ogResolve(h)).resolves.toMatchObject({ address: null, lookup: 'invalid' });
+    }
+    expect(resolveHandleMock).not.toHaveBeenCalled();
   });
 });
 
 describe('ogCard', () => {
+  it('only calls an unclaimed handle available when the lookup said so', () => {
+    const line = (lookup?: 'ok' | 'error' | 'invalid') =>
+      render(ogCard({ handle: 'alice', address: null, lookup, scores })).body.textContent;
+    expect(line()).toContain('available — claim it');
+    expect(line('error')).toContain('profile lookup unavailable');
+    expect(line('error')).not.toContain('available — claim it');
+    expect(line('invalid')).toContain('not a valid handle');
+    expect(line('invalid')).not.toContain('claim it');
+  });
+
   it('shows the published face sticker', () => {
     const doc = render(
       ogCard({ handle: 'alice', address: G, scores, avatar: { kind: 'face', id: PUBLISHED } }),

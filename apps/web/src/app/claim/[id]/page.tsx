@@ -431,7 +431,7 @@ function ClaimInner({ params }: { params: { id: string } }) {
 
 function ClaimHandlePicker() {
   const t = useTranslations();
-  const { handle, setHandle, avail, reservedUntil, creating, createProfile, normalizedHandle } =
+  const { handle, setHandle, avail, retryAvailability, reservedUntil, creating, createProfile, normalizedHandle } =
     useCreateProfile({ from: 'claim' });
 
   return (
@@ -462,8 +462,16 @@ function ClaimHandlePicker() {
         {avail === 'free' && <span className="text-secondary">{t('claim.handle.free', { handle: normalizedHandle })}</span>}
         {avail === 'taken' && <span className="text-destructive">{t('claim.handle.taken', { handle: normalizedHandle })}</span>}
         {avail === 'reserved' && reservedUntil && <span className="text-destructive">{t('claim.handle.reserved', { handle: normalizedHandle, date: reservedUntil })}</span>}
+        {avail === 'error' && (
+          <span className="text-destructive">
+            {t('claim.handle.checkError', { handle: normalizedHandle })}{' '}
+            <button type="button" onClick={retryAvailability} className="underline underline-offset-2">
+              {t('claim.handle.retry')}
+            </button>
+          </span>
+        )}
       </p>
-      <Button type="submit" variant="flow" size="lg" disabled={creating || avail === 'taken' || avail === 'reserved' || normalizedHandle.length < 3}>
+      <Button type="submit" variant="flow" size="lg" disabled={creating || avail === 'taken' || avail === 'reserved' || avail === 'error' || normalizedHandle.length < 3}>
         {creating ? t('claim.handle.submitting') : t('claim.handle.submit', { handle: normalizedHandle || 'handle' })}
       </Button>
     </form>

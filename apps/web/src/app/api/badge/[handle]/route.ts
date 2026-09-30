@@ -17,8 +17,8 @@
  * handle the "not a handle" one (both status 200; the latter never reaches the chain). A
  * read that FAILED is neither: it renders "unavailable" and is cached for seconds, not an
  * hour, so an RPC blip never leaves a stranger's README calling a real user unclaimed or
- * zeroed. (`resolveHandle` still reads a failed lookup as unclaimed until it tells the two
- * apart, #188.)
+ * zeroed (`resolveHandle` rejects on a failed read and answers null only for an unclaimed
+ * handle).
  *
  * The SVG is served with `nosniff` and a `default-src 'none'` CSP: it carries no script and
  * loads nothing, and opened directly it stays inert even if a future change let markup in.

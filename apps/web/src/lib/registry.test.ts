@@ -212,14 +212,16 @@ describe('resolveHandle', () => {
     registry = 'CREGISTRY';
   });
 
-  it("reads the handle's holder, null when unclaimed or unreadable", async () => {
+  it("reads the handle's holder, null when unclaimed, and rejects when the read fails (#188)", async () => {
+    const down = new Error('fetch failed');
     sdkMock.resolveHandle
       .mockResolvedValueOnce(G)
       .mockResolvedValueOnce(null)
-      .mockRejectedValueOnce(new Error('fetch failed'));
+      .mockRejectedValueOnce(down);
     await expect(resolveHandle('alvin')).resolves.toBe(G);
     await expect(resolveHandle('nobody')).resolves.toBeNull();
-    await expect(resolveHandle('alvin')).resolves.toBeNull();
+    // An outage is not "unclaimed": callers must be able to tell the two apart.
+    await expect(resolveHandle('alvin')).rejects.toBe(down);
     expect(sdkMock.resolveHandle.mock.calls).toEqual([['alvin'], ['nobody'], ['alvin']]);
   });
 
@@ -227,6 +229,13 @@ describe('resolveHandle', () => {
     await expect(resolveHandle('')).resolves.toBeNull();
     registry = '';
     await expect(resolveHandle('alvin')).resolves.toBeNull();
+    expect(sdkMock.resolveHandle).not.toHaveBeenCalled();
+  });
+
+  it('is null, without a read, for a string that can never be a handle', async () => {
+    for (const h of ['a-b', '@alice', 'a b', 'x'.repeat(33)]) {
+      await expect(resolveHandle(h)).resolves.toBeNull();
+    }
     expect(sdkMock.resolveHandle).not.toHaveBeenCalled();
   });
 });
@@ -445,6 +454,13 @@ describe('handle cooldown', () => {
     chain(null, null);
     await expect(handleAvailability('alice')).resolves.toEqual({ status: 'free' });
     await expect(isHandleAvailable('alice')).resolves.toBe(true);
+  });
+
+  it('rejects instead of answering "free" when the holder cannot be read (#188)', async () => {
+    chain(null, null);
+    sdkMock.resolveHandle.mockRejectedValue(new Error('rpc 503'));
+    await expect(handleAvailability('alice')).rejects.toThrow('rpc 503');
+    await expect(isHandleAvailable('alice')).rejects.toThrow('rpc 503');
   });
 });
 

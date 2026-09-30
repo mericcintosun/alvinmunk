@@ -5,6 +5,7 @@ import { resolveHandle, getMeta } from './registry';
 import { getScores, type PeopleCounts } from './reputation';
 import { getPeopleCounts } from './constellation';
 import { loadPng } from './og-assets';
+import { isRouteHandle } from './profile';
 import { BRAND_DARK } from './brand-palette';
 import {
   faceFile,
@@ -50,8 +51,13 @@ const {
 /** XP tracks + the people counts the card shows. */
 export type OgScores = { social: number; earned: number } & PeopleCounts;
 
+/** How the handle lookup went: `error` = the registry couldn't be read (so the card must not
+ *  call the handle available, issue 188), `invalid` = no handle the app could create. */
+export type OgLookup = 'ok' | 'error' | 'invalid';
+
 export async function ogResolve(handle: string): Promise<{
   address: string | null;
+  lookup: OgLookup;
   scores: OgScores;
   /** The published face (undefined → the deterministic default for `address`). */
   avatar?: AvatarConfig;
@@ -62,27 +68,44 @@ export async function ogResolve(handle: string): Promise<{
   let scores: OgScores = { social: 0, earned: 0, vouchedBy: 0, backed: 0 };
   let avatar: AvatarConfig | undefined;
   let bio = '';
+  if (!isRouteHandle(handle)) {
+    return { address, lookup: 'invalid', scores, bio };
+  }
   try {
     address = await resolveHandle(handle);
-    if (address) {
-      const [s, p, meta] = await Promise.all([
-        getScores(address).catch(() => ({ social: 0, earned: 0 })),
-        getPeopleCounts(address).catch(() => ({ vouchedBy: 0, backed: 0 })),
-        getMeta(address), // null on a registry without get_meta → default face, no bio
-      ]);
-      scores = { ...s, ...p };
-      avatar = meta?.avatar;
-      bio = meta?.bio ?? '';
-    }
   } catch {
-    /* unclaimed / rpc miss → render a neutral card */
+    return { address, lookup: 'error', scores, bio }; // unknown: neither claimed nor free
   }
-  return { address, scores, avatar, bio };
+  if (address) {
+    const [s, p, meta] = await Promise.all([
+      getScores(address).catch(() => ({ social: 0, earned: 0 })),
+      getPeopleCounts(address).catch(() => ({ vouchedBy: 0, backed: 0 })),
+      // null on a registry without get_meta (or a failed read) → default face, no bio
+      getMeta(address).catch(() => null),
+    ]);
+    scores = { ...s, ...p };
+    avatar = meta?.avatar;
+    bio = meta?.bio ?? '';
+  }
+  return { address, lookup: 'ok', scores, avatar, bio };
 }
+
+/** `cache-control` for a card rendered after a failed lookup: next/og's default is a
+ *  year-long immutable cache, which would pin the neutral card after the RPC recovers. */
+export const OG_RETRY_CACHE = 'public, max-age=60, s-maxage=60';
+
+/** The line under an unclaimed card's handle — only `ok` may say the handle is free. */
+const UNCLAIMED_LINE: Record<OgLookup, string> = {
+  ok: 'available — claim it',
+  error: 'profile lookup unavailable',
+  invalid: 'not a valid handle',
+};
 
 export function ogCard(opts: {
   handle: string;
   address: string | null;
+  /** How the lookup went (`ogResolve`); default `ok`. */
+  lookup?: OgLookup;
   scores: OgScores;
   invite?: boolean;
   /** The published face; a claimed handle without one shows its deterministic default.
@@ -91,7 +114,7 @@ export function ogCard(opts: {
   /** One plain line under the address (sanitized by getMeta; rendered as text). */
   bio?: string;
 }) {
-  const { handle, address, scores, invite, avatar, bio } = opts;
+  const { handle, address, lookup = 'ok', scores, invite, avatar, bio } = opts;
 
   return (
     <div style={SHELL}>
@@ -117,7 +140,7 @@ export function ogCard(opts: {
           )}
           <div style={{ display: 'flex', fontSize: handleFontSize(handle.length), fontWeight: 700, lineHeight: 1, wordBreak: 'break-all' }}>@{handle}</div>
           <div style={{ display: 'flex', marginTop: '14px', color: MUTED, fontSize: '26px' }}>
-            {address ? shortAddr(address) : 'available — claim it'}
+            {address ? shortAddr(address) : UNCLAIMED_LINE[lookup]}
           </div>
           {address && bio && (
             <div

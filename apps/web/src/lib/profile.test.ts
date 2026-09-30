@@ -4,6 +4,7 @@ import {
   saveProfile,
   clearProfile,
   normalizeHandle,
+  parseRouteHandle,
   removedHandleChars,
   HANDLE_MAX_CHARS,
   sanitizeBio,
@@ -38,6 +39,28 @@ describe('removedHandleChars (#479)', () => {
     for (const s of ['Ayşe K', 'dev_007', 'x!y?z', '💧drop💧']) {
       const kept = [...s.toLowerCase()].filter((c) => !removedHandleChars(s).includes(c)).join('');
       expect(kept.slice(0, HANDLE_MAX_CHARS)).toBe(normalizeHandle(s));
+    }
+  });
+});
+
+describe('parseRouteHandle (#188)', () => {
+  it('lowercases a plain handle and accepts it', () => {
+    expect(parseRouteHandle('Alice')).toEqual({ handle: 'alice', at: false, valid: true });
+    expect(parseRouteHandle('dev_007')).toEqual({ handle: 'dev_007', at: false, valid: true });
+  });
+
+  it('drops one leading @, raw or URL-encoded, and flags it for a redirect', () => {
+    expect(parseRouteHandle('@alice')).toEqual({ handle: 'alice', at: true, valid: true });
+    expect(parseRouteHandle('%40Alice')).toEqual({ handle: 'alice', at: true, valid: true });
+  });
+
+  it('accepts a registry handle longer than the app creates, up to 32 characters', () => {
+    expect(parseRouteHandle('a'.repeat(32)).valid).toBe(true);
+  });
+
+  it('rejects what can never be a handle', () => {
+    for (const p of ['a-b', 'ab', 'a b', 'a'.repeat(33), '@@alice', '%E0%A4%A', 'renée']) {
+      expect(parseRouteHandle(p).valid, p).toBe(false);
     }
   });
 });

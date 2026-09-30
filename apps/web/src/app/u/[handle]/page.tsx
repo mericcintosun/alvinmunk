@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useWallet } from '@/components/wallet/wallet-provider';
 import { getScores, type PeopleCounts } from '@/lib/reputation';
 import { getPeopleCounts } from '@/lib/constellation';
@@ -20,13 +21,17 @@ import { shortAddr } from '@alvinmunk/shared';
 import { cn } from '@/lib/utils';
 import { readNetworkFor, withReadNetwork } from '@/lib/read-network';
 import { ReadOnlyBanner } from '@/components/read-only-banner';
-import { useFormat } from '@/lib/i18n';
+import { parseRouteHandle } from '@/lib/profile';
+import { useFormat, useTranslations } from '@/lib/i18n';
 
 /**
  * Public profile. The handle is resolved ON-CHAIN via the registry, so ANY claimed
  * @handle renders for anyone (the share-link target). Falls back to an honest "unclaimed"
- * state for free handles. `?network=testnet` on a mainnet deployment shows the testnet
- * profile, read-only (lib/read-network).
+ * state for free handles, but only when the registry SAID so: a failed lookup is a
+ * retryable error, never "available" (#188). `/u/@alice` redirects to `/u/alice`, and a
+ * param the app could never create as a handle shows an invalid state with nothing to
+ * claim. `?network=testnet` on a mainnet deployment shows the testnet profile, read-only
+ * (lib/read-network).
  */
 export default function ProfilePage({
   params,
@@ -35,7 +40,10 @@ export default function ProfilePage({
   params: { handle: string };
   searchParams?: { network?: string | string[] };
 }) {
-  const handle = params.handle.toLowerCase();
+  const t = useTranslations();
+  const router = useRouter();
+  const route = parseRouteHandle(params.handle);
+  const { handle } = route;
   // A shared singleton (or null), so it is a stable effect dependency.
   const net = readNetworkFor(searchParams?.network);
   const { profile } = useWallet();
@@ -43,10 +51,18 @@ export default function ProfilePage({
   const [scores, setScores] = useState<{ social: number; earned: number } | null>(null);
   const [people, setPeople] = useState<PeopleCounts | null>(null);
   const [meta, setMeta] = useState<OnChainMeta | null>(null);
+  const [lookupError, setLookupError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    if (route.at) router.replace(withReadNetwork(`/u/${handle}`, net));
+  }, [route.at, handle, net, router]);
+
+  useEffect(() => {
+    if (route.at || !route.valid) return;
     let alive = true;
     setAddress(undefined);
+    setLookupError(false);
     setScores(null);
     setPeople(null);
     setMeta(null);
@@ -58,18 +74,20 @@ export default function ProfilePage({
         const [s, p, m] = await Promise.all([
           getScores(addr, net).catch(() => ({ social: 0, earned: 0 })),
           getPeopleCounts(addr, net).catch(() => ({ vouchedBy: 0, backed: 0 })),
-          getMeta(addr, net), // null (default face, no bio) when unset or the registry predates it
+          // null (default face, no bio) when unset, the registry predates it or the read failed
+          getMeta(addr, net).catch(() => null),
         ]);
         if (!alive) return;
         setScores(s);
         setPeople(p);
         setMeta(m);
       })
-      .catch(() => alive && setAddress(null));
+      // Only the handle lookup can land here: unknown, so neither claimed nor available.
+      .catch(() => alive && setLookupError(true));
     return () => {
       alive = false;
     };
-  }, [handle, net]);
+  }, [handle, net, route.at, route.valid, attempt]);
 
   // The signed-in profile lives on the deployment's network, never the override's.
   const isMe = !net && !!address && profile?.address === address;
@@ -77,6 +95,42 @@ export default function ProfilePage({
   // moment you pick, before the tx lands) wins.
   const avatar = (isMe ? profile?.avatar : undefined) ?? meta?.avatar;
   const bio = (isMe ? profile?.bio : undefined) ?? meta?.bio;
+
+  if (route.at) return null; // redirecting to the canonical /u/<handle>
+
+  if (!route.valid) {
+    return (
+      <div className="container max-w-md py-24">
+        <Frame label="profile // invalid" index="—">
+          <div className="flex flex-col items-center gap-4 p-8 text-center">
+            <h1 className="font-display text-2xl font-semibold">{t('profile.invalidHandle')}</h1>
+            <p className="text-sm text-muted-foreground text-balance">{t('profile.invalidHandleDetail')}</p>
+          </div>
+        </Frame>
+      </div>
+    );
+  }
+
+  if (lookupError) {
+    return (
+      <div className="container max-w-md py-24">
+        {net && <ReadOnlyBanner network={net.network} />}
+        <Frame label={`profile // @${handle}`} index="RETRY">
+          <div className="flex flex-col items-center gap-4 p-8 text-center">
+            <h1 className="font-display text-2xl font-semibold">@{handle}</h1>
+            <p className="text-sm text-muted-foreground text-balance">{t('profile.lookupError')}</p>
+            <button
+              type="button"
+              onClick={() => setAttempt((n) => n + 1)}
+              className={cn(buttonVariants({ variant: 'outline' }), 'glass')}
+            >
+              {t('profile.retryLookup')}
+            </button>
+          </div>
+        </Frame>
+      </div>
+    );
+  }
 
   if (address === undefined) {
     // The loaded layout below with every value still reading (#476): the same grid, a 140px

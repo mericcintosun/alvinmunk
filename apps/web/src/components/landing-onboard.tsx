@@ -28,7 +28,7 @@ export function LandingOnboard() {
   const { profile } = useWallet();
   const router = useRouter();
   const [face, setFace] = useState<FaceId | undefined>();
-  const { handle, setHandle, avail, reservedUntil, creating, createProfile } = useCreateProfile({
+  const { handle, setHandle, avail, retryAvailability, reservedUntil, creating, createProfile } = useCreateProfile({
     from: 'landing',
     face,
     onCreated: () => router.push('/app'),
@@ -63,7 +63,7 @@ export function LandingOnboard() {
           maxLength={HANDLE_MAX_CHARS}
           className="h-11 flex-1 border-0 bg-transparent focus-visible:outline-none"
         />
-        <Button type="submit" variant="flow" size="md" disabled={creating || avail === 'taken' || avail === 'reserved'} className="shrink-0">
+        <Button type="submit" variant="flow" size="md" disabled={creating || avail === 'taken' || avail === 'reserved' || avail === 'error'} className="shrink-0">
           {creating ? t('onboard.creating') : t('onboard.startFree')}
           {!creating && <ArrowRight className="size-4" />}
         </Button>
@@ -74,6 +74,14 @@ export function LandingOnboard() {
         {avail === 'free' && <span className="text-secondary">{t('onboard.handleFree', { handle: normalizeHandle(handle) })}</span>}
         {avail === 'taken' && <span className="text-destructive">{t('onboard.handleTaken', { handle: normalizeHandle(handle) })}</span>}
         {avail === 'reserved' && reservedUntil && <span className="text-destructive">{t('onboard.handleReserved', { handle: normalizeHandle(handle), date: reservedUntil })}</span>}
+        {avail === 'error' && (
+          <span className="text-destructive">
+            {t('onboard.checkError', { handle: normalizeHandle(handle) })}{' '}
+            <button type="button" onClick={retryAvailability} className="underline underline-offset-2">
+              {t('onboard.retryCheck')}
+            </button>
+          </span>
+        )}
         {avail === 'idle' && <span className="text-muted-foreground">{t('onboard.pill')}</span>}
       </p>
       <div className="mt-4 flex flex-col items-center gap-2">
