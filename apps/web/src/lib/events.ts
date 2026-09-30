@@ -227,3 +227,80 @@ async function scanContractEvents(
   }
   return out;
 }
+
+/** One `fetchTipEventsSince` read: the events, where to resume, and whether the RPC answered. */
+export interface TipEventsSince {
+  events: RepEvent[];
+  cursor: string | null;
+  /** False when the RPC couldn't be read at all; `cursor` is then the one passed in. */
+  ok: boolean;
+}
+
+/**
+ * `tipped` events after `cursor` (topics ('tipped', from, to) · data amount), oldest-first,
+ * and the RPC cursor to resume from — the reader of the tip-notification cron (#297). It
+ * shares no scan or cache with the window readers: each call starts where the last stopped.
+ *   - No cursor yet (the cron's first run): start at the latest ledger. Tips from before
+ *     the cron existed are history, not news, so nobody gets a burst of stale pushes.
+ *   - A cursor the RPC rejects — it fell out of retention after a long gap, or the RPC was
+ *     swapped — restarts at the recent window (`EVENT_LEDGER_WINDOW`) instead of failing on
+ *     every run; the caller's per-event claims keep the overlap from being pushed twice.
+ *   - Pages follow the cursor while it moves: a short page ends one 10,000-ledger RPC scan,
+ *     not necessarily the gap since the last run, so the read stops only once a page leaves
+ *     the cursor where it was (caught up) or after MAX_PAGES; the next call carries on.
+ *   - A later page failing keeps what was read, with the cursor after it.
+ * Events without an RPC id are dropped: nothing could keep them from being pushed twice.
+ */
+export async function fetchTipEventsSince(cursor: string | null): Promise<TipEventsSince> {
+  const contractId = config.contracts.rewards;
+  if (!contractId) return { events: [], cursor, ok: true };
+
+  const tipped = xdr.ScVal.scvSymbol(EVENTS.TIPPED).toXDR('base64');
+  const filters: rpc.Api.EventFilter[] = [
+    { type: 'contract', contractIds: [contractId], topics: [[tipped, '*', '*']] },
+  ];
+  const fromCursor = (c: string) => server.getEvents({ filters, cursor: c, limit: PAGE_SIZE });
+  const fromLedger = (startLedger: number) => server.getEvents({ filters, startLedger, limit: PAGE_SIZE });
+
+  let res: rpc.Api.GetEventsResponse;
+  try {
+    if (cursor) {
+      try {
+        res = await fromCursor(cursor);
+      } catch {
+        const latest = await server.getLatestLedger();
+        res = await fromLedger(Math.max(1, latest.sequence - EVENT_LEDGER_WINDOW));
+      }
+    } else {
+      res = await fromLedger((await server.getLatestLedger()).sequence);
+    }
+  } catch {
+    return { events: [], cursor, ok: false };
+  }
+
+  const out: RepEvent[] = [];
+  let next = cursor;
+  let asked: string | null = cursor;
+  for (let page = 1; ; page++) {
+    for (const ev of res.events) {
+      if (!ev.id) continue;
+      out.push({
+        id: ev.id,
+        topics: (ev.topic as Array<xdr.ScVal | string>).map(decodeScVal),
+        data: decodeScVal(ev.value as xdr.ScVal | string),
+        ledger: ev.ledger,
+      });
+    }
+    if (!res.cursor) break;
+    next = res.cursor;
+    const caughtUp = res.events.length < PAGE_SIZE && res.cursor === asked;
+    if (caughtUp || page >= MAX_PAGES) break;
+    asked = res.cursor;
+    try {
+      res = await fromCursor(res.cursor);
+    } catch {
+      break;
+    }
+  }
+  return { events: out, cursor: next, ok: true };
+}

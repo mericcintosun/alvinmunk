@@ -17,6 +17,7 @@ import {
 } from '@/lib/reputation';
 import { getMeta, reverseHandle } from '@/lib/registry';
 import { Avatar } from '@/components/Avatar';
+import { FeedbackPrompt } from '@/components/FeedbackPrompt';
 import type { AvatarConfig } from '@/lib/avatar';
 import { Crest } from '@/components/brand/crest';
 import { Frame } from '@/components/fx/frame';
@@ -71,7 +72,7 @@ function ClaimInner({ params }: { params: { id: string } }) {
   const { id } = params;
   const vid = Number(id);
   const validId = Number.isInteger(vid) && vid >= 0;
-  const { connect, profile } = useWallet();
+  const { connect, profile, wallet } = useWallet();
   const t = useTranslations();
   const [claimCode, setClaimCode] = useState<ClaimCode | null>(null);
   const [state, setState] = useState<'preview' | 'claiming' | 'done' | 'error'>('preview');
@@ -362,6 +363,14 @@ function ClaimInner({ params }: { params: { id: string } }) {
             {/* Inline handle picker — the claimer just got a wallet, so they can pick
                 a name without a second connect or FaceID prompt. */}
             {!profile && <ClaimHandlePicker />}
+
+            {/* Asked once, at the moment of delight (#287). The handle arrives once they name it. */}
+            <FeedbackPrompt
+              action="claim"
+              handle={profile?.handle}
+              address={profile?.address ?? wallet?.address}
+              className="w-full"
+            />
 
             {/* Skipping naming still leaves a valid claim; the old "Create your profile"
                 path (and, for a returning user, their profile) both stay reachable. */}

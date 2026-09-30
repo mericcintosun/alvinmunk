@@ -3,10 +3,14 @@
  *
  * POST  { subscription: PushSubscriptionJSON, walletAddress: string, vouchId: number }
  *       { subscription: PushSubscriptionJSON, walletAddress: string, vouchIds: number[] }
- *   → Upserts a subscription record keyed by endpoint.
+ *       { subscription: PushSubscriptionJSON, walletAddress: string }
+ *   → Upserts a subscription record keyed by endpoint, for a G… or C… `walletAddress`.
  *   → Adds the vouch ID(s) to the set of vouch IDs the voucher wants notified about. The
  *     legacy single `vouchId` and the `vouchIds` array (used when a rotated subscription
  *     re-registers with every still-pending vouch) are both accepted.
+ *   → With no vouch ID (no field, or an empty `vouchIds`) it is a general opt-in (#297):
+ *     the wallet gets its tip notifications without ever having minted. A vouch field that
+ *     is present but malformed is rejected, never read as a general opt-in.
  *
  * PATCH { oldEndpoint: string, subscription: PushSubscriptionJSON, walletAddress: string }
  *   → Moves the stored record to the new endpoint key (pushsubscriptionchange, #169),
@@ -27,7 +31,14 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { removeSubscription, saveSubscription, saveSubscriptionWithVouchIds, moveSubscription } from '@/lib/push-store';
+import { isStellarAddress } from '@alvinmunk/shared';
+import {
+  removeSubscription,
+  saveGeneralSubscription,
+  saveSubscription,
+  saveSubscriptionWithVouchIds,
+  moveSubscription,
+} from '@/lib/push-store';
 import { withRoute } from '@/lib/api-route';
 
 const MAX_BODY = 4096;
@@ -48,29 +59,38 @@ export const POST = withRoute('POST /api/push/subscribe', async (req: NextReques
 
   const { subscription, walletAddress } = body;
 
-  // Accept either the legacy single `vouchId` or a `vouchIds` array (used when a rotated
-  // subscription re-registers with every still-pending vouch).
-  const vouchIds = Array.isArray(body.vouchIds)
-    ? body.vouchIds.filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
-    : typeof body.vouchId === 'number' && Number.isFinite(body.vouchId)
-      ? [body.vouchId]
-      : [];
+  const isVouchId = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0;
+  // `vouchIds` (a rotated subscription re-registering, #169) wins over the legacy `vouchId`;
+  // neither is a general opt-in (#297).
+  const vouchIds: number[] | null =
+    body.vouchIds !== undefined
+      ? Array.isArray(body.vouchIds) && body.vouchIds.every(isVouchId)
+        ? body.vouchIds
+        : null
+      : body.vouchId !== undefined
+        ? isVouchId(body.vouchId)
+          ? [body.vouchId]
+          : null
+        : [];
 
   if (
     !subscription ||
     typeof subscription.endpoint !== 'string' ||
     !subscription.endpoint.startsWith('https://') ||
-    !walletAddress ||
     typeof walletAddress !== 'string' ||
-    vouchIds.length === 0
+    !isStellarAddress(walletAddress) ||
+    vouchIds === null
   ) {
     return NextResponse.json({ error: 'missing or invalid fields' }, { status: 422 });
   }
 
-  if (Array.isArray(body.vouchIds)) {
-    await saveSubscriptionWithVouchIds(subscription, walletAddress, vouchIds);
+  const wallet = walletAddress.trim();
+  if (vouchIds.length === 0) {
+    await saveGeneralSubscription(subscription, wallet);
+  } else if (body.vouchIds !== undefined) {
+    await saveSubscriptionWithVouchIds(subscription, wallet, vouchIds);
   } else {
-    await saveSubscription(subscription, walletAddress, vouchIds[0]);
+    await saveSubscription(subscription, wallet, vouchIds[0]);
   }
 
   return NextResponse.json({ ok: true });
