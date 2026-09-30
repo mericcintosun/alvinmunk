@@ -556,5 +556,14 @@
   "inbox.item.claim": "{who} yarım kartını aldı",
   "inbox.item.tip": "{who} sana {amount} USDC bahşiş gönderdi",
   "inbox.item.quest": "#{id} numaralı görev doğrulandı — Kazanılan XP eklendi",
-  "inbox.item.streak": "Görev serin {weeks} haftaya ulaştı"
+  "inbox.item.streak": "Görev serin {weeks} haftaya ulaştı",
+
+  "feedback.prompt.ariaLabel": "Hızlı geri bildirim",
+  "feedback.prompt.question": "Nasıldı?",
+  "feedback.prompt.thumbsUp": "Harikaydı",
+  "feedback.prompt.thumbsDown": "İyi değildi",
+  "feedback.prompt.tellUsMore": "Daha fazla anlat →",
+  "feedback.prompt.dismiss": "Geri bildirimi kapat",
+
+  "footer.link.feedback": "Geri Bildirim"
 }

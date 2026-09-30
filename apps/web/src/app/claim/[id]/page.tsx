@@ -30,6 +30,7 @@ import { Input } from '@/components/ui/input';
 import { useCreateProfile } from '@/hooks/use-create-profile';
 import { useTranslations } from '@/lib/i18n';
 import { cn, humanizeError, withTimeout } from '@/lib/utils';
+import { FeedbackPrompt } from '@/components/FeedbackPrompt';
 
 /** Read the claim code from the URL: the claim key's seed (#k=…) on current links, the
  *  plain secret (#s=…, or the older ?s= query) on links to cards minted before the key.
@@ -360,9 +361,17 @@ function ClaimInner({ params }: { params: { id: string } }) {
             {/* Inline handle picker — the claimer just got a wallet, so they can pick
                 a name without a second connect or FaceID prompt. */}
             {!profile && <ClaimHandlePicker />}
-
             {/* Skipping naming still leaves a valid claim; the old "Create your profile"
                 path (and, for a returning user, their profile) both stay reachable. */}
+            <FeedbackPrompt
+              storageKey="feedback:claim"
+              prefill={
+                profile
+                  ? { 'entry.handle': `@${profile.handle}`, 'entry.address': profile.address }
+                  : undefined
+              }
+              className="w-full"
+            />
             <Link href="/app" className="font-mono text-xs text-muted-foreground underline">
               {profile ? t('claim.openApp') : t('claim.skip')}
             </Link>
