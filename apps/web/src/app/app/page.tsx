@@ -11,6 +11,7 @@ import { FirstStarNudge } from '@/components/FirstStarNudge';
 import { InviteNudge } from '@/components/InviteNudge';
 import { PendingHalfCards } from '@/components/PendingHalfCards';
 import { OwedBonuses } from '@/components/OwedBonuses';
+import { PendingBonusNudge } from '@/components/PendingBonusNudge';
 import { ActivityFeed } from '@/components/ActivityFeed';
 import { useTranslations } from '@/lib/i18n';
 
@@ -76,6 +77,9 @@ export default function AppHome() {
       {/* First-run + invite nudges (self-hiding) */}
       <FirstStarNudge />
       <InviteNudge />
+
+      {/* Pending bonus nudge: unverified users with queued voucher bonuses — self-hides when verified or empty */}
+      <PendingBonusNudge />
 
       {/* Time-sensitive: unclaimed half-cards you minted (stake at risk) — self-hides when empty */}
       <PendingHalfCards />

@@ -446,6 +446,10 @@
   "inviteNudge.message": "invited you — light a star and send it back to complete the loop.",
   "inviteNudge.dismiss": "Dismiss",
 
+  "pendingBonusNudge.title": "{count} people get +{total} when you complete your first quest",
+  "pendingBonusNudge.body": "Your vouches are waiting on your first verified action — complete a quest to unlock their bonuses.",
+  "pendingBonusNudge.action": "Complete a quest →",
+
   "pendingHalfCards.frame": "pending // awaiting_claim",
   "pendingHalfCards.empty.title": "No half-cards waiting",
   "pendingHalfCards.empty.body": "When you mint a vouch that nobody claims yet, this panel becomes your friendly reminder to share it again.",

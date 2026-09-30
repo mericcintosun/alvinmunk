@@ -900,6 +900,31 @@ This shape is **frozen** for the same reason as `Profile` below: the funnel and 
 bindings decode exactly these nine fields. A card's claim key is therefore not a field but
 its own entry (next section).
 
+### `PendingBonus`
+
+`get_pending(claimer)` returns `Vec<PendingBonus>` — the 2nd-order voucher bonuses queued on
+`claimer`, one entry per voucher whose first-pair claim is waiting on the claimer's first
+verified (Earned) action. Empty once the claimer verifies (the queue is paid out and removed)
+and for any address with nothing queued. At most `MAX_PENDING` (64) entries.
+
+```rust
+pub struct PendingBonus {
+    pub voucher: Address,   // the voucher who will receive this bonus
+    pub amount: u64,       // Social XP to pay on the claimer's first verified action
+}
+```
+
+- **Asymmetric reward mechanism** (belts/08-anti-sybil.md §1): the claimer earns Social XP on
+  claim, but the voucher's 2nd-order bonus only unlocks once the claimer later performs a
+  verified (Earned) action — a second-degree gate that breaks pure-ring auto-confirm.
+- The queue is written by `settle_claim` when a fresh first-pair claim is made by an unverified
+  claimer, and read/paid by `add_earned` on the claimer's first Earned credit.
+- Bounded by `MAX_PENDING` so the release loop in `add_earned` can never grow unbounded; bonuses
+  past the cap are dropped (ring-spam guard).
+- This read view makes the invisible anti-sybil rule visible: claimers can see who is waiting
+  on them to verify, and vouchers can understand why their bonus hasn't arrived (a voucher-side
+  view would require a reverse index and is out of scope).
+
 ### Claim keys (`mint_vouch_signed` / `claim_vouch_signed` / `get_claim_key`)
 
 A claim-secret card (`mint_vouch` / `claim_vouch`) is front-runnable: the secret is a plain

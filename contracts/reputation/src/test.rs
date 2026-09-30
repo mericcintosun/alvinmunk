@@ -588,6 +588,53 @@ fn bonus_immediate_when_claimer_already_verified() {
 }
 
 #[test]
+fn get_pending_returns_queued_bonuses_before_verification() {
+    let (env, client, _admin) = setup();
+    let attester = Address::generate(&env);
+    client.add_attester(&attester);
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+
+    // Alice vouches Bob -> bonus queued (Bob unverified)
+    let (s, h) = secret_and_hash(&env, 7);
+    let id = client.mint_vouch(&alice, &h, &String::from_str(&env, "x"));
+    client.claim_vouch(&bob, &id, &s);
+
+    let pending = client.get_pending(&bob);
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending.get(0).unwrap().voucher, alice);
+    assert_eq!(pending.get(0).unwrap().amount, BONUS_VOUCHER);
+}
+
+#[test]
+fn get_pending_returns_empty_vec_after_verification() {
+    let (env, client, _admin) = setup();
+    let attester = Address::generate(&env);
+    client.add_attester(&attester);
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+
+    // Alice vouches Bob -> bonus queued
+    let (s, h) = secret_and_hash(&env, 7);
+    let id = client.mint_vouch(&alice, &h, &String::from_str(&env, "x"));
+    client.claim_vouch(&bob, &id, &s);
+    assert_eq!(client.get_pending(&bob).len(), 1);
+
+    // Bob verifies -> queue paid out and removed
+    client.award_xp(&attester, &bob, &2u32, &50u64);
+    let pending = client.get_pending(&bob);
+    assert_eq!(pending.len(), 0);
+}
+
+#[test]
+fn get_pending_returns_empty_vec_for_address_with_nothing_queued() {
+    let (env, client, _admin) = setup();
+    let stranger = Address::generate(&env);
+    let pending = client.get_pending(&stranger);
+    assert_eq!(pending.len(), 0);
+}
+
+#[test]
 fn insufficient_stake_reverts() {
     let (env, client, _admin) = setup();
     let alice = Address::generate(&env);
