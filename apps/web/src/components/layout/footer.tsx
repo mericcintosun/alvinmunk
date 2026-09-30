@@ -6,9 +6,11 @@ import { NetworkBadge } from '@/components/layout/network-badge';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useTranslations } from '@/lib/i18n';
 import { asset } from '@/lib/assets';
+import { feedbackFormLink } from '@/lib/feedback';
 
 export function Footer() {
   const t = useTranslations();
+  const feedback = feedbackFormLink(); // null → no form configured, no link (#287)
 
   const COLS = [
     {
@@ -31,9 +33,7 @@ export function Footer() {
       links: [
         { href: 'https://github.com/mericcintosun/alvinmunk', label: t('footer.link.github') },
         { href: 'https://x.com', label: t('footer.link.twitter') },
-        ...(process.env.NEXT_PUBLIC_FEEDBACK_FORM_URL
-          ? [{ href: process.env.NEXT_PUBLIC_FEEDBACK_FORM_URL, label: t('footer.link.feedback') }]
-          : []),
+        ...(feedback ? [{ href: feedback, label: t('footer.link.feedback') }] : []),
       ],
     },
   ];

@@ -230,7 +230,6 @@ export function VouchCompose() {
             </div>
 
             {link && (
-              <>
               <div className="mt-3 rounded-xl border border-secondary/30 bg-secondary/10 p-3">
                 <div className="mb-2 flex items-center gap-3">
                   <StateArt kind="vouch-sent" size={92} className="shrink-0 motion-safe:animate-ignite" />
@@ -286,18 +285,18 @@ export function VouchCompose() {
                   )}
                 </div>
               </div>
-              <FeedbackPrompt
-                storageKey="feedback:vouch"
-                prefill={
-                  profile
-                    ? { 'entry.handle': `@${profile.handle}`, 'entry.address': profile.address }
-                    : undefined
-                }
-                className="mt-1"
-              />
-              </>
             )}
           </>
+        )}
+
+        {/* After the first vouch — a single card or a cohort — ask once (#287). */}
+        {(mode === 'one' ? link !== null : cards.length > 0) && (
+          <FeedbackPrompt
+            action="vouch"
+            handle={profile?.handle}
+            address={profile?.address}
+            className="mt-3"
+          />
         )}
 
         {error && <p className="mt-2 text-sm text-destructive">{error}</p>}

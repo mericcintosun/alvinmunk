@@ -1,126 +1,106 @@
 'use client';
 
-/**
- * FeedbackPrompt — a lightweight thumbs-up / thumbs-down card shown once after a key
- * action (claim or first vouch). Behaviour:
- *
- *  • Hidden entirely when NEXT_PUBLIC_FEEDBACK_FORM_URL is unset.
- *  • Shown at most once per `storageKey`; dismissal (any button) is persisted in
- *    localStorage so it never reappears on the same device.
- *  • "Tell us more" opens the Google Form with `handle` and `address` pre-filled via
- *    `entry.*` query params passed in through `prefill`.
- *  • Thumbs up/down fire first, then automatically open the form.
- */
-
-import { useState, useEffect } from 'react';
-import { ThumbsUp, ThumbsDown, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ThumbsDown, ThumbsUp, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { getItem, setItem } from '@/lib/storage';
+import { feedbackFormLink, feedbackFormUrl } from '@/lib/feedback';
 import { useTranslations } from '@/lib/i18n';
+import { getItem, setItem } from '@/lib/storage';
+import { track } from '@/lib/track';
 import { cn } from '@/lib/utils';
 
-const FORM_URL = process.env.NEXT_PUBLIC_FEEDBACK_FORM_URL ?? '';
+/** The key actions that ask for feedback, each at most once per browser. */
+export type FeedbackAction = 'claim' | 'vouch';
 
-export interface FeedbackPromptProps {
-  /**
-   * Unique localStorage key for dismissal state, e.g. "feedback:claim" or
-   * "feedback:vouch". The component is shown at most once per key per device.
-   */
-  storageKey: string;
-  /**
-   * Optional query-param pairs that pre-fill the Google Form.
-   * Keys must match the form's `entry.*` field names.
-   * Example: { 'entry.123': '@beko', 'entry.456': 'GABC…' }
-   */
-  prefill?: Record<string, string>;
+export const feedbackSeenKey = (action: FeedbackAction) => `alvinmunk.feedback.${action}`;
+
+/**
+ * In-context feedback (#287): right after a claim or the first vouch, a dismissible
+ * "how was that?" card — 👍 / 👎 plus "Tell us more", which opens the feedback form with
+ * the handle and address prefilled (lib/feedback). It shows once per action: the first
+ * time it appears is remembered in localStorage, so the next vouch goes unasked. Renders
+ * nothing when no form is configured.
+ */
+export function FeedbackPrompt({
+  action,
+  handle,
+  address,
+  className,
+}: {
+  action: FeedbackAction;
+  handle?: string | null;
+  address?: string | null;
   className?: string;
-}
-
-export function FeedbackPrompt({ storageKey, prefill, className }: FeedbackPromptProps) {
+}) {
   const t = useTranslations();
+  const [open, setOpen] = useState(false);
+  const [rated, setRated] = useState(false);
 
-  // Don't render at all when the env var is unset.
-  const [mounted, setMounted] = useState(false);
-  const [dismissed, setDismissed] = useState(true); // safe default: hidden on SSR
-
+  // After mount: storage is client-only, and a server render must not guess.
   useEffect(() => {
-    setMounted(true);
-    setDismissed(getItem(storageKey) === 'dismissed');
-  }, [storageKey]);
+    if (!feedbackFormUrl()) return;
+    const key = feedbackSeenKey(action);
+    if (getItem(key)) return;
+    setItem(key, 'shown');
+    setOpen(true);
+  }, [action]);
 
-  if (!FORM_URL || !mounted || dismissed) return null;
+  const href = feedbackFormLink({ handle, address });
+  if (!open || !href) return null;
 
-  function dismiss() {
-    setItem(storageKey, 'dismissed');
-    setDismissed(true);
-  }
-
-  function buildFormUrl(sentiment?: 'up' | 'down'): string {
-    const params = new URLSearchParams(prefill ?? {});
-    if (sentiment) params.set('entry.sentiment', sentiment === 'up' ? '👍' : '👎');
-    const qs = params.toString();
-    return qs ? `${FORM_URL}?${qs}` : FORM_URL;
-  }
-
-  function onThumb(sentiment: 'up' | 'down') {
-    dismiss();
-    window.open(buildFormUrl(sentiment), '_blank', 'noopener,noreferrer');
-  }
-
-  function onTellUsMore() {
-    dismiss();
-    window.open(buildFormUrl(), '_blank', 'noopener,noreferrer');
+  function rate(rating: 'up' | 'down') {
+    track('feedback_rated', { action, rating });
+    setRated(true);
   }
 
   return (
-    <div
-      role="region"
-      aria-label={t('feedback.prompt.ariaLabel')}
+    <section
+      aria-label={t('feedback.prompt.label')}
       className={cn(
         'flex items-start justify-between gap-3 rounded-xl border border-border/60 bg-surface/40 p-3',
         className,
       )}
     >
       <div className="flex flex-col gap-2">
-        <p className="text-xs font-medium text-foreground/90">{t('feedback.prompt.question')}</p>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onThumb('up')}
-            aria-label={t('feedback.prompt.thumbsUp')}
-            className="gap-1.5 px-3"
+        <p className="text-xs font-medium text-foreground/90" aria-live="polite">
+          {rated ? t('feedback.prompt.thanks') : t('feedback.prompt.question')}
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          {!rated && (
+            <>
+              <Button variant="outline" size="sm" onClick={() => rate('up')} className="gap-1.5 px-3">
+                <ThumbsUp className="size-3.5" aria-hidden />
+                <span className="text-xs">{t('feedback.prompt.up')}</span>
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => rate('down')} className="gap-1.5 px-3">
+                <ThumbsDown className="size-3.5" aria-hidden />
+                <span className="text-xs">{t('feedback.prompt.down')}</span>
+              </Button>
+            </>
+          )}
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => {
+              track('feedback_form_opened', { action });
+              setRated(true); // keep the link mounted: a detached <a> doesn't navigate
+            }}
+            className="font-mono text-[10px] uppercase tracking-wider text-primary/80 underline underline-offset-2 transition-colors hover:text-primary"
           >
-            <ThumbsUp className="size-3.5" />
-            <span className="text-xs">{t('feedback.prompt.thumbsUp')}</span>
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onThumb('down')}
-            aria-label={t('feedback.prompt.thumbsDown')}
-            className="gap-1.5 px-3"
-          >
-            <ThumbsDown className="size-3.5" />
-            <span className="text-xs">{t('feedback.prompt.thumbsDown')}</span>
-          </Button>
-          <button
-            onClick={onTellUsMore}
-            className="font-mono text-[10px] uppercase tracking-wider text-primary/70 underline underline-offset-2 transition-colors hover:text-primary"
-          >
-            {t('feedback.prompt.tellUsMore')}
-          </button>
+            {t('feedback.prompt.more')}
+          </a>
         </div>
       </div>
       <Button
         variant="ghost"
         size="icon"
-        onClick={dismiss}
+        onClick={() => setOpen(false)}
         aria-label={t('feedback.prompt.dismiss')}
         className="size-6 shrink-0 text-muted-foreground hover:text-foreground"
       >
         <X className="size-3.5" />
       </Button>
-    </div>
+    </section>
   );
 }

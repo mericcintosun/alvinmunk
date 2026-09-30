@@ -17,6 +17,7 @@ import {
 } from '@/lib/reputation';
 import { getMeta, reverseHandle } from '@/lib/registry';
 import { Avatar } from '@/components/Avatar';
+import { FeedbackPrompt } from '@/components/FeedbackPrompt';
 import type { AvatarConfig } from '@/lib/avatar';
 import { Crest } from '@/components/brand/crest';
 import { Frame } from '@/components/fx/frame';
@@ -30,7 +31,6 @@ import { Input } from '@/components/ui/input';
 import { useCreateProfile } from '@/hooks/use-create-profile';
 import { useTranslations } from '@/lib/i18n';
 import { cn, humanizeError, withTimeout } from '@/lib/utils';
-import { FeedbackPrompt } from '@/components/FeedbackPrompt';
 
 /** Read the claim code from the URL: the claim key's seed (#k=…) on current links, the
  *  plain secret (#s=…, or the older ?s= query) on links to cards minted before the key.
@@ -70,7 +70,7 @@ function ClaimInner({ params }: { params: { id: string } }) {
   const { id } = params;
   const vid = Number(id);
   const validId = Number.isInteger(vid) && vid >= 0;
-  const { connect, profile } = useWallet();
+  const { connect, profile, wallet } = useWallet();
   const t = useTranslations();
   const [claimCode, setClaimCode] = useState<ClaimCode | null>(null);
   const [state, setState] = useState<'preview' | 'claiming' | 'done' | 'error'>('preview');
@@ -361,17 +361,17 @@ function ClaimInner({ params }: { params: { id: string } }) {
             {/* Inline handle picker — the claimer just got a wallet, so they can pick
                 a name without a second connect or FaceID prompt. */}
             {!profile && <ClaimHandlePicker />}
-            {/* Skipping naming still leaves a valid claim; the old "Create your profile"
-                path (and, for a returning user, their profile) both stay reachable. */}
+
+            {/* Asked once, at the moment of delight (#287). The handle arrives once they name it. */}
             <FeedbackPrompt
-              storageKey="feedback:claim"
-              prefill={
-                profile
-                  ? { 'entry.handle': `@${profile.handle}`, 'entry.address': profile.address }
-                  : undefined
-              }
+              action="claim"
+              handle={profile?.handle}
+              address={profile?.address ?? wallet?.address}
               className="w-full"
             />
+
+            {/* Skipping naming still leaves a valid claim; the old "Create your profile"
+                path (and, for a returning user, their profile) both stay reachable. */}
             <Link href="/app" className="font-mono text-xs text-muted-foreground underline">
               {profile ? t('claim.openApp') : t('claim.skip')}
             </Link>

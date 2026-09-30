@@ -25,6 +25,7 @@
   "footer.link.walletDemo": "Wallet demo",
   "footer.link.github": "GitHub",
   "footer.link.twitter": "X / Twitter",
+  "footer.link.feedback": "Feedback",
 
   "landing.eyebrow": "proof-of-people · stellar",
   "landing.hero.title1": "Collect people,",
@@ -445,6 +446,13 @@
   "inviteNudge.frame": "invite // pending",
   "inviteNudge.message": "invited you — light a star and send it back to complete the loop.",
   "inviteNudge.dismiss": "Dismiss",
+  "feedback.prompt.label": "Quick feedback",
+  "feedback.prompt.question": "How was that?",
+  "feedback.prompt.up": "Loved it",
+  "feedback.prompt.down": "Not great",
+  "feedback.prompt.thanks": "Thanks — that helps.",
+  "feedback.prompt.more": "Tell us more →",
+  "feedback.prompt.dismiss": "Dismiss",
 
   "pendingHalfCards.frame": "pending // awaiting_claim",
   "pendingHalfCards.empty.title": "No half-cards waiting",
@@ -556,14 +564,5 @@
   "inbox.item.claim": "{who} claimed your half-card",
   "inbox.item.tip": "{who} tipped you {amount} USDC",
   "inbox.item.quest": "Quest #{id} verified — Earned XP added",
-  "inbox.item.streak": "Your quest streak reached {weeks} weeks",
-
-  "feedback.prompt.ariaLabel": "Quick feedback",
-  "feedback.prompt.question": "How was that?",
-  "feedback.prompt.thumbsUp": "Great",
-  "feedback.prompt.thumbsDown": "Not great",
-  "feedback.prompt.tellUsMore": "Tell us more →",
-  "feedback.prompt.dismiss": "Dismiss feedback",
-
-  "footer.link.feedback": "Feedback"
+  "inbox.item.streak": "Your quest streak reached {weeks} weeks"
 }

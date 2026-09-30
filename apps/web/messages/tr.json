@@ -25,6 +25,7 @@
   "footer.link.walletDemo": "Cüzdan demosu",
   "footer.link.github": "GitHub",
   "footer.link.twitter": "X / Twitter",
+  "footer.link.feedback": "Geri bildirim",
 
   "landing.eyebrow": "insanların kanıtı · stellar",
   "landing.hero.title1": "İnsanları topla,",
@@ -445,6 +446,13 @@
   "inviteNudge.frame": "davet // bekliyor",
   "inviteNudge.message": "seni davet etti — döngüyü tamamlamak için bir yıldız yakıp geri gönder.",
   "inviteNudge.dismiss": "Kapat",
+  "feedback.prompt.label": "Hızlı geri bildirim",
+  "feedback.prompt.question": "Nasıldı?",
+  "feedback.prompt.up": "Bayıldım",
+  "feedback.prompt.down": "Pek iyi değil",
+  "feedback.prompt.thanks": "Teşekkürler — çok işimize yarar.",
+  "feedback.prompt.more": "Biraz daha anlat →",
+  "feedback.prompt.dismiss": "Kapat",
 
   "pendingHalfCards.frame": "bekleyen // talep_bekliyor",
   "pendingHalfCards.empty.title": "Bekleyen yarım kart yok",
@@ -556,14 +564,5 @@
   "inbox.item.claim": "{who} yarım kartını aldı",
   "inbox.item.tip": "{who} sana {amount} USDC bahşiş gönderdi",
   "inbox.item.quest": "#{id} numaralı görev doğrulandı — Kazanılan XP eklendi",
-  "inbox.item.streak": "Görev serin {weeks} haftaya ulaştı",
-
-  "feedback.prompt.ariaLabel": "Hızlı geri bildirim",
-  "feedback.prompt.question": "Nasıldı?",
-  "feedback.prompt.thumbsUp": "Harikaydı",
-  "feedback.prompt.thumbsDown": "İyi değildi",
-  "feedback.prompt.tellUsMore": "Daha fazla anlat →",
-  "feedback.prompt.dismiss": "Geri bildirimi kapat",
-
-  "footer.link.feedback": "Geri Bildirim"
+  "inbox.item.streak": "Görev serin {weeks} haftaya ulaştı"
 }
