@@ -31,6 +31,7 @@ describe('server segments that read the chain opt out of the fetch cache', () =>
   it('finds the known chain-reading segments (so the scan itself is not broken)', () => {
     const files = readers.map((s) => s.file).sort();
     for (const known of [
+      'api/cron/notify/route.ts',
       'api/health/route.ts',
       'api/stats/route.ts',
       'claim/[id]/opengraph-image.tsx',
