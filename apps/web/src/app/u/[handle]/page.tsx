@@ -138,7 +138,7 @@ export default function ProfilePage({
           </div>
         </div>
 
-        <div className="grid grid-cols-3 divide-x divide-border/60 border-t border-border/60">
+        <div className="grid min-w-0 grid-cols-3 divide-x divide-border/60 border-t border-border/60">
           <Field label="VOUCHED_BY" value={people?.vouchedBy} accent="primary" />
           <Field label="BACKED" value={people?.backed} accent="tertiary" />
           <Field label="EARNED_XP" value={scores?.earned} accent="secondary" />
@@ -201,12 +201,12 @@ function Field({
 }) {
   const c = accent === 'primary' ? 'text-primary' : accent === 'secondary' ? 'text-secondary' : 'text-tertiary';
   return (
-    <div className="p-5">
-      <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
+    <div className="min-w-0 p-3 sm:p-5">
+      <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground break-words">{label}</p>
       {value === undefined ? (
         <Skeleton className="mt-2 h-8 w-12" />
       ) : (
-        <p className={cn('mt-2 font-display text-3xl font-semibold', c)}>{value}</p>
+        <p className={cn('mt-2 font-display text-2xl font-semibold sm:text-3xl', c)}>{value}</p>
       )}
     </div>
   );
