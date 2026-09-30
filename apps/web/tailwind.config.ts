@@ -62,16 +62,19 @@ const config: Config = {
           DEFAULT: 'hsl(var(--surface) / <alpha-value>)',
           2: 'hsl(var(--surface-2) / <alpha-value>)',
         },
-        /* Per-theme text variants — use these for text so looks clear WCAG AA in both themes. */
-        'primary-text': 'hsl(var(--primary-text) / <alpha-value>)',
-        'secondary-text': 'hsl(var(--secondary-text) / <alpha-value>)',
-        'accent-text': 'hsl(var(--accent-text) / <alpha-value>)',
-        'destructive-text': 'hsl(var(--destructive-text) / <alpha-value>)',
-        'success-text': 'hsl(var(--success-text) / <alpha-value>)',
-        'warning-text': 'hsl(var(--warning-text) / <alpha-value>)',
-        'tertiary-text': 'hsl(var(--tertiary-text) / <alpha-value>)',
-        'lime-text': 'hsl(var(--lime-text) / <alpha-value>)',
-        'onchain-text': 'hsl(var(--onchain-text) / <alpha-value>)',
+      },
+      // text-* reads each semantic colour's *-text variant (4.5:1 on every surface in both
+      // themes); bg-, border-, ring- and the rest keep the brighter fill from `colors`.
+      textColor: {
+        primary: { DEFAULT: 'hsl(var(--primary-text) / <alpha-value>)' },
+        onchain: 'hsl(var(--onchain-text) / <alpha-value>)',
+        secondary: { DEFAULT: 'hsl(var(--secondary-text) / <alpha-value>)' },
+        success: 'hsl(var(--success-text) / <alpha-value>)',
+        accent: { DEFAULT: 'hsl(var(--accent-text) / <alpha-value>)' },
+        warning: 'hsl(var(--warning-text) / <alpha-value>)',
+        destructive: { DEFAULT: 'hsl(var(--destructive-text) / <alpha-value>)' },
+        tertiary: 'hsl(var(--tertiary-text) / <alpha-value>)',
+        lime: { DEFAULT: 'hsl(var(--lime-text) / <alpha-value>)' },
       },
       fontFamily: {
         display: ['var(--font-display)', 'system-ui', 'sans-serif'],
@@ -144,7 +147,7 @@ const config: Config = {
         'fade-up': 'fade-up 0.5s cubic-bezier(0.22,1,0.36,1) both',
         breathe: 'breathe 5.2s ease-in-out infinite',
         ignite: 'ignite 0.42s cubic-bezier(0.22,1,0.36,1) both',
-        twinke: 'twinke 4s ease-in-out infinite',
+        twinkle: 'twinkle 4s ease-in-out infinite',
         float: 'float 6s ease-in-out infinite',
         'glow-pulse': 'glow-pulse 6s ease-in-out infinite',
         'gradient-pan': 'gradient-pan 6s ease-in-out infinite',

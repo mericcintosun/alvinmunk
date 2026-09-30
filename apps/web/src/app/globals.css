@@ -33,9 +33,17 @@
   --destructive-foreground: 265 60% 6%;
   --success: 157 84% 52%;
   --warning: 38 95% 62%;
+  /* Text variants of the semantic colours: what text-* utilities read (tailwind textColor).
+     4.5:1 on every surface in both themes; bg-, border- and ring- keep the fills above. */
+  --primary-text: 265 100% 72%;
+  --onchain-text: 265 100% 72%;
   --secondary-text: 157 84% 52%;
-  --destructive-text: 350 82% 62%;
+  --success-text: 157 84% 52%;
+  --accent-text: 36 100% 64%;
   --warning-text: 38 95% 62%;
+  --destructive-text: 350 82% 64%;
+  --tertiary-text: 193 100% 52%;
+  --lime-text: 79 94% 64%;
 
   --border: 265 26% 16%;
   --input: 265 26% 16%;
@@ -47,9 +55,6 @@
 
   /* the signature flow + depth surfaces */
   --tertiary: 193 100% 52%; /* cyan — social / connection */
-  --tertiary-text: 193 100% 52%;
-  --accent-text: 36 100% 64%;
-  --lime-text: 79 94% 64%;
   /* violet stop of .flow, kept light enough for the dark flow-button label to clear AA */
   --flow-violet: 265 100% 66%;
   --surface: 266 34% 9%;
@@ -90,12 +95,15 @@
   --destructive-foreground: 265 60% 8%;
   --success: 157 84% 45%;
   --warning: 38 95% 55%;
-  --secondary-text: 157 84% 26%;
-  --destructive-text: 350 82% 38%;
-  --warning-text: 38 95% 30%;
-  --tertiary-text: 193 100% 28%;
-  --accent-text: 36 100% 30%;
-  --lime-text: 79 94% 26%;
+  --primary-text: 265 100% 54%;
+  --onchain-text: 265 100% 54%;
+  --secondary-text: 157 84% 24%;
+  --success-text: 157 84% 24%;
+  --accent-text: 36 100% 28%;
+  --warning-text: 38 95% 28%;
+  --destructive-text: 350 82% 42%;
+  --tertiary-text: 193 100% 27%;
+  --lime-text: 79 94% 22%;
   --border: 265 26% 85%;
   --input: 265 26% 85%;
   --ring: 265 100% 60%;
@@ -115,26 +123,6 @@
   --glass-shadow: 230 40% 30%;
 }
 
-@layer utilities {
-  .text-secondary {
-    color: hsl(var(--secondary-text));
-  }
-  .text-destructive {
-    color: hsl(var(--destructive-text));
-  }
-  .text-warning {
-    color: hsl(var(--warning-text));
-  }
-  .text-tertiary {
-    color: hsl(var(--tertiary-text));
-  }
-  .text-accent {
-    color: hsl(var(--accent-text));
-  }
-  .text-lime {
-    color: hsl(var(--lime-text));
-  }
-}
 
 @layer base {
   * {
@@ -158,9 +146,6 @@
   }
   .text-balance {
     text-wrap: balance;
-  }
-  .text-success {
-    color: hsl(var(--secondary-text));
   }
 
   /* Signature flowing gradient — violet → cyan → green → violet (the constellation
