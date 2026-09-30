@@ -201,7 +201,7 @@ export default function PeoplePage() {
                   </p>
                   <div className="mt-1.5 flex items-center gap-4 font-mono text-xs text-muted-foreground">
                     <span className="inline-flex items-center gap-1">
-                      <Star className={cn('size-3.5', result.social > 0 ? 'text-yellow-400' : 'text-muted-foreground/40')} />
+                      <Star className={cn('size-3.5', result.social > 0 ? 'text-accent' : 'text-muted-foreground/40')} />
                       {result.social} Social
                     </span>
                     <span className="inline-flex items-center gap-1">
@@ -303,7 +303,7 @@ function SuggestionPanel({ suggestions, loading, t }: SuggestionPanelProps) {
       </div>
 
       {/* Attribution footnote — when #109's read API lands, this note can be removed. */}
-      <p className="pt-1 text-center text-[11px] text-muted-foreground">{t('people.suggest.footnote')}</p>
+      <p className="pt-1 text-center text-2xs text-muted-foreground">{t('people.suggest.footnote')}</p>
     </div>
   );
 }
@@ -325,7 +325,7 @@ function SuggestionCard({ suggestion: s, t }: { suggestion: Suggestion; t: TFn }
 
       <div className="min-w-0 flex-1">
         <p className="truncate font-display text-sm font-semibold">{label}</p>
-        <p className="truncate text-[11px] text-muted-foreground">{mutualText}</p>
+        <p className="truncate text-2xs text-muted-foreground">{mutualText}</p>
       </div>
 
       {/* `/u/[handle]` resolves ON-CHAIN by handle — an address with no claimed handle

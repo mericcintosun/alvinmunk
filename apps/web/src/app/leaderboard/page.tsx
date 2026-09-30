@@ -100,13 +100,13 @@ function Leaderboard({ net }: { net: ReadNetwork | null }) {
   return (
     <div className="container max-w-2xl py-14">
       {net && <ReadOnlyBanner network={net.network} />}
-      <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-primary/80">{t('leaderboard.eyebrow')}</p>
+      <p className="eyebrow-mono text-primary/80">{t('leaderboard.eyebrow')}</p>
       <div className="mt-4 flex items-end justify-between border-b border-border/60 pb-3">
         <h1 className="font-display text-4xl font-semibold tracking-tight">{t('leaderboard.title')}</h1>
         <span
           className={cn(
-            'inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.15em]',
-            stale && rows.length > 0 ? 'text-amber-400/90' : (stale ? 'text-destructive/80' : 'text-secondary/80'),
+            'inline-flex items-center gap-1.5 eyebrow-mono',
+            stale && rows.length > 0 ? 'text-warning' : stale ? 'text-destructive' : 'text-secondary',
           )}
           title={stale ? t('leaderboard.syncTitle.stale') : t('leaderboard.syncTitle.live')}
         >
@@ -114,7 +114,7 @@ function Leaderboard({ net }: { net: ReadNetwork | null }) {
             <span
               className={cn(
                 'size-1.5 rounded-full',
-                stale ? 'bg-amber-400' : 'bg-secondary motion-safe:animate-glow-pulse',
+                stale ? 'bg-warning' : 'bg-secondary motion-safe:animate-glow-pulse',
               )}
             />
           )}
@@ -212,7 +212,7 @@ function Leaderboard({ net }: { net: ReadNetwork | null }) {
                           shortAddr(e.address)
                         )}
                       </p>
-                      <div className="mt-0.5 flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider">
+                      <div className="mt-0.5 flex items-center gap-2 font-mono text-2xs uppercase tracking-wider">
                         {isMe && <span className="text-primary">{t('leaderboard.you')}</span>}
                         {e.flagged && (
                           <span title={t('leaderboard.flaggedTitle')} className="text-warning">

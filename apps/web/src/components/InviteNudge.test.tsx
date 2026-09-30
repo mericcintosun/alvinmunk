@@ -12,6 +12,7 @@ const { wallet } = vi.hoisted(() => ({
 vi.mock('@/components/wallet/wallet-provider', () => ({ useWallet: () => wallet }));
 
 import { InviteNudge } from './InviteNudge';
+import { buttonVariants } from '@/components/ui/button';
 
 const KEY = 'alvinmunk.ref';
 
@@ -82,6 +83,19 @@ describe('InviteNudge', () => {
     await render();
     expect(container.innerHTML).toBe('');
     expect(sessionStorage.getItem(KEY)).toBeNull();
+  });
+
+  it('the dismiss control is a 32px ghost icon button', async () => {
+    sessionStorage.setItem(KEY, 'bob');
+    await render();
+    const dismiss = container.querySelector<HTMLElement>('[aria-label="Dismiss"]');
+    expect(dismiss?.tagName).toBe('BUTTON');
+    const cls = dismiss!.className.split(/\s+/);
+    // h-8 / w-8 = 32px; hover and focus-visible are the ghost icon button's own
+    const ghostStates = buttonVariants({ variant: 'ghost', size: 'icon' })
+      .split(' ')
+      .filter((c) => c.startsWith('hover:') || c.startsWith('focus-visible:'));
+    expect(cls).toEqual(expect.arrayContaining(['h-8', 'w-8', 'rounded-full', ...ghostStates]));
   });
 
   it('dismissing hides the nudge and clears the ref', async () => {

@@ -74,7 +74,7 @@ export default function LandingPage() {
         <div className="container py-28 md:py-40">
           <div className="max-w-2xl">
             <Reveal>
-              <p className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.28em] text-primary/80">
+              <p className="flex items-center gap-2 eyebrow-mono text-primary/80">
                 <Plus className="size-3" />
                 {t('landing.eyebrow')}
               </p>
@@ -104,7 +104,7 @@ export default function LandingPage() {
               </div>
             </Reveal>
             <Reveal delay={0.24}>
-              <p className="mt-7 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+              <p className="mt-7 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-2xs uppercase tracking-wider text-muted-foreground">
                 {t('landing.hero.pills').split(' / ').map((pill, i, arr) => (
                   <span key={pill} className="contents">
                     <span>{pill}</span>
@@ -136,7 +136,7 @@ export default function LandingPage() {
             <div className="grid grid-cols-1 divide-y divide-border/60 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
               {STATS_META.map((s) => (
                 <div key={s.code} className="p-6">
-                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">{s.code}</p>
+                  <p className="eyebrow-mono text-muted-foreground">{s.code}</p>
                   <p className="mt-2 font-display text-4xl font-semibold">
                     <NumberTicker value={s.v} suffix={s.suffix} />
                   </p>
@@ -172,7 +172,7 @@ export default function LandingPage() {
                   </h3>
                   <p className="mt-2 max-w-lg text-muted-foreground">{t(s.dKey)}</p>
                 </div>
-                <span className="col-start-2 mt-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground md:col-start-3 md:mt-0 md:self-center md:text-right">
+                <span className="col-start-2 mt-2 eyebrow-mono text-muted-foreground md:col-start-3 md:mt-0 md:self-center md:text-right">
                   {t(s.tagKey)}
                 </span>
               </div>
@@ -200,7 +200,7 @@ export default function LandingPage() {
                     )}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-primary/60">{f.id}</span>
+                      <span className="eyebrow-mono text-primary/60">{f.id}</span>
                       <Sticker name={f.sticker} size={40} className="h-8 w-auto transition-transform group-hover:-rotate-6 group-hover:scale-110" />
                     </div>
                     <h3 className="mt-5 flex items-center gap-2 text-xl font-semibold">
@@ -241,7 +241,7 @@ export default function LandingPage() {
                 <div className="transition-transform duration-300 group-hover:-translate-y-1 group-hover:scale-105">
                   <Crest address={addr} size={72} points={i + 4} />
                 </div>
-                <span className="font-mono text-[10px] text-muted-foreground">★ {(SAMPLE.length - i) * 4}</span>
+                <span className="font-mono text-2xs text-muted-foreground">★ {(SAMPLE.length - i) * 4}</span>
               </div>
             ))}
           </div>
@@ -284,7 +284,7 @@ export default function LandingPage() {
         <div className="absolute left-1/2 top-1/2 size-[30rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/10 blur-3xl motion-safe:animate-glow-pulse" aria-hidden />
         <div className="container relative">
           <Reveal>
-            <p className="mb-4 font-mono text-[11px] uppercase tracking-[0.28em] text-primary/70">{t('landing.cta.eyebrow')}</p>
+            <p className="mb-4 eyebrow-mono text-primary/70">{t('landing.cta.eyebrow')}</p>
             <h2 className="mx-auto max-w-2xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
               {t('landing.cta.title')} <AuroraText>{t('landing.cta.titleHighlight')}</AuroraText>
             </h2>
