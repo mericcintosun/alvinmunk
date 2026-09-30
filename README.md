@@ -208,8 +208,165 @@ Feedback is collected via the public [Google Form](https://forms.gle/kNXR3zmZhGh
 | **[Ecosystem contribution](./docs/ECOSYSTEM.md)** | Open-source / community: Drips Wave maintainer, 26 bountied issues, **15 merged external-contributor PRs** |
 | **[Security review](./docs/SECURITY_REVIEW.md)** | Free self-audit — Scout + cargo-audit + cargo-deny + clippy + no-`unsafe`; 4 critical overflow findings fixed, 22 medium triaged, **0 exploitable** |
 | **[Deploy your own (testnet)](./docs/DEPLOY.md)** · **[Mainnet runbook](./docs/DEPLOY_MAINNET.md)** | Stand up a fresh instance; mainnet cutover checklist |
-| **[On-chain event schema](./docs/ON_CHAIN_EVENTS.md)** · **[Contributing](./CONTRIBUTING.md)** | Frozen event shapes; how to contribute |
+| **[On-chain event schema](./docs/ON_CHAIN_EVENTS.md)** · **[Contributing](./CONTRIBUTING.md)** | Frozen event shapes; how to contribute — including the [Drips Wave find → claim → PR flow](#contributing) |
 | **[Marketing kit](./docs/MARKETING.md)** · **[Pitch deck](./docs/pitch-deck.pdf)** | Launch thread + promotion; the designed deck |
+
+---
+
+## Contributing
+
+Built in the open. Bugs, contract work, tests, accessibility, docs and CI all come from people who
+file an issue and open a PR — start at **[CONTRIBUTING.md](./CONTRIBUTING.md)** for the local
+setup, the branch/commit conventions, and the full `pnpm check` gate list.
+
+### Get paid to contribute: Drips Wave
+
+This repo is an approved project in **[Drips Wave](https://www.drips.network/wave)**, the Stellar
+Wave program. Every issue labelled **`Stellar Wave`** is a point-bountied unit of work in a
+one-week sprint: fix it, merge it, and you earn Points — then withdraw your share of the Wave's
+reward pool as USDC on Stellar.
+
+| Step | What to do | Where |
+| --- | --- | --- |
+| **Find** | Browse the issues carrying the `Stellar Wave` label; scope labels like `good first issue`, `a11y`, `test` and `documentation` narrow the list | [Wave issues](https://github.com/mericcintosun/alvinmunk/labels/Stellar%20Wave) · [open only](https://github.com/mericcintosun/alvinmunk/issues?q=is%3Aissue+is%3Aopen+label%3A%22Stellar+Wave%22) |
+| **Claim** | Complete your [Wave KYC](https://docs.drips.network/wave/contributors/solving-issues-and-earning-rewards) first, apply with how you'd approach it, and start coding once you are assigned — one active issue per person | the [Drips Wave app](https://www.drips.network/wave) and the issue thread |
+| **PR** | Keep the diff to the issue, make `pnpm check` green, add tests, add before/after screenshots for UI work, and link the issue (`Closes #123`) | [CONTRIBUTING.md § Pull Request Process](./CONTRIBUTING.md#pull-request-process) |
+| **Review** | Reviewed within the Wave window; wait 24–48 h before a polite follow-up | [CONTRIBUTING.md § Review](./CONTRIBUTING.md#4-review-what-to-expect) |
+| **Points** | Trivial **100** · Medium **150** · High **200**, awarded when your merged PR resolves the issue; points are a *share* of the Wave pool, paid out in USDC | [Points & rewards](https://docs.drips.network/wave/points-and-rewards) |
+
+The complete find → claim → PR → review → points flow, the quality bar (no bulk-generated
+diffs, no duplicates) and the payout rules are in
+**[CONTRIBUTING.md § Contributing through Drips Wave](./CONTRIBUTING.md#contributing-through-drips-wave)**.
+
+### Contributors
+
+Every merge is credited, and every merged PR is a public record of it — the live list is
+**[all merged PRs by author](https://github.com/mericcintosun/alvinmunk/pulls?q=is%3Apr+is%3Amerged)**.
+The Wave cohort that opened the backlog and got the first fifteen merged:
+
+| Contributor | Merged contribution |
+| --- | --- |
+| [@Nife-tanny](https://github.com/Nife-tanny) | [#29](https://github.com/mericcintosun/alvinmunk/pull/29) — `decodeScVal` tests + malformed-input safety |
+| [@dantebalor](https://github.com/dantebalor) | [#30](https://github.com/mericcintosun/alvinmunk/pull/30) — people-discovery page (handle search + vouch) |
+| [@Mathew2k-hash](https://github.com/Mathew2k-hash) | [#31](https://github.com/mericcintosun/alvinmunk/pull/31) — EN/TR internationalisation + language switcher |
+| [@wonderfulmarv01](https://github.com/wonderfulmarv01) | [#32](https://github.com/mericcintosun/alvinmunk/pull/32) — empty & loading states across the dashboard |
+| [@estyemma](https://github.com/estyemma) | [#33](https://github.com/mericcintosun/alvinmunk/pull/33) — public reputation lookup page + read API |
+| [@Sulex45](https://github.com/Sulex45) | [#34](https://github.com/mericcintosun/alvinmunk/pull/34) — `CONTRIBUTING.md` + issue/PR templates |
+| [@Hayatt74](https://github.com/Hayatt74) | [#35](https://github.com/mericcintosun/alvinmunk/pull/35) — canonical on-chain event schema doc |
+| [@opratem](https://github.com/opratem) | [#36](https://github.com/mericcintosun/alvinmunk/pull/36) — attester referral verification (+ tests) |
+| [@Evaristus023](https://github.com/Evaristus023) | [#37](https://github.com/mericcintosun/alvinmunk/pull/37) — "deploy your own" testnet runbook |
+| [@OkeQueen](https://github.com/OkeQueen) | [#38](https://github.com/mericcintosun/alvinmunk/pull/38) — architecture diagram in the README |
+| [@maixuancanh](https://github.com/maixuancanh) | [#39](https://github.com/mericcintosun/alvinmunk/pull/39) — tests for the claim-secret hex helpers |
+| [@N-otorious](https://github.com/N-otorious) | [#40](https://github.com/mericcintosun/alvinmunk/pull/40) — Web Push (VAPID) notify on vouch claim |
+| [@shepherd-001](https://github.com/shepherd-001) | [#41](https://github.com/mericcintosun/alvinmunk/pull/41) — Playwright E2E smoke test in CI |
+| [@MKNas01](https://github.com/MKNas01) | [#42](https://github.com/mericcintosun/alvinmunk/pull/42) — `get_profile` aggregate contract view + payments tests |
+| [@ahnax](https://github.com/ahnax) | [#43](https://github.com/mericcintosun/alvinmunk/pull/43) — quest message-signing for Freighter & Albedo |
+
+<details>
+<summary>Contributors since the first Wave cohort</summary>
+
+[@Agencybuilds](https://github.com/Agencybuilds) ·
+[@kosisochukwu1234](https://github.com/kosisochukwu1234) ·
+[@Opulencechuks](https://github.com/Opulencechuks) ·
+[@Toyosi5566](https://github.com/Toyosi5566) ·
+[@vincentokoye953-gif](https://github.com/vincentokoye953-gif) ·
+[@CiiscoTech-Hub](https://github.com/CiiscoTech-Hub) ·
+[@SrvFernandes](https://github.com/SrvFernandes) ·
+[@maciejfolgmann](https://github.com/maciejfolgmann) ·
+[@Abba073](https://github.com/Abba073) ·
+[@chrissarah054-dotcom](https://github.com/chrissarah054-dotcom) ·
+[@nlstylz](https://github.com/nlstylz) ·
+[@esegbueadam-sys](https://github.com/esegbueadam-sys) ·
+[@p70436464-prog](https://github.com/p70436464-prog) ·
+[@blessingsokeke618-sys](https://github.com/blessingsokeke618-sys) ·
+[@joshuaolabodebello2020-cyber](https://github.com/joshuaolabodebello2020-cyber) ·
+[@akandeisaac021-design](https://github.com/akandeisaac021-design) ·
+[@olubukolatanko209-doc](https://github.com/olubukolatanko209-doc) ·
+[@xtep103](https://github.com/xtep103) ·
+[@Hey-Yetunde](https://github.com/Hey-Yetunde) ·
+[@Anadudev](https://github.com/Anadudev) ·
+[@demola13777](https://github.com/demola13777) ·
+[@maybay-dev](https://github.com/maybay-dev) ·
+[@praise-idise](https://github.com/praise-idise) ·
+[@Johnsource-hub](https://github.com/Johnsource-hub) ·
+[@Manager-dev1515](https://github.com/Manager-dev1515) ·
+[@Handynfts2](https://github.com/Handynfts2) ·
+[@Niffy03](https://github.com/Niffy03) ·
+[@Obito-2222](https://github.com/Obito-2222) ·
+[@0xDamian-dev](https://github.com/0xDamian-dev) ·
+[@olacodes-01](https://github.com/olacodes-01) ·
+[@khalidNiass](https://github.com/khalidNiass) ·
+[@TCreative001](https://github.com/TCreative001) ·
+[@Chidi-Dev1](https://github.com/Chidi-Dev1) ·
+[@otobongdev](https://github.com/otobongdev) ·
+[@valentinachristopher911-design](https://github.com/valentinachristopher911-design) ·
+[@AugistineCreates](https://github.com/AugistineCreates) ·
+[@ugoocreates-pixel](https://github.com/ugoocreates-pixel) ·
+[@devogechukwu](https://github.com/devogechukwu) ·
+[@Olumide-01](https://github.com/Olumide-01) ·
+[@Chummy-debug](https://github.com/Chummy-debug) ·
+[@ekenealozie10-bit](https://github.com/ekenealozie10-bit) ·
+[@vic2430](https://github.com/vic2430) ·
+[@Chiwendu25](https://github.com/Chiwendu25) ·
+[@mubby4](https://github.com/mubby4) ·
+[@bernicechiagozie-collab](https://github.com/bernicechiagozie-collab) ·
+[@emarkees](https://github.com/emarkees) ·
+[@sammycee769](https://github.com/sammycee769) ·
+[@omoniyiadebayo12goal-crypto](https://github.com/omoniyiadebayo12goal-crypto) ·
+[@vally111](https://github.com/vally111) ·
+[@bbstardts](https://github.com/bbstardts) ·
+[@Binali223](https://github.com/Binali223) ·
+[@Ipramking](https://github.com/Ipramking) ·
+[@olaniyisamad65-cloud](https://github.com/olaniyisamad65-cloud) ·
+[@Dfk234](https://github.com/Dfk234) ·
+[@WHIZAB4TECH](https://github.com/WHIZAB4TECH) ·
+[@TideX91](https://github.com/TideX91) ·
+[@Nemenwq](https://github.com/Nemenwq) ·
+[@V1ctor-o](https://github.com/V1ctor-o) ·
+[@Ukorstack](https://github.com/Ukorstack) ·
+[@desmond9p](https://github.com/desmond9p) ·
+[@stan545](https://github.com/stan545) ·
+[@rindicomfort](https://github.com/rindicomfort) ·
+[@dayor2746-creator](https://github.com/dayor2746-creator) ·
+[@Aycode01](https://github.com/Aycode01) ·
+[@jast78](https://github.com/jast78) ·
+[@olarh0170-netizen](https://github.com/olarh0170-netizen) ·
+[@zainabwahab-eth](https://github.com/zainabwahab-eth) ·
+[@notoflagosola-wq](https://github.com/notoflagosola-wq) ·
+[@Atim-01](https://github.com/Atim-01) ·
+[@victrexfx](https://github.com/victrexfx) ·
+[@muokwejosh-cloud](https://github.com/muokwejosh-cloud) ·
+[@Oluwasegun6921](https://github.com/Oluwasegun6921) ·
+[@devpassionOX](https://github.com/devpassionOX) ·
+[@Somtexzy](https://github.com/Somtexzy) ·
+[@salienne](https://github.com/salienne) ·
+[@isahpeter656-coder](https://github.com/isahpeter656-coder) ·
+[@Nemenwa](https://github.com/Nemenwa) ·
+[@fortunate61-lab](https://github.com/fortunate61-lab) ·
+[@Princeadim](https://github.com/Princeadim) ·
+[@0xNinx](https://github.com/0xNinx) ·
+[@Hibhee01](https://github.com/Hibhee01) ·
+[@Seermad1](https://github.com/Seermad1) ·
+[@3nity610](https://github.com/3nity610) ·
+[@Obaara293](https://github.com/Obaara293) ·
+[@LayanGift](https://github.com/LayanGift) ·
+[@Hamzasaheed](https://github.com/Hamzasaheed) ·
+[@ritchiejhay](https://github.com/ritchiejhay) ·
+[@alaminharuna-dev](https://github.com/alaminharuna-dev) ·
+[@Walewavy](https://github.com/Walewavy) ·
+[@drmfsltdoh](https://github.com/drmfsltdoh) ·
+[@YoungBoss04](https://github.com/YoungBoss04) ·
+[@Maxl500](https://github.com/Maxl500) ·
+[@Dev-dave01](https://github.com/Dev-dave01) ·
+[@DanProtocol](https://github.com/DanProtocol) ·
+[@Agaki00](https://github.com/Agaki00) ·
+[@Ezekiel146](https://github.com/Ezekiel146)
+
+</details>
+
+Not on the list yet? Claim a [`Stellar Wave`](https://github.com/mericcintosun/alvinmunk/labels/Stellar%20Wave)
+issue and get it merged. Please don't edit this list in your PR (every Wave PR touching the same
+lines would conflict); the maintainer refreshes it from the merged-PR history.
 
 ---
 

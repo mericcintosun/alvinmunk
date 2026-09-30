@@ -24,7 +24,7 @@ export function LoopScroll() {
       {/* sticky scrollytelling panel — desktop only (mobile uses the stacked blocks) */}
       <div className="hidden md:sticky md:top-28 md:block md:h-[64vh] md:self-start">
         <Frame index={`0${active + 1} / 03`} className="flex h-full flex-col justify-center p-8 md:p-10">
-          <span className="font-mono text-xs uppercase tracking-[0.2em] text-primary/60">step {STEPS[active].n}</span>
+          <span className="eyebrow-mono text-primary/60">step {STEPS[active].n}</span>
           <motion.h3
             key={active}
             initial={{ opacity: 0, y: 12 }}
@@ -69,7 +69,7 @@ export function LoopScroll() {
             <span className="font-display text-7xl font-semibold leading-none text-primary/15">{s.n}</span>
             <h4 className="mt-3 text-2xl font-semibold">{s.t}</h4>
             <p className="mt-2 max-w-md text-muted-foreground">{s.d}</p>
-            <span className="mt-4 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">{s.tag}</span>
+            <span className="mt-4 eyebrow-mono text-muted-foreground">{s.tag}</span>
           </motion.div>
         ))}
       </div>

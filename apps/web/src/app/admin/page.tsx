@@ -134,7 +134,7 @@ export default function AdminPage() {
   const current = sections.includes(section) ? section : sections[0];
   return (
     <div className="container max-w-5xl py-12">
-      <p className="text-xs uppercase tracking-[0.25em] text-secondary">admin // content</p>
+      <p className="eyebrow text-secondary">admin // content</p>
       <div className="mt-2 flex flex-wrap items-center gap-3">
         <h1 className="text-3xl font-semibold">Content</h1>
         <Badge variant="onchain">on-chain admin · {shortAddr(wallet.address)}</Badge>
@@ -173,7 +173,7 @@ export default function AdminPage() {
 function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="container max-w-5xl py-12">
-      <p className="text-xs uppercase tracking-[0.25em] text-secondary">admin</p>
+      <p className="eyebrow text-secondary">admin</p>
       <div className="mt-3">{children}</div>
     </div>
   );

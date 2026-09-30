@@ -41,6 +41,17 @@ light theme (`:root.light`) redefines every token (see §8)._
   --destructive-foreground: 265 60% 6%;
   --success: 157 84% 52%;
   --warning: 38 95% 62%;
+  /* Text variants of the semantic colours: what text-* utilities read (tailwind textColor).
+     4.5:1 on every surface in both themes; bg-, border- and ring- keep the fills above. */
+  --primary-text: 265 100% 72%;
+  --onchain-text: 265 100% 72%;
+  --secondary-text: 157 84% 52%;
+  --success-text: 157 84% 52%;
+  --accent-text: 36 100% 64%;
+  --warning-text: 38 95% 62%;
+  --destructive-text: 350 82% 64%;
+  --tertiary-text: 193 100% 52%;
+  --lime-text: 79 94% 64%;
 
   --border: 265 26% 16%;
   --input: 265 26% 16%;
@@ -91,6 +102,15 @@ light theme (`:root.light`) redefines every token (see §8)._
   --destructive-foreground: 265 60% 8%;
   --success: 157 84% 45%;
   --warning: 38 95% 55%;
+  --primary-text: 265 100% 54%;
+  --onchain-text: 265 100% 54%;
+  --secondary-text: 157 84% 24%;
+  --success-text: 157 84% 24%;
+  --accent-text: 36 100% 28%;
+  --warning-text: 38 95% 28%;
+  --destructive-text: 350 82% 42%;
+  --tertiary-text: 193 100% 27%;
+  --lime-text: 79 94% 22%;
   --border: 265 26% 85%;
   --input: 265 26% 85%;
   --ring: 265 100% 60%;
@@ -125,6 +145,12 @@ and the decorative tokens are not Tailwind colors; only the `.glass`, `.grid-fai
 energy; gold/`accent` = human warmth (vouch), used sparingly. No raw hex in components —
 every color must trace back to a token in this file.
 
+**Canvas, three.js and OG images can't read CSS variables.** The starfield, the 3D
+constellation scenes and the Satori OG cards take their colours from
+`apps/web/src/lib/brand-palette.ts` instead: these tokens resolved to hex, per theme.
+`brand-palette.test.ts` recomputes every entry from `globals.css` and fails on drift, and fails
+on any hex literal in `components/brand/*` or `lib/og-card.tsx`. "You" is always `accent`.
+
 **`onchain` is one colour:** `--onchain` equals `--primary` in both themes, and everything
 named `onchain` uses it: `Badge variant="onchain"` (`border-onchain/30 bg-onchain/10
 text-onchain`), `Button variant="onchain"` (`bg-onchain text-primary-foreground
@@ -137,6 +163,16 @@ the dark label (4.73:1); the light theme's 60% violet keeps white (5.30:1). `flo
 `--secondary`), which is why the light theme's `--flow-violet` is lighter than its `--primary`
 (5.02:1 at the violet stop, where 60% would give 3.66:1). `destructive` labels are dark too
 (5.61:1 dark, 4.63:1 light). `apps/web/src/app/button-contrast.test.ts` checks every variant.
+
+**Coloured text clears AA (4.5:1) in both themes**, on every surface (`background`, `card`,
+`surface`, `surface-2`, `popover`, `muted`). The semantic colours are bright fills, so text
+reads a per-theme `--<name>-text` variant (`primary`, `onchain`, `secondary`, `success`,
+`accent`, `warning`, `destructive`, `tertiary`, `lime`): `tailwind.config.ts` `textColor`
+points `text-<name>` at it, while `bg-`, `border-` and `ring-` keep the fill. Most dark
+variants equal the fill (primary is lifted to 72% for the lighter surfaces); the light ones
+are darker (e.g. `--warning-text` 28% against the 55% fill). Badge text also clears AA on its
+own tint. No raw Tailwind palette colours (`amber-400`, `emerald-500`, …): use `warning`,
+`secondary`, `accent`. `apps/web/src/app/muted-foreground-contrast.test.ts` checks all of it.
 
 ## 2. Typography scale
 
@@ -156,9 +192,17 @@ the dark label (4.73:1); the light theme's 60% violet keeps white (5.30:1). `flo
 | `body` | 1rem / 1.6, sans | default |
 | `small` | 0.875rem / 1.5 | secondary |
 | `caption` | 0.75rem / 1.4, muted | meta, timestamps |
+| `2xs` | 0.6875rem / 1rem | micro labels, chips, hints — the floor: no text below 11px |
 | `mono` | 0.875rem / 1.5, mono | addresses, hashes |
+| `eyebrow` / `eyebrow-mono` | 0.6875rem / 1, 0.22em, uppercase, muted | uppercase kickers (sans / mono) |
 
-Load with `next/font` (variable, `display: "swap"`, subset latin). Headings get
+`2xs` is the Tailwind `text-2xs`; there are no arbitrary `text-[Npx]` sizes outside the OG
+image renderer (`og-card`). Uppercase kickers use the `eyebrow` / `eyebrow-mono` classes
+(`globals.css`, components layer, so a colour utility such as `text-primary/80` overrides the
+muted default) — never a hand-rolled `tracking-[…em]`.
+
+Load with `next/font` (variable, `display: "swap"`, subsets `latin` + `latin-ext`, so
+Turkish ğ, ş and İ are preloaded and render in the brand fonts on first paint). Headings get
 `font-feature-settings` defaults; mono for any `G…`/hash with middle-truncation.
 
 ## 3. Spacing, radius, layout
@@ -166,7 +210,9 @@ Load with `next/font` (variable, `display: "swap"`, subset latin). Headings get
 - **Spacing:** Tailwind default 4px scale. Section vertical rhythm: `py-16 md:py-24`.
 - **Container:** `max-w-md` (app surfaces, mobile-first) · `max-w-6xl` (marketing).
 - **Radius:** `--radius: 0.875rem` → `sm 0.375rem`, `md 0.625rem`, `lg 0.875rem`,
-  `xl 1.125rem` (`tailwind.config.ts` `borderRadius`), `full` for crests/avatars/pills.
+  `xl 1.125rem`, `2xl 1.375rem`, `3xl 1.625rem` (`tailwind.config.ts` `borderRadius`, each
+  step `--radius` ± a multiple of 0.25rem, so every step is rounder than the one before),
+  `full` for crests/avatars/pills. Cards and dialogs are `2xl`, dropdowns `xl`.
 - **Borders:** 1px `hsl(var(--border))`; cards use `border + bg-card`.
 
 ## 4. Elevation & glow (cosmic, not material)
@@ -174,11 +220,15 @@ Load with `next/font` (variable, `display: "swap"`, subset latin). Headings get
 We don't use heavy drop shadows (Material). We use **soft glow** for warmth and a starfield
 backdrop.
 
-Tailwind `boxShadow` (`apps/web/tailwind.config.ts`); the glows read the colour tokens, so
-they follow the theme:
+Tailwind `boxShadow` (`apps/web/tailwind.config.ts`); every shadow reads a colour token (no
+literal colours), so it follows the theme: the drop shadows use `--glass-shadow` (near-black
+in dark, a soft slate in light) and the card's top highlight `--hairline`. Components use
+these instead of Tailwind's `shadow-lg` / `shadow-2xl`:
 
 ```css
-shadow-card:         0 1px 0 0 hsl(0 0% 100% / 0.04) inset, 0 8px 30px -12px hsl(230 60% 2% / 0.8);
+shadow-card:         inset 0 1px 0 0 hsl(var(--hairline) / 0.06), 0 8px 30px -12px hsl(var(--glass-shadow) / 0.3);
+shadow-popover:      0 12px 32px -16px hsl(var(--glass-shadow) / 0.35);  /* dropdowns, dialogs */
+shadow-toast:        0 16px 40px -20px hsl(var(--glass-shadow) / 0.4);  /* floating notices */
 shadow-glow-primary: 0 0 24px -4px hsl(var(--primary) / 0.45);  /* CTA / ignite moment */
 shadow-glow-onchain: 0 0 24px -4px hsl(var(--onchain) / 0.40);  /* on-chain = same violet */
 ```
@@ -221,6 +271,12 @@ modal-overlay 70 · modal 80`.
 - Two blocks in `globals.css`: `:root` (dark, the default) and `:root.light`. The theme is
   a `dark` / `light` class on `<html>`: the server renders `dark`, and an inline script in
   the root layout swaps it before first paint to the choice saved by `ThemeToggle`
-  (`localStorage` key `alvinmunk.theme`), else the OS `prefers-color-scheme`.
+  (`localStorage` key `alvinmunk.theme`), else the OS `prefers-color-scheme`. The toggle
+  cycles Light → Dark → System; System clears the key, so OS changes are followed again.
+- The browser chrome follows the same theme: `viewport.themeColor` has one colour per
+  `prefers-color-scheme`, and applying a theme pins every `theme-color` meta to it. These
+  colours, and the manifest's `background_color` / `theme_color` (dark), are the
+  `--background` tokens as hex (`THEME_COLOR` in `lib/theme.ts`, the one place hex is allowed,
+  since metas and the manifest take no CSS variables). Toasts get the `<html>` class, not the OS.
 - Tokens are the **only** color source — no raw hex in components. A color not in this
   file does not exist in the product.
