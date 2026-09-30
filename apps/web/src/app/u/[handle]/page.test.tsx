@@ -103,7 +103,7 @@ describe('/u/[handle] on a ?network= override (#290)', () => {
   it('offers no claim link for a handle nobody held on the override network', async () => {
     m.resolveHandle.mockResolvedValue(null);
     await render({ network: 'testnet' });
-    expect(q('a[href="/app"]')).toBeNull();
+    expect(q('a[href^="/app"]')).toBeNull();
     expect(container.textContent).toContain('Nobody held this handle on testnet');
   });
 
@@ -129,10 +129,18 @@ describe('/u/[handle] on a ?network= override (#290)', () => {
       m.resolveHandle.mockResolvedValue(null);
       await renderLong();
       expect(q('h1')?.classList).toContain('[overflow-wrap:anywhere]');
-      const claim = q('a[href="/app"]')!;
+      const claim = q('a[href^="/app"]')!;
       expect(claim.classList).toContain('max-w-full');
       expect(claim.querySelector('span.truncate')?.textContent).toBe(`Claim @${long}`);
     });
+  });
+
+  it('claims an unclaimed handle with onboarding prefilled to it (#485)', async () => {
+    m.resolveHandle.mockResolvedValue(null);
+    await render();
+    const claim = q('a[href^="/app"]');
+    expect(claim?.getAttribute('href')).toBe('/app?handle=umut');
+    expect(claim?.textContent).toBe('Claim @umut');
   });
 
   it('is the normal profile without the override', async () => {

@@ -31,6 +31,11 @@ type KvStore = {
   smembers: (key: string) => Promise<string[]>;
   sadd: (key: string, member: string) => Promise<void>;
   srem: (key: string, member: string) => Promise<void>;
+  /** A plain string value (the tip-notification cron's cursor). */
+  getString: (key: string) => Promise<string | null>;
+  setString: (key: string, value: string) => Promise<void>;
+  /** SET NX EX: true only for the caller that created the key (an atomic claim). */
+  setIfAbsent: (key: string, value: string, ttlSeconds: number) => Promise<boolean>;
 };
 
 /** Cap endpoint length to avoid KV key blowup. */
@@ -75,6 +80,11 @@ function createKvStore(url: string, token: string): KvStore | null {
     smembers: (key) => redis.smembers(key),
     sadd: (key, member) => redis.sadd(key, member).then(() => undefined),
     srem: (key, member) => redis.srem(key, member).then(() => undefined),
+    // The client JSON-decodes what it reads back, so coerce: a cursor must stay a string.
+    getString: (key) => redis.get<unknown>(key).then((v) => (v == null ? null : String(v))),
+    setString: (key, value) => redis.set(key, value).then(() => undefined),
+    setIfAbsent: (key, value, ttlSeconds) =>
+      redis.set(key, value, { nx: true, ex: ttlSeconds }).then((res) => res === 'OK'),
   };
 }
 
@@ -82,6 +92,10 @@ function createKvStore(url: string, token: string): KvStore | null {
 const memStore = new Map<string, StoredSubscription>();
 /** wallet → Set of endpoints */
 const walletIndex = new Map<string, Set<string>>();
+/** Fallback cursor storage when KV is not configured. */
+const memCursors = new Map<string, string>();
+/** Fallback claimed-event storage: key → expiry timestamp (ms). */
+const memClaims = new Map<string, number>();
 
 export function memGet(key: string): StoredSubscription | null {
   return memStore.get(key) ?? null;
@@ -248,17 +262,84 @@ export async function moveSubscription(
   return 'moved';
 }
 
-/** Retrieve all subscriptions for a wallet address (used by /api/push/notify). */
+/**
+ * Retrieve all subscriptions for a wallet address (used by /api/push/notify and the tip
+ * cron). Only records still registered to that wallet: a device that re-subscribed for
+ * another wallet leaves a stale index entry behind, and must not get this wallet's pushes.
+ */
 export async function getSubscriptionsForWallet(walletAddress: string): Promise<StoredSubscription[]> {
   const kv = getKv();
   const wallet = walletAddress.toLowerCase();
+  const owned = (s: StoredSubscription | null): s is StoredSubscription =>
+    !!s && s.walletAddress.toLowerCase() === wallet;
 
   if (kv) {
     const endpoints = await kv.smembers(`wallet:${wallet}`).catch(() => [] as string[]);
     const subs = await Promise.all(endpoints.map((ep) => kv.get(`sub:${ep}`).catch(() => null)));
-    return subs.filter(Boolean) as StoredSubscription[];
+    return subs.filter(owned);
   }
   const endpoints = walletIndex.get(wallet) ?? new Set<string>();
   // The index stores bare endpoints (see memSet/memDel), so reconstruct the `sub:` key.
-  return [...endpoints].map((ep) => memGet(`sub:${ep}`)).filter(Boolean) as StoredSubscription[];
+  return [...endpoints].map((ep) => memGet(`sub:${ep}`)).filter(owned);
+}
+
+// ─── Tip-notification cron: cursor + per-event claims (issue #297) ──────────
+
+/** KV key for the tip-notification cron's RPC event cursor. */
+const CURSOR_KEY = 'cursor:notify:tip';
+
+/** KV key prefix of the per-event claims that keep a tip from being pushed twice. */
+const CLAIM_PREFIX = 'seen:notify:tip:';
+
+/**
+ * How long a claim lives: longer than any event the cron can read again — it re-reads at
+ * most the RPC's recent window (~12h, lib/events) after losing its cursor — so a re-read
+ * never sends twice.
+ */
+export const EVENT_CLAIM_TTL_SECONDS = 3 * 24 * 60 * 60;
+
+/** The cron's RPC cursor; null before its first run. */
+export async function getCursor(): Promise<string | null> {
+  const kv = getKv();
+  if (kv) return kv.getString(CURSOR_KEY);
+  return memCursors.get(CURSOR_KEY) ?? null;
+}
+
+/** Persist the cron's RPC cursor, once every event before it has been handled. */
+export async function setCursor(cursor: string): Promise<void> {
+  const kv = getKv();
+  if (kv) {
+    await kv.setString(CURSOR_KEY, cursor);
+    return;
+  }
+  memCursors.set(CURSOR_KEY, cursor);
+}
+
+/**
+ * Claim `eventId` for sending: true for exactly one caller, false once it has been claimed
+ * — by an earlier run, or by an overlapping one (SET NX). A claimed event is never sent
+ * again, whatever happened to its push: at most one notification per tip.
+ */
+export async function claimEvent(eventId: string): Promise<boolean> {
+  const key = CLAIM_PREFIX + eventId;
+  const kv = getKv();
+  if (kv) return kv.setIfAbsent(key, '1', EVENT_CLAIM_TTL_SECONDS);
+  const now = Date.now();
+  const expiresAt = memClaims.get(key);
+  if (expiresAt !== undefined && expiresAt > now) return false;
+  memClaims.set(key, now + EVENT_CLAIM_TTL_SECONDS * 1000);
+  return true;
+}
+
+// ─── General opt-in (issue #297) ────────────────────────────────────────────
+
+/**
+ * Upsert a subscription with no vouch ID — the general opt-in from the dashboard, which
+ * is what tip notifications need. Keeps any vouch IDs the device already registered.
+ */
+export async function saveGeneralSubscription(
+  subscription: PushSubscriptionJSON,
+  walletAddress: string,
+): Promise<void> {
+  await saveSubscriptionWithVouchIds(subscription, walletAddress, []);
 }

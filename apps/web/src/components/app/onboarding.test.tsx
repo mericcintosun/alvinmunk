@@ -83,8 +83,8 @@ describe('Onboarding — returning users (#278)', () => {
     });
   }
 
-  async function mount() {
-    await act(async () => root.render(<Onboarding />));
+  async function mount(initialHandle?: string) {
+    await act(async () => root.render(<Onboarding initialHandle={initialHandle} />));
     await flush();
   }
 
@@ -200,6 +200,14 @@ describe('Onboarding — returning users (#278)', () => {
       expect(toastMock.success).toHaveBeenCalledWith('Your profile is live — @bob stamped on-chain.');
     });
 
+    it('claims the handle a "Claim @x" link prefilled, without retyping it (#485)', async () => {
+      await mount('bob');
+
+      await submit();
+
+      expect(claimHandleMock).toHaveBeenCalledWith(WALLET, 'bob');
+    });
+
     it('labels the submit button while the profile is being created', async () => {
       let finish!: () => void;
       claimHandleMock.mockReturnValue(new Promise<void>((resolve) => (finish = resolve)));
@@ -239,6 +247,29 @@ describe('Onboarding — returning users (#278)', () => {
         await vi.advanceTimersByTimeAsync(400);
       });
       expect(status().textContent).toBe('✓ @bob is free');
+    });
+
+    it('prefills a normalized initial handle and checks it without any typing (#485)', async () => {
+      await mount('@Beko!');
+      const input = container.querySelector<HTMLInputElement>('[aria-label="Handle"]')!;
+      expect(input.value).toBe('beko');
+      expect(status().textContent).toBe('Checking…');
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      expect(handleAvailabilityMock).toHaveBeenCalledWith('beko', undefined);
+      expect(status().textContent).toBe('✓ @beko is free');
+    });
+
+    it('starts empty and idle without an initial handle', async () => {
+      await mount();
+      expect(container.querySelector<HTMLInputElement>('[aria-label="Handle"]')!.value).toBe('');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      expect(handleAvailabilityMock).not.toHaveBeenCalled();
+      expect(status().textContent).toBe('');
     });
 
     it('blocks submit for a taken handle', async () => {
