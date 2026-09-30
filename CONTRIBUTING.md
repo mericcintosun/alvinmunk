@@ -56,6 +56,35 @@ alvinmunk/
 - The live testnet contract ids are in the [README](README.md#deployed-contracts-stellar-testnet)
 - Use `scripts/deploy-testnet.sh` for fresh deploys
 
+## Working on the UI
+
+The frontend has its own rules on top of the general workflow above. Read
+[`docs/product/DESIGN_SYSTEM_TOKENS.md`](docs/product/DESIGN_SYSTEM_TOKENS.md) and
+[`docs/product/BRAND_DESIGN.md`](docs/product/BRAND_DESIGN.md) before touching anything visual.
+
+- **Use tokens only.** No raw hex and no new Tailwind palette colours (`amber-*`, `emerald-*`, …)
+  in components: every colour traces back to a token in `apps/web/src/app/globals.css`, used through
+  its Tailwind name (`bg-primary`, `text-muted-foreground`) or `hsl(var(--token))`. A new token goes
+  into both theme blocks of `globals.css` and into the tokens doc;
+  `apps/web/src/app/design-tokens.test.ts` fails when they drift apart.
+- **Check both light and dark themes.** Every surface must be legible in both (switch with the
+  sun/moon button in the navbar). `apps/web/src/app/button-contrast.test.ts` and
+  `apps/web/src/app/muted-foreground-contrast.test.ts` assert the WCAG AA ratios of button labels
+  and secondary text in both themes.
+- **Add every string to both `en.json` and `tr.json`** in `apps/web/messages/`, with a real Turkish
+  translation. `messages.test.ts` and `i18n.messages.test.ts` fail when the two files' keys
+  differ; switch the language in the footer to check the Turkish layout.
+- **Use `<Sticker>` / `<StateArt>` for artwork** (`apps/web/src/components/ui/`) rather than
+  ad-hoc `<img>` tags, and register any new asset with its intrinsic size in
+  [`apps/web/src/lib/assets.ts`](apps/web/src/lib/assets.ts), so nothing renders above its
+  native resolution and layouts can reserve the space.
+- **Gate ambient motion with `motion-safe:`** so decorative animation stops under
+  `prefers-reduced-motion: reduce`; the 3D constellation scenes read the setting through
+  `usePrefersReducedMotion()`.
+- **Run the token, contrast and message tests** before opening a PR:
+  `pnpm --dir apps/web exec vitest run src/app/design-tokens.test.ts src/app/button-contrast.test.ts src/app/muted-foreground-contrast.test.ts src/lib/messages.test.ts src/lib/i18n.messages.test.ts`
+  (`pnpm test` runs them too), and attach light, dark and mobile screenshots.
+
 ## Gotchas
 
 - **zsh doesn't word-split** an unquoted `$VAR`, so `--network testnet` kept in a variable reaches
@@ -73,27 +102,4 @@ alvinmunk/
 ## Questions?
 
 Open an issue or refer to `belts/00-strategy.md` for architectural context.
-
-## Working on the UI
-
-The frontend has its own rules on top of the general workflow above. Read
-[`docs/product/DESIGN_SYSTEM_TOKENS.md`](docs/product/DESIGN_SYSTEM_TOKENS.md) and
-[`BRAND_DESIGN.md`](BRAND_DESIGN.md) before touching anything visual.
-
-- **Use tokens only.** No raw hex (or `rgb()`/`hsl()`) in components — every colour, radius and
-  spacing value comes from the tokens defined in
-  [`docs/product/DESIGN_SYSTEM_TOKENS.md`](docs/product/DESIGN_SYSTEM_TOKENS.md). The
-  `apps/web/src/app/design-tokens.test.ts` suite enforces this.
-- **Check both light and dark themes.** Every surface must be legible in both; the
-  `apps/web/src/app/button-contrast.test.ts` and
-  `apps/web/src/app/muted-foreground-contrast.test.ts` suites assert the contrast ratios.
-- **Add every string to both `en.json` and `tr.json`.** The message files live alongside the app
-  and must stay in sync — a key in one without the other is a bug.
-- **Use `<Sticker>` / `<StateArt>` for artwork** rather than ad-hoc `<img>` tags, and register any
-  new asset's intrinsic size in [`apps/web/src/lib/assets.ts`](apps/web/src/lib/assets.ts) so
-  layouts can reserve space and avoid CLS.
-- **Gate ambient motion with `motion-safe:`.** Decorative animation must be wrapped so it is
-  disabled under `prefers-reduced-motion: reduce`.
-- **Run the token and contrast tests** (`pnpm test`) before opening a PR, and include light, dark
-  and mobile screenshots.
 
