@@ -32,7 +32,8 @@ function printBlock(): string {
   let depth = 0;
   for (let i = globals.indexOf('{', start); i < globals.length; i++) {
     if (globals[i] === '{') depth++;
-    if (globals[i] === '}' && --depth === 0) return globals.slice(globals.indexOf('{', start) + 1, i);
+    if (globals[i] === '}' && --depth === 0)
+      return globals.slice(globals.indexOf('{', start) + 1, i);
   }
   throw new Error('unterminated @media print block');
 }
@@ -109,12 +110,15 @@ describe('print stylesheet (#509)', () => {
 
   it('hides the grain overlay and the toasts', () => {
     const hidden = /([^{}]+)\{\s*display:\s*none\s*!important;\s*\}/g;
-    const selectors = [...print.matchAll(hidden)].flatMap((m) => m[1].split(',').map((s) => s.trim()));
+    const selectors = [...print.matchAll(hidden)].flatMap((m) =>
+      m[1].split(',').map((s) => s.trim()),
+    );
     expect(selectors).toContain('.grain::after');
     expect(selectors).toContain('[data-sonner-toaster]');
     // Content headers, footers and canvases print: only the screen chrome is hidden, by
     // print:hidden on those components (below), never by a bare element selector.
-    for (const bare of ['canvas', 'header', 'footer', 'nav', 'main']) expect(selectors).not.toContain(bare);
+    for (const bare of ['canvas', 'header', 'footer', 'nav', 'main'])
+      expect(selectors).not.toContain(bare);
   });
 
   it('prints external link URLs, but not share intents', () => {
