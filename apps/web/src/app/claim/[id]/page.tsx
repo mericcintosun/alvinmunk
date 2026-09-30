@@ -45,7 +45,7 @@ function readClaimCode(): ClaimCode | null {
 const BAD_CODE = "This link's claim code is invalid.";
 
 const CLAIM_ERRORS: Record<number, string> = {
-  4: "This vouch doesn't exist or has expired.",
+  4: "This vouch doesn't exist.",
   5: 'This star is already lit — it was claimed already.',
   6: "You can't claim your own vouch. Share the link with someone you trust instead.",
   8: BAD_CODE,
@@ -75,6 +75,9 @@ function ClaimInner({ params }: { params: { id: string } }) {
   const { connect, profile, wallet } = useWallet();
   const t = useTranslations();
   const [claimCode, setClaimCode] = useState<ClaimCode | null>(null);
+  const [claimCodeLoaded, setClaimCodeLoaded] = useState(false);
+  const [shareError, setShareError] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
   const [state, setState] = useState<'preview' | 'claiming' | 'done' | 'error'>('preview');
   const [error, setError] = useState<string | null>(null);
   const [vouch, setVouch] = useState<VouchView | null | undefined>(undefined);
@@ -87,7 +90,10 @@ function ClaimInner({ params }: { params: { id: string } }) {
   /** The voucher's published face (undefined = none / still loading → deterministic default). */
   const [voucherAvatar, setVoucherAvatar] = useState<AvatarConfig | undefined>(undefined);
 
-  useEffect(() => setClaimCode(readClaimCode()), []);
+  useEffect(() => {
+    setClaimCode(readClaimCode());
+    setClaimCodeLoaded(true);
+  }, []);
 
   useEffect(() => {
     if (!validId) {
@@ -133,7 +139,18 @@ function ClaimInner({ params }: { params: { id: string } }) {
   const nowSec = Math.floor(Date.now() / 1000);
   const deadline = vouch ? vouch.created + VOUCH_TTL_SECS : 0;
   const daysLeft = vouch ? Math.max(0, Math.ceil((deadline - nowSec) / 86_400)) : 0;
-  const windowOpen = vouch ? !vouch.slashed && !vouch.claimed && nowSec < deadline : false;
+  const windowOpen = vouch ? !vouch.slashed && !vouch.claimed && nowSec <= deadline : false;
+
+  async function shareOwnVouch() {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setShareError(false);
+      setShareCopied(true);
+    } catch {
+      setShareError(true);
+      setShareCopied(false);
+    }
+  }
 
   async function onClaim() {
     if (!claimCode) {
@@ -173,17 +190,27 @@ function ClaimInner({ params }: { params: { id: string } }) {
     }
   }
 
-  const done = state === 'done';
-  const status = done ? 'CLAIMED' : vouch?.claimed ? 'CLAIMED' : windowOpen ? 'OPEN' : vouch ? 'EXPIRED' : '—';
+  const currentAddress = profile?.address ?? wallet?.address;
+  const alreadyClaimedByYou = Boolean(
+    vouch?.claimed && currentAddress && vouch.claimer === currentAddress,
+  );
+  const done = state === 'done' || alreadyClaimedByYou;
+  const status = done
+    ? 'CLAIMED'
+    : vouch?.claimed
+      ? 'CLAIMED'
+      : windowOpen
+        ? 'OPEN'
+        : vouch
+          ? 'LATE'
+          : '—';
 
   // Loading — show a skeleton, not a half-rendered "from / —" frame at the most
   // emotionally loaded moment of the funnel.
   if (loading) {
     return (
       <div className="container max-w-lg py-16">
-        <p className="eyebrow-mono text-primary/80">
-          {'// incoming_vouch'}
-        </p>
+        <p className="eyebrow-mono text-primary/80">{'// incoming_vouch'}</p>
         <Skeleton className="mt-4 h-10 w-3/4" />
         <Skeleton className="mt-3 h-4 w-full max-w-sm" />
         <Frame label={`vouch // #${id}`} index="…" className="mt-7">
@@ -227,11 +254,64 @@ function ClaimInner({ params }: { params: { id: string } }) {
     );
   }
 
+  if (!vouch) {
+    return (
+      <ClaimMessage
+        title={t('claim.state.missing.title')}
+        body={t('claim.state.missing.body')}
+        openApp={t('claim.openApp')}
+      />
+    );
+  }
+
+  if (vouch.claimed && !alreadyClaimedByYou) {
+    return (
+      <ClaimMessage
+        title={t('claim.state.claimed.title')}
+        body={t('claim.state.claimed.body')}
+        openApp={t('claim.openApp')}
+      />
+    );
+  }
+
+  if (!vouch.claimed && currentAddress === vouch.from) {
+    return (
+      <div className="container max-w-lg py-16">
+        <p className="eyebrow-mono text-primary/80">{'// your_vouch'}</p>
+        <h1 className="mt-4 font-display text-4xl font-semibold tracking-tight">
+          {t('claim.state.own.title')}
+        </h1>
+        <p className="mt-3 max-w-sm text-muted-foreground text-balance">
+          {t('claim.state.own.body')}
+        </p>
+        <div className="mt-7 flex flex-col items-start gap-3">
+          <Button variant="flow" size="lg" onClick={() => void shareOwnVouch()}>
+            {t(shareCopied ? 'claim.state.own.copied' : 'claim.state.own.share')}
+          </Button>
+          {shareError && (
+            <p className="text-sm text-destructive">{t('claim.state.own.copyError')}</p>
+          )}
+          <Link href="/app" className="font-mono text-xs text-muted-foreground underline">
+            {t('claim.openApp')}
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (claimCodeLoaded && (!claimCode || !isClaimCode(claimCode.code))) {
+    return (
+      <ClaimMessage
+        title={t('claim.state.invalid.title')}
+        body={t('claim.state.invalid.body')}
+        openApp={t('claim.openApp')}
+      />
+    );
+  }
+
   return (
     <div className="container max-w-lg py-16">
-      <p className="eyebrow-mono text-primary/80">
-        {done ? '// connected' : '// incoming_vouch'}
-      </p>
+      <p className="eyebrow-mono text-primary/80">{done ? '// connected' : '// incoming_vouch'}</p>
       <h1 className="mt-4 font-display text-3xl font-semibold tracking-tight [overflow-wrap:anywhere] sm:text-4xl">
         {done
           ? "You're connected."
@@ -251,7 +331,12 @@ function ClaimInner({ params }: { params: { id: string } }) {
         <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 p-6">
           <div className="flex flex-col items-center gap-2 text-center">
             {vouch ? (
-              <Avatar address={vouch.from} avatar={voucherAvatar} handle={voucherHandle ?? undefined} size={88} />
+              <Avatar
+                address={vouch.from}
+                avatar={voucherAvatar}
+                handle={voucherHandle ?? undefined}
+                size={88}
+              />
             ) : (
               <Crest address={`voucher-${id}`} size={88} points={6} animate />
             )}
@@ -282,7 +367,9 @@ function ClaimInner({ params }: { params: { id: string } }) {
               {done ? (
                 <Crest address={profile?.address ?? `claimer-${id}`} size={80} points={6} animate />
               ) : (
-                <span className="font-mono text-2xs uppercase text-muted-foreground">your half</span>
+                <span className="font-mono text-2xs uppercase text-muted-foreground">
+                  your half
+                </span>
               )}
             </div>
             <span className="font-mono text-2xs uppercase tracking-wider text-muted-foreground">
@@ -302,26 +389,45 @@ function ClaimInner({ params }: { params: { id: string } }) {
         <div className="grid grid-cols-3 divide-x divide-border/60 border-t border-border/60 font-mono">
           <Field label="STATUS" value={status} />
           <Field label="STAKE" value={vouch ? `${vouch.stake} XP` : '—'} />
-          <Field label="WINDOW" value={vouch ? (windowOpen ? `${daysLeft}d left` : 'closed') : '—'} />
+          <Field
+            label="WINDOW"
+            value={vouch ? (windowOpen ? `${daysLeft}d left` : t('claim.state.late.window')) : '—'}
+          />
         </div>
       </Frame>
 
-      {!done && vouch && windowOpen && (
+      {!done && windowOpen && (
         <p className="mt-3 text-xs text-muted-foreground">
-          They staked <strong className="text-foreground">{vouch.stake} reputation</strong> on you — claim within{' '}
-          {daysLeft} day{daysLeft === 1 ? '' : 's'} to keep it from being slashed.
+          They staked <strong className="text-foreground">{vouch.stake} reputation</strong> on you —
+          claim within {daysLeft} day{daysLeft === 1 ? '' : 's'} to keep it from being slashed.
         </p>
+      )}
+
+      {!done && !windowOpen && (
+        <p className="mt-3 text-xs text-muted-foreground">{t('claim.state.late.body')}</p>
       )}
 
       <div className="mt-7">
         {!done ? (
           <div className="flex flex-col items-start gap-3">
             <span className="relative inline-flex overflow-hidden rounded-full">
-              <Button variant="flow" size="lg" onClick={onClaim} disabled={state === 'claiming'}>
+              <Button
+                variant="flow"
+                size="lg"
+                onClick={onClaim}
+                disabled={
+                  state === 'claiming' ||
+                  !claimCodeLoaded ||
+                  !claimCode ||
+                  !isClaimCode(claimCode.code)
+                }
+              >
                 {state === 'claiming' ? 'Lighting your star…' : 'Claim your star'}
                 {state !== 'claiming' && <ArrowRight className="size-4" />}
               </Button>
-              {state !== 'claiming' && <BorderBeam size={56} duration={6} colorTo="hsl(var(--tertiary))" />}
+              {state !== 'claiming' && (
+                <BorderBeam size={56} duration={6} colorTo="hsl(var(--tertiary))" />
+              )}
             </span>
             {error && (
               <>
@@ -332,20 +438,32 @@ function ClaimInner({ params }: { params: { id: string } }) {
               </>
             )}
             <p className="max-w-xs text-xs text-muted-foreground text-balance">
-              Nothing to install — we set up your profile, fees sponsored on testnet. No seed phrase.
+              Nothing to install — we set up your profile, fees sponsored on testnet. No seed
+              phrase.
             </p>
           </div>
         ) : (
           <div className="flex flex-col items-start gap-3">
             <div className="relative self-stretch">
-              <StateArt kind="claim-success" size={220} className="mx-auto motion-safe:animate-ignite" />
-              <Sticker name="stamp-verified" size={88} rotate={-8} className="absolute -right-1 top-0 motion-safe:animate-ignite" />
+              <StateArt
+                kind="claim-success"
+                size={220}
+                className="mx-auto motion-safe:animate-ignite"
+              />
+              <Sticker
+                name="stamp-verified"
+                size={88}
+                rotate={-8}
+                className="absolute -right-1 top-0 motion-safe:animate-ignite"
+              />
             </div>
             <Stamp accent="secondary">✦ STAR IGNITED</Stamp>
             {/* The peak emotional moment → the share. People share a nice thing said ABOUT them,
                 not a number. Carry the praise line + link to their public constellation (OG card). */}
             {vouch?.note && (
-              <p className="max-w-xs text-sm italic text-foreground/85">&ldquo;{vouch.note}&rdquo;</p>
+              <p className="max-w-xs text-sm italic text-foreground/85">
+                &ldquo;{vouch.note}&rdquo;
+              </p>
             )}
             <a
               href={`https://twitter.com/intent/tweet?${new URLSearchParams({
@@ -379,13 +497,32 @@ function ClaimInner({ params }: { params: { id: string } }) {
               {profile ? t('claim.openApp') : t('claim.skip')}
             </Link>
             {profile && (
-              <Link href={`/u/${profile.handle}`} className="font-mono text-xs text-muted-foreground underline">
+              <Link
+                href={`/u/${profile.handle}`}
+                className="font-mono text-xs text-muted-foreground underline"
+              >
                 {t('claim.viewProfile')}
               </Link>
             )}
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function ClaimMessage({ title, body, openApp }: { title: string; body: string; openApp: string }) {
+  return (
+    <div className="container max-w-lg py-16">
+      <p className="eyebrow-mono text-primary/80">{'// claim_unavailable'}</p>
+      <h1 className="mt-4 font-display text-4xl font-semibold tracking-tight">{title}</h1>
+      <p className="mt-3 max-w-sm text-muted-foreground text-balance">{body}</p>
+      <Link
+        href="/app"
+        className="mt-7 inline-block font-mono text-xs text-muted-foreground underline"
+      >
+        {openApp}
+      </Link>
     </div>
   );
 }
@@ -419,13 +556,36 @@ function ClaimHandlePicker() {
       </div>
       <HandleHint id="claim-handle-rules" value={handle} />
       <p id="claim-handle-status" aria-live="polite" className="min-h-4 text-xs">
-        {avail === 'checking' && <span className="text-muted-foreground">{t('claim.handle.checking')}</span>}
-        {avail === 'free' && <span className="text-secondary">{t('claim.handle.free', { handle: normalizedHandle })}</span>}
-        {avail === 'taken' && <span className="text-destructive">{t('claim.handle.taken', { handle: normalizedHandle })}</span>}
-        {avail === 'reserved' && reservedUntil && <span className="text-destructive">{t('claim.handle.reserved', { handle: normalizedHandle, date: reservedUntil })}</span>}
+        {avail === 'checking' && (
+          <span className="text-muted-foreground">{t('claim.handle.checking')}</span>
+        )}
+        {avail === 'free' && (
+          <span className="text-secondary">
+            {t('claim.handle.free', { handle: normalizedHandle })}
+          </span>
+        )}
+        {avail === 'taken' && (
+          <span className="text-destructive">
+            {t('claim.handle.taken', { handle: normalizedHandle })}
+          </span>
+        )}
+        {avail === 'reserved' && reservedUntil && (
+          <span className="text-destructive">
+            {t('claim.handle.reserved', { handle: normalizedHandle, date: reservedUntil })}
+          </span>
+        )}
       </p>
-      <Button type="submit" variant="flow" size="lg" disabled={creating || avail === 'taken' || avail === 'reserved' || normalizedHandle.length < 3}>
-        {creating ? t('claim.handle.submitting') : t('claim.handle.submit', { handle: normalizedHandle || 'handle' })}
+      <Button
+        type="submit"
+        variant="flow"
+        size="lg"
+        disabled={
+          creating || avail === 'taken' || avail === 'reserved' || normalizedHandle.length < 3
+        }
+      >
+        {creating
+          ? t('claim.handle.submitting')
+          : t('claim.handle.submit', { handle: normalizedHandle || 'handle' })}
       </Button>
     </form>
   );
