@@ -108,9 +108,13 @@
   * {
     @apply border-border;
   }
+  /* Selected text: translucent brand violet under the foreground colour, so coloured text
+     (mint, cyan, violet) stays readable when selected in either theme (#509). */
   ::selection {
     background-color: hsl(var(--primary) / 0.35);
+    color: hsl(var(--foreground));
   }
+  /* Thin scrollbars in the border token; scrollbar-color inherits into every scroll box. */
   html {
     scrollbar-color: hsl(var(--border)) transparent;
     scrollbar-width: thin;
@@ -281,12 +285,16 @@
   }
 }
 
+/* Print / save as PDF (#509): dark-on-light paper without the fixed screen layers. The
+   starfield canvas, navbar, footer, config banner and vouch notice carry `print:hidden`. */
 @media print {
+  /* The light theme's tokens (keep in step with :root.light — theme-print.test.ts checks),
+     forced over the dark default; only the page itself is plain paper white. */
   :root,
   :root.dark {
     color-scheme: light;
 
-    --background: 264 52% 96%;
+    --background: 0 0% 100%; /* paper white */
     --foreground: 265 40% 12%;
     --card: 266 38% 98%;
     --card-foreground: 265 40% 12%;
@@ -323,27 +331,17 @@
     --glass-shadow: 230 40% 30%;
   }
 
-  body {
-    background: #ffffff !important;
-    color: hsl(var(--foreground)) !important;
-    min-height: auto !important;
-  }
-
+  body,
   main {
     min-height: auto !important;
   }
 
-  /* Hide starfield, grain overlay, navbar, footer, and toaster */
-  canvas,
-  header,
-  footer,
   [data-sonner-toaster],
   .grain::after {
     display: none !important;
-    content: none !important;
   }
 
-  /* Remove screen-only effects, motions, and cosmic fills */
+  /* Screen-only depth and motion */
   *,
   *::before,
   *::after {
@@ -357,7 +355,6 @@
   .aurora,
   .grid-faint {
     background: none !important;
-    background-image: none !important;
   }
 
   .glass {
@@ -369,34 +366,35 @@
     display: none !important;
   }
 
-  /* Render gradient text legibly as solid text on paper */
+  /* Gradient text prints as solid foreground */
   .text-gradient {
     background: none !important;
     -webkit-text-fill-color: hsl(var(--foreground)) !important;
     color: hsl(var(--foreground)) !important;
   }
 
-  /* Print link URLs where appropriate */
+  /* Paper can't be clicked: print where an external link goes (share intents excluded) */
   a[href^="http"]:not([href*="twitter.com/intent"]):not([href*="x.com/intent"])::after {
-    content: " (" attr(href) ")";
+    content: ' (' attr(href) ')';
     font-size: 0.85em;
     font-weight: normal;
     color: hsl(var(--muted-foreground));
     word-break: break-all;
   }
 
-  /* Page break rules for clean document structure */
   pre,
   blockquote,
   table,
   figure {
-    page-break-inside: avoid;
     break-inside: avoid;
   }
 
-  h1, h2, h3, h4, h5, h6 {
-    page-break-after: avoid;
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     break-after: avoid;
   }
 }
-
