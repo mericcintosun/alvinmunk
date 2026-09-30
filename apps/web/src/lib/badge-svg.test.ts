@@ -1,17 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { badgeStyle, badgeSvg, type BadgeView } from './badge-svg';
 
-const ADDRESS = 'G'.padEnd(56, 'T');
-
 const claimed: BadgeView = {
+  status: 'claimed',
   handle: 'alice',
-  address: ADDRESS,
   vouchedBy: 3,
   earned: 12,
   verified: true,
 };
 
-const free: BadgeView = { handle: 'bob', address: null, vouchedBy: 0, earned: 0, verified: false };
+const free: BadgeView = { status: 'unclaimed', handle: 'bob', vouchedBy: 0, earned: 0, verified: false };
+const down: BadgeView = { status: 'unavailable', handle: 'carol', vouchedBy: 0, earned: 0, verified: false };
+const invalid: BadgeView = { status: 'invalid', handle: '', vouchedBy: 0, earned: 0, verified: false };
 
 describe('badgeStyle (#283)', () => {
   it('defaults to flat and only opts into card', () => {
@@ -54,6 +54,27 @@ describe('badgeSvg — flat', () => {
     expect(svg).not.toContain('<path d="M0 5.2');
     expect(svg).toContain('aria-label="@bob is unclaimed on alvinmunk"');
   });
+
+  it('says a failed read is unavailable, without claiming the handle is free', () => {
+    const svg = badgeSvg({ ...down, verified: true });
+
+    expect(svg).toContain('@carol · unavailable');
+    expect(svg).not.toContain('unclaimed');
+    expect(svg).not.toContain('<path d="M0 5.2');
+  });
+
+  it('names no one for a path that is not a handle', () => {
+    const svg = badgeSvg(invalid);
+
+    expect(svg).toContain('not a handle');
+    expect(svg).not.toContain('@');
+  });
+
+  it('prints only whole, non-negative stats', () => {
+    const svg = badgeSvg({ ...claimed, vouchedBy: Number.NaN, earned: -4 });
+
+    expect(svg).toContain('@alice · 0 vouched · 0 earned');
+  });
 });
 
 describe('badgeSvg — card', () => {
@@ -76,6 +97,15 @@ describe('badgeSvg — card', () => {
     expect(svg).not.toContain('EARNED XP');
   });
 
+  it('says a failed read is unavailable instead of showing zeroed stats', () => {
+    const svg = badgeSvg(down, 'card');
+
+    expect(svg).toContain('@carol');
+    expect(svg).toContain('reputation unavailable');
+    expect(svg).not.toContain('VOUCHED BY');
+    expect(svg).not.toContain('this handle is free');
+  });
+
   it('shrinks a 32-character handle to fit the panel', () => {
     const svg = badgeSvg({ ...claimed, handle: 'a'.repeat(32) }, 'card');
     const size = Number(/font-size="(\d+)" font-weight="700"/.exec(svg)![1]);
@@ -90,8 +120,12 @@ describe('badgeSvg — well-formedness', () => {
   it.each([
     ['flat', claimed],
     ['flat', free],
+    ['flat', down],
+    ['flat', invalid],
     ['card', claimed],
     ['card', free],
+    ['card', down],
+    ['card', invalid],
     ['card', { ...claimed, handle: 'a<script>&"' }],
   ] as [string, BadgeView][])(
     'parses as XML (%s, %o)',

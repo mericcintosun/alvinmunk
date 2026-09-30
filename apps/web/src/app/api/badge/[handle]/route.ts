@@ -12,9 +12,16 @@
  * scan — a crawler-facing route must not fan out into an RPC event walk).
  *
  * The response is CDN-cacheable for five minutes (`stale-while-revalidate` for an hour), so
- * a badge embedded on a busy page costs one origin read per window. An unknown or malformed
- * handle is NOT an error: it renders the neutral "unclaimed" badge with status 200, never a
- * broken image, and it never reaches the chain at all.
+ * a badge embedded on a busy page costs one origin read per window. Nothing renders a broken
+ * image: an unknown handle is the neutral "unclaimed" badge and a path that can never be a
+ * handle the "not a handle" one (both status 200; the latter never reaches the chain). A
+ * read that FAILED is neither: it renders "unavailable" and is cached for seconds, not an
+ * hour, so an RPC blip never leaves a stranger's README calling a real user unclaimed or
+ * zeroed. (`resolveHandle` still reads a failed lookup as unclaimed until it tells the two
+ * apart, #188.)
+ *
+ * The SVG is served with `nosniff` and a `default-src 'none'` CSP: it carries no script and
+ * loads nothing, and opened directly it stays inert even if a future change let markup in.
  */
 import { withRoute } from '@/lib/api-route';
 import { resolveHandle } from '@/lib/registry';
@@ -28,31 +35,40 @@ export const dynamic = 'force-dynamic';
 
 // 5 minutes at the CDN, an hour of background refresh — mirrors the issue's contract.
 const CACHE_CONTROL = 'public, s-maxage=300, stale-while-revalidate=3600';
+// A failed read: long enough to spare the RPC during an outage, short enough to heal fast.
+const CACHE_CONTROL_UNAVAILABLE = 'public, s-maxage=30';
 const SVG_TYPE = 'image/svg+xml; charset=utf-8';
+const SVG_CSP = "default-src 'none'";
 
 /** A registry handle is a Soroban Symbol: a-z, 0-9, _; at most 32 chars (lib/metadata). */
 const HANDLE = /^[a-z0-9_]{1,32}$/;
 const DISPLAY_MAX = 32;
 
-/** The unclaimed badge — also the shape every read failure degrades to. */
-function unclaimed(handle: string): BadgeView {
-  return { handle, address: null, vouchedBy: 0, earned: 0, verified: false };
+/** A badge with no stats: `unclaimed`, `unavailable` or `invalid`. */
+function statless(status: Exclude<BadgeView['status'], 'claimed'>, handle: string): BadgeView {
+  return { status, handle, vouchedBy: 0, earned: 0, verified: false };
 }
 
-/** Resolve `handle` and read what the badge shows. Never rejects: an unreadable handle
- *  reads as unclaimed, an unreadable profile as zeros. */
+/** Resolve `handle` and read what the badge shows. Never rejects: a lookup or profile read
+ *  that fails reads as `unavailable`, never as unclaimed or zeroed. */
 async function readView(handle: string): Promise<BadgeView> {
-  const address = await resolveHandle(handle).catch(() => null);
-  if (!address) return unclaimed(handle);
+  let address: string | null;
+  try {
+    address = await resolveHandle(handle);
+  } catch {
+    return statless('unavailable', handle);
+  }
+  if (!address) return statless('unclaimed', handle);
   const [profile, counts] = await Promise.all([
-    getProfile(address).catch(() => ({ social: 0, earned: 0, verified: false })),
+    getProfile(address).catch(() => null),
     // `getCounts` already answers null instead of throwing; the extra catch keeps this
     // route's promise to the caller ("never a broken image") independent of that.
     getCounts(address).catch(() => null),
   ]);
+  if (!profile) return statless('unavailable', handle);
   return {
+    status: 'claimed',
     handle,
-    address,
     vouchedBy: counts?.vouchedBy ?? profile.social,
     earned: profile.earned,
     verified: profile.verified,
@@ -66,12 +82,17 @@ export const GET = withRoute(
     const style = badgeStyle(new URL(req.url).searchParams.get('style'));
     // A param that can never be a handle renders neutral and never touches the chain. It
     // also does NOT echo the path back: nothing arbitrary should end up inside an image a
-    // stranger embeds, so an impossible handle is simply "unknown".
+    // stranger embeds (and naming a stand-in like "@unknown" would misreport a real handle).
     const valid = requested.length <= DISPLAY_MAX && HANDLE.test(requested);
-    const view = valid ? await readView(requested) : unclaimed('unknown');
+    const view = valid ? await readView(requested) : statless('invalid', '');
     return new Response(badgeSvg(view, style), {
       status: 200,
-      headers: { 'content-type': SVG_TYPE, 'cache-control': CACHE_CONTROL },
+      headers: {
+        'content-type': SVG_TYPE,
+        'cache-control': view.status === 'unavailable' ? CACHE_CONTROL_UNAVAILABLE : CACHE_CONTROL,
+        'x-content-type-options': 'nosniff',
+        'content-security-policy': SVG_CSP,
+      },
     });
   },
 );

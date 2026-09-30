@@ -33,10 +33,20 @@ const LIME = '#C4FA4E';
 const FG = '#F4F1FA';
 const MUTED = '#8B86A8';
 
-/** Everything the badge shows. `address === null` → the handle is unclaimed. */
+/**
+ * What the badge says about the handle:
+ *   - `claimed`: someone holds it — the stats below are theirs;
+ *   - `unclaimed`: nobody holds it;
+ *   - `unavailable`: the chain didn't answer, so nothing is claimed about the handle either way;
+ *   - `invalid`: the path can never be a handle, so the badge names no one.
+ */
+export type BadgeStatus = 'claimed' | 'unclaimed' | 'unavailable' | 'invalid';
+
+/** Everything the badge shows. The stats are only drawn for a `claimed` handle. */
 export interface BadgeView {
+  status: BadgeStatus;
+  /** The registry handle ('' for an `invalid` path, which is never echoed). */
   handle: string;
-  address: string | null;
   /** Distinct people who vouched (the on-chain counters; Social XP where they predate it). */
   vouchedBy: number;
   /** Earned XP — the only USDC-eligible track. */
@@ -57,6 +67,11 @@ function esc(value: string): string {
     /[&<>"']/g,
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string,
   );
+}
+
+/** A stat as text: a whole, non-negative number, whatever the read produced. */
+function count(value: number): string {
+  return Number.isFinite(value) && value > 0 ? String(Math.floor(value)) : '0';
 }
 
 /** Rendered width of `text` at `size`, in px. */
@@ -97,11 +112,33 @@ function svg(title: string, width: number, height: number, body: string): string
 
 /** The alt/title text both shapes share. */
 function titleOf(view: BadgeView): string {
-  return view.address
-    ? `@${view.handle} on alvinmunk — ${view.vouchedBy} vouched, ${view.earned} earned XP${
+  switch (view.status) {
+    case 'claimed':
+      return `@${view.handle} on alvinmunk — ${count(view.vouchedBy)} vouched, ${count(view.earned)} earned XP${
         view.verified ? ', verified' : ''
-      }`
-    : `@${view.handle} is unclaimed on alvinmunk`;
+      }`;
+    case 'unclaimed':
+      return `@${view.handle} is unclaimed on alvinmunk`;
+    case 'unavailable':
+      return `@${view.handle} on alvinmunk — reputation unavailable right now`;
+    case 'invalid':
+      return 'Not an alvinmunk handle';
+  }
+}
+
+/** The flat badge's right-hand text. */
+function flatText(view: BadgeView): string {
+  const who = `@${view.handle}`;
+  switch (view.status) {
+    case 'claimed':
+      return `${who} · ${count(view.vouchedBy)} vouched · ${count(view.earned)} earned`;
+    case 'unclaimed':
+      return `${who} · unclaimed`;
+    case 'unavailable':
+      return `${who} · unavailable`;
+    case 'invalid':
+      return 'not a handle';
+  }
 }
 
 /** The compact one-line badge. */
@@ -114,16 +151,15 @@ function flat(view: BadgeView): string {
   const leftText = 'alvinmunk';
   const leftW = pad + logoSize + gap + textWidth(leftText, size) + pad;
 
-  const who = `@${view.handle}`;
-  const rightText = view.address
-    ? `${who} · ${view.vouchedBy} vouched · ${view.earned} earned`
-    : `${who} · unclaimed`;
-  const tickW = view.verified ? 14 : 0;
+  const claimed = view.status === 'claimed';
+  const verified = claimed && view.verified;
+  const rightText = flatText(view);
+  const tickW = verified ? 14 : 0;
   const rightW = pad + textWidth(rightText, size) + tickW + pad;
   const width = leftW + rightW;
 
-  const rightBg = view.address ? VIOLET : PANEL;
-  const rightFg = view.address ? BG : MUTED;
+  const rightBg = claimed ? VIOLET : PANEL;
+  const rightFg = claimed ? BG : MUTED;
   const baseline = FLAT_H / 2 + 4;
   const textX = leftW + pad;
 
@@ -135,9 +171,7 @@ function flat(view: BadgeView): string {
     logo(pad, (FLAT_H - logoSize) / 2, logoSize) +
     `<text x="${pad + logoSize + gap}" y="${baseline}" font-family="${FONT}" font-size="${size}" fill="${FG}">${esc(leftText)}</text>` +
     `<text x="${textX}" y="${baseline}" font-family="${FONT}" font-size="${size}" font-weight="700" fill="${rightFg}">${esc(rightText)}</text>` +
-    (view.verified
-      ? tick(textX + textWidth(rightText, size) + 2, FLAT_H / 2 - 5, 10, rightFg)
-      : '');
+    (verified ? tick(textX + textWidth(rightText, size) + 2, FLAT_H / 2 - 5, 10, rightFg) : '');
 
   return svg(titleOf(view), width, FLAT_H, body);
 }
@@ -148,8 +182,10 @@ function card(view: BadgeView): string {
   const height = 150;
   const pad = 20;
 
-  const name = `@${view.handle}`;
-  const tickW = view.verified ? 22 : 0;
+  const claimed = view.status === 'claimed';
+  const verified = claimed && view.verified;
+  const name = view.status === 'invalid' ? 'not a handle' : `@${view.handle}`;
+  const tickW = verified ? 22 : 0;
   const nameSize = Math.min(
     26,
     Math.max(12, Math.floor((width - pad * 2 - tickW) / (name.length * ADVANCE))),
@@ -157,23 +193,29 @@ function card(view: BadgeView): string {
 
   const divider = `<line x1="${pad}" y1="96" x2="${width - pad}" y2="96" stroke="${FG}" stroke-opacity="0.08"/>`;
 
-  const stats = view.address
+  const note =
+    view.status === 'unclaimed'
+      ? 'unclaimed — this handle is free'
+      : view.status === 'unavailable'
+        ? 'reputation unavailable — try again soon'
+        : 'this link does not name a handle';
+  const stats = claimed
     ? `<text x="${pad}" y="114" font-family="${FONT}" font-size="9" letter-spacing="1.5" fill="${MUTED}">VOUCHED BY</text>` +
-      `<text x="${pad}" y="138" font-family="${FONT}" font-size="22" font-weight="700" fill="${GOLD}">${view.vouchedBy}</text>` +
+      `<text x="${pad}" y="138" font-family="${FONT}" font-size="22" font-weight="700" fill="${GOLD}">${count(view.vouchedBy)}</text>` +
       `<text x="150" y="114" font-family="${FONT}" font-size="9" letter-spacing="1.5" fill="${MUTED}">EARNED XP</text>` +
-      `<text x="150" y="138" font-family="${FONT}" font-size="22" font-weight="700" fill="${GREEN}">${view.earned}</text>` +
-      (view.verified
+      `<text x="150" y="138" font-family="${FONT}" font-size="22" font-weight="700" fill="${GREEN}">${count(view.earned)}</text>` +
+      (verified
         ? `<rect x="258" y="118" width="82" height="22" rx="6" fill="none" stroke="${LIME}"/>` +
           `<text x="299" y="133" text-anchor="middle" font-family="${FONT}" font-size="9" letter-spacing="2" fill="${LIME}">VERIFIED</text>`
         : '')
-    : `<text x="${pad}" y="124" font-family="${FONT}" font-size="13" fill="${MUTED}">unclaimed — this handle is free</text>`;
+    : `<text x="${pad}" y="124" font-family="${FONT}" font-size="13" fill="${MUTED}">${esc(note)}</text>`;
 
   const body =
     `<rect x="0.5" y="0.5" width="${width - 1}" height="${height - 1}" rx="14" fill="${BG}" stroke="${VIOLET}" stroke-opacity="0.45"/>` +
     logo(pad, 16, 16) +
     `<text x="${pad + 22}" y="29" font-family="${FONT}" font-size="10" letter-spacing="3" fill="${MUTED}">ALVINMUNK</text>` +
     `<text x="${pad}" y="78" font-family="${FONT}" font-size="${nameSize}" font-weight="700" fill="${FG}">${esc(name)}</text>` +
-    (view.verified
+    (verified
       ? tick(pad + textWidth(name, nameSize) + 8, 78 - Math.round(nameSize * 0.45) - 6, 16, LIME)
       : '') +
     divider +

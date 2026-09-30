@@ -31,9 +31,6 @@ export function Footer() {
       links: [
         { href: 'https://github.com/mericcintosun/alvinmunk', label: t('footer.link.github') },
         { href: 'https://x.com', label: t('footer.link.twitter') },
-        ...(process.env.NEXT_PUBLIC_FEEDBACK_FORM_URL
-          ? [{ href: process.env.NEXT_PUBLIC_FEEDBACK_FORM_URL, label: t('footer.link.feedback') }]
-          : []),
       ],
     },
   ];

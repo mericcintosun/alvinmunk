@@ -565,14 +565,5 @@
   "inbox.item.claim": "{who} claimed your half-card",
   "inbox.item.tip": "{who} tipped you {amount} USDC",
   "inbox.item.quest": "Quest #{id} verified — Earned XP added",
-  "inbox.item.streak": "Your quest streak reached {weeks} weeks",
-
-  "feedback.prompt.ariaLabel": "Quick feedback",
-  "feedback.prompt.question": "How was that?",
-  "feedback.prompt.thumbsUp": "Great",
-  "feedback.prompt.thumbsDown": "Not great",
-  "feedback.prompt.tellUsMore": "Tell us more →",
-  "feedback.prompt.dismiss": "Dismiss feedback",
-
-  "footer.link.feedback": "Feedback"
+  "inbox.item.streak": "Your quest streak reached {weeks} weeks"
 }
