@@ -25,6 +25,7 @@ const QUEST_CONTRACT = StrKey.encodeContract(Buffer.alloc(32, 7));
 const ATTESTER = Keypair.random();
 const REGISTRY_CONTRACT = StrKey.encodeContract(Buffer.alloc(32, 9));
 const PASSKEY_REFERRED = StrKey.encodeContract(Buffer.alloc(32, 3));
+const REWARDS_CONTRACT = StrKey.encodeContract(Buffer.alloc(32, 11));
 
 /** One simulation reply: a view's return value, or a simulation error. */
 const sim = (retval: unknown) =>
@@ -61,10 +62,12 @@ beforeEach(async () => {
   vi.stubEnv('NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID', QUEST_CONTRACT);
   vi.stubEnv('NEXT_PUBLIC_REPUTATION_CONTRACT_ID', QUEST_CONTRACT);
   vi.stubEnv('NEXT_PUBLIC_REGISTRY_CONTRACT_ID', '');
+  vi.stubEnv('NEXT_PUBLIC_REWARDS_CONTRACT_ID', REWARDS_CONTRACT);
   // The dashboard defaults: 2 = referral_tx, 3 = invite_converts, 4 = vouch_back; no GitHub quest.
   vi.stubEnv('NEXT_PUBLIC_DEFAULT_QUEST_ID', '');
   vi.stubEnv('NEXT_PUBLIC_INVITE_QUEST_ID', '');
   vi.stubEnv('NEXT_PUBLIC_VOUCHBACK_QUEST_ID', '');
+  vi.stubEnv('NEXT_PUBLIC_FIRST_TIP_QUEST_ID', '6');
   vi.stubEnv('QUEST_GITHUB_ID', '');
   fetchSpy = vi.fn(async () => new Response('{}', { status: 404 }));
   vi.stubGlobal('fetch', fetchSpy);
@@ -906,5 +909,90 @@ describe('POST /api/attest repeatable quests (issue #154)', () => {
     const body = (await res.json()) as { sig: string; expiresAt: number };
     const sig = Buffer.from(body.sig, 'base64');
     expect(ATTESTER.verify(questPayload(ctx, 1, RECIPIENT, body.expiresAt), sig)).toBe(true);
+  });
+});
+
+describe('POST /api/attest first_tip (issue #272)', () => {
+  const THU = 1_790_812_800; // a week boundary: 2026-10-01 00:00 UTC
+  const iso = (secs: number) => new Date(secs * 1000).toISOString();
+  const FRIEND = Keypair.random().publicKey();
+  const tip = (to: string, amount: bigint, at: number) => ({
+    topic: [
+      xdr.ScVal.scvSymbol('tipped'),
+      new Address(RECIPIENT).toScVal(),
+      new Address(to).toScVal(),
+    ],
+    value: nativeToScVal(amount, { type: 'i128' }),
+    ledgerClosedAt: iso(at),
+  });
+  const claim = (n: number, claimer: string, at: number) => ({
+    value: nativeToScVal([n, RECIPIENT, claimer]),
+    ledgerClosedAt: iso(at),
+  });
+  const page = (list: unknown[]) =>
+    ({ events: list, cursor: undefined }) as unknown as rpc.Api.GetEventsResponse;
+  const UNFROZEN = sim(nativeToScVal(false));
+  const FROZEN = sim(nativeToScVal(true));
+
+  function stubEvents() {
+    vi.spyOn(rpc.Server.prototype, 'getHealth').mockResolvedValue({
+      oldestLedger: 1,
+    } as unknown as rpc.Api.GetHealthResponse);
+    return vi.spyOn(rpc.Server.prototype, 'getEvents');
+  }
+
+  it('verifies a floor-sized tip to a wallet that shares a claimed vouch edge', async () => {
+    const events = stubEvents();
+    events.mockResolvedValueOnce(page([tip(FRIEND, 5_000_000n, THU + 10)]));
+    events.mockResolvedValueOnce(page([claim(1, FRIEND, THU + 20)]));
+    simulateSpy
+      .mockResolvedValueOnce(oneShot())
+      .mockResolvedValueOnce(open())
+      .mockResolvedValueOnce(UNFROZEN);
+
+    const res = await attest({ questId: 6, evidence: { type: 'first_tip', ref: '' } });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { sig: string; expiresAt: number };
+    const sig = Buffer.from(body.sig, 'base64');
+    const ctx = { contractId: QUEST_CONTRACT, passphrase: Networks.TESTNET };
+    expect(ATTESTER.verify(questPayload(ctx, 6, RECIPIENT, body.expiresAt), sig)).toBe(true);
+  });
+
+  it('rejects a tip below the floor (0.5 USDC)', async () => {
+    const events = stubEvents();
+    events.mockResolvedValueOnce(page([tip(FRIEND, 4_999_999n, THU + 10)]));
+    simulateSpy.mockResolvedValueOnce(oneShot()).mockResolvedValueOnce(open());
+
+    const res = await attest({ questId: 6, evidence: { type: 'first_tip', ref: '' } });
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toMatch(/haven’t tipped anyone/);
+  });
+
+  it('rejects a tip to an unconnected wallet with a reason', async () => {
+    const events = stubEvents();
+    events.mockResolvedValueOnce(page([tip(FRIEND, 5_000_000n, THU + 10)]));
+    events.mockResolvedValueOnce(page([])); // no shared claimed-vouch edge
+    simulateSpy
+      .mockResolvedValueOnce(oneShot())
+      .mockResolvedValueOnce(open())
+      .mockResolvedValueOnce(UNFROZEN);
+
+    const res = await attest({ questId: 6, evidence: { type: 'first_tip', ref: '' } });
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toMatch(/connected/);
+  });
+
+  it('rejects a tip to a frozen wallet', async () => {
+    const events = stubEvents();
+    events.mockResolvedValueOnce(page([tip(FRIEND, 5_000_000n, THU + 10)]));
+    events.mockResolvedValueOnce(page([claim(1, FRIEND, THU + 20)]));
+    simulateSpy
+      .mockResolvedValueOnce(oneShot())
+      .mockResolvedValueOnce(open())
+      .mockResolvedValueOnce(FROZEN);
+
+    const res = await attest({ questId: 6, evidence: { type: 'first_tip', ref: '' } });
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toMatch(/frozen/);
   });
 });
