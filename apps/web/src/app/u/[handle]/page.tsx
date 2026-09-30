@@ -121,7 +121,7 @@ export default function ProfilePage({
         <Frame label={`profile // @${handle}`} index="FREE">
           <div className="flex flex-col items-center gap-4 p-8 text-center">
             <Crest address={`unclaimed-${handle}`} size={120} points={5} />
-            <h1 className="font-display text-2xl font-semibold">@{handle}</h1>
+            <h1 className="font-display text-2xl font-semibold [overflow-wrap:anywhere]">@{handle}</h1>
             {net ? (
               <p className="text-sm text-muted-foreground text-balance">
                 Nobody held this handle on {net.network}.
@@ -135,9 +135,9 @@ export default function ProfilePage({
                 </p>
                 <Link
                   href={`/app?handle=${encodeURIComponent(handle)}`}
-                  className={cn(buttonVariants({ variant: 'flow' }))}
+                  className={cn(buttonVariants({ variant: 'flow' }), 'max-w-full')}
                 >
-                  Claim @{handle}
+                  <span className="truncate">Claim @{handle}</span>
                 </Link>
               </>
             )}
@@ -154,7 +154,7 @@ export default function ProfilePage({
         <div className="grid gap-6 p-7 sm:grid-cols-[auto_1fr] sm:items-center sm:p-8">
           <Avatar address={address} avatar={avatar} handle={handle} size={140} />
           <div>
-            <h1 className="font-display text-3xl font-semibold">@{handle}</h1>
+            <h1 className="font-display text-3xl font-semibold [overflow-wrap:anywhere]">@{handle}</h1>
             <p className="mt-1 font-mono text-xs text-muted-foreground">{shortAddr(address)}</p>
             {bio && <p className="mt-2 break-words text-sm text-foreground/80">{bio}</p>}
             <div className="mt-3">
@@ -192,8 +192,9 @@ export default function ProfilePage({
       <div className="mt-5 flex flex-wrap items-center gap-3">
         {/* Read-only on the override: no vouch (or any other write) from here. */}
         {!net && (
-          <Link href="/app" className={cn(buttonVariants({ variant: 'flow' }))}>
-            {isMe ? 'Vouch someone' : `Vouch @${handle}`}
+          <Link href="/app" className={cn(buttonVariants({ variant: 'flow' }), 'max-w-full')}>
+            {/* A long @handle truncates rather than pushing the page sideways (#477). */}
+            <span className="truncate">{isMe ? 'Vouch someone' : `Vouch @${handle}`}</span>
           </Link>
         )}
         <Link

@@ -149,6 +149,34 @@ describe('/u/[handle] on a ?network= override (#290)', () => {
     expect(container.textContent).toContain('Nobody held this handle on testnet');
   });
 
+  describe('with a 32-character @handle on a phone (#477)', () => {
+    const long = 'w'.repeat(32);
+    const renderLong = async () => {
+      await act(async () => {
+        root.render(<ProfilePage params={{ handle: long }} />);
+      });
+    };
+
+    it('wraps the heading and truncates the vouch button label', async () => {
+      await renderLong();
+      const h1 = q('h1')!;
+      expect(h1.textContent).toBe(`@${long}`);
+      expect(h1.classList).toContain('[overflow-wrap:anywhere]');
+      const vouch = q('a[href="/app"]')!;
+      expect(vouch.classList).toContain('max-w-full');
+      expect(vouch.querySelector('span.truncate')?.textContent).toBe(`Vouch @${long}`);
+    });
+
+    it('does the same for an unclaimed handle', async () => {
+      m.resolveHandle.mockResolvedValue(null);
+      await renderLong();
+      expect(q('h1')?.classList).toContain('[overflow-wrap:anywhere]');
+      const claim = q('a[href^="/app"]')!;
+      expect(claim.classList).toContain('max-w-full');
+      expect(claim.querySelector('span.truncate')?.textContent).toBe(`Claim @${long}`);
+    });
+  });
+
   it('claims an unclaimed handle with onboarding prefilled to it (#485)', async () => {
     m.resolveHandle.mockResolvedValue(null);
     await render();
