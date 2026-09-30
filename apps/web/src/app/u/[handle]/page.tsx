@@ -202,7 +202,7 @@ function Field({
   const c = accent === 'primary' ? 'text-primary' : accent === 'secondary' ? 'text-secondary' : 'text-tertiary';
   return (
     <div className="p-5">
-      <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
+      <p className="eyebrow-mono text-muted-foreground">{label}</p>
       {value === undefined ? (
         <Skeleton className="mt-2 h-8 w-12" />
       ) : (

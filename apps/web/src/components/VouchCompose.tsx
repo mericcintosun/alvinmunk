@@ -254,7 +254,7 @@ export function VouchCompose() {
                   }).toString()}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="mt-2 inline-block font-mono text-[10px] uppercase tracking-wider text-tertiary hover:underline"
+                  className="mt-2 inline-block font-mono text-2xs uppercase tracking-wider text-tertiary hover:underline"
                 >
                   {t('vouch.compose.shareOnX')}
                 </a>

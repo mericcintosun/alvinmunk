@@ -141,7 +141,7 @@ function Scene({
                     />
                     {on && (
                       <Html position={[0, 0.34, 0]} center distanceFactor={9} zIndexRange={[40, 0]}>
-                        <div className="pointer-events-none -translate-y-2 whitespace-nowrap rounded-full border border-border bg-popover/90 px-2.5 py-1 text-[11px] text-foreground backdrop-blur">
+                        <div className="pointer-events-none -translate-y-2 whitespace-nowrap rounded-full border border-border bg-popover/90 px-2.5 py-1 text-2xs text-foreground backdrop-blur">
                           <span className="font-mono">{shortAddr(v.from)}</span>
                           {v.created ? <span className="text-muted-foreground"> · {timeAgo(v.created, locale)}</span> : null}
                         </div>

@@ -1,0 +1,4 @@
+# Commits that only reformat code (Prettier, cargo fmt), one full SHA per line, for `git blame`
+# to skip. GitHub reads this file on its own; locally run
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# List a commit only once it is on main: a squash or rebase merge gives it a new SHA.

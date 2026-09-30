@@ -7,6 +7,8 @@
   "nav.closeMenu": "Close menu",
   "nav.themeLight": "Switch to light theme",
   "nav.themeDark": "Switch to dark theme",
+  "nav.themeSystem": "Use the system theme",
+  "nav.theme": "Theme",
 
   "footer.tagline": "Reputation should name humans, not hoard points. Lit on Stellar.",
   "network.badge.testnet": "Testnet · test funds",

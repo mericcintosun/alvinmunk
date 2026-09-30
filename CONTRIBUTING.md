@@ -31,7 +31,11 @@ alvinmunk/
 
 1. **Branch**: `feat/`, `fix/`, `chore/` prefixed branches off `main`
 2. **Commits**: Conventional commits preferred (`feat:`, `fix:`, `test:`, `docs:`, `chore:`)
-3. **Code style**: Prettier (JS/TS) + `cargo fmt` + `cargo clippy --all-targets -- -D warnings` (Rust)
+3. **Code style**: Prettier (JS/TS, plus the JSON, YAML and Markdown files) + `cargo fmt` +
+   `cargo clippy --all-targets -- -D warnings` (Rust). `pnpm format` rewrites every file Prettier
+   covers (`.prettierrc`; `.prettierignore` lists what it skips) and `pnpm format:check` only
+   reports them. Commits that only reformat go in `.git-blame-ignore-revs`: GitHub's blame skips
+   them, and so does a local `git blame` after `git config blame.ignoreRevsFile .git-blame-ignore-revs`.
 4. **Testing**: All tests must pass before PR — run `pnpm check`, which runs the same gates as the
    CI `contracts` and `web` jobs, in order:
    - `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` in `contracts/`

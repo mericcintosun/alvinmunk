@@ -137,6 +137,24 @@
   }
 }
 
+@layer components {
+  /* Eyebrow — the small uppercase kicker above headings (chain-site rhythm); `eyebrow-mono` is
+     the same kicker in the mono face (technical / on-chain labels). The only uppercase kicker
+     styles: no hand-rolled letter-spacings. Component classes, so a colour or leading utility
+     on the same element overrides them. */
+  .eyebrow,
+  .eyebrow-mono {
+    font-size: 0.6875rem;
+    line-height: 1;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: hsl(var(--muted-foreground));
+  }
+  .eyebrow-mono {
+    font-family: var(--font-mono), monospace;
+  }
+}
+
 @layer utilities {
   /* Cosmic backdrop: a faint nebula glow behind the deep-space base. */
   .nebula {
@@ -242,15 +260,6 @@
 
   .text-glow {
     text-shadow: 0 0 28px hsl(var(--primary) / 0.35);
-  }
-
-  /* Eyebrow — the small uppercase kicker above headings (chain-site rhythm). */
-  .eyebrow {
-    font-size: 0.6875rem;
-    line-height: 1;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    color: hsl(var(--muted-foreground));
   }
 
   /* Fluid hero display size — scales smoothly from mobile to desktop. */

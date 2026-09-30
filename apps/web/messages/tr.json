@@ -7,6 +7,8 @@
   "nav.closeMenu": "Menüyü kapat",
   "nav.themeLight": "Açık temaya geç",
   "nav.themeDark": "Koyu temaya geç",
+  "nav.themeSystem": "Sistem temasını kullan",
+  "nav.theme": "Tema",
 
   "footer.tagline": "İtibar insanları adlandırmalı, puan biriktirmemeli. Stellar üzerinde yaşıyor.",
   "network.badge.testnet": "Testnet · test parası",
