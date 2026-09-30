@@ -62,9 +62,9 @@ A Wave contribution follows five steps: **find → claim → PR → review → p
 
 ### 1. Find: where the bountied issues live
 
-Every Wave issue in this repo carries the **`Stellar Wave`** label — the maintainer (or the Drips
-Wave bot) applies it, and that label is what pulls an issue into the Wave and makes it
-point-bearing.
+Every Wave issue in this repo carries the **`Stellar Wave`** label, and the same issues are listed
+under the Stellar Wave program in the [Drips Wave app](https://www.drips.network/wave), where you
+apply for them.
 
 - [Wave issues, all states](https://github.com/mericcintosun/alvinmunk/labels/Stellar%20Wave)
 - [Open Wave issues](https://github.com/mericcintosun/alvinmunk/issues?q=is%3Aissue+is%3Aopen+label%3A%22Stellar+Wave%22)
@@ -75,25 +75,28 @@ point-bearing.
 `documentation`, `contracts`, `frontend`, `security`, `ci`, `ops`, `tech-debt`. Unlabelled issues
 are still welcome as PRs, but they carry no points.
 
-Every Wave issue is written to the same four-part shape — **Problem / Files / Fix / Acceptance
-criteria** — and every one names the files it touches. Read all four before you apply. If the
-acceptance criteria can't be checked from a diff, or the referenced files no longer exist, say so
-in your claim comment: a stale issue needs re-scoping, not a guess.
+Wave issues are written in a four-part shape — **Problem / Files / Fix / Acceptance criteria** —
+and name the files they touch. Read all four before you apply. If the acceptance criteria can't be
+checked from a diff, or the referenced files no longer exist, say so in your application or on the
+issue: a stale issue needs re-scoping, not a guess.
 
-### 2. Claim: comment, one issue per person
+### 2. Claim: apply, wait for assignment, one issue per person
 
-1. **Comment on the issue before you write code.** Two or three specific sentences — which files
-   you'd touch and the shape of the fix — is enough. A generic "I'd like to work on this", a
-   template with the blanks unfilled, or a copy-paste that doesn't mention this issue will not be
-   picked.
-2. **One active issue per person.** Claim a second once the first is merged or released. If you
-   drop one, comment so it can be reassigned rather than going quiet.
-3. **Know the code before you claim it.** Read the issue, the files it names, and the surrounding
+1. **Set up your Wave account up front.** Sign in at [drips.network/wave](https://www.drips.network/wave)
+   with GitHub and complete identity verification (KYC) under *Settings → Profile* — KYC is
+   mandatory both to apply for an issue and to withdraw rewards, and usually takes a few minutes.
+2. **Apply from the Wave app.** Find the issue in the Stellar Wave program and submit an
+   application; the Drips Wave bot posts it as a comment on the GitHub issue. Two or three specific
+   sentences — which files you'd touch and the shape of the fix — is enough. A generic "I'd like to
+   work on this", a template with the blanks unfilled, or a copy-paste that doesn't mention this
+   issue will not be picked.
+3. **Wait for assignment before you write code.** The issue is yours once the maintainer accepts
+   your application and you are assigned on GitHub; the bot comments with the due date.
+4. **One active issue per person.** Apply for a second once the first is merged or released. If you
+   drop one, comment on the issue so it can be reassigned rather than going quiet.
+5. **Know the code before you claim it.** Read the issue, the files it names, and the surrounding
    code first. Don't claim something you can't realistically finish inside the Wave window.
-4. **Set up your Wave account up front.** Sign in at [drips.network/wave](https://www.drips.network/wave)
-   with GitHub, link your Discord, and complete identity verification (KYC) *before* you apply —
-   KYC is mandatory both to apply and to withdraw, and it takes about five minutes.
-5. **Link the PR to the issue.** Write `Closes #123` (or `#123` in the body). If the connection
+6. **Link the PR to the issue.** Write `Closes #123` in the PR description. If the connection
    between PR and issue isn't obvious to a machine, the work may not be tracked and you may not be
    credited for it.
 
@@ -114,8 +117,8 @@ in your claim comment: a stale issue needs re-scoping, not a guess.
   you checked, and paste the shots in the PR body.
 - **No bulk-generated diffs.** PRs that are machine-generated in bulk — across many files, many
   issues at once, reformats, dependency bumps, or a diff you cannot explain line by line — are
-  closed, as are duplicates. The maintainer has done this before and will again; the bar is that
-  you can defend every line in your diff, in the review, out loud. AI as a typing aid is fine; AI
+  closed, as are duplicates (see [`docs/ECOSYSTEM.md`](./docs/ECOSYSTEM.md)). The bar is that you
+  can defend every line in your diff in the review. AI as a typing aid is fine; AI
   as a substitute for reading the issue is not.
 - **Conventional commits**, one logical change per PR: `feat(web): …`, `fix(contracts): …`,
   `test(registry): …`, `docs: …`.
@@ -126,16 +129,18 @@ in your claim comment: a stale issue needs re-scoping, not a guess.
   polite follow-up is fine — pinging after a few hours is not. Drips' own
   [contributor guide](https://www.drips.network/blog/posts/your-guide-to-contributing-well-in-wave)
   says the same: stay in the loop, but don't spam or demand an instant reply.
-- **PRs:** every merged Wave PR so far ([#29](https://github.com/mericcintosun/alvinmunk/pull/29)–[#43](https://github.com/mericcintosun/alvinmunk/pull/43))
-  went from open to merge in **under 12 hours**, with a median of about 4. The first review pass is
-  usually quick; a round of requested changes is normal, not a rejection.
+- **PRs:** the maintainer aims to review within the Wave window. The first cohort
+  ([#29](https://github.com/mericcintosun/alvinmunk/pull/29)–[#43](https://github.com/mericcintosun/alvinmunk/pull/43))
+  went from open to merge in a median of about four hours, the slowest in about thirteen. A round of
+  requested changes is normal, not a rejection, and the maintainer may push follow-up commits
+  (tests, translations, scope trims) to your branch before merging — the PR is still yours.
 - **While you wait:** stay on the issue or PR, answer questions there, and push a fixup commit
   rather than force-pushing a rewrite. If you get blocked or can't finish, say so — an issue
   blocked by something outside your control is something the maintainer can resolve, and silence is
   what gets a claim reassigned.
-- **Getting stuck:** open an issue on this repo, or ask in the 🎫 *tickets* channel on the
-  [Drips Discord](https://discord.gg/BakDKKDpHF) for anything Wave-specific (KYC, rewards,
-  account access).
+- **Getting stuck:** ask on the issue or PR for anything about the code. For Wave questions, use
+  the 🎫 *tickets* channel on the [Drips Discord](https://discord.gg/BakDKKDpHF); for KYC, rewards
+  or account access, use [Drips Wave support](https://www.drips.network/wave/support).
 
 ### 5. Points: how you get paid
 
