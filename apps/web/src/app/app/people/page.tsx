@@ -14,7 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { StateArt } from '@/components/ui/state-art';
 import { Frame } from '@/components/fx/frame';
 import { useWallet } from '@/components/wallet/wallet-provider';
-import { useTranslations, type TFn } from '@/lib/i18n';
+import { useFormat, useTranslations, type TFn } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { shortAddr } from '@alvinmunk/shared';
 
@@ -41,6 +41,7 @@ const MAX_SUGGESTIONS = 6;
 export default function PeoplePage() {
   const { profile } = useWallet();
   const t = useTranslations();
+  const format = useFormat();
   const [query, setQuery] = useState('');
   const [result, setResult] = useState<SearchResult>(null);
   const [state, setState] = useState<SearchState>('idle');
@@ -203,19 +204,20 @@ export default function PeoplePage() {
                   <div className="mt-1.5 flex items-center gap-4 font-mono text-xs text-muted-foreground">
                     <span className="inline-flex items-center gap-1">
                       <Star className={cn('size-3.5', result.social > 0 ? 'text-accent' : 'text-muted-foreground/40')} />
-                      {result.social} Social
+                      {format.number(result.social)} Social
                     </span>
                     <span className="inline-flex items-center gap-1">
                       <Sparkles className={cn('size-3.5', result.earned > 0 ? 'text-lime' : 'text-muted-foreground/40')} />
-                      {result.earned} Earned
+                      {format.number(result.earned)} Earned
                     </span>
                   </div>
                 </div>
-                <Link href="/app/vouch">
-                  <Button variant="flow" size="sm" className="gap-1.5">
-                    Vouch
-                    <ArrowRight className="size-3.5" />
-                  </Button>
+                <Link
+                  href="/app/vouch"
+                  className={cn(buttonVariants({ variant: 'flow', size: 'sm' }), 'gap-1.5')}
+                >
+                  Vouch
+                  <ArrowRight className="size-3.5" />
                 </Link>
               </div>
 

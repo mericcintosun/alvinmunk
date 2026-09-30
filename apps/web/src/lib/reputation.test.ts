@@ -40,6 +40,7 @@ import {
   claimLink,
   claimMessage,
   claimPublicKey,
+  cancelVouch,
   claimVouch,
   claimVouchSigned,
   clampVouchNote,
@@ -56,6 +57,7 @@ import {
   getScores,
   getVouch,
   forgetVouch,
+  isVouchCancelled,
   VOUCH_BATCH_MAX,
   VOUCH_READ_CONCURRENCY,
   VOUCH_READ_TTL_MS,
@@ -435,6 +437,25 @@ describe('getPending', () => {
   });
 });
 
+describe('isVouchCancelled', () => {
+  beforeEach(() => readPublicMock.mockReset());
+
+  it('reads is_cancelled for the card', async () => {
+    readPublicMock.mockResolvedValueOnce(true);
+    expect(await isVouchCancelled(7)).toBe(true);
+    expect(readPublicMock).toHaveBeenCalledWith(REP_ID, 'is_cancelled', [{ __u64: 7 }]);
+    readPublicMock.mockResolvedValueOnce(false);
+    expect(await isVouchCancelled(8)).toBe(false);
+  });
+
+  it('is null, not false, when the contract predates cancel_vouch', async () => {
+    readPublicMock.mockRejectedValueOnce(new Error('simulate is_cancelled failed: MissingValue'));
+    expect(await isVouchCancelled(7)).toBeNull();
+    readPublicMock.mockResolvedValueOnce(undefined);
+    expect(await isVouchCancelled(7)).toBeNull();
+  });
+});
+
 // ── claim keys (issue #121) ──
 
 const CLASSIC = 'GARCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCFRVX'; // 32 × 0x22
@@ -567,6 +588,22 @@ describe('vouch mint and claim', () => {
       [{ __addr: CLASSIC }, { __u64: 3 }, { __bytes: fromHex('ab'.repeat(32)) }],
       wallet,
     );
+  });
+
+  it("cancels the voucher's own card, then reads it from the chain again", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    sdkMock.getVouch.mockReset().mockResolvedValue({ id: 9, claimed: false });
+    forgetVouch();
+    await getVouch(9);
+    await cancelVouch(wallet, 9);
+    expect(invokeMock).toHaveBeenCalledWith(REP_ID, 'cancel_vouch', [{ __addr: CLASSIC }, { __u64: 9 }], wallet);
+    await getVouch(9);
+    expect(sdkMock.getVouch).toHaveBeenCalledTimes(2);
+  });
+
+  it('passes a refused cancel through for the caller to explain', async () => {
+    invokeMock.mockRejectedValueOnce(new Error('HostError: Error(Contract, #16)'));
+    await expect(cancelVouch(wallet, 9)).rejects.toThrow('#16');
   });
 });
 

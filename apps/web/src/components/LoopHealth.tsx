@@ -1,6 +1,7 @@
 import React from 'react';
 import type { VouchFunnel } from '@/lib/vouch-funnel';
 import { cn } from '@/lib/utils';
+import { useFormat } from '@/lib/i18n';
 
 /** The PMF gate: a minted half-card has to be claimed at least this often (PRODUCT_MARKET_FIT.md). */
 export const GATE = 0.4;
@@ -18,6 +19,7 @@ interface Props {
 
 /** "Loop health" on /stats — the vouch claim-completion funnel, read from contract state. */
 export function LoopHealth({ funnel, error, loading }: Props) {
+  const format = useFormat();
   const gated = funnel && funnel.minted > 0;
   return (
     <section className="mt-8" aria-busy={loading}>
@@ -45,15 +47,15 @@ export function LoopHealth({ funnel, error, loading }: Props) {
       {funnel ? (
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <Tile label="Minted" value={funnel.minted.toLocaleString()} hint={`${funnel.open.toLocaleString()} still open`} />
-            <Tile label="Claimed" value={funnel.claimed.toLocaleString()} />
+            <Tile label="Minted" value={format.number(funnel.minted)} hint={`${format.number(funnel.open)} still open`} />
+            <Tile label="Claimed" value={format.number(funnel.claimed)} />
             <Tile label="Completion" value={pct(funnel.completionRate)} hint={`Target: ${GATE_LABEL}`} />
             <Tile
               label="Expired unclaimed"
-              value={funnel.expiredUnclaimed.toLocaleString()}
+              value={format.number(funnel.expiredUnclaimed)}
               hint={pct(funnel.expiredRate)}
             />
-            <Tile label="Distinct vouchers" value={funnel.distinctVouchers.toLocaleString()} />
+            <Tile label="Distinct vouchers" value={format.number(funnel.distinctVouchers)} />
             <Tile label="Repeat-pair share" value={pct(funnel.repeatPairShare)} hint="claims of a pair already claimed" />
           </div>
           <div className="mt-5 overflow-x-auto rounded-2xl border border-border/50">
@@ -72,10 +74,10 @@ export function LoopHealth({ funnel, error, loading }: Props) {
                 {funnel.weeklyCohorts.map((c) => (
                   <tr key={c.week} className="border-t border-border/40">
                     <td className="px-4 py-3 font-mono text-xs">{c.week}</td>
-                    <td className="px-4 py-3 tabular-nums">{c.minted}</td>
-                    <td className="px-4 py-3 tabular-nums">{c.claimed}</td>
-                    <td className="px-4 py-3 tabular-nums">{c.open}</td>
-                    <td className="px-4 py-3 tabular-nums">{c.expiredUnclaimed}</td>
+                    <td className="px-4 py-3 tabular-nums">{format.number(c.minted)}</td>
+                    <td className="px-4 py-3 tabular-nums">{format.number(c.claimed)}</td>
+                    <td className="px-4 py-3 tabular-nums">{format.number(c.open)}</td>
+                    <td className="px-4 py-3 tabular-nums">{format.number(c.expiredUnclaimed)}</td>
                     <td
                       className={cn(
                         'px-4 py-3 font-semibold tabular-nums',
@@ -95,7 +97,7 @@ export function LoopHealth({ funnel, error, loading }: Props) {
           <p className="mt-2 text-xs text-muted-foreground">
             Open half-cards can still be claimed, so the newest week&apos;s completion is not final.
             {funnel.unread > 0 &&
-              ` Not counted: ${funnel.unread.toLocaleString()} half-card${funnel.unread === 1 ? '' : 's'} whose contract state could not be read (archived, or past the read cap).`}
+              ` Not counted: ${format.number(funnel.unread)} half-card${funnel.unread === 1 ? '' : 's'} whose contract state could not be read (archived, or past the read cap).`}
           </p>
         </>
       ) : loading ? (

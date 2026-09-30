@@ -22,6 +22,8 @@ vi.mock('@/lib/constellation', () => ({ getPeopleCounts: getPeopleCountsMock }))
 vi.mock('@/lib/feed', () => ({ fetchActivity: fetchActivityMock }));
 vi.mock('@/lib/registry', () => ({ reverseHandles: reverseHandlesMock }));
 vi.mock('@/lib/myvouches', () => ({ getPendingVouches: getPendingVouchesMock }));
+// PendingHalfCards offers the revoke to the connected wallet's own cards (#137).
+vi.mock('@/components/wallet/wallet-provider', () => ({ useWallet: () => ({ profile: null }) }));
 
 import { StatStrip } from './stat-strip';
 import { ActivityFeed } from '../ActivityFeed';

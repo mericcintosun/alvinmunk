@@ -2,7 +2,7 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { I18nProvider, useTranslations, useLocale } from './i18n';
+import { I18nProvider, useTranslations, useLocale, useFormat } from './i18n';
 
 function Consumer() {
   const t = useTranslations();
@@ -170,5 +170,77 @@ describe('I18nProvider', () => {
         Object.defineProperty(window, 'localStorage', original);
       }
     }
+  });
+});
+
+// A fixed noon UTC, so the calendar day is the same in every test-runner time zone.
+const SEP_30 = Date.UTC(2026, 8, 30, 12);
+
+describe('useFormat (#493)', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  function Figures() {
+    const format = useFormat();
+    const { setLocale } = useLocale();
+    return (
+      <div>
+        <span id="n">{format.number(1234)}</span>
+        <span id="d">{format.date(SEP_30)}</span>
+        <button id="tr" onClick={() => setLocale('tr')}>
+          tr
+        </button>
+      </div>
+    );
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    localStorage.clear();
+  });
+
+  const text = (id: string) => container.querySelector(`#${id}`)?.textContent;
+
+  it('follows the active locale when it switches', async () => {
+    await act(async () => {
+      root.render(
+        <I18nProvider>
+          <Figures />
+        </I18nProvider>,
+      );
+    });
+    expect(text('n')).toBe('1,234');
+    expect(text('d')).toBe('Sep 30, 2026');
+    await act(async () => {
+      (container.querySelector('#tr') as HTMLButtonElement).click();
+    });
+    expect(text('n')).toBe('1.234');
+    expect(text('d')).toBe('30 Eyl 2026');
+  });
+
+  it('picks up a stored Turkish preference', async () => {
+    localStorage.setItem('alvinmunk_locale', 'tr');
+    await act(async () => {
+      root.render(
+        <I18nProvider>
+          <Figures />
+        </I18nProvider>,
+      );
+    });
+    expect(text('n')).toBe('1.234');
+  });
+
+  it('is English outside the provider, like useTranslations', async () => {
+    await act(async () => root.render(<Figures />));
+    expect(text('n')).toBe('1,234');
+    expect(text('d')).toBe('Sep 30, 2026');
   });
 });

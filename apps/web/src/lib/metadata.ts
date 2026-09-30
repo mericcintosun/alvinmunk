@@ -11,9 +11,14 @@ import { getSiteUrl } from './site-url';
  *   template for every segment below it.
  * - A segment's `openGraph` / `twitter` REPLACES its parent's instead of merging, so a
  *   route that sets them silently drops the default image and card type. The root
- *   therefore sets only the image and card; Next fills og:title, og:description and the
+ *   therefore sets only the type and card; Next fills og:title, og:description and the
  *   twitter text from each route's own `title` / `description`. Routes set those two and
  *   leave `openGraph` / `twitter` alone (an `opengraph-image` file still wins for its route).
+ * - The default image is app/opengraph-image.tsx (1200×630, with alt). Next only applies a
+ *   segment's image file when that segment's metadata sets no `openGraph.images`, so the
+ *   root must never set it (#505). There is deliberately no root twitter-image: Next fills
+ *   twitter:image from og:image, and a root twitter-image would be inherited by /u, /v and
+ *   /claim, so X would show the site card instead of their own cards.
  */
 export const SITE_NAME = 'alvinmunk';
 export const TITLE_TEMPLATE = `%s · ${SITE_NAME}`;
@@ -23,22 +28,16 @@ export const SITE_DESCRIPTION =
 /** The claim-funnel line. Only /claim/<id> uses it: it is wrong copy for any other unfurl. */
 export const CLAIM_DESCRIPTION = 'Someone vouched for you. Claim your half of the sky.';
 
-const DEFAULT_OG_IMAGE = '/assets/meta/og-default.png';
-
 export const rootMetadata: Metadata = {
   metadataBase: getSiteUrl(),
   title: { default: SITE_TITLE, template: TITLE_TEMPLATE },
   description: SITE_DESCRIPTION,
-  openGraph: { type: 'website', images: [DEFAULT_OG_IMAGE] },
+  openGraph: { type: 'website' },
   twitter: { card: 'summary_large_image' },
-  icons: {
-    icon: [{ url: '/assets/meta/favicon-32.png', type: 'image/png' }],
-    // iOS ignores the manifest icons for the home-screen tile — it needs this link
-    // relation explicitly (#292).
-    apple: [
-      { url: '/assets/brand/alvinmunk-apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
-    ],
-  },
+  // No `icons`: app/favicon.ico, app/icon.svg and app/apple-icon.png are the one icon set
+  // (scripts/brand-icons.mjs). Next emits file icons AND this field, so an entry here would
+  // ship a second favicon (#504). apple-icon.png is the explicit apple-touch-icon link iOS
+  // needs for the home-screen tile: it ignores the manifest icons (#292).
 };
 
 // A registry handle is a Soroban `Symbol` (a-z, 0-9, _; at most 32 chars), read lowercased.

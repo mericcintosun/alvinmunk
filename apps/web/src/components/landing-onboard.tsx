@@ -10,7 +10,7 @@ import { useCreateProfile } from '@/hooks/use-create-profile';
 import { AvatarPicker } from '@/components/AvatarPicker';
 import type { FaceId } from '@/lib/avatar';
 import { useTranslations } from '@/lib/i18n';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { HandleHint } from '@/components/handle-hint';
 
@@ -34,13 +34,12 @@ export function LandingOnboard() {
     onCreated: () => router.push('/app'),
   });
 
-  // Returning user: skip straight to the app.
+  // Returning user: skip straight to the app. The link itself is styled as the button — a
+  // <button> inside an <a> is invalid HTML and a second tab stop (#487).
   if (profile) {
     return (
-      <Link href="/app" className="inline-flex">
-        <Button variant="flow" size="lg">
-          {t('onboard.openApp')} <ArrowRight className="size-4" />
-        </Button>
+      <Link href="/app" className={buttonVariants({ variant: 'flow', size: 'lg' })}>
+        {t('onboard.openApp')} <ArrowRight className="size-4" />
       </Link>
     );
   }

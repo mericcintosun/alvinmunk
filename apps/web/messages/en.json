@@ -126,6 +126,9 @@
   "claim.voucher.headlineHandle": "@{handle} vouched for you.",
   "claim.voucher.headlineFallback": "Someone vouched for you.",
   "claim.voucher.viewProfile": "view @{handle}'s profile →",
+  "claim.cancelled.frame": "// vouch_revoked",
+  "claim.cancelled.title": "This link was revoked.",
+  "claim.cancelled.body": "The person who sent it cancelled this vouch before anyone claimed it, so it can no longer be claimed. If it was meant for you, ask them to vouch for you again.",
 
   "appHome.whatNow": "What now",
   "appHome.recentActivity": "Recent activity",
@@ -349,6 +352,8 @@
   "leaderboard.you": "you",
   "leaderboard.share": "The most-connected on alvinmunk 🌌 — collect people, not points.",
   "leaderboard.rowLabel": "{name}, rank {rank}, {score} Social XP",
+  "leaderboard.entries.one": "1 entry",
+  "leaderboard.entries.other": "{count} entries",
 
   "howItWorks.eyebrow": "// the_machine",
   "howItWorks.title": "How it works",
@@ -484,6 +489,12 @@
   "feedback.prompt.more": "Tell us more →",
   "feedback.prompt.dismiss": "Dismiss",
 
+  "pendingBonusNudge.title.one": "1 person gets +{amount} XP when you complete your first quest",
+  "pendingBonusNudge.title.other": "{count} people get +{amount} XP each when you complete your first quest",
+  "pendingBonusNudge.title.mixed": "{count} people get +{total} XP between them when you complete your first quest",
+  "pendingBonusNudge.body": "Their vouch bonus unlocks with your first verified quest — the step that shows you're real.",
+  "pendingBonusNudge.action": "Complete a quest →",
+
   "pendingHalfCards.frame": "pending // awaiting_claim",
   "pendingHalfCards.empty.title": "No half-cards waiting",
   "pendingHalfCards.empty.body": "When you mint a vouch that nobody claims yet, this panel becomes your friendly reminder to share it again.",
@@ -493,6 +504,14 @@
   "pendingHalfCards.atRisk": "stake at risk · re-share before it's slashed",
   "pendingHalfCards.copied": "copied",
   "pendingHalfCards.copyLink": "copy_link",
+  "pendingHalfCards.revoke": "revoke_link",
+  "pendingHalfCards.revokeConfirm": "Revoke this link? Nobody can claim the vouch afterwards, and your stake is not refunded.",
+  "pendingHalfCards.revokeYes": "Revoke",
+  "pendingHalfCards.revokeNo": "Keep it",
+  "pendingHalfCards.revoking": "Revoking…",
+  "pendingHalfCards.revokeError.notYours": "Only the wallet that minted this vouch can revoke it.",
+  "pendingHalfCards.revokeError.claimed": "Too late — this vouch was already claimed.",
+  "pendingHalfCards.revokeError.cancelled": "This link was already revoked.",
 
   "activityFeed.frame": "log // recent_activity",
   "activityFeed.live": "LIVE",
@@ -503,6 +522,15 @@
   "shareRow.tweet": "tweet",
   "shareRow.copied": "copied",
   "shareRow.copyLink": "copy_link",
+
+  "embed.title": "Embed your badge",
+  "embed.body": "Drop @{handle}'s live reputation into a README, a hackathon profile or any site. The badge is a read-only SVG, cached at the edge.",
+  "embed.label.markdown": "Markdown",
+  "embed.label.html": "HTML",
+  "embed.copy": "copy",
+  "embed.copied": "copied",
+  "embed.styleHint": "Shape the badge with ?style=card, and pick the size in your own markup. Unclaimed handles render neutral — never a broken image.",
+
   "vouch.compose.defaultNote": "vouched for you",
   "vouch.compose.shareXSuffix": "— claim your half of the sky:",
 

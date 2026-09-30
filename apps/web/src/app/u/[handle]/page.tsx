@@ -11,6 +11,7 @@ import { Avatar } from '@/components/Avatar';
 import { Frame } from '@/components/fx/frame';
 import { Stamp } from '@/components/fx/stamp';
 import { ShareRow } from '@/components/fx/share-row';
+import { EmbedBadge } from '@/components/fx/embed-badge';
 import { BadgeGallery } from '@/components/BadgeGallery';
 import { VouchNetwork } from '@/components/VouchNetwork';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -19,6 +20,7 @@ import { shortAddr } from '@alvinmunk/shared';
 import { cn } from '@/lib/utils';
 import { readNetworkFor, withReadNetwork } from '@/lib/read-network';
 import { ReadOnlyBanner } from '@/components/read-only-banner';
+import { useFormat } from '@/lib/i18n';
 
 /**
  * Public profile. The handle is resolved ON-CHAIN via the registry, so ANY claimed
@@ -212,6 +214,15 @@ export default function ProfilePage({
           }
         />
       </div>
+
+      {/* The embeddable SVG badge (#283). Only on the deployment's own network: the badge
+          route always reads THAT network, so offering it on a ?network= override would
+          hand out a badge for the wrong profile. */}
+      {!net && (
+        <div className="mt-5">
+          <EmbedBadge handle={handle} />
+        </div>
+      )}
     </div>
   );
 }
@@ -226,6 +237,7 @@ function Field({
   accent: 'primary' | 'secondary' | 'tertiary';
 }) {
   const c = accent === 'primary' ? 'text-primary' : accent === 'secondary' ? 'text-secondary' : 'text-tertiary';
+  const format = useFormat();
   return (
     <div className="p-5">
       <p className="eyebrow-mono text-muted-foreground">{label}</p>
@@ -233,7 +245,7 @@ function Field({
         // h-9 = text-3xl's line height, so the cell keeps its height when the number lands.
         <Skeleton className="mt-2 h-9 w-12" />
       ) : (
-        <p className={cn('mt-2 font-display text-3xl font-semibold', c)}>{value}</p>
+        <p className={cn('mt-2 font-display text-3xl font-semibold', c)}>{format.number(value)}</p>
       )}
     </div>
   );

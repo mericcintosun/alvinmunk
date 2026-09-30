@@ -37,6 +37,9 @@ import { stroopsToUsdc } from '@/lib/rewards';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+// `dynamic` alone doesn't stop Next caching the SDK's JSON-RPC POSTs in a GET handler: without
+// this every cron run would read the same cached events and never see a new tip.
+export const fetchCache = 'default-no-store';
 
 /** Where a tip notification opens: the inbox lists received tips. */
 const TIP_URL = '/app/inbox';

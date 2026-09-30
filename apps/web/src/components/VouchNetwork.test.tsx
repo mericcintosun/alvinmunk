@@ -131,4 +131,11 @@ describe('VouchNetwork (#277)', () => {
     await act(async () => resolve([]));
     expect(empties()).toBe(2);
   });
+
+  it('shows the counts with the locale digit grouping (#493)', async () => {
+    await render({ vouchedByCount: 1_234, backedCount: 56_789 });
+    const counts = Array.from(container.querySelectorAll('p.font-display')).map((p) => p.textContent);
+    expect(counts).toContain('1,234');
+    expect(counts).toContain('56,789');
+  });
 });
