@@ -1,55 +1,71 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Moon, Sun } from 'lucide-react';
+import { Monitor, Moon, Sun } from 'lucide-react';
 import { useTranslations } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { getItem, setItem } from '@/lib/storage';
+import { getItem, removeItem, setItem } from '@/lib/storage';
 
 /** localStorage key for an explicit theme choice. Read by the pre-paint script in the root layout. */
 export const THEME_KEY = 'alvinmunk.theme';
 
-type Theme = 'light' | 'dark';
+export type Theme = 'light' | 'dark' | 'system';
 
-function applyTheme(theme: Theme) {
+const LIGHT_COLOR = '#ede7ff';
+const DARK_COLOR = '#0b0512';
+
+function systemTheme(): 'light' | 'dark' {
+  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+}
+
+function applyTheme(theme: 'light' | 'dark') {
   const root = document.documentElement;
   root.classList.remove('light', 'dark');
   root.classList.add(theme);
   root.style.colorScheme = theme;
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', theme === 'light' ? LIGHT_COLOR : DARK_COLOR);
 }
 
 /**
- * Light/dark toggle. The root layout's inline script applies the theme before first paint
+ * Light / Dark / System toggle. The root layout's inline script applies the theme before first paint
  * (explicit choice, else the OS preference), so this only reads the current class, follows
- * OS changes until the user picks one, and persists an explicit choice.
+ * OS changes while System is active, and persists an explicit choice.
  */
 export function ThemeToggle({ className }: { className?: string }) {
   const t = useTranslations();
-  const [theme, setTheme] = useState<Theme>('dark');
+  const [mounted, setMounted] = useState(false);
+  const [theme, setTheme] = useState<Theme>('system');
 
   useEffect(() => {
-    setTheme(document.documentElement.classList.contains('light') ? 'light' : 'dark');
+    const stored = getItem(THEME_KEY);
+    setTheme(stored === 'light' || stored === 'dark' ? stored : 'system');
+    setMounted(true);
     const media = window.matchMedia('(prefers-color-scheme: light)');
-    const onChange = (e: MediaQueryListEvent) => {
+    const onChange = () => {
       if (getItem(THEME_KEY)) return; // an explicit choice wins
-      const next: Theme = e.matches ? 'light' : 'dark';
-      applyTheme(next);
-      setTheme(next);
+      applyTheme(systemTheme());
     };
     media.addEventListener('change', onChange);
     return () => media.removeEventListener('change', onChange);
   }, []);
 
-  const next: Theme = theme === 'light' ? 'dark' : 'light';
-  const label = next === 'light' ? t('nav.themeLight') : t('nav.themeDark');
+  const next: Theme = theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light';
+  const label =
+    next === 'light' ? t('nav.themeLight') : next === 'dark' ? t('nav.themeDark') : t('nav.themeSystem');
 
   return (
     <button
       type="button"
       onClick={() => {
-        applyTheme(next);
+        if (next === 'system') {
+          removeItem(THEME_KEY);
+          applyTheme(systemTheme());
+        } else {
+          applyTheme(next);
+          setItem(THIE_KEY, next);
+        }
         setTheme(next);
-        setItem(THEME_KEY, next);
       }}
       aria-label={label}
       title={label}
@@ -58,7 +74,16 @@ export function ThemeToggle({ className }: { className?: string }) {
         className,
       )}
     >
-      {theme === 'light' ? <Moon className="size-5" /> : <Sun className="size-5" />}
+      <span className="inline-flex size-5 items-center justify-center">
+        {mounted &&
+          (theme === 'light' ? (
+            <Moon className="size-5" />
+          ) : theme === 'dark' ? (
+            <Sun className="size-5" />
+          ) : (
+            <Monitor className="size-5" />
+          ))}
+      </span>
     </button>
   );
 }

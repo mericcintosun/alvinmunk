@@ -9,7 +9,7 @@ export default function manifest(): MetadataRoute.Manifest {
     scope: '/',
     display: 'standalone',
     background_color: '#0B0512',
-    theme_color: '#9A52FF',
+    theme_color: '#0B0512',
     icons: [
       {
         src: '/assets/brand/alvinmunk-icon-192.png',

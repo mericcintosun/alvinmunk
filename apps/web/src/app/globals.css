@@ -60,6 +60,10 @@
   --nebula-b: 24 70% 18%;
   --aurora-base: 228 40% 7%;
   --glass-shadow: 230 60% 2%;
+
+  /* Browser chrome (viewport theme-color) — matches --background so the mobile
+     toolbar blends with the app surface. */
+  --theme-color: 264 52% 4.5%;
 }
 
 /* Light theme — mirrors the HSL token set with a pale violet base. */
@@ -101,12 +105,16 @@
   --nebula-b: 24 70% 82%;
   --aurora-base: 228 40% 96%;
   --glass-shadow: 230 40% 30%;
+  --theme-color: 264 52% 96%;
 }
 
 
 @layer base {
   * {
     @apply border-border;
+  }
+  html {
+    background-color: hsl(var(--background));
   }
   body {
     @apply bg-background text-foreground font-sans antialiased;
