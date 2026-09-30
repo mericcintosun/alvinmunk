@@ -11,6 +11,7 @@ import {
   getPermission,
   getActivePushSubscription,
   getPushAvailabilityHint,
+  subscribeToPush,
   syncPushSubscription,
 } from '@/lib/push';
 import { useLocale, useTranslations } from '@/lib/i18n';
@@ -133,9 +134,12 @@ export function VouchClaimedNotice() {
       await registerServiceWorker();
       const perm = await requestPermission();
       if (perm === 'granted') {
-        // The actual per-vouch subscription is created when the next mint happens
-        // (subscribeToVouchPush in VouchCompose). Here we just register the SW so
-        // future subscriptions can be taken out immediately.
+        // Opt in now, without a vouch (#297): tips received reach this device even if
+        // this wallet never mints. A later mint adds its vouch ID to the same record.
+        if (walletAddress) {
+          await subscribeToPush(walletAddress);
+          void shareWalletWithServiceWorker(walletAddress);
+        }
         toast.success(t('vouchNotice.push.enabled'));
       }
     } catch {

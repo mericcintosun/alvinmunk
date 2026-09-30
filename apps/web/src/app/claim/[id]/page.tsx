@@ -17,6 +17,7 @@ import {
 } from '@/lib/reputation';
 import { getMeta, reverseHandle } from '@/lib/registry';
 import { Avatar } from '@/components/Avatar';
+import { FeedbackPrompt } from '@/components/FeedbackPrompt';
 import type { AvatarConfig } from '@/lib/avatar';
 import { Crest } from '@/components/brand/crest';
 import { Frame } from '@/components/fx/frame';
@@ -27,7 +28,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { StateArt } from '@/components/ui/state-art';
 import { Sticker } from '@/components/ui/sticker';
 import { Input } from '@/components/ui/input';
+import { HandleHint } from '@/components/handle-hint';
 import { useCreateProfile } from '@/hooks/use-create-profile';
+import { HANDLE_MAX_CHARS } from '@/lib/profile';
 import { useTranslations } from '@/lib/i18n';
 import { cn, humanizeError, withTimeout } from '@/lib/utils';
 
@@ -69,7 +72,7 @@ function ClaimInner({ params }: { params: { id: string } }) {
   const { id } = params;
   const vid = Number(id);
   const validId = Number.isInteger(vid) && vid >= 0;
-  const { connect, profile } = useWallet();
+  const { connect, profile, wallet } = useWallet();
   const t = useTranslations();
   const [claimCode, setClaimCode] = useState<ClaimCode | null>(null);
   const [state, setState] = useState<'preview' | 'claiming' | 'done' | 'error'>('preview');
@@ -361,6 +364,14 @@ function ClaimInner({ params }: { params: { id: string } }) {
                 a name without a second connect or FaceID prompt. */}
             {!profile && <ClaimHandlePicker />}
 
+            {/* Asked once, at the moment of delight (#287). The handle arrives once they name it. */}
+            <FeedbackPrompt
+              action="claim"
+              handle={profile?.handle}
+              address={profile?.address ?? wallet?.address}
+              className="w-full"
+            />
+
             {/* Skipping naming still leaves a valid claim; the old "Create your profile"
                 path (and, for a returning user, their profile) both stay reachable. */}
             <Link href="/app" className="font-mono text-xs text-muted-foreground underline">
@@ -400,11 +411,13 @@ function ClaimHandlePicker() {
           onChange={(e) => setHandle(e.target.value)}
           placeholder={t('claim.handle.placeholder')}
           aria-label={t('claim.handle.ariaLabel')}
-          aria-describedby="claim-handle-status"
+          aria-describedby="claim-handle-status claim-handle-rules"
+          maxLength={HANDLE_MAX_CHARS}
           className="flex-1"
         />
       </div>
-      <p id="claim-handle-status" aria-live="polite" className="h-4 text-xs">
+      <HandleHint id="claim-handle-rules" value={handle} />
+      <p id="claim-handle-status" aria-live="polite" className="min-h-4 text-xs">
         {avail === 'checking' && <span className="text-muted-foreground">{t('claim.handle.checking')}</span>}
         {avail === 'free' && <span className="text-secondary">{t('claim.handle.free', { handle: normalizedHandle })}</span>}
         {avail === 'taken' && <span className="text-destructive">{t('claim.handle.taken', { handle: normalizedHandle })}</span>}

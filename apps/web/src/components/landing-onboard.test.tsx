@@ -135,7 +135,8 @@ describe('LandingOnboard — parity with /app onboarding (#240)', () => {
 
   const handleInput = () => container.querySelector<HTMLInputElement>('[aria-label="Handle"]')!;
   const submitButton = () => container.querySelector<HTMLButtonElement>('button[type="submit"]')!;
-  const status = () => document.getElementById(handleInput().getAttribute('aria-describedby')!)!;
+  // The input is described by its status line first, then the handle rules.
+  const status = () => document.getElementById(handleInput().getAttribute('aria-describedby')!.split(' ')[0])!;
 
   async function render() {
     await act(async () => root.render(<LandingOnboard />));

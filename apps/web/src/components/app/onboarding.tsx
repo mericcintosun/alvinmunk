@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useCreateProfile } from '@/hooks/use-create-profile';
-import { normalizeHandle } from '@/lib/profile';
+import { HANDLE_MAX_CHARS, normalizeHandle } from '@/lib/profile';
 import { useTranslations } from '@/lib/i18n';
 import { Crest } from '@/components/brand/crest';
 import { AvatarPicker } from '@/components/AvatarPicker';
@@ -10,14 +10,17 @@ import { type FaceId } from '@/lib/avatar';
 import { asset } from '@/lib/assets';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { HandleHint } from '@/components/handle-hint';
 
-export function Onboarding() {
+/** `initialHandle`: prefilled from `/app?handle=<x>` (the "Claim @x" link on `/u/<x>`). */
+export function Onboarding({ initialHandle }: { initialHandle?: string }) {
   const t = useTranslations();
   const [face, setFace] = useState<FaceId | undefined>();
   const { handle, setHandle, avail, reservedUntil, creating, createProfile, restoring, restoreAccount } =
     useCreateProfile({
       from: 'app',
       face,
+      initialHandle,
     });
 
   return (
@@ -56,9 +59,11 @@ export function Onboarding() {
           placeholder={t('onboard.placeholder')}
           className="text-center"
           aria-label={t('onboard.ariaLabel')}
-          aria-describedby="handle-status"
+          aria-describedby="handle-status handle-rules"
+          maxLength={HANDLE_MAX_CHARS}
         />
-        <p id="handle-status" aria-live="polite" className="h-4 text-xs">
+        <HandleHint id="handle-rules" value={handle} className="text-center" />
+        <p id="handle-status" aria-live="polite" className="min-h-4 text-center text-xs">
           {avail === 'checking' && <span className="text-muted-foreground">{t('onboard.checking')}</span>}
           {avail === 'free' && <span className="text-secondary">{t('onboard.handleFree', { handle: normalizeHandle(handle) })}</span>}
           {avail === 'taken' && <span className="text-destructive">{t('onboard.handleTaken', { handle: normalizeHandle(handle) })}</span>}

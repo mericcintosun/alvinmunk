@@ -53,3 +53,42 @@ describe('getPushAvailabilityHint', () => {
     expect(getPushAvailabilityHint()).toBeNull();
   });
 });
+
+describe('subscribeToPush (#297)', () => {
+  const WALLET = 'GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H';
+  const endpoint = 'https://push.example/device';
+
+  async function load() {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => new Response('{"ok":true}'));
+    const subscription = { endpoint, toJSON: () => ({ endpoint, keys: { p256dh: 'k', auth: 'a' } }) };
+    const reg = { pushManager: { getSubscription: vi.fn(async () => subscription), subscribe: vi.fn() } };
+    vi.stubGlobal('navigator', { serviceWorker: { register: vi.fn(async () => reg) } });
+    vi.stubGlobal('window', { PushManager: function PushManager() {}, Notification: {} });
+    vi.stubGlobal('Notification', { permission: 'granted', requestPermission: vi.fn(async () => 'granted') });
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubEnv('NEXT_PUBLIC_VAPID_PUBLIC_KEY', 'BPub');
+    vi.resetModules(); // the VAPID key is read at module load
+    const push = await import('./push');
+    const posted = () => JSON.parse(String(fetchMock.mock.calls.at(-1)![1].body));
+    return { push, fetchMock, posted };
+  }
+
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('opts in without a vouch: the server gets the wallet and no vouch IDs', async () => {
+    const { push, fetchMock, posted } = await load();
+    expect(await push.subscribeToPush(WALLET)).not.toBeNull();
+    expect(fetchMock).toHaveBeenCalledWith('/api/push/subscribe', expect.objectContaining({ method: 'POST' }));
+    expect(posted()).toEqual({
+      subscription: { endpoint, keys: { p256dh: 'k', auth: 'a' } },
+      walletAddress: WALLET,
+      vouchIds: [],
+    });
+  });
+
+  it('still registers a vouch when one is given', async () => {
+    const { push, posted } = await load();
+    await push.subscribeToPush(WALLET, 7);
+    expect(posted().vouchIds).toEqual([7]);
+  });
+});

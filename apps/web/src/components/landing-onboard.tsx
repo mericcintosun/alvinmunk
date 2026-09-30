@@ -5,13 +5,14 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { useWallet } from '@/components/wallet/wallet-provider';
-import { normalizeHandle } from '@/lib/profile';
+import { HANDLE_MAX_CHARS, normalizeHandle } from '@/lib/profile';
 import { useCreateProfile } from '@/hooks/use-create-profile';
 import { AvatarPicker } from '@/components/AvatarPicker';
 import type { FaceId } from '@/lib/avatar';
 import { useTranslations } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { HandleHint } from '@/components/handle-hint';
 
 /**
  * One-field onboarding, right on the landing hero. Type a handle, tap once, and we silently
@@ -59,7 +60,8 @@ export function LandingOnboard() {
           onChange={(e) => setHandle(e.target.value)}
           placeholder={t('onboard.placeholder')}
           aria-label={t('onboard.ariaLabel')}
-          aria-describedby="landing-handle-status"
+          aria-describedby="landing-handle-status landing-handle-rules"
+          maxLength={HANDLE_MAX_CHARS}
           className="h-11 flex-1 border-0 bg-transparent focus-visible:ring-0"
         />
         <Button type="submit" variant="flow" size="md" disabled={creating || avail === 'taken' || avail === 'reserved'} className="shrink-0">
@@ -67,7 +69,8 @@ export function LandingOnboard() {
           {!creating && <ArrowRight className="size-4" />}
         </Button>
       </div>
-      <p id="landing-handle-status" aria-live="polite" className="mt-2 h-4 pl-4 text-xs">
+      <HandleHint id="landing-handle-rules" value={handle} className="mt-2 pl-4" />
+      <p id="landing-handle-status" aria-live="polite" className="mt-1 min-h-4 pl-4 text-xs">
         {avail === 'checking' && <span className="text-muted-foreground">{t('onboard.checking')}</span>}
         {avail === 'free' && <span className="text-secondary">{t('onboard.handleFree', { handle: normalizeHandle(handle) })}</span>}
         {avail === 'taken' && <span className="text-destructive">{t('onboard.handleTaken', { handle: normalizeHandle(handle) })}</span>}

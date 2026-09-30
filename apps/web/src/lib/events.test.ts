@@ -18,6 +18,7 @@ import {
   fetchReputationEvents,
   fetchTipEvents,
   fetchTipsSent,
+  fetchTipEventsSince,
   fetchContractEvents,
   fetchQuestEvents,
   EVENT_LEDGER_WINDOW,
@@ -737,5 +738,133 @@ describe('fetchContractEvents', () => {
     expect(Array.isArray(events[0].data)).toBe(true);
     expect((events[0].data as unknown[])[0]).toBe(42);
     expect((events[0].data as unknown[])[1]).toBe(recipient);
+  });
+});
+
+describe('fetchTipEventsSince — the tip-notification cron reader (#297)', () => {
+  const FROM_G = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 1));
+  const TO_C = StrKey.encodeContract(Buffer.alloc(32, 2));
+  const raw = (id: string | undefined, ledger = 500) => ({
+    ...(id ? { id } : {}),
+    ledger,
+    topic: [xdr.ScVal.scvSymbol('tipped'), new Address(FROM_G).toScVal(), new Address(TO_C).toScVal()],
+    value: xdr.ScVal.scvI128(
+      new xdr.Int128Parts({ hi: xdr.Int64.fromString('0'), lo: xdr.Uint64.fromString('20000000') }),
+    ),
+  });
+  const full = (tag: string) => Array.from({ length: PAGE_SIZE }, (_, i) => raw(`${tag}${i}`));
+  const filters = [
+    {
+      type: 'contract',
+      contractIds: ['CRWD'],
+      topics: [[xdr.ScVal.scvSymbol('tipped').toXDR('base64'), '*', '*']],
+    },
+  ];
+  type Page = { events: ReturnType<typeof raw>[]; cursor: string };
+
+  /**
+   * A fake RPC: `pages` maps a request (`cursor`, or `ledger:<startLedger>`) to its page; any
+   * other cursor is caught up — no events, the same cursor back, as stellar-rpc answers.
+   */
+  function serve(pages: Record<string, Page | Error>) {
+    getEventsMock.mockImplementation(async (req: { cursor?: string; startLedger?: number }) => {
+      const key = req.cursor ?? `ledger:${req.startLedger}`;
+      const page = pages[key];
+      if (page instanceof Error) throw page;
+      return page ?? { events: [], cursor: req.cursor ?? `end-of-${key}` };
+    });
+  }
+
+  beforeEach(() => {
+    getLatestLedgerMock.mockReset().mockResolvedValue({ sequence: 20_000 });
+    getEventsMock.mockReset();
+  });
+
+  it('starts its first run at the latest ledger — no backlog of old tips', async () => {
+    serve({ 'ledger:20000': { events: [], cursor: 'c-end' } });
+    const res = await fetchTipEventsSince(null);
+    expect(getEventsMock).toHaveBeenNthCalledWith(1, { filters, startLedger: 20_000, limit: PAGE_SIZE });
+    expect(res).toEqual({ events: [], cursor: 'c-end', ok: true });
+  });
+
+  it('resumes from the stored cursor and decodes each tip', async () => {
+    serve({ 'c-1': { events: [raw('e1')], cursor: 'c-2' } });
+    const res = await fetchTipEventsSince('c-1');
+    expect(getEventsMock).toHaveBeenNthCalledWith(1, { filters, cursor: 'c-1', limit: PAGE_SIZE });
+    expect(getLatestLedgerMock).not.toHaveBeenCalled();
+    expect(res).toEqual({
+      events: [{ id: 'e1', topics: ['tipped', FROM_G, TO_C], data: 20_000_000n, ledger: 500 }],
+      cursor: 'c-2',
+      ok: true,
+    });
+  });
+
+  it('drops events without an RPC id: nothing could stop them being pushed twice', async () => {
+    serve({ 'c-1': { events: [raw(undefined), raw('e2')], cursor: 'c-2' } });
+    expect((await fetchTipEventsSince('c-1')).events.map((e) => e.id)).toEqual(['e2']);
+  });
+
+  it('follows full pages and short ones while the cursor moves — a gap wider than one RPC scan', async () => {
+    serve({
+      'c-0': { events: full('a'), cursor: 'c-a' }, // a full page
+      'c-a': { events: [raw('b0')], cursor: 'c-scan1-end' }, // one 10k-ledger scan ends short
+      'c-scan1-end': { events: [raw('c0')], cursor: 'c-latest' }, // the next scan reaches the tip
+    });
+    const res = await fetchTipEventsSince('c-0');
+    expect(res.events).toHaveLength(PAGE_SIZE + 2);
+    expect(res.events.at(-1)?.id).toBe('c0');
+    expect(res.cursor).toBe('c-latest');
+    // Stopped once a page left the cursor where it was.
+    expect(getEventsMock).toHaveBeenCalledTimes(4);
+  });
+
+  it('stops after MAX_PAGES, resuming from where it stopped next time', async () => {
+    let n = 0;
+    getEventsMock.mockImplementation(async () => ({ events: full(`p${n}-`), cursor: `c-${++n}` }));
+    const res = await fetchTipEventsSince('c-0');
+    expect(getEventsMock).toHaveBeenCalledTimes(MAX_PAGES);
+    expect(res.cursor).toBe(`c-${MAX_PAGES}`);
+    expect(res.events).toHaveLength(PAGE_SIZE * MAX_PAGES);
+  });
+
+  it('restarts at the recent window when the RPC rejects the stored cursor', async () => {
+    serve({
+      'c-stale': new Error('cursor is before the oldest ledger'),
+      [`ledger:${20_000 - EVENT_LEDGER_WINDOW}`]: { events: [raw('e1')], cursor: 'c-fresh' },
+    });
+    const res = await fetchTipEventsSince('c-stale');
+    expect(getEventsMock).toHaveBeenNthCalledWith(2, {
+      filters,
+      startLedger: 20_000 - EVENT_LEDGER_WINDOW,
+      limit: PAGE_SIZE,
+    });
+    expect(res).toMatchObject({ ok: true, cursor: 'c-fresh' });
+    expect(res.events.map((e) => e.id)).toEqual(['e1']);
+  });
+
+  it('reports the RPC unreadable, keeping the cursor, when even the fallback fails', async () => {
+    getEventsMock.mockRejectedValue(new Error('rpc down'));
+    expect(await fetchTipEventsSince('c-1')).toEqual({ events: [], cursor: 'c-1', ok: false });
+    getLatestLedgerMock.mockRejectedValue(new Error('rpc down'));
+    expect(await fetchTipEventsSince(null)).toEqual({ events: [], cursor: null, ok: false });
+  });
+
+  it('keeps what it read, and the cursor after it, when a later page fails', async () => {
+    serve({ 'c-0': { events: full('a'), cursor: 'c-a' }, 'c-a': new Error('rpc blip') });
+    const res = await fetchTipEventsSince('c-0');
+    expect(res).toMatchObject({ ok: true, cursor: 'c-a' });
+    expect(res.events).toHaveLength(PAGE_SIZE);
+  });
+
+  it('reads nothing while the rewards contract is not deployed', async () => {
+    vi.resetModules();
+    vi.doMock('./stellar', () => ({
+      server: { getLatestLedger: getLatestLedgerMock, getEvents: getEventsMock },
+      config: { contracts: { reputation: 'CREP', rewards: '', questRegistry: 'CQST' } },
+    }));
+    const { fetchTipEventsSince: read } = await import('./events');
+    expect(await read('c-1')).toEqual({ events: [], cursor: 'c-1', ok: true });
+    expect(getEventsMock).not.toHaveBeenCalled();
+    vi.doUnmock('./stellar');
   });
 });
