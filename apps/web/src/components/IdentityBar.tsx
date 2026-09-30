@@ -37,6 +37,10 @@ function metaErrors(t: TFn): Record<number, string> {
 
 const sameAvatar = (a?: AvatarConfig, b?: AvatarConfig) => JSON.stringify(a) === JSON.stringify(b);
 
+// Inline pencil / X controls are ghost icon buttons with a 32px hit area. The negative margin
+// gives the row back the extra 16px, so it lays out (and wraps) as if only the glyph were there.
+const INLINE_ICON = '-m-2 shrink-0 text-muted-foreground';
+
 /**
  * Identity bar — your @handle as the profile ID, with inline claim/edit (re-stamps the
  * handle on-chain) + share + public-profile link. The handle was claimed at onboarding;
@@ -192,14 +196,16 @@ export function IdentityBar() {
             <Button size="sm" variant="flow" type="submit" disabled={busy}>
               {busy ? '…' : t('identity.stamp')}
             </Button>
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon-sm"
               onClick={() => setEditing(false)}
-              className="text-muted-foreground hover:text-foreground"
+              className={INLINE_ICON}
               aria-label={t('identity.cancel')}
             >
-              <X className="size-4" />
-            </button>
+              <X />
+            </Button>
           </form>
         ) : (
           <>
@@ -214,16 +220,19 @@ export function IdentityBar() {
             </button>
             <p className="truncate font-display text-lg font-semibold">@{profile.handle}</p>
             <Badge variant="onchain">{t('identity.onChain')}</Badge>
-            <button
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
               onClick={() => {
                 setValue(profile.handle);
                 setEditing(true);
               }}
-              className="text-muted-foreground transition-colors hover:text-primary"
+              className={cn(INLINE_ICON, '[&_svg]:size-3.5')}
               aria-label={t('identity.editHandle')}
             >
-              <Pencil className="size-3.5" />
-            </button>
+              <Pencil />
+            </Button>
           </>
         )}
       </div>
@@ -265,14 +274,16 @@ export function IdentityBar() {
             <Button size="sm" variant="flow" type="submit" disabled={savingMeta}>
               {t('identity.bio.save')}
             </Button>
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon-sm"
               onClick={() => setEditingBio(false)}
-              className="text-muted-foreground hover:text-foreground"
+              className={cn(INLINE_ICON, '[&_svg]:size-3.5')}
               aria-label={t('identity.bio.cancel')}
             >
-              <X className="size-3.5" />
-            </button>
+              <X />
+            </Button>
           </form>
         ) : (
           <>
@@ -283,17 +294,20 @@ export function IdentityBar() {
                 {t('identity.bio.add')}
               </span>
             )}
-            <button
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
               onClick={() => {
                 setBioValue(profile.bio ?? '');
                 setEditingBio(true);
               }}
               disabled={savingMeta}
-              className="shrink-0 text-muted-foreground transition-colors hover:text-primary disabled:opacity-50"
+              className={cn(INLINE_ICON, '[&_svg]:size-3')}
               aria-label={t('identity.bio.edit')}
             >
-              <Pencil className="size-3" />
-            </button>
+              <Pencil />
+            </Button>
             {savingMeta && (
               <span className="font-mono text-[10px] text-muted-foreground" aria-live="polite">
                 {t('identity.meta.saving')}
