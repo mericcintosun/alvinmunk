@@ -12,6 +12,8 @@
  *   - referral_tx : evidence.ref = a G… or C… address -> must be active (Social score > 0)
  *                   and name the recipient as its inviter: registry `invited_by` (any wallet
  *                   kind), else a classic account's "referral" manageData entry
+ *   - first_tip   : evidence.ref unused -> the recipient sent >= 0.5 USDC to a wallet it
+ *                   shares a claimed vouch edge with (either direction), not frozen
  *
  * Repeatable quests (#154, `quest_registry.set_quest_period`): the signature names the
  * current period, and only evidence dated inside it counts — a PR merged, a vouch claimed
@@ -38,12 +40,14 @@ import {
   FRESH_EVIDENCE,
   MAX_BODY_BYTES,
   REFERRAL_MARKER_KEY,
+  TIP_FLOOR_STROOPS,
   VOUCH_BACK_MIN,
   buildQuestEvidenceMap,
   decodeDataEntry,
   evidenceMatchesQuest,
   isGAddress,
   isValidQuestId,
+  judgeFirstTip,
   judgeReferral,
   parseRepoAllowlist,
   questWindow,
@@ -92,9 +96,12 @@ const PASSPHRASE = config.networkPassphrase;
 const QUEST_ID = config.contracts.questRegistry;
 const REP_ID = config.contracts.reputation;
 const REGISTRY_ID = config.contracts.registry;
+const REWARDS_ID = config.contracts.rewards;
 const REPO_ALLOWLIST = parseRepoAllowlist(process.env.QUEST_GITHUB_REPOS);
 /** Safety cap on cursor-pagination pages for the vouch/claimed scan (1 000 events/page). */
 const VOUCH_CLAIMED_MAX_PAGES = 50;
+/** How many of the recipient's qualifying tips the first_tip check evaluates before giving up. */
+const TIP_MAX_CANDIDATES = 20;
 /** GitHub / Horizon reads give up after this long: a stalled connection can't hang the route. */
 const UPSTREAM_TIMEOUT_MS = 8_000;
 
@@ -288,6 +295,42 @@ async function verifyEvidence(
     return judgeReferral({ score, invitedBy, marker }, ev.ref, recipient);
   }
 
+  // First-tip (retention quest): the recipient sent at least TIP_FLOOR_STROOPS USDC to a
+  // wallet they share a claimed vouch edge with (either direction), and that wallet isn't
+  // frozen. Bounded to the RPC's retained window, like the vouch scans above.
+  if (ev.type === 'first_tip') {
+    if (!REP_ID) return { ok: false, reason: 'reputation contract not configured' };
+    if (!REWARDS_ID) return { ok: false, reason: 'rewards contract not configured' };
+    try {
+      const tips = await tipsFrom(REWARDS_ID, recipient, since, TIP_MAX_CANDIDATES);
+      if (tips.length === 0) {
+        return {
+          ok: false,
+          reason:
+            since === null
+              ? 'you haven’t tipped anyone yet — tip someone you’re connected to and try again'
+              : 'no tip this round yet — tip someone you’re connected to and try again',
+        };
+      }
+      const edges = await claimedVouchEdges(REP_ID, since);
+      let reason = '';
+      for (const tip of tips) {
+        const connected =
+          edges.has(`${recipient}->${tip.to}`) || edges.has(`${tip.to}->${recipient}`);
+        const frozen = await readFrozen(REWARDS_ID, tip.to);
+        const verdict = judgeFirstTip(
+          { to: tip.to, amount: tip.amount, connected, frozen },
+          recipient,
+        );
+        if (verdict.ok) return { ok: true };
+        reason = verdict.reason;
+      }
+      return { ok: false, reason: reason || 'no eligible tip found' };
+    } catch {
+      return { ok: false, reason: 'couldn’t read your tip history right now — try again' };
+    }
+  }
+
   return { ok: false, reason: 'unknown evidence type' };
 }
 
@@ -466,6 +509,98 @@ async function claimedVouchFrom(
     (c) => (found = c.from === from && c.claimer === claimer && inRound(c.at, since)),
   );
   return found;
+}
+
+/** One qualifying `tipped` event the recipient sent: the receiver, amount and time. */
+interface Tip {
+  to: string;
+  amount: bigint;
+  at: number;
+}
+
+/**
+ * Walk the recipient's outgoing `tipped` events (topics `('tipped', from, to)`) oldest
+ * first, keeping up to `max` tips of at least the quest floor to a DIFFERENT wallet. Same
+ * bounded cursor walk as `scanVouchClaimed`; tips older than the RPC's window are invisible.
+ */
+async function tipsFrom(
+  rewardsId: string,
+  from: string,
+  since: number | null,
+  max: number,
+): Promise<Tip[]> {
+  const server = new rpc.Server(RPC_URL, { allowHttp: RPC_URL.startsWith('http://') });
+  const health = await server.getHealth();
+  const startLedger = health.oldestLedger ?? 1;
+  const t0 = nativeToScVal('tipped', { type: 'symbol' }).toXDR('base64');
+  const t1 = new Address(from).toScVal().toXDR('base64');
+  const filters = [{ type: 'contract' as const, contractIds: [rewardsId], topics: [[t0, t1, '*']] }];
+
+  const tips: Tip[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < VOUCH_CLAIMED_MAX_PAGES; page++) {
+    const res = await server.getEvents(
+      cursor ? { filters, cursor, limit: 1000 } : { filters, startLedger, limit: 1000 },
+    );
+    for (const e of res.events) {
+      const to = topicToNative(e.topic[2]);
+      const amount = scValToNative(e.value);
+      const at = Date.parse(e.ledgerClosedAt) / 1000; // NaN when the RPC omits it
+      if (
+        typeof to === 'string' &&
+        to !== from &&
+        (typeof amount === 'bigint' || typeof amount === 'number') &&
+        BigInt(amount) >= TIP_FLOOR_STROOPS &&
+        inRound(at, since)
+      ) {
+        tips.push({ to, amount: BigInt(amount), at });
+        if (tips.length >= max) return tips;
+      }
+    }
+    cursor = res.cursor;
+    if (!cursor) return tips;
+    const at = cursorLedger(cursor);
+    if (at !== null && res.latestLedger && at >= res.latestLedger) return tips;
+  }
+  return tips;
+}
+
+/** Every claimed-vouch edge (`voucher->claimer`) in the RPC's window (from `since` on) as
+ *  a set — one scan shared by every candidate tip. */
+async function claimedVouchEdges(repId: string, since: number | null): Promise<Set<string>> {
+  const edges = new Set<string>();
+  await scanVouchClaimed(repId, (c) => {
+    if (inRound(c.at, since)) edges.add(`${c.from}->${c.claimer}`);
+  });
+  return edges;
+}
+
+/** `rewards.is_frozen(who)` via simulation: true/false, or undefined when the read failed. */
+async function readFrozen(rewardsId: string, who: string): Promise<boolean | undefined> {
+  try {
+    const server = new rpc.Server(RPC_URL, { allowHttp: RPC_URL.startsWith('http://') });
+    const source = new Account(Keypair.random().publicKey(), '0');
+    const tx = new TransactionBuilder(source, { fee: '100', networkPassphrase: PASSPHRASE })
+      .addOperation(new Contract(rewardsId).call('is_frozen', new Address(who).toScVal()))
+      .setTimeout(30)
+      .build();
+    const sim = await server.simulateTransaction(tx);
+    if (rpc.Api.isSimulationError(sim)) return undefined;
+    return sim.result?.retval ? scValToNative(sim.result.retval) === true : false;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Decode an event topic that the RPC may report as an XDR ScVal or its base64 string. */
+function topicToNative(topic: unknown): unknown {
+  try {
+    return typeof topic === 'string'
+      ? scValToNative(xdr.ScVal.fromXDR(topic, 'base64'))
+      : scValToNative(topic as xdr.ScVal);
+  } catch {
+    return null;
+  }
 }
 
 /**

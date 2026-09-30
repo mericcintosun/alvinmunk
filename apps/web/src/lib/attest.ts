@@ -26,11 +26,16 @@ export const MAX_REF_LEN = 200; // evidence.ref upper bound (anti-abuse)
 export const MAX_QUEST_ID = 1_000_000;
 export const MAX_BODY_BYTES = 4_096; // request body upper bound
 
-export type EvidenceType = 'github_pr' | 'referral_tx' | 'invite_converts' | 'vouch_back';
+export type EvidenceType =
+  | 'github_pr'
+  | 'referral_tx'
+  | 'invite_converts'
+  | 'vouch_back'
+  | 'first_tip';
 export interface AttestEvidence {
   type: EvidenceType;
   /** Meaning by type: github_pr → "owner/repo#n"; referral_tx/invite_converts → a Stellar
-   * address; vouch_back → unused (the recipient's own mint history is checked). */
+   * address; vouch_back/first_tip → unused (the recipient's own on-chain history is checked). */
   ref: string;
 }
 
@@ -196,12 +201,18 @@ export function validateEvidence(
   ev: AttestEvidence | undefined,
   recipient: string,
 ): { ok: true } | { ok: false; reason: string } {
-  const KNOWN: EvidenceType[] = ['github_pr', 'referral_tx', 'invite_converts', 'vouch_back'];
+  const KNOWN: EvidenceType[] = [
+    'github_pr',
+    'referral_tx',
+    'invite_converts',
+    'vouch_back',
+    'first_tip',
+  ];
   if (!ev || !KNOWN.includes(ev.type)) {
     return { ok: false, reason: 'unknown or missing evidence type' };
   }
-  // vouch_back checks the recipient's own on-chain mint history — no ref needed.
-  if (ev.type !== 'vouch_back') {
+  // vouch_back/first_tip check the recipient's own on-chain history — no ref needed.
+  if (ev.type !== 'vouch_back' && ev.type !== 'first_tip') {
     if (typeof ev.ref !== 'string' || ev.ref.length === 0 || ev.ref.length > MAX_REF_LEN) {
       return { ok: false, reason: 'evidence ref missing or too long' };
     }
@@ -280,10 +291,65 @@ export function judgeReferral(
   };
 }
 
+/** Minimum tip the `first_tip` quest counts, in USDC stroops (USDC has 7 dp): 0.5 USDC. */
+export const TIP_FLOOR_STROOPS = 5_000_000n;
+/** The same floor as copy, for a rejection reason. */
+export const TIP_FLOOR_USDC = '0.5';
+
+/**
+ * What the attester read about one tip the quest recipient sent. `to` and `amount` come
+ * from the `tipped` event; `connected` is whether the receiver shares a claimed vouch edge
+ * with the recipient (either direction) and `frozen` is `rewards.is_frozen(receiver)`.
+ * `undefined` on a boolean means the read failed — never treated as a value.
+ */
+export interface TipFacts {
+  to: string;
+  amount: bigint;
+  connected: boolean | undefined;
+  frozen: boolean | undefined;
+}
+
+/**
+ * Decide the `first_tip` quest from one candidate tip. Each rejection names its reason so
+ * the UI can tell self-tips, sub-floor tips and unconnected or frozen receivers apart; a
+ * read that failed is refused (and retryable), never assumed to pass.
+ */
+export function judgeFirstTip(
+  facts: TipFacts,
+  recipient: string,
+): { ok: true } | { ok: false; reason: string } {
+  if (facts.to === recipient) {
+    return { ok: false, reason: 'a tip to your own wallet doesn’t count' };
+  }
+  if (facts.amount < TIP_FLOOR_STROOPS) {
+    return {
+      ok: false,
+      reason: `tip at least ${TIP_FLOOR_USDC} USDC to someone you’re connected to`,
+    };
+  }
+  if (facts.frozen === undefined) {
+    return { ok: false, reason: 'couldn’t read that wallet’s status right now — try again' };
+  }
+  if (facts.frozen) {
+    return { ok: false, reason: 'that wallet is frozen — tips to it don’t count' };
+  }
+  if (facts.connected === undefined) {
+    return { ok: false, reason: 'couldn’t read your vouch history right now — try again' };
+  }
+  if (!facts.connected) {
+    return {
+      ok: false,
+      reason: 'tip someone you’re connected to — a wallet that shares a claimed vouch with you',
+    };
+  }
+  return { ok: true };
+}
+
 /**
  * The quest id each evidence type is bound to when its env var is unset: the ids
- * scripts/redeploy-all.sh seeds and components/Quests.tsx targets. `github_pr` has no
- * default, so GitHub attestations stay off until QUEST_GITHUB_ID is set.
+ * scripts/redeploy-all.sh seeds and components/Quests.tsx targets. `github_pr` and
+ * `first_tip` have no default, so those quests stay off until their env var is set — the
+ * seeded registry has no id for them.
  */
 export const DEFAULT_QUEST_IDS = { referral_tx: 2, invite_converts: 3, vouch_back: 4 } as const;
 
@@ -292,6 +358,7 @@ export const QUEST_ID_ENV: Record<EvidenceType, string> = {
   referral_tx: 'NEXT_PUBLIC_DEFAULT_QUEST_ID',
   invite_converts: 'NEXT_PUBLIC_INVITE_QUEST_ID',
   vouch_back: 'NEXT_PUBLIC_VOUCHBACK_QUEST_ID',
+  first_tip: 'NEXT_PUBLIC_FIRST_TIP_QUEST_ID',
   github_pr: 'QUEST_GITHUB_ID',
 };
 

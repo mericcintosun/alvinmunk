@@ -12,6 +12,7 @@ import {
   repoAllowed,
   decodeDataEntry,
   judgeReferral,
+  judgeFirstTip,
   evidenceMatchesQuest,
   buildQuestEvidenceMap,
   REFERRAL_MARKER_KEY,
@@ -22,10 +23,12 @@ import {
   QUEST_AWARD_DOMAIN_V2,
   QUEST_SIG_TTL_SECS,
   FRESH_EVIDENCE,
+  TIP_FLOOR_STROOPS,
   WEEK_SECS,
   questWindow,
   signatureExpiry,
   type ReferralFacts,
+  type TipFacts,
   type EvidenceType,
 } from './attest';
 
@@ -58,6 +61,11 @@ describe('validateEvidence', () => {
       ok: false,
       reason: 'cannot refer yourself',
     });
+  });
+
+  it('accepts first_tip with no ref, like vouch_back', () => {
+    expect(validateEvidence({ type: 'first_tip', ref: '' }, G)).toEqual({ ok: true });
+    expect(validateEvidence({ type: 'first_tip', ref: '' }, C)).toEqual({ ok: true });
   });
 });
 
@@ -203,6 +211,54 @@ describe('judgeReferral', () => {
   });
 });
 
+describe('judgeFirstTip', () => {
+  const RECIPIENT = G;
+  const FRIEND = G2;
+  const facts = (over: Partial<TipFacts> = {}): TipFacts => ({
+    to: FRIEND,
+    amount: TIP_FLOOR_STROOPS,
+    connected: true,
+    frozen: false,
+    ...over,
+  });
+
+  it('passes a floor-sized tip to a connected, unfrozen wallet', () => {
+    expect(judgeFirstTip(facts(), RECIPIENT)).toEqual({ ok: true });
+    expect(judgeFirstTip(facts({ amount: TIP_FLOOR_STROOPS + 1n }), RECIPIENT)).toEqual({ ok: true });
+  });
+
+  it('rejects a self-tip', () => {
+    expect(judgeFirstTip(facts({ to: RECIPIENT }), RECIPIENT)).toEqual({
+      ok: false,
+      reason: 'a tip to your own wallet doesn’t count',
+    });
+  });
+
+  it('rejects a tip below the floor', () => {
+    const below = judgeFirstTip(facts({ amount: TIP_FLOOR_STROOPS - 1n }), RECIPIENT);
+    expect(below.ok).toBe(false);
+    expect(!below.ok && below.reason).toMatch(/0\.5 USDC/);
+    expect(judgeFirstTip(facts({ amount: 0n }), RECIPIENT).ok).toBe(false);
+  });
+
+  it('rejects a tip to an unconnected wallet with a reason', () => {
+    const r = judgeFirstTip(facts({ connected: false }), RECIPIENT);
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.reason).toMatch(/connected/);
+  });
+
+  it('rejects a tip to a frozen wallet', () => {
+    const r = judgeFirstTip(facts({ frozen: true }), RECIPIENT);
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.reason).toMatch(/frozen/);
+  });
+
+  it('never passes on a read it could not make', () => {
+    expect(judgeFirstTip(facts({ frozen: undefined }), RECIPIENT).ok).toBe(false);
+    expect(judgeFirstTip(facts({ connected: undefined }), RECIPIENT).ok).toBe(false);
+  });
+});
+
 describe('referral marker round-trip invariant', () => {
   // Mirrors what the attester does: encode the referrer address, then decode and compare.
   it('encodes referrer address → base64 → decodes back to the same address', () => {
@@ -255,17 +311,19 @@ describe('buildQuestEvidenceMap', () => {
       NEXT_PUBLIC_DEFAULT_QUEST_ID: '7',
       NEXT_PUBLIC_INVITE_QUEST_ID: '8',
       NEXT_PUBLIC_VOUCHBACK_QUEST_ID: '9',
+      NEXT_PUBLIC_FIRST_TIP_QUEST_ID: '5',
       QUEST_GITHUB_ID: '1',
     });
     expect([...map.entries()].sort(([a], [b]) => a - b)).toEqual([
       [1, 'github_pr'],
+      [5, 'first_tip'],
       [7, 'referral_tx'],
       [8, 'invite_converts'],
       [9, 'vouch_back'],
     ]);
   });
 
-  it('falls back to the dashboard defaults when unset or blank, with github_pr unmapped', () => {
+  it('falls back to the dashboard defaults when unset or blank, with github_pr and first_tip unmapped', () => {
     const expected = [
       [2, 'referral_tx'],
       [3, 'invite_converts'],
