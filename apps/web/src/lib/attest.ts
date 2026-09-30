@@ -20,17 +20,22 @@
  *      signature can't carry over into the next one, and the evidence must be dated inside
  *      the current period (`FRESH_EVIDENCE`): a standing condition must not pay every week.
  */
-import { Address, Keypair, hash, nativeToScVal, xdr } from '@stellar/stellar-sdk';
+import { Address, Keypair, StrKey, hash, nativeToScVal, xdr } from '@stellar/stellar-sdk';
 
 export const MAX_REF_LEN = 200; // evidence.ref upper bound (anti-abuse)
 export const MAX_QUEST_ID = 1_000_000;
 export const MAX_BODY_BYTES = 4_096; // request body upper bound
 
-export type EvidenceType = 'github_pr' | 'referral_tx' | 'invite_converts' | 'vouch_back';
+export type EvidenceType =
+  | 'github_pr'
+  | 'referral_tx'
+  | 'invite_converts'
+  | 'vouch_back'
+  | 'first_tip';
 export interface AttestEvidence {
   type: EvidenceType;
   /** Meaning by type: github_pr → "owner/repo#n"; referral_tx/invite_converts → a Stellar
-   * address; vouch_back → unused (the recipient's own mint history is checked). */
+   * address; vouch_back/first_tip → unused (the recipient's own on-chain history is checked). */
   ref: string;
 }
 
@@ -103,6 +108,7 @@ export function questWindow(nowSecs: number, periodSecs: number): QuestWindow | 
  * The evidence types a REPEATABLE quest can take: each is checked for an action dated inside
  * the current period (a PR merged, a vouch claimed). A referral has no date the attester can
  * read — the invite marker just stands — so it would pay out every period for one referral.
+ * A first tip is one-shot by definition (#272): the replay guard pays it once per wallet.
  */
 export const FRESH_EVIDENCE: ReadonlySet<EvidenceType> = new Set([
   'github_pr',
@@ -196,12 +202,18 @@ export function validateEvidence(
   ev: AttestEvidence | undefined,
   recipient: string,
 ): { ok: true } | { ok: false; reason: string } {
-  const KNOWN: EvidenceType[] = ['github_pr', 'referral_tx', 'invite_converts', 'vouch_back'];
+  const KNOWN: EvidenceType[] = [
+    'github_pr',
+    'referral_tx',
+    'invite_converts',
+    'vouch_back',
+    'first_tip',
+  ];
   if (!ev || !KNOWN.includes(ev.type)) {
     return { ok: false, reason: 'unknown or missing evidence type' };
   }
-  // vouch_back checks the recipient's own on-chain mint history — no ref needed.
-  if (ev.type !== 'vouch_back') {
+  // vouch_back/first_tip check the recipient's own on-chain history — no ref needed.
+  if (ev.type !== 'vouch_back' && ev.type !== 'first_tip') {
     if (typeof ev.ref !== 'string' || ev.ref.length === 0 || ev.ref.length > MAX_REF_LEN) {
       return { ok: false, reason: 'evidence ref missing or too long' };
     }
@@ -280,10 +292,106 @@ export function judgeReferral(
   };
 }
 
+/** Minimum tip the `first_tip` quest counts, in USDC stroops (USDC has 7 dp): 0.5 USDC. */
+export const TIP_FLOOR_STROOPS = 5_000_000n;
+/** The same floor as copy, for the quest hint and a rejection reason. */
+export const TIP_FLOOR_USDC = '0.5';
+
+/**
+ * What the attester read off the chain about one `tipped` event the quest recipient sent
+ * (the configured rewards contract's `('tipped', from, to)` · amount):
+ *  - `to`, `amount`: the event's receiver and amount;
+ *  - `usdc`: the same transaction carries the configured USDC SAC's `transfer` of exactly
+ *    that amount from the recipient to `to`, so the tip moved this network's USDC;
+ *  - `connected`: `to` shares a claimed vouch with the recipient, in either direction;
+ *  - `frozen`: `rewards.is_frozen(to)`, only read for a tip that passes every other check.
+ *    Unset means not read, and is never taken as "not frozen".
+ */
+export interface TipFacts {
+  to: string;
+  amount: bigint;
+  usdc: boolean;
+  connected: boolean;
+  frozen?: boolean;
+}
+
+/**
+ * Why a tip doesn't count, ranked by how far it got through `judgeFirstTip`'s checks. An
+ * unread freeze status ranks last: a retry can still pass it.
+ */
+export const FIRST_TIP_REJECTIONS = [
+  'self',
+  'not_usdc',
+  'below_floor',
+  'unconnected',
+  'frozen',
+  'unread',
+] as const;
+export type FirstTipRejection = (typeof FIRST_TIP_REJECTIONS)[number];
+
+const FIRST_TIP_REASONS: Record<FirstTipRejection | 'none', string> = {
+  none:
+    `you haven’t tipped anyone yet — tip at least ${TIP_FLOOR_USDC} USDC to someone you’re ` +
+    'connected to, then try again',
+  self: 'a tip to your own wallet doesn’t count',
+  not_usdc: 'that tip didn’t move this network’s USDC — only USDC tips count',
+  below_floor: `tip at least ${TIP_FLOOR_USDC} USDC — smaller tips don’t count`,
+  unconnected:
+    'tip someone you’re connected to — a wallet you vouched for or that vouched for you ' +
+    '(only vouches claimed inside the network’s recent event window can be seen for now)',
+  frozen: 'that wallet is frozen — tips to it don’t count',
+  unread: 'couldn’t read that wallet’s status right now — try again',
+};
+
+/**
+ * Decide whether one tip completes the `first_tip` quest. Each rejection names its reason
+ * so the UI can tell a self-tip, a non-USDC or sub-floor tip, an unconnected and a frozen
+ * receiver apart; a freeze status that wasn't read is refused, never assumed to pass.
+ */
+export function judgeFirstTip(
+  facts: TipFacts,
+  recipient: string,
+): { ok: true } | { ok: false; code: FirstTipRejection; reason: string } {
+  const no = (code: FirstTipRejection) => ({
+    ok: false as const,
+    code,
+    reason: FIRST_TIP_REASONS[code],
+  });
+  if (facts.to === recipient) return no('self');
+  if (!facts.usdc) return no('not_usdc');
+  if (facts.amount < TIP_FLOOR_STROOPS) return no('below_floor');
+  if (!facts.connected) return no('unconnected');
+  if (facts.frozen === undefined) return no('unread');
+  if (facts.frozen) return no('frozen');
+  return { ok: true };
+}
+
+/**
+ * Decide the `first_tip` quest from every tip the recipient sent: one tip that passes is
+ * enough. Otherwise the reason is the one of the tip that got furthest through the checks
+ * (a tip to a frozen friend says more than an older self-tip), and no tip at all says so.
+ */
+export function judgeFirstTips(
+  tips: readonly TipFacts[],
+  recipient: string,
+): { ok: true } | { ok: false; reason: string } {
+  let furthest = -1;
+  for (const tip of tips) {
+    const verdict = judgeFirstTip(tip, recipient);
+    if (verdict.ok) return { ok: true };
+    furthest = Math.max(furthest, FIRST_TIP_REJECTIONS.indexOf(verdict.code));
+  }
+  return {
+    ok: false,
+    reason: FIRST_TIP_REASONS[furthest < 0 ? 'none' : FIRST_TIP_REJECTIONS[furthest]],
+  };
+}
+
 /**
  * The quest id each evidence type is bound to when its env var is unset: the ids
- * scripts/redeploy-all.sh seeds and components/Quests.tsx targets. `github_pr` has no
- * default, so GitHub attestations stay off until QUEST_GITHUB_ID is set.
+ * scripts/redeploy-all.sh seeds and components/Quests.tsx targets. `github_pr` and
+ * `first_tip` have no default, so those quests stay off until their env var is set — the
+ * seeded registry has no id for them.
  */
 export const DEFAULT_QUEST_IDS = { referral_tx: 2, invite_converts: 3, vouch_back: 4 } as const;
 
@@ -292,6 +400,7 @@ export const QUEST_ID_ENV: Record<EvidenceType, string> = {
   referral_tx: 'NEXT_PUBLIC_DEFAULT_QUEST_ID',
   invite_converts: 'NEXT_PUBLIC_INVITE_QUEST_ID',
   vouch_back: 'NEXT_PUBLIC_VOUCHBACK_QUEST_ID',
+  first_tip: 'NEXT_PUBLIC_FIRST_TIP_QUEST_ID',
   github_pr: 'QUEST_GITHUB_ID',
 };
 
@@ -344,7 +453,47 @@ export function parseRepoAllowlist(raw: string | undefined): Set<string> | null 
   return set.size > 0 ? set : null;
 }
 
-/** When an allowlist is configured, only its repos count; otherwise allow any. */
+/**
+ * Only the allowlisted repos count. Fails closed (#163): with no allowlist configured no repo
+ * is eligible — an open default let any merged PR on GitHub earn the quest.
+ */
 export function repoAllowed(allow: Set<string> | null, owner: string, repo: string): boolean {
-  return !allow || allow.has(`${owner}/${repo}`.toLowerCase());
+  return !!allow && allow.has(`${owner}/${repo}`.toLowerCase());
+}
+
+/** A G… or C… address token in free text (checksum checked separately). */
+const ADDRESS_IN_TEXT = /\b[GC][A-Z2-7]{55}\b/g;
+
+/**
+ * The distinct valid Stellar addresses (G… accounts, C… contracts) a PR body names. A
+ * lookalike token with a bad checksum isn't an address anyone can redeem for, so it isn't one.
+ */
+export function addressesInText(text: string | null | undefined): string[] {
+  const found = new Set<string>();
+  for (const [token] of (text ?? '').matchAll(ADDRESS_IN_TEXT)) {
+    if (StrKey.isValidEd25519PublicKey(token) || StrKey.isValidContract(token)) found.add(token);
+  }
+  return [...found];
+}
+
+/**
+ * The `github_pr` binding (#163): the PR body must name `recipient` and no other address, so
+ * one PR maps to one wallet — the same address repeated is still one. Anyone can cite any
+ * merged PR, so this is what stops a wallet redeeming someone else's work.
+ */
+export function prBodyNamesRecipient(
+  body: string | null | undefined,
+  recipient: string,
+): { ok: true } | { ok: false; reason: string } {
+  const named = addressesInText(body);
+  if (named.length === 0) {
+    return { ok: false, reason: 'the PR description must include your Stellar address, so the quest binds to you' };
+  }
+  if (named.length > 1) {
+    return { ok: false, reason: 'the PR description names more than one Stellar address — keep only yours' };
+  }
+  if (named[0] !== recipient) {
+    return { ok: false, reason: 'the Stellar address in the PR description is not yours' };
+  }
+  return { ok: true };
 }

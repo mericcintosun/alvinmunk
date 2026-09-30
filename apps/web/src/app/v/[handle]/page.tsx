@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { ArrowRight, QrCode as QrCodeIcon } from 'lucide-react';
 import { resolveHandle, getMeta } from '@/lib/registry';
@@ -13,6 +13,7 @@ import { BorderBeam } from '@/components/fx/border-beam';
 import { AuroraText } from '@/components/fx/shiny-text';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { QrCode } from '@/components/fx/qr-code';
+import { ShareRow } from '@/components/fx/share-row';
 import { useWallet } from '@/components/wallet/wallet-provider';
 import { useTranslations } from '@/lib/i18n';
 import { saveInviteRef } from '@/lib/invite-ref';
@@ -35,9 +36,11 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
   const [avatar, setAvatar] = useState<AvatarConfig | undefined>(undefined);
   const [showInviteQr, setShowInviteQr] = useState(false);
   const [origin, setOrigin] = useState('');
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setOrigin(window.location.origin);
+    setMounted(true);
   }, []);
 
   useEffect(() => {
@@ -67,9 +70,51 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
   // Only they see the (secret-free) invite QR for their own page.
   const isOwner = Boolean(address) && profile?.address === address;
 
+  // The call to action fits who is looking. The stored profile only loads after mount, so
+  // nothing renders before then (the server can't tell the owner from a stranger); a
+  // signed-in visitor also waits for the handle to resolve, since that decides owner or not.
+  let cta: ReactNode = null;
+  if (!profile) {
+    if (mounted) {
+      cta = (
+        <span className="relative inline-flex overflow-hidden rounded-full">
+          <Link href="/app" className={cn(buttonVariants({ variant: 'flow', size: 'lg' }))}>
+            Create your profile <ArrowRight className="size-4" />
+          </Link>
+          <BorderBeam size={60} duration={6} colorTo="hsl(var(--tertiary))" />
+        </span>
+      );
+    }
+  } else if (isOwner) {
+    cta = (
+      <div>
+        <p className="mb-3 font-mono text-xs uppercase tracking-wider text-muted-foreground">
+          {t('invite.cta.share')}
+        </p>
+        <ShareRow path={`/v/${handle}`} text={t('invite.cta.shareText')} />
+      </div>
+    );
+  } else if (address) {
+    cta = (
+      <span className="relative inline-flex overflow-hidden rounded-full">
+        <Link href="/app/vouch" className={cn(buttonVariants({ variant: 'flow', size: 'lg' }))}>
+          {t('invite.cta.vouchBack', { handle })} <ArrowRight className="size-4" />
+        </Link>
+        <BorderBeam size={60} duration={6} colorTo="hsl(var(--tertiary))" />
+      </span>
+    );
+  } else if (address === null) {
+    // Unclaimed (or unreachable): nobody to vouch back, and this visitor has a profile.
+    cta = (
+      <Link href="/app" className={cn(buttonVariants({ variant: 'outline', size: 'lg' }), 'glass')}>
+        {t('invite.cta.openApp')} <ArrowRight className="size-4" />
+      </Link>
+    );
+  }
+
   return (
     <div className="container max-w-lg py-16">
-      <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-primary/80">{'// you_are_invited'}</p>
+      <p className="eyebrow-mono text-primary/80">{'// you_are_invited'}</p>
       <h1 className="mt-4 font-display text-4xl font-semibold tracking-tight text-balance">
         @{handle} wants you in their <AuroraText>constellation.</AuroraText>
       </h1>
@@ -104,14 +149,7 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
         </div>
       </Frame>
 
-      <div className="mt-6">
-        <span className="relative inline-flex overflow-hidden rounded-full">
-          <Link href="/app" className={cn(buttonVariants({ variant: 'flow', size: 'lg' }))}>
-            Create your profile <ArrowRight className="size-4" />
-          </Link>
-          <BorderBeam size={60} duration={6} colorTo="hsl(var(--tertiary))" />
-        </span>
-      </div>
+      <div className="mt-6">{cta}</div>
 
       {isOwner && (
         <div className="mt-6">
@@ -132,7 +170,7 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
           )}
         </div>
       )}
-      <p className="mt-4 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
+      <p className="mt-4 font-mono text-2xs uppercase tracking-wider text-muted-foreground">
         no_seed_phrase / fees_sponsored / 2_taps
       </p>
     </div>

@@ -17,6 +17,7 @@ import {
 } from '@/lib/reputation';
 import { getMeta, reverseHandle } from '@/lib/registry';
 import { Avatar } from '@/components/Avatar';
+import { FeedbackPrompt } from '@/components/FeedbackPrompt';
 import type { AvatarConfig } from '@/lib/avatar';
 import { Crest } from '@/components/brand/crest';
 import { Frame } from '@/components/fx/frame';
@@ -27,7 +28,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { StateArt } from '@/components/ui/state-art';
 import { Sticker } from '@/components/ui/sticker';
 import { Input } from '@/components/ui/input';
+import { HandleHint } from '@/components/handle-hint';
 import { useCreateProfile } from '@/hooks/use-create-profile';
+import { HANDLE_MAX_CHARS } from '@/lib/profile';
 import { useTranslations } from '@/lib/i18n';
 import { cn, humanizeError, withTimeout } from '@/lib/utils';
 
@@ -69,7 +72,7 @@ function ClaimInner({ params }: { params: { id: string } }) {
   const { id } = params;
   const vid = Number(id);
   const validId = Number.isInteger(vid) && vid >= 0;
-  const { connect, profile } = useWallet();
+  const { connect, profile, wallet } = useWallet();
   const t = useTranslations();
   const [claimCode, setClaimCode] = useState<ClaimCode | null>(null);
   const [state, setState] = useState<'preview' | 'claiming' | 'done' | 'error'>('preview');
@@ -178,7 +181,7 @@ function ClaimInner({ params }: { params: { id: string } }) {
   if (loading) {
     return (
       <div className="container max-w-lg py-16">
-        <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-primary/80">
+        <p className="eyebrow-mono text-primary/80">
           {'// incoming_vouch'}
         </p>
         <Skeleton className="mt-4 h-10 w-3/4" />
@@ -199,7 +202,7 @@ function ClaimInner({ params }: { params: { id: string } }) {
   if (!validId || loadError) {
     return (
       <div className="container max-w-lg py-16">
-        <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-primary/80">
+        <p className="eyebrow-mono text-primary/80">
           {`// ${validId ? 'unreadable' : 'invalid_link'}`}
         </p>
         <h1 className="mt-4 font-display text-4xl font-semibold tracking-tight">
@@ -226,7 +229,7 @@ function ClaimInner({ params }: { params: { id: string } }) {
 
   return (
     <div className="container max-w-lg py-16">
-      <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-primary/80">
+      <p className="eyebrow-mono text-primary/80">
         {done ? '// connected' : '// incoming_vouch'}
       </p>
       <h1 className="mt-4 font-display text-4xl font-semibold tracking-tight">
@@ -251,7 +254,7 @@ function ClaimInner({ params }: { params: { id: string } }) {
             ) : (
               <Crest address={`voucher-${id}`} size={88} points={6} animate />
             )}
-            <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+            <span className="font-mono text-2xs uppercase tracking-wider text-muted-foreground">
               {voucherHandle ? `@${voucherHandle}` : vouch ? shortAddr(vouch.from) : 'from'}
             </span>
             {voucherHandle && vouch && !done && (
@@ -259,7 +262,7 @@ function ClaimInner({ params }: { params: { id: string } }) {
                 href={`/u/${voucherHandle}`}
                 target="_blank"
                 rel="noreferrer"
-                className="font-mono text-[9px] uppercase tracking-wider text-primary/70 underline underline-offset-2 hover:text-primary transition-colors"
+                className="font-mono text-2xs uppercase tracking-wider text-primary/70 underline underline-offset-2 hover:text-primary transition-colors"
               >
                 {t('claim.voucher.viewProfile', { handle: voucherHandle })}
               </Link>
@@ -278,10 +281,10 @@ function ClaimInner({ params }: { params: { id: string } }) {
               {done ? (
                 <Crest address={profile?.address ?? `claimer-${id}`} size={80} points={6} animate />
               ) : (
-                <span className="font-mono text-[10px] uppercase text-muted-foreground">your half</span>
+                <span className="font-mono text-2xs uppercase text-muted-foreground">your half</span>
               )}
             </div>
-            <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+            <span className="font-mono text-2xs uppercase tracking-wider text-muted-foreground">
               {done ? 'you' : 'unclaimed'}
             </span>
           </div>
@@ -361,6 +364,14 @@ function ClaimInner({ params }: { params: { id: string } }) {
                 a name without a second connect or FaceID prompt. */}
             {!profile && <ClaimHandlePicker />}
 
+            {/* Asked once, at the moment of delight (#287). The handle arrives once they name it. */}
+            <FeedbackPrompt
+              action="claim"
+              handle={profile?.handle}
+              address={profile?.address ?? wallet?.address}
+              className="w-full"
+            />
+
             {/* Skipping naming still leaves a valid claim; the old "Create your profile"
                 path (and, for a returning user, their profile) both stay reachable. */}
             <Link href="/app" className="font-mono text-xs text-muted-foreground underline">
@@ -400,11 +411,13 @@ function ClaimHandlePicker() {
           onChange={(e) => setHandle(e.target.value)}
           placeholder={t('claim.handle.placeholder')}
           aria-label={t('claim.handle.ariaLabel')}
-          aria-describedby="claim-handle-status"
+          aria-describedby="claim-handle-status claim-handle-rules"
+          maxLength={HANDLE_MAX_CHARS}
           className="flex-1"
         />
       </div>
-      <p id="claim-handle-status" aria-live="polite" className="h-4 text-xs">
+      <HandleHint id="claim-handle-rules" value={handle} />
+      <p id="claim-handle-status" aria-live="polite" className="min-h-4 text-xs">
         {avail === 'checking' && <span className="text-muted-foreground">{t('claim.handle.checking')}</span>}
         {avail === 'free' && <span className="text-secondary">{t('claim.handle.free', { handle: normalizedHandle })}</span>}
         {avail === 'taken' && <span className="text-destructive">{t('claim.handle.taken', { handle: normalizedHandle })}</span>}
@@ -420,7 +433,7 @@ function ClaimHandlePicker() {
 function Field({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-1 px-4 py-3 text-center">
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</span>
+      <span className="text-2xs uppercase tracking-wider text-muted-foreground">{label}</span>
       <span className="text-xs text-foreground">{value}</span>
     </div>
   );

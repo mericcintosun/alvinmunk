@@ -34,7 +34,7 @@ export function ProgressRing({
           style={{ transition: 'stroke-dashoffset 0.5s cubic-bezier(0.22,1,0.36,1)' }}
         />
       </svg>
-      {children && <span className="absolute text-[10px] font-semibold">{children}</span>}
+      {children && <span className="absolute text-2xs font-semibold">{children}</span>}
     </div>
   );
 }

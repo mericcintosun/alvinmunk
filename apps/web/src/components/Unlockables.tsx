@@ -83,12 +83,12 @@ export function Unlockables({ address }: { address: string }) {
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{g.label}</p>
-                <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                <p className="font-mono text-2xs uppercase tracking-wider text-muted-foreground">
                   {t('unlockables.needs', { min: String(g.min), track: trackLabel(g.track), cur: String(cur) })}
                 </p>
               </div>
               {unlocked ? (
-                <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-secondary">
+                <span className="eyebrow-mono text-secondary">
                   {t('unlockables.unlocked')}
                 </span>
               ) : (

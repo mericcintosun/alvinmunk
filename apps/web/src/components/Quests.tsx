@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Flame } from 'lucide-react';
 import { getWallet } from '@/lib/wallet';
 import { completeQuest, getCompleted, getQuestPeriods, getStreak } from '@/lib/quests';
-import { DEFAULT_QUEST_IDS, WEEK_SECS } from '@/lib/attest';
+import { DEFAULT_QUEST_IDS, TIP_FLOOR_USDC, WEEK_SECS } from '@/lib/attest';
 import { getEarnedScore } from '@/lib/reputation';
 import { resolveHandle } from '@/lib/registry';
 import { normalizeHandle } from '@/lib/profile';
@@ -34,13 +34,22 @@ const INVITE_QUEST_ID = Number(
 const VOUCHBACK_QUEST_ID = Number(
   process.env.NEXT_PUBLIC_VOUCHBACK_QUEST_ID || DEFAULT_QUEST_IDS.vouch_back,
 );
+// first_tip has no seeded quest id (attest.ts DEFAULT_QUEST_IDS), so the card only appears
+// once a deployment configures NEXT_PUBLIC_FIRST_TIP_QUEST_ID.
+const FIRST_TIP_QUEST_ID = Number(process.env.NEXT_PUBLIC_FIRST_TIP_QUEST_ID || 0);
 const VOUCH_BACK_MIN = 3; // mirrors attest.ts VOUCH_BACK_MIN (UI copy only)
-const QUEST_IDS = [REFERRAL_QUEST_ID, INVITE_QUEST_ID, VOUCHBACK_QUEST_ID];
+const QUEST_IDS = [
+  REFERRAL_QUEST_ID,
+  INVITE_QUEST_ID,
+  VOUCHBACK_QUEST_ID,
+  ...(FIRST_TIP_QUEST_ID > 0 ? [FIRST_TIP_QUEST_ID] : []),
+];
 
 type Evidence =
   | { type: 'referral_tx'; ref: string }
   | { type: 'invite_converts'; ref: string }
-  | { type: 'vouch_back'; ref: string };
+  | { type: 'vouch_back'; ref: string }
+  | { type: 'first_tip'; ref: string };
 
 /**
  * Verified quests (Earned XP — the cashable track). The wallet owner proves ownership,
@@ -57,7 +66,7 @@ export function Quests({ address }: { address: string }) {
   const [completed, setCompleted] = useState<Record<number, boolean>>({});
   // Repeat period per quest id in seconds; absent or 0 = one-shot.
   const [periods, setPeriods] = useState<Record<number, number>>({});
-  const [busy, setBusy] = useState<null | 'referral' | 'invite' | 'vouchback'>(null);
+  const [busy, setBusy] = useState<null | 'referral' | 'invite' | 'vouchback' | 'firsttip'>(null);
   const [ref, setRef] = useState('');
   const [resolvedRef, setResolvedRef] = useState<string | null>(null);
   const [resolvingRef, setResolvingRef] = useState(false);
@@ -193,7 +202,7 @@ export function Quests({ address }: { address: string }) {
   const tag = (id: number) => {
     const text = repeats(id);
     return text ? (
-      <span className="ml-2 font-mono text-[10px] normal-case tracking-normal text-secondary">
+      <span className="ml-2 font-mono text-2xs normal-case tracking-normal text-secondary">
         · {text}
       </span>
     ) : null;
@@ -210,7 +219,11 @@ export function Quests({ address }: { address: string }) {
     reloadStreak();
   }
 
-  async function run(kind: 'referral' | 'invite' | 'vouchback', questId: number, evidence: Evidence) {
+  async function run(
+    kind: 'referral' | 'invite' | 'vouchback' | 'firsttip',
+    questId: number,
+    evidence: Evidence,
+  ) {
     setBusy(kind);
     setError(null);
     setDone(false);
@@ -249,7 +262,7 @@ export function Quests({ address }: { address: string }) {
         )}
         {streak && (
           <div className="mt-3 flex flex-wrap items-center gap-3">
-            <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+            <span className="eyebrow-mono text-muted-foreground">
               {t('quests.weeklyStamp')}
             </span>
             <div className="flex gap-1.5">
@@ -263,7 +276,7 @@ export function Quests({ address }: { address: string }) {
                 />
               ))}
             </div>
-            <span className="flex items-center gap-1 font-mono text-[10px] text-secondary">
+            <span className="flex items-center gap-1 font-mono text-2xs text-secondary">
               <Flame className="size-3.5" />
               {streak.weeks}
               {streak.best > streak.weeks && (
@@ -278,7 +291,7 @@ export function Quests({ address }: { address: string }) {
         )}
         {/* Quest 1 — refer an active wallet */}
         <div className="mt-4">
-          <label htmlFor="quest-ref" className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+          <label htmlFor="quest-ref" className="eyebrow-mono text-muted-foreground">
             {t('quests.referLabel')}
             {tag(REFERRAL_QUEST_ID)}
           </label>
@@ -304,7 +317,7 @@ export function Quests({ address }: { address: string }) {
               )}
             </div>
           )}
-          <p id="quest-ref-hint" className="mt-1 text-[11px] text-muted-foreground">
+          <p id="quest-ref-hint" className="mt-1 text-2xs text-muted-foreground">
             {resolvedRef && resolvedRef === address
               ? t('quests.refSelf')
               : refTrim && !resolvingRef && !validRef
@@ -327,7 +340,7 @@ export function Quests({ address }: { address: string }) {
 
         {/* Quest 2 — invite-converts: someone you invited opened a profile + got vouched for */}
         <div className="mt-4 border-t border-border/60 pt-4">
-          <label htmlFor="quest-invite" className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+          <label htmlFor="quest-invite" className="eyebrow-mono text-muted-foreground">
             {t('quests.inviteLabel')}
             {tag(INVITE_QUEST_ID)}
           </label>
@@ -353,7 +366,7 @@ export function Quests({ address }: { address: string }) {
               )}
             </div>
           )}
-          <p id="quest-invite-hint" className="mt-1 text-[11px] text-muted-foreground">
+          <p id="quest-invite-hint" className="mt-1 text-2xs text-muted-foreground">
             {resolvedInvite && resolvedInvite === address
               ? t('quests.inviteSelf')
               : inviteTrim && !resolvingInvite && !validInvite
@@ -376,11 +389,11 @@ export function Quests({ address }: { address: string }) {
 
         {/* Quest 3 — vouch-back: you've vouched for ≥N people */}
         <div className="mt-4 border-t border-border/60 pt-4">
-          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+          <span className="eyebrow-mono text-muted-foreground">
             {t('quests.vouchBackLabel')}
             {tag(VOUCHBACK_QUEST_ID)}
           </span>
-          <p className="mt-1 text-[11px] text-muted-foreground">
+          <p className="mt-1 text-2xs text-muted-foreground">
             {t('quests.vouchBackHint', { min: String(VOUCH_BACK_MIN) })}
           </p>
           <Button
@@ -396,6 +409,31 @@ export function Quests({ address }: { address: string }) {
                 : t('quests.claimVouchBack', { min: String(VOUCH_BACK_MIN) })}
           </Button>
         </div>
+
+        {/* Quest 4 — first-tip: you tipped a wallet you're connected to (only when configured) */}
+        {FIRST_TIP_QUEST_ID > 0 && (
+          <div className="mt-4 border-t border-border/60 pt-4">
+            <span className="eyebrow-mono text-muted-foreground">
+              {t('quests.firstTipLabel')}
+              {tag(FIRST_TIP_QUEST_ID)}
+            </span>
+            <p className="mt-1 text-2xs text-muted-foreground">
+              {t('quests.firstTipHint', { min: TIP_FLOOR_USDC })}
+            </p>
+            <Button
+              variant={completed[FIRST_TIP_QUEST_ID] ? 'secondary' : 'onchain'}
+              onClick={() => run('firsttip', FIRST_TIP_QUEST_ID, { type: 'first_tip', ref: '' })}
+              disabled={busy !== null || completed[FIRST_TIP_QUEST_ID]}
+              className="mt-2 w-full"
+            >
+              {completed[FIRST_TIP_QUEST_ID]
+                ? doneLabel(FIRST_TIP_QUEST_ID)
+                : busy === 'firsttip'
+                  ? t('quests.verifying')
+                  : t('quests.claimFirstTip')}
+            </Button>
+          </div>
+        )}
 
         {done && (
           <div className="mt-3 flex flex-col items-center">

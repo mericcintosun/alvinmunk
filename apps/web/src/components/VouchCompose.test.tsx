@@ -35,6 +35,9 @@ vi.mock('@/lib/myvouches', () => ({
   subscribeToVouchPush: vi.fn(async () => {}),
 }));
 vi.mock('@/lib/track', () => ({ track: vi.fn(), trackError: vi.fn() }));
+vi.mock('@/components/wallet/wallet-provider', () => ({
+  useWallet: () => ({ profile: { handle: 'me', address: WALLET.address, createdAt: 0 } }),
+}));
 vi.mock('@/components/ui/toaster', () => ({ toast: toastMock }));
 vi.mock('@/components/fx/frame', () => ({
   Frame: (p: { children: React.ReactNode }) => p.children,
@@ -144,6 +147,47 @@ describe('VouchCompose note', () => {
 
     await act(async () => toggle.click());
     expect(container.querySelector('[data-testid="qr"]')).toBeNull();
+  });
+
+  // #492: the note field is named, counts as you type, and says when the cap cut text.
+  const counter = () => document.getElementById(textarea().getAttribute('aria-describedby')!)!;
+  const status = () => container.querySelector('[role="status"]')!;
+
+  it('has a visible label as its accessible name', async () => {
+    await mount();
+    const label = container.querySelector(`label[for="${textarea().id}"]`);
+    expect(textarea().id).not.toBe('');
+    expect(label?.textContent).toBe('Your note');
+  });
+
+  it('counts characters, not UTF-16 units, as you type', async () => {
+    await mount();
+    expect(counter().querySelector('[aria-hidden="true"]')?.textContent).toBe('0/60');
+    await typeNote('gm');
+    expect(counter().querySelector('[aria-hidden="true"]')?.textContent).toBe('2/60');
+    expect(counter().querySelector('.sr-only')?.textContent).toBe('2 of 60 characters');
+    await typeNote('💧💧ş');
+    expect(counter().querySelector('[aria-hidden="true"]')?.textContent).toBe('3/60');
+  });
+
+  it('only announces the count once the note nears the cap', async () => {
+    await mount();
+    await typeNote('a'.repeat(49));
+    expect(counter().getAttribute('aria-live')).toBe('off');
+    await typeNote('a'.repeat(50));
+    expect(counter().getAttribute('aria-live')).toBe('polite');
+  });
+
+  it('announces when a paste was cut to the cap, and clears it on the next fitting edit', async () => {
+    await mount();
+    // The live region is mounted up front, so its message is announced when it appears.
+    expect(status().textContent).toBe('');
+    await typeNote('💧'.repeat(75));
+    expect(textarea().value).toBe('💧'.repeat(60));
+    expect(status().textContent).toBe('Notes are limited to 60 characters — the extra text was cut.');
+    expect(counter().querySelector('[aria-hidden="true"]')?.textContent).toBe('60/60');
+    await typeNote('💧'.repeat(59));
+    expect(status().textContent).toBe('');
   });
 });
 
@@ -260,5 +304,99 @@ describe('VouchCompose for several people (#271)', () => {
     expect(toastMock.error).toHaveBeenCalledWith("You've hit today's vouch limit — try again tomorrow.");
     expect(container.querySelectorAll('li code')).toHaveLength(0);
     expect(addMyVouchMock).not.toHaveBeenCalled();
+  });
+
+  it('gives every row its own counter and says which row the cap cut (#492)', async () => {
+    await openBatch();
+    const counterOf = (row: HTMLInputElement) =>
+      document.getElementById(row.getAttribute('aria-describedby')!)!;
+    const shown = (row: HTMLInputElement) =>
+      counterOf(row).querySelector('[aria-hidden="true"]')?.textContent;
+    const statusOf = (row: HTMLInputElement) => row.closest('li')!.querySelector('[role="status"]')!;
+
+    const [a, b] = rows();
+    expect(a.getAttribute('aria-describedby')).not.toBe(b.getAttribute('aria-describedby'));
+    await type(a, 'ada');
+    expect(shown(a)).toBe('3/60');
+    expect(shown(b)).toBe('0/60');
+
+    await type(b, 'x'.repeat(64));
+    expect(rows()[1].value).toBe('x'.repeat(60));
+    expect(shown(b)).toBe('60/60');
+    expect(counterOf(b).getAttribute('aria-live')).toBe('polite');
+    expect(statusOf(b).textContent).toBe('Notes are limited to 60 characters — the extra text was cut.');
+    expect(statusOf(a).textContent).toBe('');
+
+    // Editing another row that fits moves the notice off the cut one.
+    await type(a, 'ada lovelace');
+    expect(statusOf(b).textContent).toBe('');
+  });
+});
+
+describe('VouchCompose feedback prompt (#287)', () => {
+  const FORM = 'https://docs.google.com/forms/d/e/FORM/viewform';
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    localStorage.clear();
+    vi.stubEnv('NEXT_PUBLIC_FEEDBACK_FORM_URL', `${FORM}?entry.1={handle}&entry.2={address}`);
+    mintVouchMock.mockReset().mockResolvedValue({ id: 7, seed: 'ab' });
+    mintVouchesMock
+      .mockReset()
+      .mockImplementation(async (_w: unknown, notes: string[]) => notes.map((_, i) => ({ id: 20 + i, seed: `${i}` })));
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllEnvs();
+  });
+
+  const button = (text: string) => [...container.querySelectorAll('button')].find((b) => b.textContent === text)!;
+  const prompt = () => container.querySelector('section[aria-label="Quick feedback"]');
+  async function click(el: HTMLElement) {
+    await act(async () => el.click());
+    await act(async () => {
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    });
+  }
+  async function remount() {
+    act(() => root.unmount());
+    root = createRoot(container);
+    await act(async () => root.render(<VouchCompose />));
+  }
+
+  it('asks after the first vouch, with the handle and address prefilled, then never again', async () => {
+    await act(async () => root.render(<VouchCompose />));
+    expect(prompt()).toBeNull(); // nothing to react to before a vouch
+    await click(button('Light their star'));
+    expect(prompt()).not.toBeNull();
+    const href = new URL(prompt()!.querySelector('a')!.href);
+    expect(Object.fromEntries(href.searchParams)).toEqual({ 'entry.1': '@me', 'entry.2': WALLET.address });
+
+    await remount();
+    await click(button('Light their star'));
+    expect(container.querySelector('code')?.textContent).toContain('/claim/7');
+    expect(prompt()).toBeNull();
+  });
+
+  it('asks after a first cohort vouch too', async () => {
+    await act(async () => root.render(<VouchCompose />));
+    await click(button('Several people'));
+    await click(button('Light 2 stars'));
+    expect(container.textContent).toContain('2 stars are lit');
+    expect(prompt()).not.toBeNull();
+  });
+
+  it('stays out of the way when no form is configured', async () => {
+    vi.stubEnv('NEXT_PUBLIC_FEEDBACK_FORM_URL', '');
+    await act(async () => root.render(<VouchCompose />));
+    await click(button('Light their star'));
+    expect(container.querySelector('code')?.textContent).toContain('/claim/7');
+    expect(prompt()).toBeNull();
   });
 });
