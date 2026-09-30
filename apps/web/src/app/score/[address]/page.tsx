@@ -11,6 +11,10 @@ import { ReputationSnippet } from '@/components/ReputationSnippet';
 import { ReadOnlyBanner } from '@/components/read-only-banner';
 import { readNetworkFor } from '@/lib/read-network';
 
+// Chain reads go through the Stellar SDK's fetch; without this Next caches them in the Data
+// Cache forever, so the score page would never change after its first render.
+export const fetchCache = 'default-no-store';
+
 interface ScorePageProps {
   params: Promise<{ address: string }>;
   /** `?network=testnet` reads the testnet deployment, read-only (lib/read-network). */
