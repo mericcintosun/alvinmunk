@@ -12,6 +12,9 @@
  *   - referral_tx : evidence.ref = a G… or C… address -> must be active (Social score > 0)
  *                   and name the recipient as its inviter: registry `invited_by` (any wallet
  *                   kind), else a classic account's "referral" manageData entry
+ *   - first_tip   : evidence.ref unused -> the recipient tipped >= 0.5 USDC (rewards `tip`,
+ *                   moved by the configured USDC SAC) to a wallet it shares a claimed vouch
+ *                   with (either direction) that isn't frozen — all read off the chain
  *
  * Repeatable quests (#154, `quest_registry.set_quest_period`): the signature names the
  * current period, and only evidence dated inside it counts — a PR merged, a vouch claimed
@@ -44,6 +47,8 @@ import {
   evidenceMatchesQuest,
   isGAddress,
   isValidQuestId,
+  judgeFirstTip,
+  judgeFirstTips,
   judgeReferral,
   parseRepoAllowlist,
   questWindow,
@@ -53,7 +58,9 @@ import {
   validateEvidence,
   WEEK_SECS,
   type AttestEvidence,
+  type FirstTipRejection,
   type QuestWindow,
+  type TipFacts,
 } from '../../../lib/attest';
 import { json, withRoute } from '../../../lib/api-route';
 import { decodeVouchClaimedEvent } from '../../../lib/vouch-claimed';
@@ -92,9 +99,13 @@ const PASSPHRASE = config.networkPassphrase;
 const QUEST_ID = config.contracts.questRegistry;
 const REP_ID = config.contracts.reputation;
 const REGISTRY_ID = config.contracts.registry;
+const REWARDS_ID = config.contracts.rewards;
+const USDC_ID = config.contracts.usdcSac;
 const REPO_ALLOWLIST = parseRepoAllowlist(process.env.QUEST_GITHUB_REPOS);
 /** Safety cap on cursor-pagination pages for the vouch/claimed scan (1 000 events/page). */
 const VOUCH_CLAIMED_MAX_PAGES = 50;
+/** How many distinct tip receivers the first_tip check reads `is_frozen` for before giving up. */
+const TIP_MAX_RECEIVERS = 20;
 /** GitHub / Horizon reads give up after this long: a stalled connection can't hang the route. */
 const UPSTREAM_TIMEOUT_MS = 8_000;
 
@@ -161,7 +172,11 @@ export const POST = withRoute('POST /api/attest', async (req: Request): Promise<
   const nowSecs = Math.floor(now / 1000);
   const window = questWindow(nowSecs, await questPeriod(body.questId));
   if (window && !FRESH_EVIDENCE.has(evidence.type)) {
-    return json({ error: 'this quest repeats, and a referral can’t be dated to this round' }, 422);
+    const why =
+      evidence.type === 'first_tip'
+        ? 'a first tip only counts once'
+        : 'a referral can’t be dated to this round';
+    return json({ error: `this quest repeats, and ${why}` }, 422);
   }
   const round = window?.periodSecs === WEEK_SECS ? ' this week' : window ? ' this round' : '';
 
@@ -288,6 +303,48 @@ async function verifyEvidence(
     return judgeReferral({ score, invitedBy, marker }, ev.ref, recipient);
   }
 
+  // First-tip (retention quest, #272): the recipient tipped at least TIP_FLOOR_STROOPS of
+  // this network's USDC through the rewards contract's `tip`, to a wallet they share a
+  // claimed vouch with (either direction) that isn't frozen. Everything is read off the
+  // chain — the request names no tip — within the RPC's retained event window. It is
+  // one-shot (not in FRESH_EVIDENCE, so `since` is always null here) and the on-chain replay
+  // guard pays it once per wallet. An RPC failure says nothing about the tip: retryable 503.
+  if (ev.type === 'first_tip') {
+    if (!REP_ID) return { ok: false, reason: 'reputation contract not configured' };
+    if (!REWARDS_ID) return { ok: false, reason: 'rewards contract not configured' };
+    if (!USDC_ID) return { ok: false, reason: 'USDC contract not configured' };
+    try {
+      const tips: TipFacts[] = (await tipsSentBy(REWARDS_ID, USDC_ID, recipient)).map((t) => ({
+        ...t,
+        connected: false,
+      }));
+      // `unconnected` means a tip passed the self, USDC and floor checks: only then is the
+      // vouch scan worth it.
+      const reaches = (tip: TipFacts, code: FirstTipRejection) => {
+        const verdict = judgeFirstTip(tip, recipient);
+        return !verdict.ok && verdict.code === code;
+      };
+      const peers = tips.some((t) => reaches(t, 'unconnected'))
+        ? await vouchPeers(REP_ID, recipient)
+        : new Set<string>();
+      const frozen = new Map<string, boolean>();
+      for (const tip of tips) {
+        tip.connected = peers.has(tip.to);
+        if (!reaches(tip, 'unread')) continue;
+        if (!frozen.has(tip.to)) {
+          if (frozen.size >= TIP_MAX_RECEIVERS) break;
+          frozen.set(tip.to, await readFrozen(REWARDS_ID, tip.to));
+        }
+        tip.frozen = frozen.get(tip.to);
+        if (judgeFirstTip(tip, recipient).ok) break;
+      }
+      return judgeFirstTips(tips, recipient);
+    } catch {
+      const reason = 'couldn’t read your tips right now — try again';
+      return { ok: false, reason, status: 503 };
+    }
+  }
+
   return { ok: false, reason: 'unknown evidence type' };
 }
 
@@ -347,7 +404,8 @@ async function readReferralMarker(ref: string): Promise<string | null | Upstream
 /**
  * GitHub or Horizon failing to answer. That says nothing about the evidence, so it is
  * never a 422: 504 on a timeout, 503 when unreachable, rate-limited (403/429) or down
- * (5xx), 502 on any other status or a body that isn't JSON.
+ * (5xx), 502 on any other status or a body that isn't JSON. The first_tip check's RPC
+ * reads failing are a 503 too.
  */
 interface UpstreamFailure {
   ok: false;
@@ -466,6 +524,101 @@ async function claimedVouchFrom(
     (c) => (found = c.from === from && c.claimer === claimer && inRound(c.at, since)),
   );
   return found;
+}
+
+/**
+ * Every tip `from` sent (#272), read off the chain: each `tipped` event the rewards contract
+ * emitted with `from` as the sender (topics `('tipped', from, to)` · data amount), marked
+ * `usdc` when the same transaction carries the configured USDC SAC's `transfer` of exactly
+ * that amount from `from` to `to` (topics `('transfer', from, to, asset)` · data amount).
+ * One cursor walk over both filters, oldest first, with the same bounds as
+ * `scanVouchClaimed`: tips older than the RPC's retained window are invisible. The emitting
+ * contract, event name and sender are checked on every event, not only left to the filter.
+ */
+async function tipsSentBy(
+  rewardsId: string,
+  usdcId: string,
+  from: string,
+): Promise<Pick<TipFacts, 'to' | 'amount' | 'usdc'>[]> {
+  const server = new rpc.Server(RPC_URL, { allowHttp: RPC_URL.startsWith('http://') });
+  const health = await server.getHealth();
+  const startLedger = health.oldestLedger ?? 1;
+  const sender = new Address(from).toScVal().toXDR('base64');
+  const tipped = nativeToScVal('tipped', { type: 'symbol' }).toXDR('base64');
+  const transfer = nativeToScVal('transfer', { type: 'symbol' }).toXDR('base64');
+  const filters = [
+    { type: 'contract' as const, contractIds: [rewardsId], topics: [[tipped, sender, '*']] },
+    { type: 'contract' as const, contractIds: [usdcId], topics: [[transfer, sender, '*', '*']] },
+  ];
+
+  const tips: { to: string; amount: bigint; tx: string }[] = [];
+  const paid = new Set<string>(); // "<tx> <to> <amount>" of each USDC transfer out of `from`
+  let cursor: string | undefined;
+  for (let page = 0; page < VOUCH_CLAIMED_MAX_PAGES; page++) {
+    const res = await server.getEvents(
+      cursor ? { filters, cursor, limit: 1000 } : { filters, startLedger, limit: 1000 },
+    );
+    for (const e of res.events) {
+      if (e.inSuccessfulContractCall === false || !e.txHash) continue;
+      const [name, src, to] = e.topic.map(toNative);
+      const amount = toNative(e.value);
+      if (src !== from || typeof to !== 'string' || typeof amount !== 'bigint') continue;
+      const contract = e.contractId?.contractId();
+      if (contract === rewardsId && name === 'tipped' && e.topic.length === 3) {
+        tips.push({ to, amount, tx: e.txHash });
+      } else if (contract === usdcId && name === 'transfer' && e.topic.length === 4) {
+        paid.add(`${e.txHash} ${to} ${amount}`);
+      }
+    }
+    cursor = res.cursor;
+    if (!cursor) break;
+    const at = cursorLedger(cursor);
+    if (at !== null && res.latestLedger && at >= res.latestLedger) break;
+  }
+  return tips.map(({ to, amount, tx }) => ({
+    to,
+    amount,
+    usdc: paid.has(`${tx} ${to} ${amount}`),
+  }));
+}
+
+/** Every wallet that shares a claimed vouch with `who` — one it vouched for or one that
+ *  vouched for it — within the RPC's retention window. */
+async function vouchPeers(repId: string, who: string): Promise<Set<string>> {
+  const peers = new Set<string>();
+  await scanVouchClaimed(repId, (c) => {
+    if (c.from === who) peers.add(c.claimer);
+    else if (c.claimer === who) peers.add(c.from);
+  });
+  return peers;
+}
+
+/** `rewards.is_frozen(who)` via simulation. Throws when the read fails: a wallet whose status
+ *  is unknown is never taken as unfrozen. */
+async function readFrozen(rewardsId: string, who: string): Promise<boolean> {
+  const server = new rpc.Server(RPC_URL, { allowHttp: RPC_URL.startsWith('http://') });
+  const source = new Account(Keypair.random().publicKey(), '0');
+  const tx = new TransactionBuilder(source, { fee: '100', networkPassphrase: PASSPHRASE })
+    .addOperation(new Contract(rewardsId).call('is_frozen', new Address(who).toScVal()))
+    .setTimeout(30)
+    .build();
+  const sim = await server.simulateTransaction(tx);
+  if (rpc.Api.isSimulationError(sim)) throw new Error(sim.error);
+  const v = sim.result?.retval ? scValToNative(sim.result.retval) : undefined;
+  if (typeof v !== 'boolean') throw new Error('is_frozen returned no bool');
+  return v;
+}
+
+/** Decode an event topic or value that the RPC may report as an XDR ScVal or its base64
+ *  string; null when it can't be decoded. */
+function toNative(val: unknown): unknown {
+  try {
+    return typeof val === 'string'
+      ? scValToNative(xdr.ScVal.fromXDR(val, 'base64'))
+      : scValToNative(val as xdr.ScVal);
+  } catch {
+    return null;
+  }
 }
 
 /**

@@ -20,6 +20,8 @@ const buttonVariants = cva(
         md: 'h-11 px-6 text-sm',
         lg: 'h-12 px-7 text-base',
         icon: 'h-10 w-10',
+        // Inline edit / dismiss glyphs: a 32px hit area (WCAG 2.5.8 asks for 24px).
+        'icon-sm': 'h-8 w-8',
       },
     },
     defaultVariants: { variant: 'primary', size: 'md' },

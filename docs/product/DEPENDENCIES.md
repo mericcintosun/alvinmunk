@@ -55,6 +55,10 @@ shadcn components are added on demand and **committed into the repo**
   CSS `@theme`, `@tailwindcss/postcss`). Our tokens are already CSS-variable-based, so a
   later v4 move is low-friction.
 - **Do NOT** migrate Next-major + Tailwind-major + SDK-major in the same change. One at a time.
+- **Dependabot** (`.github/dependabot.yml`) opens weekly update PRs for npm, cargo and
+  GitHub Actions. npm minor/patch bumps come as one grouped PR, except `@stellar/stellar-sdk`,
+  which gets its own. It never proposes a major of `next`, `react`, `tailwindcss` or
+  `@stellar/stellar-sdk` (or of the packages that move with them): those stay deliberate.
 
 ## 4. SSR / wallet boundary (the #1 footgun)
 

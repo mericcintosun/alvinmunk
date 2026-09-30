@@ -35,6 +35,8 @@ coverage/
 .vercel
 apps/web/playwright-report/
 apps/web/test-results/
+# scripts/screenshots.mjs writes this when a capture fails
+level1-debug.png
 
 # Soroban auto-generated test snapshots (regenerable)
 contracts/*/test_snapshots/
