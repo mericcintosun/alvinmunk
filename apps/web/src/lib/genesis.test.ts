@@ -3,11 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { server, waitForTransaction } = vi.hoisted(() => ({
   server: { getAccount: vi.fn(), sendTransaction: vi.fn() },
-  waitForTransaction: vi.fn(async () => {}),
+  waitForTransaction: vi.fn(async (_hash: string, _tries?: number) => {}),
 }));
 vi.mock('./stellar', () => ({ server, networkPassphrase: Networks.TESTNET, waitForTransaction }));
 
-import { recordGenesis } from './genesis';
+import { GENESIS_TIMEOUT_SECONDS, recordGenesis } from './genesis';
 import type { Wallet } from './wallet';
 
 const SOURCE = 'GDIS5BDXSI2DDJNTKRZPI6MNB5XCLMN4Z6PPRPM4RQLZ3PSQ2YTERLFA';
@@ -35,7 +35,9 @@ describe('recordGenesis submit', () => {
     await vi.runAllTimersAsync();
     await expect(p).resolves.toBe('G1');
     expect(server.sendTransaction).toHaveBeenCalledTimes(2);
-    expect(waitForTransaction).toHaveBeenCalledWith('G1');
+    expect(waitForTransaction).toHaveBeenCalledWith('G1', expect.any(Number));
+    const [, tries] = waitForTransaction.mock.calls[0];
+    expect(tries).toBeGreaterThanOrEqual(GENESIS_TIMEOUT_SECONDS);
   });
 
   it('never waits on a hash Core did not queue', async () => {

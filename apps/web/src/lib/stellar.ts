@@ -93,7 +93,7 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
  * until the first has landed, or it collides (txBAD_SEQ). Throws on on-chain failure or
  * if it never confirms within the budget.
  */
-export async function waitForTransaction(hash: string, tries = 30): Promise<void> {
+export async function waitForTransaction(hash: string, tries = 65): Promise<void> {
   for (let i = 0; i < tries; i++) {
     try {
       const res = await server.getTransaction(hash);
