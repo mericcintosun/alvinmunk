@@ -4,14 +4,14 @@
 # per wasm, so the pre-flight checks and the "print each id as soon as it exists" behavior can
 # be checked without building or deploying anything.
 #
-# Usage: bash scripts/deploy-testnet.test.sh   (needs bash and grep)
+# Usage: bash scripts/deploy-testnet.test.sh   (needs bash, grep and jq)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="${1:-$HERE/deploy-testnet.sh}"
 W="$(mktemp -d "${TMPDIR:-/tmp}/deploy-testnet-test.XXXXXX")"
 trap 'rm -rf "$W"' EXIT
-mkdir -p "$W/bin" "$W/nostellar"
+mkdir -p "$W/bin" "$W/nostellar" "$W/nojq"
 
 # --- stub stellar CLI (STUB_FAIL=<pattern> fails every call matching it) ---
 cat >"$W/bin/stellar" <<'STUB'
@@ -29,6 +29,9 @@ case "$1 ${2:-}" in
       attester) echo GBC2FI2YWJPUU7TGEU7ATSP7PIZC64ZPX2F672OLIHHL7AEH7LUDITHJ ;;
       *) echo "error: Failed to find config identity for $3" >&2; exit 1 ;;
     esac ;;
+  "strkey decode")
+    [ "$3" = GBC2FI2YWJPUU7TGEU7ATSP7PIZC64ZPX2F672OLIHHL7AEH7LUDITHJ ] || exit 1
+    echo '{"public_key_ed25519": "45a2a358b25f4a7e66253e09c9ff7a322f732fbe8befe9cb41cebf8087fae834"}' ;;
   "contract build") ;;
   "contract deploy")
     case "$*" in
@@ -42,14 +45,18 @@ case "$1 ${2:-}" in
 esac
 STUB
 chmod +x "$W/bin/stellar"
+ln -s "$W/bin/stellar" "$W/nojq/stellar"
 
 unset USDC_SAC NETWORK ADMIN ATTESTER
 export STUB_LOG="$W/stellar.log"
-STUB_PATH="$W/bin:/usr/bin:/bin"
+command -v jq >/dev/null || { echo "these tests need jq" >&2; exit 2; }
+STUB_PATH="$W/bin:/usr/bin:/bin:$(dirname "$(command -v jq)")"
 SAC=CAKT2EK2SFGNXTXVSYZLZXA5YB5QPVHLTVUMRHLJTF5RFFAFMIRNPZT2
 REP=CREPAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 QUEST=CQUESTAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 REWARDS=CREWARDSAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+ATTESTER_G=GBC2FI2YWJPUU7TGEU7ATSP7PIZC64ZPX2F672OLIHHL7AEH7LUDITHJ
+ATTESTER_KEY=45a2a358b25f4a7e66253e09c9ff7a322f732fbe8befe9cb41cebf8087fae834
 
 PASS=0
 FAIL=0
@@ -108,6 +115,20 @@ else
   echo "(a stellar CLI is installed in /usr/bin or /bin: skipped the missing-CLI check)"
 fi
 
+# A PATH holding only the stub stellar: the jq check must fire before anything runs.
+: >"$STUB_LOG"
+OUT="$(env PATH="$W/nojq" USDC_SAC="$SAC" "$BASH" "$SCRIPT" 2>&1)" && RC=0 || RC=$?
+check "no jq: exits 2" [ "$RC" = 2 ]
+check "no jq: says why" out_has "jq not found"
+check "no jq: nothing called" no_calls
+
+# The attester key is derived up front, so an underivable key costs no build or deploy.
+run USDC_SAC="$SAC" STUB_FAIL="strkey decode"
+check "no attester key: exits 2" [ "$RC" = 2 ]
+check "no attester key: says why" out_has "cannot derive the attester's ed25519 key from $ATTESTER_G"
+check "no attester key: nothing built" [ "$(calls 'contract build')" = 0 ]
+check "no attester key: nothing deployed" [ "$(calls 'contract deploy')" = 0 ]
+
 # --- happy path ---
 run USDC_SAC="$SAC"
 check "happy path exits 0" [ "$RC" = 0 ]
@@ -126,6 +147,20 @@ check "rewards' constructor gets the admin, the given SAC and reputation" \
 check "no post-deploy init (#127)" [ "$(calls ' init ')" = 0 ]
 check "rewards is wired to the quest registry" \
   [ "$(calls "--id $REWARDS .* set_quest_registry --quest_registry $QUEST$")" = 1 ]
+# #246: quest_registry is reputation's only attester, and the off-chain attester is allowlisted
+# on quest_registry by its ed25519 key (award_quest reads only that list).
+check "quest_registry is an attester of reputation" \
+  [ "$(calls "--id $REP .* add_attester --attester $QUEST$")" = 1 ]
+check "nothing else is an attester of reputation" [ "$(calls "--id $REP .* add_attester ")" = 1 ]
+check "the off-chain attester is never an attester by address" [ "$(calls "add_attester --attester $ATTESTER_G")" = 0 ]
+check "quest_registry allowlists the attester's ed25519 key" \
+  [ "$(calls "--id $QUEST .* add_attester_key --key $ATTESTER_KEY$")" = 1 ]
+check "quest_registry's legacy address list is left empty" [ "$(calls "--id $QUEST .* add_attester ")" = 0 ]
+for q in 1:2:50 2:2:30 3:2:50 4:2:25; do
+  IFS=: read -r qid schema xp <<<"$q"
+  check "seeds quest $qid" [ "$(calls "--id $QUEST .* create_quest --id $qid --schema_id $schema --xp $xp$")" = 1 ]
+done
+check "seeds exactly four quests" [ "$(calls ' create_quest ')" = 4 ]
 check "each id printed right after its deploy (reputation)" before "^REP_ID=$REP$" "Deploying quest_registry"
 check "each id printed right after its deploy (quest_registry)" before "^QUEST_ID=$QUEST$" "Deploying rewards"
 check "each id printed right after its deploy (rewards)" before "^REWARDS_ID=$REWARDS$" "Wiring rewards"

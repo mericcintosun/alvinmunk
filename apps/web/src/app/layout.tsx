@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { fontVars } from '@/lib/fonts';
 import { Starfield } from '@/components/brand/starfield';
@@ -12,13 +12,15 @@ import { WalletProvider } from '@/components/wallet/wallet-provider';
 import { MotionProvider } from '@/components/motion/motion-provider';
 import { I18nProvider } from '@/lib/i18n';
 import { rootMetadata } from '@/lib/metadata';
+import { rootViewport, THEME_INIT } from '@/lib/theme';
 
-// Runs before first paint so the page never flashes the wrong theme: an explicit choice
-// (localStorage `alvinmunk.theme`, written by ThemeToggle) wins, else the OS preference.
+// THEME_INIT runs before first paint so the page never flashes the wrong theme: an explicit
+// choice (localStorage `alvinmunk.theme`, written by ThemeToggle) wins, else the OS preference.
 // The server always renders `dark`, so without JS the brand's dark theme is the fallback.
-const THEME_INIT = `(function(){try{var t=localStorage.getItem('alvinmunk.theme');if(t!=='light'&&t!=='dark'){t=window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'}var r=document.documentElement;r.classList.remove('light','dark');r.classList.add(t);r.style.colorScheme=t}catch(e){}})();`;
 
 export const metadata: Metadata = rootMetadata;
+// theme-color per colour scheme (the mobile toolbar and PWA title bar), from the --background tokens.
+export const viewport: Viewport = rootViewport;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

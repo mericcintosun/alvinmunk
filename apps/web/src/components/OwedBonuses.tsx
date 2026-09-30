@@ -109,7 +109,7 @@ export function OwedBonuses() {
           return (
             <li key={row.claimer} className="flex items-center gap-3 p-4">
               <div className="grid size-10 shrink-0 place-items-center border border-dashed border-secondary/50 text-secondary">
-                <span className="font-mono text-[10px]">+{row.amount}</span>
+                <span className="font-mono text-2xs">+{row.amount}</span>
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm text-foreground/90">{t('owedBonuses.row', { name })}</p>

@@ -225,7 +225,8 @@ describe('Onboarding — returning users (#278)', () => {
 
     const status = () => {
       const input = container.querySelector('[aria-label="Handle"]')!;
-      return document.getElementById(input.getAttribute('aria-describedby')!)!;
+      // Described by its status line first, then the handle rules.
+      return document.getElementById(input.getAttribute('aria-describedby')!.split(' ')[0])!;
     };
 
     it('announces availability in a live region tied to the input', async () => {
@@ -250,6 +251,44 @@ describe('Onboarding — returning users (#278)', () => {
 
       expect(status().textContent).toBe('@bob is taken — try another');
       expect(buttonWith('Create my profile').disabled).toBe(true);
+    });
+
+    // #479: the rules are stated up front, dropped characters are named, and the status
+    // line grows instead of overlapping the submit button when a message wraps.
+    const input = () => container.querySelector<HTMLInputElement>('[aria-label="Handle"]')!;
+    const rules = () => document.getElementById(input().getAttribute('aria-describedby')!.split(' ')[1])!;
+
+    it('shows the handle rules before submitting, and caps the field at 20', async () => {
+      await mount();
+      expect(input().maxLength).toBe(20);
+      expect(rules().id).toBe('handle-rules');
+      expect(rules().textContent).toBe('3–20 characters: a–z, 0–9 or _');
+    });
+
+    it('says which characters disappeared, while the availability check runs on what is left', async () => {
+      await mount();
+      await typeHandle('Ayşe K');
+      expect(rules().textContent).toBe('Removed “ş”, space — use 3–20 characters: a–z, 0–9 or _');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      expect(handleAvailabilityMock).toHaveBeenCalledWith('ayek', undefined);
+      expect(status().textContent).toBe('✓ @ayek is free');
+      expect(rules().textContent).toContain('Removed “ş”, space');
+    });
+
+    it('lets a long reserved message wrap above the submit button', async () => {
+      handleAvailabilityMock.mockResolvedValue({ status: 'reserved', until: new Date('2026-10-29T12:00:00Z') });
+      await mount();
+      await typeHandle('bob');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      expect(status().textContent).toMatch(/^@bob is reserved until .+ — try another$/);
+      const classes = status().className.split(' ');
+      expect(classes).toContain('min-h-4');
+      expect(classes).not.toContain('h-4');
+      expect(rules().className.split(' ')).not.toContain('h-4');
     });
   });
 });

@@ -15,6 +15,9 @@ labels: bug
 - Browser: [e.g. Chrome, Safari]
 - Node version:
 - pnpm version:
+- Theme: [e.g. light, dark]
+- Language: [e.g. English, Türkçe]
+- Viewport width: [e.g. 375px, 768px, 1440px]
 
 ## Steps to Reproduce
 

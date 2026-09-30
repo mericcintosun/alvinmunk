@@ -5,6 +5,7 @@ import { resolveHandle, getMeta } from './registry';
 import { getScores, type PeopleCounts } from './reputation';
 import { getPeopleCounts } from './constellation';
 import { loadPng } from './og-assets';
+import { BRAND_DARK } from './brand-palette';
 import {
   faceFile,
   kitFile,
@@ -17,7 +18,7 @@ import {
 
 // Shared card renderers for the OG image routes: the profile card (/u and /v, resolved from
 // the handle on-chain) and the half-card (/claim). Satori-compatible JSX with literal colors
-// (Satori has no CSS vars).
+// (Satori has no CSS vars): the dark-theme brand palette, resolved from the design tokens.
 
 /** Calculate font size for handle based on length to fit within OG card width. */
 export function handleFontSize(handleLength: number): number {
@@ -33,14 +34,17 @@ export function handleFontSize(handleLength: number): number {
   return Math.max(MIN_SIZE, MAX_SIZE - scaleFactor * (MAX_SIZE - MIN_SIZE));
 }
 
-const BG = '#0B0512';
-const VIOLET = '#9945FF';
-const CYAN = '#37E0FF';
-const GREEN = '#14F195';
-const GOLD = '#FFB257';
-const LIME = '#C4FA4E';
-const FG = '#F4F1FA';
-const MUTED = '#8b86a8';
+const {
+  background: BG,
+  violet: VIOLET,
+  cyan: CYAN,
+  green: GREEN,
+  gold: GOLD,
+  lime: LIME,
+  foreground: FG,
+  muted: MUTED,
+  nebula: NEBULA,
+} = BRAND_DARK;
 
 /** XP tracks + the people counts the card shows. */
 export type OgScores = { social: number; earned: number } & PeopleCounts;
@@ -107,7 +111,7 @@ export function ogCard(opts: {
           <div style={{ display: 'flex', width: '380px', height: '380px' }}>
             <svg width="380" height="380" viewBox="0 0 100 100">
               <circle cx="50" cy="50" r="46" fill={VIOLET} fillOpacity="0.08" />
-              <polyline points={polyPoints} fill="none" stroke="#9fb0d8" strokeOpacity="0.3" strokeWidth="0.6" />
+              <polyline points={polyPoints} fill="none" stroke={MUTED} strokeOpacity="0.3" strokeWidth="0.6" />
               {pts.map((p, i) => (
                 <circle key={i} cx={p[0]} cy={p[1]} r={i === 0 ? 4 : 2.4} fill={i === 0 ? GOLD : i % 2 ? CYAN : VIOLET} />
               ))}
@@ -300,7 +304,7 @@ const SHELL: CSSProperties = {
   height: '100%',
   display: 'flex',
   flexDirection: 'column',
-  background: `radial-gradient(120% 120% at 20% 0%, #1a0b2e 0%, ${BG} 60%)`,
+  background: `radial-gradient(120% 120% at 20% 0%, ${NEBULA} 0%, ${BG} 60%)`,
   color: FG,
   padding: '64px',
   // Must match the `name` of every font entry passed to `ImageResponse` (see the

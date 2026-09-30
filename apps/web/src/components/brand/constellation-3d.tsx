@@ -28,6 +28,8 @@ import {
   usePrefersReducedMotion,
 } from './constellation-parts';
 import { useLocale, useTranslations } from '@/lib/i18n';
+import { brandPalette } from '@/lib/brand-palette';
+import { useLightTheme } from '@/lib/use-light-theme';
 import { HERO_BOX } from './hero-box';
 
 const RADIUS = 3.0;
@@ -35,6 +37,7 @@ const RADIUS = 3.0;
 function Scene({
   vouchers,
   reduced,
+  light,
   onSelect,
   hoverId,
   setHoverId,
@@ -42,6 +45,7 @@ function Scene({
 }: {
   vouchers: VoucherStar[];
   reduced: boolean;
+  light: boolean;
   onSelect: (v: VoucherStar | null) => void;
   hoverId: number | null;
   setHoverId: (id: number | null) => void;
@@ -51,6 +55,7 @@ function Scene({
   const tilt = useRef<THREE.Group>(null);
   const spin = useRef<THREE.Group>(null);
   const glow = useGlow();
+  const palette = brandPalette(light);
   const target = useRef({ x: 0, y: 0 });
 
   useEffect(() => {
@@ -67,11 +72,11 @@ function Scene({
     () => fibonacciSphere(empty ? 6 : vouchers.length, RADIUS),
     [empty, vouchers.length],
   );
+  // Each voucher keeps its address hue; the light sky needs a darker tone of it to show.
   const colors = useMemo(
-    () => vouchers.map((v) => new THREE.Color().setHSL(addrHue(v.from) / 360, 0.72, 0.66)),
-    [vouchers],
+    () => vouchers.map((v) => new THREE.Color().setHSL(addrHue(v.from) / 360, 0.72, light ? 0.45 : 0.66)),
+    [vouchers, light],
   );
-  const centerColor = useMemo(() => new THREE.Color().setHSL(40 / 360, 1, 0.72), []); // warm gold = you
 
   useFrame((_, d) => {
     if (reduced) return; // prefers-reduced-motion: freeze spin AND cursor parallax
@@ -91,13 +96,17 @@ function Scene({
   return (
     <>
       <group ref={skyTilt}>
-        <Stars radius={70} depth={50} count={2600} factor={4} saturation={0} fade speed={reduced ? 0 : 0.5} />
+        {/* The distant sky is near-white additive points: invisible on the light theme, where
+            the page starfield (dark stars) stands in for it. */}
+        {!light && (
+          <Stars radius={70} depth={50} count={2600} factor={4} saturation={0} fade speed={reduced ? 0 : 0.5} />
+        )}
       </group>
 
       <group ref={tilt}>
-        <OrbitRing radius={1.55} rotation={[1.2, 0.3, 0]} speed={0.5} color="#9945FF" glow={glow} reduced={reduced} />
-        <OrbitRing radius={2.15} rotation={[0.5, 1.1, 0.4]} speed={-0.34} color="#14F195" glow={glow} reduced={reduced} />
-        <OrbitRing radius={2.7} rotation={[1.7, 0.8, 0.9]} speed={0.22} color="#00D1FF" glow={glow} reduced={reduced} />
+        <OrbitRing radius={1.55} rotation={[1.2, 0.3, 0]} speed={0.5} color={palette.violet} glow={glow} reduced={reduced} light={light} />
+        <OrbitRing radius={2.15} rotation={[0.5, 1.1, 0.4]} speed={-0.34} color={palette.green} glow={glow} reduced={reduced} light={light} />
+        <OrbitRing radius={2.7} rotation={[1.7, 0.8, 0.9]} speed={0.22} color={palette.cyan} glow={glow} reduced={reduced} light={light} />
 
         <group ref={spin}>
           {!empty &&
@@ -107,7 +116,7 @@ function Scene({
                 <Line
                   key={`l-${vouchers[i].vouchId}`}
                   points={[[0, 0, 0], [p.x, p.y, p.z]]}
-                  color={on ? '#FFF6E9' : '#9fb0d8'}
+                  color={on ? palette.starlight : palette.muted}
                   lineWidth={on ? 1.5 : 0.7}
                   transparent
                   opacity={on ? 0.75 : 0.2}
@@ -115,12 +124,13 @@ function Scene({
               );
             })}
 
-          <Star glow={glow} color={centerColor} coreSize={0.26} glowScale={2.6} opacity={0.85} reduced={reduced} />
+          {/* Your star: the gold accent, the same "you" as the landing backdrop. */}
+          <Star glow={glow} color={palette.gold} coreSize={0.26} glowScale={2.6} opacity={0.85} reduced={reduced} light={light} />
 
           {empty
             ? positions.map((p, i) => (
                 <group key={`ghost-${i}`} position={p}>
-                  <Star glow={glow} color="#7c84a8" coreSize={0.055} glowScale={0.4} opacity={0.28} reduced={reduced} />
+                  <Star glow={glow} color={palette.muted} coreSize={0.055} glowScale={0.4} opacity={0.28} reduced={reduced} light={light} />
                 </group>
               ))
             : positions.map((p, i) => {
@@ -135,13 +145,14 @@ function Scene({
                       glowScale={0.78}
                       hovered={on}
                       reduced={reduced}
+                      light={light}
                       onOver={() => setHoverId(v.vouchId)}
                       onOut={() => setHoverId(null)}
                       onClick={() => onSelect(v)}
                     />
                     {on && (
                       <Html position={[0, 0.34, 0]} center distanceFactor={9} zIndexRange={[40, 0]}>
-                        <div className="pointer-events-none -translate-y-2 whitespace-nowrap rounded-full border border-border bg-popover/90 px-2.5 py-1 text-[11px] text-foreground backdrop-blur">
+                        <div className="pointer-events-none -translate-y-2 whitespace-nowrap rounded-full border border-border bg-popover/90 px-2.5 py-1 text-2xs text-foreground backdrop-blur">
                           <span className="font-mono">{shortAddr(v.from)}</span>
                           {v.created ? <span className="text-muted-foreground"> · {timeAgo(v.created, locale)}</span> : null}
                         </div>
@@ -169,6 +180,7 @@ export default function ConstellationHero3D({ address, handle }: { address: stri
   const [loadFailed, setLoadFailed] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const reduced = usePrefersReducedMotion();
+  const light = useLightTheme();
   const frameloop = useFrameloop(containerRef, reduced);
 
   useEffect(() => {
@@ -227,6 +239,7 @@ export default function ConstellationHero3D({ address, handle }: { address: stri
           <Scene
             vouchers={vouchers ?? []}
             reduced={reduced}
+            light={light}
             onSelect={setSelected}
             hoverId={hoverId}
             setHoverId={setHoverId}

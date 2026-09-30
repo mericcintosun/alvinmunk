@@ -77,7 +77,7 @@ describe('LandingOnboard handle field', () => {
     await render();
     const input = container.querySelector('input')!;
     const status = container.querySelector('#landing-handle-status')!;
-    expect(input.getAttribute('aria-describedby')).toBe('landing-handle-status');
+    expect(input.getAttribute('aria-describedby')).toBe('landing-handle-status landing-handle-rules');
     expect(status.getAttribute('aria-live')).toBe('polite');
   });
 
@@ -90,6 +90,30 @@ describe('LandingOnboard handle field', () => {
     expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(
       true,
     );
+  });
+
+  // #479: rules up front, dropped characters named, and a status line that wraps instead of
+  // covering the face picker below it.
+  it('states the handle rules, caps the field at 20 and names removed characters', async () => {
+    handleAvailabilityMock.mockResolvedValue({ status: 'free' });
+    await render();
+    const input = container.querySelector('input')!;
+    const rules = container.querySelector('#landing-handle-rules')!;
+    expect(input.maxLength).toBe(20);
+    expect(rules.textContent).toBe('3–20 characters: a–z, 0–9 or _');
+    await typeHandle('Ayşe K');
+    expect(rules.textContent).toBe('Removed “ş”, space — use 3–20 characters: a–z, 0–9 or _');
+    expect(container.querySelector('#landing-handle-status')!.textContent).toBe('✓ @ayek is free');
+  });
+
+  it('lets a long reserved message wrap instead of overlapping the face picker', async () => {
+    handleAvailabilityMock.mockResolvedValue({ status: 'reserved', until: new Date('2026-10-29T12:00:00Z') });
+    await render();
+    await typeHandle('ada');
+    const status = container.querySelector('#landing-handle-status')!;
+    expect(status.textContent).toMatch(/^@ada is reserved until .+ — try another$/);
+    expect(status.className.split(' ')).toContain('min-h-4');
+    expect(status.className.split(' ')).not.toContain('h-4');
   });
 
   it('announces a free handle', async () => {

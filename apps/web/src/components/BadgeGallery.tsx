@@ -96,11 +96,11 @@ function BadgeTile({ badge }: { badge: Badge }) {
         {/* Decorative: the badge name below is the accessible label. */}
         <Sticker name={badge.sticker} size={48} className={cn(!badge.earned && 'opacity-40 grayscale')} />
       </div>
-      <p className={cn('text-[11px] font-semibold leading-tight', !badge.earned && 'text-muted-foreground')}>
+      <p className={cn('text-2xs font-semibold leading-tight', !badge.earned && 'text-muted-foreground')}>
         {t(`${key}.name`)}
         <span className="sr-only"> — {t(badge.earned ? 'badges.earned' : 'badges.locked')}</span>
       </p>
-      <p className="font-mono text-[9px] uppercase leading-tight tracking-wider text-muted-foreground">
+      <p className="font-mono text-2xs uppercase leading-tight tracking-wider text-muted-foreground">
         <BadgeDetail badge={badge} t={t} />
       </p>
     </li>
