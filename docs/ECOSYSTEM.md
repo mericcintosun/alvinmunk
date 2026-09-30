@@ -11,10 +11,11 @@ across the Stellar ecosystem.
 - **Repo:** `mericcintosun/alvinmunk` (approved, points budget allocated).
 - **Issues published:** 26 scoped, point-bountied issues (tests, features, docs, security, i18n)
   — a real backlog other developers could pick up.
-- **Contributions reviewed & merged:** **15 pull requests from 14 external contributors**, each
-  reviewed for correctness, path/typing, and a green build before merge. Low-quality / broken
-  submissions were declined with actionable feedback (a farmed AI-generated PR and a duplicate
-  analytics PR were closed).
+- **Contributions reviewed & merged:** **15 pull requests from 15 external contributors** in the
+  first Wave cohort alone (the table below), each reviewed for correctness, path/typing, and a
+  green build before merge — and many more since, all credited in the
+  [merged PR list](../README.md#contributors). Low-quality / broken submissions were declined with
+  actionable feedback (a farmed AI-generated PR and a duplicate analytics PR were closed).
 
 ### Merged community contributions
 

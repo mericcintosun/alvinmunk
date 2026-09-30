@@ -71,9 +71,9 @@ describe('NetworkBadge', () => {
     expect(link.textContent).toContain('Testnet');
     expect(link.textContent).toContain('test funds');
     expect(link.getAttribute('aria-label')).toContain('Testnet');
-    // Colour is amber for testnet.
-    expect(link.className).toContain('amber');
-    expect(link.className).not.toContain('emerald');
+    // Colour is the warning token for testnet.
+    expect(link.className).toContain('text-warning');
+    expect(link.className).not.toContain('secondary');
   });
 
   it('renders a distinct green mainnet pill', () => {
@@ -84,9 +84,9 @@ describe('NetworkBadge', () => {
     expect(link.textContent).toContain('Mainnet');
     expect(link.textContent).not.toContain('test funds');
     expect(link.getAttribute('aria-label')).toContain('Mainnet');
-    // Colour is green (emerald) for mainnet — distinct from testnet's amber.
-    expect(link.className).toContain('emerald');
-    expect(link.className).not.toContain('amber');
+    // Colour is the secondary (green) token for mainnet — distinct from testnet's warning.
+    expect(link.className).toContain('text-secondary');
+    expect(link.className).not.toContain('warning');
   });
 
   it('conveys the network in text, not colour alone (testnet vs mainnet differ in words)', () => {
