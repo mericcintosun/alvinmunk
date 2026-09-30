@@ -2,6 +2,7 @@
 
 import React, { useEffect, useId, useState } from 'react';
 import Link from 'next/link';
+import { ChevronDown } from 'lucide-react';
 import { Frame } from '@/components/fx/frame';
 import { Avatar } from '@/components/Avatar';
 import { Sticker } from '@/components/ui/sticker';
@@ -19,10 +20,24 @@ type State = { status: 'loading' } | { status: 'error' } | { status: 'ready'; ba
  * `address`, which is always the profile OWNER. Earned badges are full-color stickers;
  * locked ones are greyed out WITH the remaining step ("2 more people to back"). A badge
  * tied to a person names them ("lit by @alice"). Pure reads: no XP, no treasury, no writes.
+ *
+ * `collapsible` (the app shell, #474): below `sm` the grid folds behind an "n/m badges"
+ * toggle, so the dashboard's own content starts higher on a phone. From `sm` up the grid
+ * always shows.
  */
-export function BadgeGallery({ address, className }: { address: string; className?: string }) {
+export function BadgeGallery({
+  address,
+  className,
+  collapsible = false,
+}: {
+  address: string;
+  className?: string;
+  collapsible?: boolean;
+}) {
   const t = useTranslations();
   const headingId = useId();
+  const listId = useId();
+  const [open, setOpen] = useState(false);
   const [state, setState] = useState<State>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
 
@@ -37,9 +52,10 @@ export function BadgeGallery({ address, className }: { address: string; classNam
     };
   }, [address, attempt]);
 
+  const earned = state.status === 'ready' ? state.badges.filter((b) => b.earned).length : 0;
   const index =
     state.status === 'ready'
-      ? `${state.badges.filter((b) => b.earned).length}/${state.badges.length}`
+      ? `${earned}/${state.badges.length}`
       : state.status === 'error'
         ? '—'
         : '…';
@@ -62,25 +78,47 @@ export function BadgeGallery({ address, className }: { address: string; classNam
             </button>
           </div>
         ) : (
-          <ul
-            className="grid grid-cols-3 gap-2 p-4 sm:grid-cols-6"
-            aria-busy={state.status === 'loading'}
-            data-testid="badge-gallery"
-          >
-            {state.status === 'loading' ? (
-              <>
-                <li className="sr-only">{t('badges.loading')}</li>
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <li key={i} aria-hidden className="flex flex-col items-center gap-2 p-2">
-                    <Skeleton className="size-12" />
-                    <Skeleton className="h-3 w-14" />
-                  </li>
-                ))}
-              </>
-            ) : (
-              state.badges.map((b) => <BadgeTile key={b.id} badge={b} />)
+          <>
+            {collapsible && (
+              <button
+                type="button"
+                onClick={() => setOpen((o) => !o)}
+                aria-expanded={open}
+                aria-controls={listId}
+                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm sm:hidden"
+              >
+                <span>
+                  {state.status === 'ready'
+                    ? t('badges.summary', { earned: String(earned), total: String(state.badges.length) })
+                    : t('badges.loading')}
+                </span>
+                <ChevronDown
+                  aria-hidden
+                  className={cn('size-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')}
+                />
+              </button>
             )}
-          </ul>
+            <ul
+              id={listId}
+              className={cn('grid grid-cols-3 gap-2 p-4 sm:grid-cols-6', collapsible && !open && 'hidden sm:grid')}
+              aria-busy={state.status === 'loading'}
+              data-testid="badge-gallery"
+            >
+              {state.status === 'loading' ? (
+                <>
+                  <li className="sr-only">{t('badges.loading')}</li>
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <li key={i} aria-hidden className="flex flex-col items-center gap-2 p-2">
+                      <Skeleton className="size-12" />
+                      <Skeleton className="h-3 w-14" />
+                    </li>
+                  ))}
+                </>
+              ) : (
+                state.badges.map((b) => <BadgeTile key={b.id} badge={b} />)
+              )}
+            </ul>
+          </>
         )}
       </Frame>
     </section>

@@ -145,9 +145,52 @@ describe('BadgeGallery', () => {
     expect(container.querySelectorAll('[data-badge]')).toHaveLength(6);
   });
 
+  describe('collapsible, for the app shell on a phone (#474)', () => {
+    const toggle = () => container.querySelector<HTMLButtonElement>('button[aria-expanded]');
+    const list = () => container.querySelector('ul')!;
+
+    it('folds the grid behind an "n/m badges" toggle below sm, and opens it on tap', async () => {
+      getBadgesMock.mockResolvedValue(computeBadges({ ...EMPTY, vouchedBy: 1 }));
+      await render(<BadgeGallery address="GOWNER" collapsible />);
+
+      expect(toggle()?.textContent).toBe('1/6 badges earned');
+      expect(toggle()?.classList).toContain('sm:hidden'); // the toggle is phone-only
+      expect(toggle()?.getAttribute('aria-controls')).toBe(list().id);
+      expect(toggle()?.getAttribute('aria-expanded')).toBe('false');
+      // Folded on a phone, always a grid from sm up; the tiles stay mounted either way.
+      expect([...list().classList]).toEqual(expect.arrayContaining(['hidden', 'sm:grid']));
+      expect(container.querySelectorAll('[data-badge]')).toHaveLength(6);
+
+      await act(async () => toggle()!.click());
+      expect(toggle()?.getAttribute('aria-expanded')).toBe('true');
+      expect(list().classList).not.toContain('hidden');
+
+      await act(async () => toggle()!.click());
+      expect(list().classList).toContain('hidden');
+    });
+
+    it('says it is loading until the badges are read, in Turkish too', async () => {
+      getBadgesMock.mockReturnValue(new Promise(() => {}));
+      await render(<BadgeGallery address="GOWNER" collapsible />);
+      expect(toggle()?.textContent).toBe('Loading badges…');
+
+      locale.current = 'tr';
+      getBadgesMock.mockResolvedValue(computeBadges(EMPTY));
+      await render(<BadgeGallery address="GOTHER" collapsible />);
+      expect(toggle()?.textContent).toBe('0/6 rozet kazanıldı');
+    });
+
+    it('is the plain grid everywhere without the prop (the public profile)', async () => {
+      getBadgesMock.mockResolvedValue(computeBadges(EMPTY));
+      await render(<BadgeGallery address="GOWNER" />);
+      expect(toggle()).toBeNull();
+      expect(list().className).toBe('grid grid-cols-3 gap-2 p-4 sm:grid-cols-6');
+    });
+  });
+
   it('has every badge string in both locales', () => {
     const ids = computeBadges(EMPTY).map((b) => b.id);
-    const keys = ['frame', 'heading', 'loading', 'earned', 'locked', 'error', 'retry'].map((k) => `badges.${k}`);
+    const keys = ['frame', 'heading', 'loading', 'summary', 'earned', 'locked', 'error', 'retry'].map((k) => `badges.${k}`);
     for (const id of ids) keys.push(`badges.${id}.name`, `badges.${id}.desc`);
     for (const b of computeBadges(EMPTY)) {
       if (b.remaining === undefined) keys.push(`badges.${b.id}.next`);

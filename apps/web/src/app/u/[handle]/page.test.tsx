@@ -90,6 +90,48 @@ describe('/u/[handle] on a ?network= override (#290)', () => {
     );
   });
 
+  describe('while the handle resolves (#476)', () => {
+    let resolve: (addr: string | null) => void;
+    beforeEach(() => {
+      m.resolveHandle.mockReturnValue(new Promise((r) => (resolve = r)));
+    });
+    const header = () => q('.spotlight > .grid');
+    const cells = () => [...container.querySelectorAll('.spotlight > .grid-cols-3 > div')].map((c) => c.textContent);
+
+    it('shows the read-only banner on the override', async () => {
+      await render({ network: 'testnet' });
+      expect(q('.container')?.getAttribute('aria-busy')).toBe('true');
+      expect(q('[role="status"]')?.textContent).toContain('readOnly.stamp');
+      // No badges on the override, so no badge placeholder either.
+      expect(q('[data-testid="badges-placeholder"]')).toBeNull();
+      expect(q('[data-testid="network-placeholder"]')).not.toBeNull();
+    });
+
+    it('lays out like the loaded page: header grid, 140px face, stat cells, section placeholders', async () => {
+      await render();
+      expect(q('[role="status"]')).toBeNull();
+      const skeletonGrid = header()?.className;
+      expect(skeletonGrid).toContain('sm:grid-cols-[auto_1fr]');
+      expect(q('.spotlight .size-\\[140px\\].rounded-full')).not.toBeNull();
+      expect(cells()).toEqual(['VOUCHED_BY', 'BACKED', 'EARNED_XP']);
+      expect(q('[data-testid="badges-placeholder"]')).not.toBeNull();
+      expect(q('[data-testid="network-placeholder"]')).not.toBeNull();
+      expect(q('[data-testid="badges"]')).toBeNull();
+      expect(q('[data-testid="vouch-network"]')).toBeNull();
+
+      // The loaded page keeps the same header grid and cells; the placeholders make way.
+      await act(async () => resolve(G));
+      expect(q('.container')?.hasAttribute('aria-busy')).toBe(false);
+      expect(header()?.className).toBe(skeletonGrid);
+      expect(q('[data-testid="avatar"]')).not.toBeNull();
+      expect(cells()).toEqual(['VOUCHED_BY3', 'BACKED1', 'EARNED_XP4']);
+      expect(q('[data-testid="badges-placeholder"]')).toBeNull();
+      expect(q('[data-testid="network-placeholder"]')).toBeNull();
+      expect(q('[data-testid="badges"]')).not.toBeNull();
+      expect(q('[data-testid="vouch-network"]')).not.toBeNull();
+    });
+  });
+
   it('is read-only: a network badge, no vouch link, and links that keep the override', async () => {
     m.profile = { address: G }; // even the signed-in owner gets no write action here
     await render({ network: 'testnet' });
@@ -105,6 +147,34 @@ describe('/u/[handle] on a ?network= override (#290)', () => {
     await render({ network: 'testnet' });
     expect(q('a[href^="/app"]')).toBeNull();
     expect(container.textContent).toContain('Nobody held this handle on testnet');
+  });
+
+  describe('with a 32-character @handle on a phone (#477)', () => {
+    const long = 'w'.repeat(32);
+    const renderLong = async () => {
+      await act(async () => {
+        root.render(<ProfilePage params={{ handle: long }} />);
+      });
+    };
+
+    it('wraps the heading and truncates the vouch button label', async () => {
+      await renderLong();
+      const h1 = q('h1')!;
+      expect(h1.textContent).toBe(`@${long}`);
+      expect(h1.classList).toContain('[overflow-wrap:anywhere]');
+      const vouch = q('a[href="/app"]')!;
+      expect(vouch.classList).toContain('max-w-full');
+      expect(vouch.querySelector('span.truncate')?.textContent).toBe(`Vouch @${long}`);
+    });
+
+    it('does the same for an unclaimed handle', async () => {
+      m.resolveHandle.mockResolvedValue(null);
+      await renderLong();
+      expect(q('h1')?.classList).toContain('[overflow-wrap:anywhere]');
+      const claim = q('a[href^="/app"]')!;
+      expect(claim.classList).toContain('max-w-full');
+      expect(claim.querySelector('span.truncate')?.textContent).toBe(`Claim @${long}`);
+    });
   });
 
   it('claims an unclaimed handle with onboarding prefilled to it (#485)', async () => {

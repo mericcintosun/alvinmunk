@@ -117,6 +117,51 @@ describe('StatStrip', () => {
     }
   });
 
+  describe('compact, beside the handle on a phone (#474)', () => {
+    const compactRow = () => container.querySelector('[data-testid="stat-strip-compact"]');
+
+    it('shows the three numbers in one labelled row below sm, and the tiles from sm up', async () => {
+      getScoresMock.mockResolvedValue({ social: 20, earned: 30 });
+      getPeopleCountsMock.mockResolvedValue({ vouchedBy: 7, backed: 0 });
+      await act(async () => {
+        root.render(<StatStrip address="GB123" compact />);
+        await Promise.resolve();
+      });
+
+      const row = compactRow()!;
+      expect(row.classList).toContain('sm:hidden');
+      const pairs = [...row.querySelectorAll('dt')].map((dt) => [dt.textContent, dt.nextElementSibling?.textContent]);
+      expect(pairs).toEqual([
+        ['Vouched by', '7'],
+        ['Social XP', '20'],
+        ['Earned XP', '30'],
+      ]);
+      // The tiles are still there for sm and up, hidden below it.
+      const tiles = container.querySelector('div.glass')!.parentElement!.parentElement!;
+      expect([...tiles.classList]).toEqual(expect.arrayContaining(['hidden', 'sm:block']));
+      expect(tile('Earned XP')).toContain('30');
+    });
+
+    it('keeps a skeleton in the row until the first read lands, and polls once for both views', async () => {
+      getScoresMock.mockReturnValue(new Promise(() => {}));
+      getPeopleCountsMock.mockReturnValue(new Promise(() => {}));
+      await act(async () => {
+        root.render(<StatStrip address="GB123" compact />);
+      });
+      expect(compactRow()!.querySelectorAll('dd .animate-pulse')).toHaveLength(3);
+      expect(getScoresMock).toHaveBeenCalledTimes(1);
+      expect(getPeopleCountsMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('renders no compact row without the prop', async () => {
+      getScoresMock.mockResolvedValue({ social: 1, earned: 0 });
+      getPeopleCountsMock.mockResolvedValue({ vouchedBy: 0, backed: 0 });
+      await render();
+      expect(compactRow()).toBeNull();
+      expect(container.querySelector('div.glass')!.parentElement!.parentElement!.className).toBe('space-y-3');
+    });
+  });
+
   it('formats large counts with the active locale digit grouping, not a fixed en-US format', async () => {
     localStorage.setItem('alvinmunk_locale', 'tr');
     try {
