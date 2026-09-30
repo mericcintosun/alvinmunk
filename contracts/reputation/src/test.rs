@@ -547,6 +547,32 @@ fn claim_deadline_saturates_at_the_end_of_time() {
     assert!(!client.get_vouch(&unclaimed).unwrap().slashed);
 }
 
+/// The expire deadline in isolation: at exactly `created + VOUCH_TTL_SECS` a card is still
+/// live (`NotExpired`), one second later it slashes — pinning the `<=` on `expire_vouch`
+/// independently of the claim side.
+#[test]
+fn expire_vouch_boundary_second() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let (_s, h) = secret_and_hash(&env, 7);
+    let created = 1_000u64;
+    env.ledger().with_mut(|l| l.timestamp = created);
+    let id = client.mint_vouch(&alice, &h, &String::from_str(&env, "x"));
+
+    env.ledger()
+        .with_mut(|l| l.timestamp = created + VOUCH_TTL_SECS);
+    assert_eq!(
+        client.try_expire_vouch(&id),
+        Err(Ok(contract_err(Error::NotExpired)))
+    );
+    assert!(!client.get_vouch(&id).unwrap().slashed);
+
+    env.ledger()
+        .with_mut(|l| l.timestamp = created + VOUCH_TTL_SECS + 1);
+    client.expire_vouch(&id);
+    assert!(client.get_vouch(&id).unwrap().slashed);
+}
+
 #[test]
 fn second_order_bonus_unlocks_on_verified_action() {
     let (env, client, _admin) = setup();
