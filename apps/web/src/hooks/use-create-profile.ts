@@ -14,8 +14,9 @@ import type { Wallet } from '@/lib/wallet';
  *  whether the claim page's own `onboard.claim.*` messages are used (see `messageKey`). */
 export type CreateProfileSource = 'app' | 'landing' | 'claim';
 
-/** `reserved`: freed recently and cooling down for its previous owner (see `reservedUntil`). */
-export type HandleAvailability = 'idle' | 'checking' | 'free' | 'taken' | 'reserved';
+/** `reserved`: freed recently and cooling down for its previous owner (see `reservedUntil`).
+ *  `error`: the registry couldn't be read, so it is unknown — never shown as free (#188). */
+export type HandleAvailability = 'idle' | 'checking' | 'free' | 'taken' | 'reserved' | 'error';
 
 export interface UseCreateProfileOptions {
   from: CreateProfileSource;
@@ -36,6 +37,8 @@ export interface UseCreateProfileResult {
   /** `normalizeHandle(handle)` — exposed so callers don't need to import/re-derive it. */
   normalizedHandle: string;
   avail: HandleAvailability;
+  /** Run the availability check again, after it came back `error`. */
+  retryAvailability: () => void;
   /** When a `reserved` handle opens up to everyone, as a localized date; null otherwise. */
   reservedUntil: string | null;
   creating: boolean;
@@ -80,6 +83,7 @@ export function useCreateProfile({
   const [creating, setCreating] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [avail, setAvail] = useState<HandleAvailability>('idle');
+  const [checkAttempt, setCheckAttempt] = useState(0);
   const [reservedUntil, setReservedUntil] = useState<string | null>(null);
   const normalizedHandle = normalizeHandle(handle);
   // A handle its holder just released or renamed away from stays reserved for them for a
@@ -110,13 +114,15 @@ export function useCreateProfile({
           setAvail(a.status);
           setReservedUntil(a.status === 'reserved' ? day(a.until) : null);
         })
-        .catch(() => alive && setAvail('idle'));
+        .catch(() => alive && setAvail('error'));
     }, 400);
     return () => {
       alive = false;
       clearTimeout(timer);
     };
-  }, [normalizedHandle, address, day]);
+  }, [normalizedHandle, address, day, checkAttempt]);
+
+  const retryAvailability = useCallback(() => setCheckAttempt((n) => n + 1), []);
 
   /** The address already holds `p`'s handle, now adopted as the local profile. */
   const welcomeBack = useCallback(
@@ -221,6 +227,7 @@ export function useCreateProfile({
     setHandle,
     normalizedHandle,
     avail,
+    retryAvailability,
     reservedUntil,
     creating,
     createProfile,

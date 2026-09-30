@@ -208,4 +208,22 @@ describe('/wallet', () => {
     await leave(container.querySelector<HTMLInputElement>('input[placeholder^="Alıcı"]')!);
     expect(container.querySelector('#wallet-to-error')?.textContent).toBe('G… ile başlayan bir adres gir');
   });
+
+  it('shows the balance with two decimals in the locale grouping (#493)', async () => {
+    getXlmBalanceMock.mockResolvedValue('12345.6789');
+    await render();
+    await click(buttonNamed('Connect a wallet'));
+    expect(container.textContent).toContain('12,345.68 XLM');
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    localStorage.setItem('alvinmunk_locale', 'tr');
+    await render(
+      <I18nProvider>
+        <WalletPage />
+      </I18nProvider>,
+    );
+    await click(buttonNamed('Cüzdan bağla'));
+    expect(container.textContent).toContain('12.345,68 XLM');
+  });
 });

@@ -20,6 +20,7 @@ const {
   reverseHandleMock: vi.fn(),
   getMetaMock: vi.fn(),
   claimVouchSignedMock: vi.fn(),
+  isVouchCancelledMock: vi.fn(),
   /** What the mocked useCreateProfile returns; a test may overwrite fields. */
   profileHook: {
     current: {} as Record<string, unknown>,
@@ -59,6 +60,7 @@ vi.mock('@/hooks/use-create-profile', () => ({
 vi.mock('@/lib/reputation', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/reputation')>()),
   getVouch: getVouchMock,
+  isVouchCancelled: isVouchCancelledMock,
   claimVouchSigned: claimVouchSignedMock,
 }));
 vi.mock('@/lib/registry', () => ({ reverseHandle: reverseHandleMock, getMeta: getMetaMock }));
@@ -92,6 +94,7 @@ describe('/claim/[id] — who vouched (#218)', () => {
       slashed: false,
     });
     getMetaMock.mockResolvedValue(null);
+    isVouchCancelledMock.mockResolvedValue(false);
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -299,6 +302,7 @@ describe('/claim/[id] — the handle picker after a claim (#479)', () => {
     });
     reverseHandleMock.mockResolvedValue(null);
     getMetaMock.mockResolvedValue(null);
+    isVouchCancelledMock.mockResolvedValue(false);
     claimVouchSignedMock.mockResolvedValue(undefined);
     vi.stubGlobal(
       'fetch',
@@ -390,6 +394,7 @@ describe('/claim/[id] — feedback after a claim (#287)', () => {
     });
     reverseHandleMock.mockResolvedValue(null);
     getMetaMock.mockResolvedValue(null);
+    isVouchCancelledMock.mockResolvedValue(false);
     claimVouchSignedMock.mockResolvedValue(undefined);
     walletCtx.connect = async () => {
       walletCtx.wallet = { address: CLAIMER };
@@ -427,5 +432,76 @@ describe('/claim/[id] — feedback after a claim (#287)', () => {
     expect(container.textContent).toContain('STAR IGNITED');
     const href = new URL(prompt()!.querySelector('a')!.href);
     expect(href.searchParams.get('entry.2')).toBe(CLAIMER);
+  });
+});
+
+describe('/claim/[id] — a card its voucher revoked (#137)', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    profileHook.current = { ...IDLE_HOOK };
+    walletCtx.connect = () => Promise.resolve({ address: 'GCLAIMER' });
+    window.location.hash = `#k=${'ab'.repeat(32)}`;
+    getVouchMock.mockResolvedValue({
+      id: 7,
+      from: VOUCHER,
+      note: 'gm',
+      claimed: false,
+      claimer: null,
+      created: Math.floor(Date.now() / 1000),
+      stake: 5,
+      slashed: false,
+    });
+    reverseHandleMock.mockResolvedValue(null);
+    getMetaMock.mockResolvedValue(null);
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.clearAllMocks();
+  });
+
+  async function renderPage() {
+    await act(async () => root.render(<ClaimPage params={{ id: '7' }} />));
+    for (let i = 0; i < 6; i++) await act(async () => Promise.resolve());
+  }
+
+  const claimButton = () =>
+    [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('Claim your star'));
+
+  it('shows the revoked state instead of a Claim button', async () => {
+    isVouchCancelledMock.mockResolvedValue(true);
+    await renderPage();
+
+    expect(isVouchCancelledMock).toHaveBeenCalledWith(7);
+    expect(container.querySelector('h1')?.textContent).toBe('This link was revoked.');
+    expect(claimButton()).toBeUndefined();
+    expect(container.querySelector('a[href="/app"]')).not.toBeNull();
+  });
+
+  it('keeps the card claimable when the flag cannot be read (a contract without is_cancelled)', async () => {
+    isVouchCancelledMock.mockRejectedValue(new Error('simulate is_cancelled failed'));
+    await renderPage();
+
+    expect(claimButton()).toBeDefined();
+    expect(container.querySelector('h1')?.textContent).toBe('Someone vouched for you.');
+  });
+
+  it('switches to the revoked state when the claim reverts with Cancelled (#16)', async () => {
+    isVouchCancelledMock.mockResolvedValue(false); // revoked after the page loaded
+    claimVouchSignedMock.mockRejectedValue(new Error('HostError: Error(Contract, #16)'));
+    await renderPage();
+
+    await act(async () => claimButton()!.click());
+    for (let i = 0; i < 6; i++) await act(async () => Promise.resolve());
+
+    expect(claimVouchSignedMock).toHaveBeenCalledWith({ address: 'GCLAIMER' }, 7, 'ab'.repeat(32));
+    expect(container.querySelector('h1')?.textContent).toBe('This link was revoked.');
+    expect(container.querySelector('.text-destructive')).toBeNull();
   });
 });

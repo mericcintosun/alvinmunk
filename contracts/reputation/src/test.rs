@@ -162,6 +162,242 @@ fn double_claim_reverts() {
     );
 }
 
+// --- Cancel an unclaimed half-card whose link leaked (issue #137) ---
+
+#[test]
+fn cancelled_keeps_error_code_16() {
+    // Appended after BadBatchSize: the web maps #16 to its "cancelled" copy.
+    assert_eq!(Error::BadBatchSize as u32, 15);
+    assert_eq!(Error::Cancelled as u32, 16);
+}
+
+#[test]
+fn a_cancelled_card_cannot_be_claimed_with_its_secret() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let (secret, hash) = secret_and_hash(&env, 7);
+    let id = client.mint_vouch(&alice, &hash, &String::from_str(&env, "leaked"));
+    assert!(!client.is_cancelled(&id));
+
+    client.cancel_vouch(&alice, &id);
+
+    assert!(client.is_cancelled(&id));
+    assert_eq!(
+        client.try_claim_vouch(&bob, &id, &secret),
+        Err(Ok(contract_err(Error::Cancelled)))
+    );
+    // Nothing moved: the card is untouched and Bob got no starter or claim XP.
+    let v = client.get_vouch(&id).unwrap();
+    assert!(!v.claimed && v.claimer.is_none() && !v.slashed);
+    assert_eq!(client.get_score(&bob), 0);
+    assert_eq!(client.get_counts(&bob), (0, 0));
+}
+
+#[test]
+fn a_cancelled_card_cannot_be_claimed_with_a_valid_signature() {
+    let (env, client, _admin) = setup_testnet();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let sk = link_key(7);
+    let id = mint_signed(&env, &client, &alice, &sk);
+    let sig = claim_sig(&env, &client, &sk, id, &bob);
+
+    client.cancel_vouch(&alice, &id);
+
+    assert_eq!(
+        client.try_claim_vouch_signed(&bob, &id, &sig),
+        Err(Ok(contract_err(Error::Cancelled)))
+    );
+    assert!(!client.get_vouch(&id).unwrap().claimed);
+}
+
+#[test]
+fn only_the_voucher_can_cancel() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let (secret, hash) = secret_and_hash(&env, 7);
+    let id = client.mint_vouch(&alice, &hash, &String::from_str(&env, "x"));
+
+    assert_eq!(
+        client.try_cancel_vouch(&bob, &id),
+        Err(Ok(contract_err(Error::NotAuthorized)))
+    );
+    // The failed attempt left the card live: it still claims.
+    assert!(!client.is_cancelled(&id));
+    client.claim_vouch(&bob, &id, &secret);
+    assert!(client.get_vouch(&id).unwrap().claimed);
+}
+
+#[test]
+fn cancel_takes_the_vouchers_own_auth() {
+    use soroban_sdk::testutils::{AuthorizedFunction, AuthorizedInvocation};
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let (_secret, hash) = secret_and_hash(&env, 7);
+    let id = client.mint_vouch(&alice, &hash, &String::from_str(&env, "x"));
+
+    client.cancel_vouch(&alice, &id);
+    assert_eq!(
+        env.auths(),
+        std::vec![(
+            alice.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    client.address.clone(),
+                    Symbol::new(&env, "cancel_vouch"),
+                    (alice.clone(), id).into_val(&env),
+                )),
+                sub_invocations: std::vec![],
+            }
+        )]
+    );
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn cancel_without_the_vouchers_auth_reverts() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let (_secret, hash) = secret_and_hash(&env, 7);
+    let id = client.mint_vouch(&alice, &hash, &String::from_str(&env, "x"));
+
+    env.set_auths(&[]);
+    client.cancel_vouch(&alice, &id);
+}
+
+#[test]
+fn cancelling_does_not_refund_the_stake() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let (_secret, hash) = secret_and_hash(&env, 7);
+    let id = client.mint_vouch(&alice, &hash, &String::from_str(&env, "x"));
+    assert_eq!(client.get_score(&alice), STARTER_SOCIAL - VOUCH_STAKE);
+
+    client.cancel_vouch(&alice, &id);
+    assert_eq!(client.get_score(&alice), STARTER_SOCIAL - VOUCH_STAKE);
+
+    // The stake stays forfeit after the window too: the keeper's slash refunds nothing.
+    env.ledger().with_mut(|l| l.timestamp = VOUCH_TTL_SECS + 1);
+    client.expire_vouch(&id);
+    assert!(client.get_vouch(&id).unwrap().slashed);
+    assert!(client.is_cancelled(&id));
+    assert_eq!(client.get_score(&alice), STARTER_SOCIAL - VOUCH_STAKE);
+}
+
+#[test]
+fn a_claimed_card_cannot_be_cancelled() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let (secret, hash) = secret_and_hash(&env, 7);
+    let id = client.mint_vouch(&alice, &hash, &String::from_str(&env, "x"));
+    client.claim_vouch(&bob, &id, &secret);
+
+    assert_eq!(
+        client.try_cancel_vouch(&alice, &id),
+        Err(Ok(contract_err(Error::AlreadyClaimed)))
+    );
+    assert!(!client.is_cancelled(&id));
+}
+
+#[test]
+fn a_card_cancels_only_once() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let (_secret, hash) = secret_and_hash(&env, 7);
+    let id = client.mint_vouch(&alice, &hash, &String::from_str(&env, "x"));
+    client.cancel_vouch(&alice, &id);
+
+    assert_eq!(
+        client.try_cancel_vouch(&alice, &id),
+        Err(Ok(contract_err(Error::Cancelled)))
+    );
+}
+
+#[test]
+fn cancelling_an_unknown_card_reverts_with_vouch_not_found() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    assert_eq!(
+        client.try_cancel_vouch(&alice, &99),
+        Err(Ok(contract_err(Error::VouchNotFound)))
+    );
+    assert!(!client.is_cancelled(&99));
+}
+
+#[test]
+fn a_card_past_its_window_can_still_be_cancelled_before_a_late_claim() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let (secret, hash) = secret_and_hash(&env, 7);
+    let id = client.mint_vouch(&alice, &hash, &String::from_str(&env, "x"));
+    env.ledger().with_mut(|l| l.timestamp = VOUCH_TTL_SECS + 1);
+
+    // A late claim would still land (slashing, no refund) — cancelling stops it.
+    client.cancel_vouch(&alice, &id);
+    assert_eq!(
+        client.try_claim_vouch(&bob, &id, &secret),
+        Err(Ok(contract_err(Error::Cancelled)))
+    );
+}
+
+#[test]
+fn cancelling_one_card_leaves_the_vouchers_other_cards_claimable() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let (s1, h1) = secret_and_hash(&env, 1);
+    let (s2, h2) = secret_and_hash(&env, 2);
+    let leaked = client.mint_vouch(&alice, &h1, &String::from_str(&env, "leaked"));
+    let fine = client.mint_vouch(&alice, &h2, &String::from_str(&env, "fine"));
+
+    client.cancel_vouch(&alice, &leaked);
+
+    assert!(!client.is_cancelled(&fine));
+    client.claim_vouch(&bob, &fine, &s2);
+    assert_eq!(
+        client.try_claim_vouch(&bob, &leaked, &s1),
+        Err(Ok(contract_err(Error::Cancelled)))
+    );
+}
+
+/// `vouch` / `cancelled` (docs/ON_CHAIN_EVENTS.md §1): (vouch_id, from), and nothing else —
+/// no `social` event, since nothing is refunded.
+#[test]
+fn cancel_emits_only_the_documented_cancelled_event() {
+    use soroban_sdk::{testutils::Events as _, vec, IntoVal, Val};
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let (_secret, hash) = secret_and_hash(&env, 7);
+    let id = client.mint_vouch(&alice, &hash, &String::from_str(&env, "x"));
+
+    client.cancel_vouch(&alice, &id);
+
+    let cancelled: (Address, Vec<Val>, Val) = (
+        client.address.clone(),
+        (symbol_short!("vouch"), symbol_short!("cancelled")).into_val(&env),
+        (id, alice.clone()).into_val(&env),
+    );
+    assert_eq!(env.events().all(), vec![&env, cancelled]);
+}
+
+#[test]
+fn cancellation_entry_is_bumped_like_a_vouch() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let (_secret, hash) = secret_and_hash(&env, 7);
+    let id = client.mint_vouch(&alice, &hash, &String::from_str(&env, "x"));
+    client.cancel_vouch(&alice, &id);
+
+    let ttl = env.as_contract(&client.address, || {
+        env.storage().persistent().get_ttl(&DataKey::Cancelled(id))
+    });
+    assert_eq!(ttl, BUMP_EXTEND);
+}
+
 #[test]
 fn self_vouch_reverts() {
     let (env, client, _admin) = setup();
@@ -578,20 +814,127 @@ fn second_order_bonus_unlocks_on_verified_action() {
     let (env, client, _admin) = setup();
     let attester = Address::generate(&env);
     client.add_attester(&attester);
+    let bob = Address::generate(&env);
+    let mut vouchers = Vec::new(&env);
+
+    for i in 0..3u8 {
+        let voucher = Address::generate(&env);
+        let (secret, hash) = secret_and_hash(&env, i);
+        let id = client.mint_vouch(&voucher, &hash, &String::from_str(&env, "x"));
+        client.claim_vouch(&bob, &id, &secret); // refund -> voucher 20; bonus PENDING
+        vouchers.push_back(voucher);
+    }
+
+    // Bob is unverified, so every bonus is queued (in claim order) and none is paid yet.
+    assert!(!client.is_verified(&bob));
+    let pending = client.get_pending(&bob);
+    assert_eq!(pending.len(), 3);
+    for (queued, voucher) in pending.iter().zip(vouchers.iter()) {
+        assert_eq!(
+            (queued.voucher, queued.amount),
+            (voucher.clone(), BONUS_VOUCHER)
+        );
+        assert_eq!(client.get_score(&voucher), 20);
+    }
+
+    // Bob's first verified action releases every queued voucher bonus and drops the queue.
+    client.award_xp(&attester, &bob, &2u32, &50u64);
+    assert!(client.is_verified(&bob));
+    for voucher in vouchers.iter() {
+        assert_eq!(client.get_score(&voucher), 20 + BONUS_VOUCHER);
+    }
+    assert_eq!(client.get_pending(&bob).len(), 0);
+    let pending_stored = env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .has(&DataKey::Pending(bob.clone()))
+    });
+    assert!(!pending_stored, "the released queue must be removed");
+    assert_eq!(client.get_earned(&bob), 50);
+
+    // Further verified awards must not release the same queue a second time.
+    client.award_xp(&attester, &bob, &2u32, &25u64);
+    for voucher in vouchers.iter() {
+        assert_eq!(client.get_score(&voucher), 20 + BONUS_VOUCHER);
+    }
+    assert_eq!(client.get_pending(&bob).len(), 0);
+    assert_eq!(client.get_earned(&bob), 75);
+}
+
+#[test]
+fn pending_bonus_cap_pays_only_first_64_vouchers() {
+    // The cap this test pins; the web and docs describe the queue as at most 64 long.
+    assert_eq!(MAX_PENDING, 64);
+    let (env, client, _admin) = setup();
+    let attester = Address::generate(&env);
+    client.add_attester(&attester);
+    let claimer = Address::generate(&env);
+    let mut vouchers = Vec::new(&env);
+    let mut last_id = 0;
+
+    for i in 0..(MAX_PENDING + 1) {
+        let voucher = Address::generate(&env);
+        let (secret, hash) = secret_and_hash(&env, i as u8);
+        last_id = client.mint_vouch(&voucher, &hash, &String::from_str(&env, "x"));
+        client.claim_vouch(&claimer, &last_id, &secret);
+        vouchers.push_back(voucher);
+    }
+
+    // The 65th claim itself succeeds and is a fresh pair (claim XP, counters) — only its
+    // voucher's bonus is dropped: the queue holds exactly the first 64 vouchers.
+    assert!(client.get_vouch(&last_id).unwrap().claimed);
+    assert_eq!(client.get_counts(&claimer), (MAX_PENDING + 1, 0));
+    assert_eq!(
+        client.get_score(&claimer),
+        STARTER_SOCIAL + XP_CLAIMER * u64::from(MAX_PENDING + 1)
+    );
+    let pending = client.get_pending(&claimer);
+    assert_eq!(pending.len(), MAX_PENDING);
+    for i in 0..MAX_PENDING {
+        assert_eq!(pending.get(i).unwrap().voucher, vouchers.get(i).unwrap());
+    }
+
+    client.award_xp(&attester, &claimer, &2u32, &50u64);
+
+    for i in 0..MAX_PENDING {
+        assert_eq!(
+            client.get_score(&vouchers.get(i).unwrap()),
+            20 + BONUS_VOUCHER
+        );
+    }
+    assert_eq!(client.get_score(&vouchers.get(MAX_PENDING).unwrap()), 20);
+    assert_eq!(client.get_pending(&claimer).len(), 0);
+}
+
+#[test]
+fn first_pair_is_directional_and_repeats_do_not_queue_bonuses() {
+    let (env, client, _admin) = setup();
     let alice = Address::generate(&env);
     let bob = Address::generate(&env);
 
-    let (s, h) = secret_and_hash(&env, 7);
-    let id = client.mint_vouch(&alice, &h, &String::from_str(&env, "x"));
-    client.claim_vouch(&bob, &id, &s); // refund -> alice 20; bonus PENDING (bob unverified)
-    assert_eq!(client.get_score(&alice), 20);
-    assert!(!client.is_verified(&bob));
+    vouch(&env, &client, &alice, &bob, 1);
+    assert_eq!(client.get_score(&bob), 30);
+    assert_eq!(client.get_pending(&bob).len(), 1);
 
-    // Bob does a verified quest -> his FIRST Earned action releases Alice's bonus.
-    client.award_xp(&attester, &bob, &2u32, &50u64);
-    assert!(client.is_verified(&bob));
-    assert_eq!(client.get_score(&alice), 25); // +BONUS_VOUCHER
-    assert_eq!(client.get_earned(&bob), 50);
+    // Reversing the pair is a distinct first pair: it credits Alice and queues Bob's bonus
+    // on Alice.
+    vouch(&env, &client, &bob, &alice, 2);
+    assert_eq!(client.get_score(&alice), 30);
+    let alice_pending = client.get_pending(&alice);
+    assert_eq!(alice_pending.len(), 1);
+    assert_eq!(alice_pending.get(0).unwrap().voucher, bob);
+    assert_eq!(client.get_counts(&alice), (1, 1));
+    assert_eq!(client.get_counts(&bob), (1, 1));
+
+    // Repeating either direction grants no more claim XP or pending bonus.
+    vouch(&env, &client, &alice, &bob, 3);
+    vouch(&env, &client, &bob, &alice, 4);
+    assert_eq!(client.get_score(&alice), 30);
+    assert_eq!(client.get_score(&bob), 30);
+    assert_eq!(client.get_pending(&alice).len(), 1);
+    assert_eq!(client.get_pending(&bob).len(), 1);
+    assert_eq!(client.get_counts(&alice), (1, 1));
+    assert_eq!(client.get_counts(&bob), (1, 1));
 }
 
 #[test]
@@ -2014,6 +2357,31 @@ fn upgrade_keeps_legacy_vouches_claimable_and_serves_signed_ones() {
     assert_bad_signature(|| client.claim_vouch_signed(&carol, &id, &bobs_sig));
     client.claim_vouch_signed(&carol, &id, &claim_sig(&env, &client, &sk, id, &carol));
     assert_eq!(client.get_vouch(&id).unwrap().claimer, Some(carol));
+}
+
+/// A card minted before the upgrade that added `cancel_vouch` can be cancelled after it, and
+/// the voucher's other pre-upgrade cards still claim.
+#[test]
+fn upgrade_serves_cancel_vouch_for_cards_minted_before_it() {
+    let (env, client, _admin) = setup();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let (s1, h1) = secret_and_hash(&env, 1);
+    let (s2, h2) = secret_and_hash(&env, 2);
+    let leaked = client.mint_vouch(&alice, &h1, &String::from_str(&env, "old"));
+    let fine = client.mint_vouch(&alice, &h2, &String::from_str(&env, "old"));
+
+    let hash = env.deployer().upload_contract_wasm(REPUTATION_WASM);
+    client.upgrade(&hash);
+
+    client.cancel_vouch(&alice, &leaked);
+    assert!(client.is_cancelled(&leaked));
+    assert_eq!(
+        client.try_claim_vouch(&bob, &leaked, &s1),
+        Err(Ok(contract_err(Error::Cancelled)))
+    );
+    client.claim_vouch(&bob, &fine, &s2);
+    assert!(client.get_vouch(&fine).unwrap().claimed);
 }
 
 // --- Attester allowlist removal (issue #132) ---

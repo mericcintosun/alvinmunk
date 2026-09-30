@@ -6,8 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const { resolveHandleMock, wallet } = vi.hoisted(() => ({
+const { resolveHandleMock, replaceMock, wallet } = vi.hoisted(() => ({
   resolveHandleMock: vi.fn(),
+  replaceMock: vi.fn(),
   wallet: { profile: null as { handle: string; address: string } | null },
 }));
 
@@ -24,6 +25,7 @@ vi.mock('@/components/fx/share-row', () => ({
     <div data-testid="share-row" data-path={path} data-text={text} />
   ),
 }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: replaceMock }) }));
 
 import InvitePage from './page';
 
@@ -103,6 +105,36 @@ describe('/v/[handle] invite ref', () => {
     resolveHandleMock.mockResolvedValue(null);
     await visit('nobody');
     expect(sessionStorage.getItem(KEY)).toBe('carol');
+  });
+
+  it('keeps the invite but claims nothing about the inviter when the lookup fails (#188)', async () => {
+    resolveHandleMock.mockRejectedValueOnce(new Error('rpc down')).mockResolvedValueOnce(BOB);
+    await visit('bob');
+    expect(container.textContent).toContain('Couldn’t look this handle up right now.');
+    expect(container.textContent).not.toContain('new to the sky');
+    expect(container.textContent).not.toContain('be their first');
+    expect(container.querySelector('a[href="/app"]')).not.toBeNull(); // the invite still works
+
+    const retry = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Try again')!;
+    await act(async () => retry.click());
+    expect(resolveHandleMock).toHaveBeenCalledTimes(2);
+    expect(sessionStorage.getItem(KEY)).toBe('bob');
+    expect(container.textContent).not.toContain('Couldn’t look this handle up');
+  });
+
+  it('redirects /v/@bob to /v/bob without a lookup', async () => {
+    await visit('@Bob');
+    expect(replaceMock).toHaveBeenCalledWith('/v/bob');
+    expect(resolveHandleMock).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(KEY)).toBeNull();
+  });
+
+  it('shows an invalid handle instead of an invite, without a lookup', async () => {
+    await visit('a-b');
+    expect(container.textContent).toContain('Not a valid handle');
+    expect(container.querySelector('a[href="/app"]')).toBeNull();
+    expect(resolveHandleMock).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(KEY)).toBeNull();
   });
 
   describe('call to action (#485)', () => {

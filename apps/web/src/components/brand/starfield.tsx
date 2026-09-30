@@ -196,7 +196,7 @@ export function Starfield() {
   return (
     <canvas
       ref={ref}
-      className="nebula pointer-events-none fixed inset-0 -z-10 h-full w-full"
+      className="nebula pointer-events-none fixed inset-0 -z-10 h-full w-full print:hidden"
       aria-hidden
     />
   );

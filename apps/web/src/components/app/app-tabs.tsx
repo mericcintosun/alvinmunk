@@ -131,9 +131,11 @@ export function AppTabs() {
   return (
     <nav className="sticky top-16 z-30 -mx-4 border-b border-border/50 bg-background/70 px-4 py-2 backdrop-blur-xl">
       <div className="relative">
+        {/* p-1/-m-1: room inside the scroll box for the 2px + 2px focus ring, which the
+            overflow would otherwise clip at the top, bottom and first tab (#502). */}
         <div
           ref={scrollRef}
-          className="flex gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="-m-1 flex gap-1 overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {tabs.map((tab) => {
             const active = tab.exact ? pathname === tab.href : pathname.startsWith(tab.href);

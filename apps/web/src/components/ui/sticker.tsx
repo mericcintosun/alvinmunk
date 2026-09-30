@@ -6,12 +6,14 @@ import { STICKER, TAPE, asset, type StickerName, type TapeCorner } from '@/lib/a
  * A decorative sticker from the asset kit. Rendered as a plain <img> (unoptimized →
  * lossless), non-interactive and unselectable. Height is derived from the intrinsic
  * aspect ratio; `size` is the rendered WIDTH and should stay at or below intrinsic.
+ * Loads lazily and decodes off the main thread; pass `priority` for above-the-fold art.
  */
 export function Sticker({
   name,
   size,
   rotate,
   pixelated = false,
+  priority = false,
   alt = '',
   className,
 }: {
@@ -19,6 +21,7 @@ export function Sticker({
   size?: number;
   rotate?: number;
   pixelated?: boolean;
+  priority?: boolean;
   alt?: string;
   className?: string;
 }) {
@@ -31,6 +34,8 @@ export function Sticker({
       alt={alt}
       width={width}
       height={height}
+      loading={priority ? 'eager' : 'lazy'}
+      decoding="async"
       draggable={false}
       aria-hidden={alt === '' ? true : undefined}
       style={rotate ? { transform: `rotate(${rotate}deg)` } : undefined}
@@ -43,7 +48,7 @@ export function Sticker({
   );
 }
 
-/** A washi-tape corner decal — absolutely positioned onto a card corner. */
+/** A washi-tape corner decal — absolutely positioned onto a card corner. Loads lazily. */
 export function Tape({
   corner,
   size = 60,
@@ -69,6 +74,8 @@ export function Tape({
       aria-hidden
       width={width}
       height={height}
+      loading="lazy"
+      decoding="async"
       draggable={false}
       className={cn('pointer-events-none absolute select-none opacity-90', pos[corner], className)}
     />

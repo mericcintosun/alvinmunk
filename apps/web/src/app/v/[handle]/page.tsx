@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { ArrowRight, QrCode as QrCodeIcon } from 'lucide-react';
 import { resolveHandle, getMeta } from '@/lib/registry';
 import { getPeopleCounts } from '@/lib/constellation';
@@ -20,18 +21,25 @@ import { saveInviteRef } from '@/lib/invite-ref';
 import { shortAddr } from '@alvinmunk/shared';
 import { cn } from '@/lib/utils';
 import type { AvatarConfig } from '@/lib/avatar';
+import { parseRouteHandle } from '@/lib/profile';
 
 /**
  * Vouch-invite deep link — `/v/<handle>` is shared by @handle to recruit. The visitor
  * lands on a personalized, OG-rich invite, onboards in two taps, and is nudged to vouch
  * @handle back on the dashboard (we stash the inviter in sessionStorage). One user
- * becomes a recruiting funnel.
+ * becomes a recruiting funnel. A failed lookup keeps the invite but says nothing about
+ * the inviter (#188); `/v/@alice` redirects to `/v/alice`, and a param that can never be a
+ * handle shows an invalid state instead of an invite.
  */
 export default function InvitePage({ params }: { params: { handle: string } }) {
   const t = useTranslations();
+  const router = useRouter();
   const { profile } = useWallet();
-  const handle = params.handle.toLowerCase();
+  const route = parseRouteHandle(params.handle);
+  const { handle } = route;
   const [address, setAddress] = useState<string | null | undefined>(undefined);
+  const [lookupError, setLookupError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [vouchedBy, setVouchedBy] = useState<number | null>(null);
   const [avatar, setAvatar] = useState<AvatarConfig | undefined>(undefined);
   const [showInviteQr, setShowInviteQr] = useState(false);
@@ -44,8 +52,14 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
   }, []);
 
   useEffect(() => {
+    if (route.at) router.replace(`/v/${handle}`);
+  }, [route.at, handle, router]);
+
+  useEffect(() => {
+    if (route.at || !route.valid) return;
     let alive = true;
     setAvatar(undefined);
+    setLookupError(false);
     resolveHandle(handle)
       .then(async (addr) => {
         if (!alive) return;
@@ -54,21 +68,41 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
         saveInviteRef(handle); // only a claimed handle: the dashboard nudges a vouch-back
         const [people, meta] = await Promise.all([
           getPeopleCounts(addr).catch(() => ({ vouchedBy: 0, backed: 0 })),
-          getMeta(addr), // the inviter's published face; null → deterministic default
+          getMeta(addr).catch(() => null), // the inviter's published face; null → deterministic default
         ]);
         if (!alive) return;
         setVouchedBy(people.vouchedBy);
         setAvatar(meta?.avatar);
       })
-      .catch(() => alive && setAddress(null));
+      // Only the handle lookup can land here: unknown, so the card claims nothing about them.
+      .catch(() => {
+        if (!alive) return;
+        setAddress(null);
+        setLookupError(true);
+      });
     return () => {
       alive = false;
     };
-  }, [handle]);
+  }, [handle, route.at, route.valid, attempt]);
 
   // The owner is the connected wallet whose address this handle resolves to.
   // Only they see the (secret-free) invite QR for their own page.
   const isOwner = Boolean(address) && profile?.address === address;
+
+  if (route.at) return null; // redirecting to the canonical /v/<handle>
+
+  if (!route.valid) {
+    return (
+      <div className="container max-w-lg py-16">
+        <Frame label="invite // invalid" index="—">
+          <div className="p-7 text-center">
+            <h1 className="font-display text-2xl font-semibold">{t('profile.invalidHandle')}</h1>
+            <p className="mt-2 text-sm text-muted-foreground text-balance">{t('profile.invalidHandleDetail')}</p>
+          </div>
+        </Frame>
+      </div>
+    );
+  }
 
   // The call to action fits who is looking. The stored profile only loads after mount, so
   // nothing renders before then (the server can't tell the owner from a stranger); a
@@ -133,19 +167,30 @@ export default function InvitePage({ params }: { params: { handle: string } }) {
           )}
           <div className="min-w-0">
             <div className="truncate font-display text-2xl font-semibold">@{handle}</div>
-            <p className="mt-1 font-mono text-xs text-muted-foreground">
-              {address ? shortAddr(address) : 'new to the sky'}
-            </p>
-            <div className="mt-2">
-              <Stamp accent="secondary">
-                ✦{' '}
-                {!address || vouchedBy === 0
-                  ? 'be their first'
-                  : vouchedBy === null
-                    ? '…'
-                    : `vouched by ${vouchedBy}`}
-              </Stamp>
-            </div>
+            {lookupError ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t('profile.lookupError')}{' '}
+                <button type="button" onClick={() => setAttempt((n) => n + 1)} className="underline underline-offset-2">
+                  {t('profile.retryLookup')}
+                </button>
+              </p>
+            ) : (
+              <>
+                <p className="mt-1 font-mono text-xs text-muted-foreground">
+                  {address ? shortAddr(address) : 'new to the sky'}
+                </p>
+                <div className="mt-2">
+                  <Stamp accent="secondary">
+                    ✦{' '}
+                    {!address || vouchedBy === 0
+                      ? 'be their first'
+                      : vouchedBy === null
+                        ? '…'
+                        : `vouched by ${vouchedBy}`}
+                  </Stamp>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </Frame>

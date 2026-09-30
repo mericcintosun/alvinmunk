@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import { usePoll } from '@/lib/use-poll';
 import type { VouchFunnel } from '@/lib/vouch-funnel';
 import { LoopHealth } from '@/components/LoopHealth';
+import { useFormat } from '@/lib/i18n';
 
 type NetKey = 'testnet' | 'mainnet';
 
@@ -37,6 +38,7 @@ function explorer(net: NetKey, addr: string) {
 }
 
 export default function StatsPage() {
+  const format = useFormat();
   const [tab, setTab] = useState<NetKey>('testnet');
   const [data, setData] = useState<Record<NetKey, Stats | null>>({ testnet: null, mainnet: null });
   // Per-network: true once a poll has failed and we have not yet recovered. The last good
@@ -119,7 +121,9 @@ export default function StatsPage() {
             <p className="mt-2 text-sm text-muted-foreground">
               Mainnet goes live at the Black belt. The counter turns on the moment the contracts deploy.
             </p>
-            <p className="mt-4 font-display text-4xl font-semibold text-muted-foreground">0 / {target}</p>
+            <p className="mt-4 font-display text-4xl font-semibold text-muted-foreground">
+              0 / {format.number(target)}
+            </p>
           </div>
         ) : (
           <>
@@ -129,12 +133,13 @@ export default function StatsPage() {
                 <div>
                   <p className="text-xs font-medium text-muted-foreground">Wallets on-chain</p>
                   <p className="font-display text-5xl font-semibold tabular-nums">
-                    {users === undefined ? '—' : users}
+                    {users === undefined ? '—' : format.number(users)}
                   </p>
                 </div>
               </div>
               <p className="font-display text-2xl font-semibold text-muted-foreground">
-                {users === undefined ? '—' : users} <span className="text-muted-foreground">/ {target}</span>
+                {users === undefined ? '—' : format.number(users)}{' '}
+                <span className="text-muted-foreground">/ {format.number(target)}</span>
               </p>
             </div>
 
@@ -169,7 +174,7 @@ export default function StatsPage() {
       {s?.configured && s.addresses.length > 0 && (
         <div className="mt-6">
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Wallets ({s.addresses.length})
+            Wallets ({format.number(s.addresses.length)})
           </h2>
           <div className="grid gap-1.5 sm:grid-cols-2">
             {s.addresses.map((a) =>
@@ -181,7 +186,7 @@ export default function StatsPage() {
                   <Link
                     href={`/score/${a}`}
                     aria-label={`Score for ${shortAddr(a, 6, 6)}`}
-                    className="flex-1 rounded-l-xl px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                    className="flex-1 rounded-l-xl px-3 py-2"
                   >
                     {shortAddr(a, 6, 6)}
                   </Link>
@@ -191,7 +196,7 @@ export default function StatsPage() {
                     rel="noreferrer"
                     aria-label={`${shortAddr(a, 6, 6)} on stellar.expert (opens in a new tab)`}
                     title="stellar.expert"
-                    className="rounded-r-xl px-3 py-2 text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                    className="rounded-r-xl px-3 py-2 text-muted-foreground transition-colors hover:text-foreground"
                   >
                     <ExternalLink className="size-3.5" />
                   </a>

@@ -39,7 +39,7 @@ export function Footer() {
   ];
 
   return (
-    <footer className="relative mt-28 border-t border-border/60">
+    <footer className="relative mt-28 border-t border-border/60 print:hidden">
       {/* faint sticker-tile texture — warmth under the cosmic base, masked to stay subtle */}
       <div
         aria-hidden

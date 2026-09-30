@@ -27,6 +27,7 @@ import React, {
 } from 'react';
 import { getItem, setItem } from './storage';
 import { LOCALE_KEY, parseLocale, type Locale } from './locale';
+import { getFormat, type Formatters } from './format';
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -142,4 +143,11 @@ export function useLocale(): { locale: Locale; setLocale: (l: Locale) => void } 
   const ctx = useContext(I18nContext);
   if (!ctx) return { locale: 'en', setLocale: () => {} };
   return { locale: ctx.locale, setLocale: ctx.setLocale };
+}
+
+// ─── number / date formatting ────────────────────────────────────────────────
+
+/** Formatters for the active locale (English outside the provider, like useTranslations). */
+export function useFormat(): Formatters {
+  return getFormat(useLocale().locale);
 }

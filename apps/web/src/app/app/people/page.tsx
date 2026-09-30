@@ -8,14 +8,15 @@ import { getScores } from '@/lib/reputation';
 import { fetchReputationEvents } from '@/lib/events';
 import { suggestPeople, type Suggestion } from '@/lib/constellation';
 import { Avatar } from '@/components/Avatar';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StateArt } from '@/components/ui/state-art';
 import { Frame } from '@/components/fx/frame';
 import { useWallet } from '@/components/wallet/wallet-provider';
-import { useTranslations, type TFn } from '@/lib/i18n';
+import { useFormat, useTranslations, type TFn } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { shortAddr } from '@alvinmunk/shared';
 
 type SearchResult = {
   handle: string;
@@ -40,6 +41,7 @@ const MAX_SUGGESTIONS = 6;
 export default function PeoplePage() {
   const { profile } = useWallet();
   const t = useTranslations();
+  const format = useFormat();
   const [query, setQuery] = useState('');
   const [result, setResult] = useState<SearchResult>(null);
   const [state, setState] = useState<SearchState>('idle');
@@ -202,19 +204,20 @@ export default function PeoplePage() {
                   <div className="mt-1.5 flex items-center gap-4 font-mono text-xs text-muted-foreground">
                     <span className="inline-flex items-center gap-1">
                       <Star className={cn('size-3.5', result.social > 0 ? 'text-accent' : 'text-muted-foreground/40')} />
-                      {result.social} Social
+                      {format.number(result.social)} Social
                     </span>
                     <span className="inline-flex items-center gap-1">
                       <Sparkles className={cn('size-3.5', result.earned > 0 ? 'text-lime' : 'text-muted-foreground/40')} />
-                      {result.earned} Earned
+                      {format.number(result.earned)} Earned
                     </span>
                   </div>
                 </div>
-                <Link href="/app/vouch">
-                  <Button variant="flow" size="sm" className="gap-1.5">
-                    Vouch
-                    <ArrowRight className="size-3.5" />
-                  </Button>
+                <Link
+                  href="/app/vouch"
+                  className={cn(buttonVariants({ variant: 'flow', size: 'sm' }), 'gap-1.5')}
+                >
+                  Vouch
+                  <ArrowRight className="size-3.5" />
                 </Link>
               </div>
 
@@ -309,7 +312,7 @@ function SuggestionPanel({ suggestions, loading, t }: SuggestionPanelProps) {
 }
 
 function SuggestionCard({ suggestion: s, t }: { suggestion: Suggestion; t: TFn }) {
-  const label = s.handle ? `@${s.handle}` : `${s.address.slice(0, 6)}…${s.address.slice(-4)}`;
+  const label = s.handle ? `@${s.handle}` : shortAddr(s.address, 6, 4);
   const mutualText = t(`people.suggest.mutual.${s.sharedCount === 1 ? 'one' : 'other'}`, {
     count: String(s.sharedCount),
   });
@@ -328,21 +331,16 @@ function SuggestionCard({ suggestion: s, t }: { suggestion: Suggestion; t: TFn }
         <p className="truncate text-2xs text-muted-foreground">{mutualText}</p>
       </div>
 
-      {/* `/u/[handle]` resolves ON-CHAIN by handle — an address with no claimed handle
-          has no profile route yet, so don't link somewhere that can only ever 404. */}
-      {s.handle ? (
-        <Link href={`/u/${s.handle}`} aria-label={t('people.suggest.viewAria', { label })}>
-          <Button variant="outline" size="sm" className="shrink-0 gap-1 text-xs">
-            <UserPlus className="size-3.5" />
-            {t('people.suggest.view')}
-          </Button>
-        </Link>
-      ) : (
-        <Button variant="outline" size="sm" className="shrink-0 gap-1 text-xs" disabled>
-          <UserPlus className="size-3.5" />
-          {t('people.suggest.view')}
-        </Button>
-      )}
+      {/* Every card opens the person: their profile once they hold a handle, else their
+          reputation at /score/<address> (the route VouchNetwork's faces fall back to, #486). */}
+      <Link
+        href={s.handle ? `/u/${s.handle}` : `/score/${s.address}`}
+        aria-label={t(s.handle ? 'people.suggest.viewAria' : 'people.suggest.viewReputationAria', { label })}
+        className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'shrink-0 gap-1 text-xs')}
+      >
+        <UserPlus className="size-3.5" />
+        {t(s.handle ? 'people.suggest.view' : 'people.suggest.viewReputation')}
+      </Link>
     </div>
   );
 }

@@ -10,6 +10,7 @@ import {
   claimVouchSigned,
   getVouch,
   isClaimCode,
+  isVouchCancelled,
   parseClaimCode,
   VOUCH_TTL_SECS,
   type ClaimCode,
@@ -32,7 +33,7 @@ import { HandleHint } from '@/components/handle-hint';
 import { useCreateProfile } from '@/hooks/use-create-profile';
 import { HANDLE_MAX_CHARS } from '@/lib/profile';
 import { useTranslations } from '@/lib/i18n';
-import { cn, humanizeError, withTimeout } from '@/lib/utils';
+import { cn, contractErrorCode, humanizeError, withTimeout } from '@/lib/utils';
 
 /** Read the claim code from the URL: the claim key's seed (#k=…) on current links, the
  *  plain secret (#s=…, or the older ?s= query) on links to cards minted before the key.
@@ -81,6 +82,8 @@ function ClaimInner({ params }: { params: { id: string } }) {
   const [state, setState] = useState<'preview' | 'claiming' | 'done' | 'error'>('preview');
   const [error, setError] = useState<string | null>(null);
   const [vouch, setVouch] = useState<VouchView | null | undefined>(undefined);
+  /** The voucher revoked this card (`cancel_vouch`, #137): it can no longer be claimed. */
+  const [cancelled, setCancelled] = useState(false);
   // Distinguish "couldn't read the chain" (retryable) from "this vouch doesn't exist"
   // so a slow/failing RPC never masquerades as an expired or missing vouch.
   const [loadError, setLoadError] = useState(false);
@@ -102,9 +105,19 @@ function ClaimInner({ params }: { params: { id: string } }) {
     }
     let alive = true;
     setVouch(undefined);
+    setCancelled(false);
     setLoadError(false);
-    withTimeout(getVouch(vid), 15_000, 'vouch')
-      .then((v) => alive && setVouch(v ?? null))
+    Promise.all([
+      withTimeout(getVouch(vid), 15_000, 'vouch'),
+      // Never rejects: an unreadable flag, or a contract without `is_cancelled`, reads as not
+      // cancelled — the claim itself still reverts with #16 on a cancelled card.
+      withTimeout(isVouchCancelled(vid), 15_000, 'vouch').catch(() => null),
+    ])
+      .then(([v, c]) => {
+        if (!alive) return;
+        setVouch(v ?? null);
+        setCancelled(c === true);
+      })
       .catch(() => {
         if (alive) {
           setVouch(null);
@@ -185,6 +198,12 @@ function ClaimInner({ params }: { params: { id: string } }) {
         }).catch(() => {});
       }
     } catch (e) {
+      // Revoked since the page loaded: show the cancelled state rather than an error.
+      if (contractErrorCode(e) === 16) {
+        setCancelled(true);
+        setState('preview');
+        return;
+      }
       setError(claimErrorMessage(e));
       setState('error');
     }
@@ -529,7 +548,7 @@ function ClaimMessage({ title, body, openApp }: { title: string; body: string; o
 
 function ClaimHandlePicker() {
   const t = useTranslations();
-  const { handle, setHandle, avail, reservedUntil, creating, createProfile, normalizedHandle } =
+  const { handle, setHandle, avail, retryAvailability, reservedUntil, creating, createProfile, normalizedHandle } =
     useCreateProfile({ from: 'claim' });
 
   return (

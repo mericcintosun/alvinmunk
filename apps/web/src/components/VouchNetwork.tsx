@@ -8,7 +8,7 @@ import { Frame } from '@/components/fx/frame';
 import { Skeleton } from '@/components/ui/skeleton';
 import { fetchBackedBy, fetchVouchersOf, mutualNeighbours, timeAgo, type VoucherStar } from '@/lib/constellation';
 import { fetchReputationEvents } from '@/lib/events';
-import { useLocale, useTranslations } from '@/lib/i18n';
+import { useFormat, useLocale, useTranslations } from '@/lib/i18n';
 import { withReadNetwork, type ReadNetwork } from '@/lib/read-network';
 import { reverseHandles } from '@/lib/registry';
 import { cn } from '@/lib/utils';
@@ -172,12 +172,15 @@ function Row({
   line: (p: VoucherStar) => React.ReactNode;
 }) {
   const t = useTranslations();
+  const format = useFormat();
   const shown = (people ?? []).slice(0, STACK_MAX);
   return (
     <div className="p-5">
       <div className="flex items-baseline justify-between gap-3">
         <p className="min-w-0 eyebrow-mono text-muted-foreground [overflow-wrap:anywhere]">{label}</p>
-        {count !== undefined && <p className={cn('font-display text-sm font-semibold', accent)}>{count}</p>}
+        {count !== undefined && (
+          <p className={cn('font-display text-sm font-semibold', accent)}>{format.number(count)}</p>
+        )}
       </div>
       {people === null ? (
         <div className="mt-3 flex items-center gap-2">

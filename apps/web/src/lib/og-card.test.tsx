@@ -16,8 +16,8 @@ vi.mock('./registry', () => ({
 vi.mock('./reputation', () => ({ getScores: async () => ({ social: 40, earned: 7 }) }));
 vi.mock('./constellation', () => ({ getPeopleCounts: async () => ({ vouchedBy: 3, backed: 2 }) }));
 
-import { ogResolve, ogCard, claimCard, claimNameSize, handleFontSize, type OgScores } from './og-card';
-import { shortAddr } from '@alvinmunk/shared';
+import { ogResolve, ogCard, claimCard, claimNameSize, handleFontSize, siteCard, type OgScores } from './og-card';
+import { shortAddr, stampArt } from '@alvinmunk/shared';
 import { loadPng } from './og-assets';
 import { FACE_IDS, defaultAvatarId, faceFile, kitFile, type KitAvatar } from './avatar';
 
@@ -62,7 +62,7 @@ describe('ogResolve', () => {
     const avatar = { kind: 'face', id: 'face-04' };
     resolveHandleMock.mockResolvedValueOnce(G);
     getMetaMock.mockResolvedValueOnce({ avatar, bio: 'hello' });
-    await expect(ogResolve('alice')).resolves.toEqual({ address: G, scores, avatar, bio: 'hello' });
+    await expect(ogResolve('alice')).resolves.toEqual({ address: G, lookup: 'ok', scores, avatar, bio: 'hello' });
     expect(getMetaMock).toHaveBeenCalledWith(G);
   });
 
@@ -78,12 +78,41 @@ describe('ogResolve', () => {
 
   it('never asks for a profile when the handle is unclaimed', async () => {
     resolveHandleMock.mockResolvedValueOnce(null);
-    await expect(ogResolve('free')).resolves.toMatchObject({ address: null, bio: '' });
+    await expect(ogResolve('free')).resolves.toMatchObject({ address: null, lookup: 'ok', bio: '' });
     expect(getMetaMock).not.toHaveBeenCalled();
+  });
+
+  it('marks a failed lookup as an error, not as an unclaimed handle (#188)', async () => {
+    resolveHandleMock.mockRejectedValueOnce(new Error('rpc down'));
+    await expect(ogResolve('alice')).resolves.toMatchObject({ address: null, lookup: 'error' });
+    expect(getMetaMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps a resolved handle when only its profile read fails', async () => {
+    resolveHandleMock.mockResolvedValueOnce(G);
+    getMetaMock.mockRejectedValueOnce(new Error('rpc down'));
+    await expect(ogResolve('alice')).resolves.toMatchObject({ address: G, lookup: 'ok', scores, bio: '' });
+  });
+
+  it('never looks up a handle the app could not create', async () => {
+    for (const h of ['a-b', 'ab', 'a'.repeat(33)]) {
+      await expect(ogResolve(h)).resolves.toMatchObject({ address: null, lookup: 'invalid' });
+    }
+    expect(resolveHandleMock).not.toHaveBeenCalled();
   });
 });
 
 describe('ogCard', () => {
+  it('only calls an unclaimed handle available when the lookup said so', () => {
+    const line = (lookup?: 'ok' | 'error' | 'invalid') =>
+      render(ogCard({ handle: 'alice', address: null, lookup, scores })).body.textContent;
+    expect(line()).toContain('available — claim it');
+    expect(line('error')).toContain('profile lookup unavailable');
+    expect(line('error')).not.toContain('available — claim it');
+    expect(line('invalid')).toContain('not a valid handle');
+    expect(line('invalid')).not.toContain('claim it');
+  });
+
   it('shows the published face sticker', () => {
     const doc = render(
       ogCard({ handle: 'alice', address: G, scores, avatar: { kind: 'face', id: PUBLISHED } }),
@@ -126,6 +155,31 @@ describe('ogCard', () => {
     const doc = render(ogCard({ handle: 'free', address: null, scores, bio: 'stale' }));
     expect(srcs(doc)).toEqual([]);
     expect(doc.body.textContent).not.toContain('stale');
+  });
+
+  it('draws the handle’s seeded constellation in place of a face when unclaimed', () => {
+    const doc = render(ogCard({ handle: 'free', address: null, scores }));
+    const first = stampArt('unclaimed-free', 7).points.split(' ')[0].split(',');
+    const stars = [...doc.querySelectorAll('svg circle')].slice(1); // [0] is the halo
+    expect(stars).toHaveLength(7);
+    expect([stars[0].getAttribute('cx'), stars[0].getAttribute('cy')]).toEqual([String(Number(first[0])), String(Number(first[1]))]);
+  });
+});
+
+describe('siteCard', () => {
+  it('shows the logo, the tagline and a constellation, with no raster art', () => {
+    const doc = render(siteCard());
+    const text = doc.body.textContent ?? '';
+    expect(text).toContain('alvinmunk');
+    expect(text).toContain('Collect people, not points.');
+    const [mark, constellation] = [...doc.querySelectorAll('svg')];
+    expect(mark.querySelectorAll('circle')).toHaveLength(4); // the navbar logo's four stars
+    expect(constellation.querySelectorAll('circle')).toHaveLength(8); // halo + seven stars
+    expect(srcs(doc)).toEqual([]);
+  });
+
+  it('never shows the retired "passport" name (#505)', () => {
+    expect(render(siteCard()).body.textContent?.toLowerCase()).not.toContain('passport');
   });
 });
 

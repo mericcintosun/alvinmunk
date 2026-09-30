@@ -191,6 +191,24 @@ describe('LandingOnboard — parity with /app onboarding (#240)', () => {
     expect(status().textContent).toBe('✓ @bob is free');
   });
 
+  it('says a failed check could not tell, blocks the submit, and retries on demand (#188)', async () => {
+    handleAvailabilityMock.mockRejectedValue(new Error('rpc 503'));
+    await render();
+    await typeHandle('bob');
+    await settle();
+
+    expect(status().textContent).toBe('Couldn’t check if @bob is free. Retry');
+    expect(status().textContent).not.toContain('is free ✓');
+    expect(submitButton().disabled).toBe(true);
+
+    handleAvailabilityMock.mockResolvedValue({ status: 'free' });
+    const retry = [...status().querySelectorAll('button')].find((b) => b.textContent === 'Retry')!;
+    await act(async () => retry.click());
+    await settle();
+    expect(status().textContent).toBe('✓ @bob is free');
+    expect(submitButton().disabled).toBe(false);
+  });
+
   it('labels the submit button while the profile is being created', async () => {
     let finish!: () => void;
     claimHandleMock.mockReturnValue(new Promise<void>((resolve) => (finish = resolve)));

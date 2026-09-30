@@ -5,6 +5,7 @@ import { resolveHandle, getMeta } from './registry';
 import { getScores, type PeopleCounts } from './reputation';
 import { getPeopleCounts } from './constellation';
 import { loadPng } from './og-assets';
+import { isRouteHandle } from './profile';
 import { BRAND_DARK } from './brand-palette';
 import {
   faceFile,
@@ -43,14 +44,20 @@ const {
   lime: LIME,
   foreground: FG,
   muted: MUTED,
+  starlight: STARLIGHT,
   nebula: NEBULA,
 } = BRAND_DARK;
 
 /** XP tracks + the people counts the card shows. */
 export type OgScores = { social: number; earned: number } & PeopleCounts;
 
+/** How the handle lookup went: `error` = the registry couldn't be read (so the card must not
+ *  call the handle available, issue 188), `invalid` = no handle the app could create. */
+export type OgLookup = 'ok' | 'error' | 'invalid';
+
 export async function ogResolve(handle: string): Promise<{
   address: string | null;
+  lookup: OgLookup;
   scores: OgScores;
   /** The published face (undefined → the deterministic default for `address`). */
   avatar?: AvatarConfig;
@@ -61,27 +68,44 @@ export async function ogResolve(handle: string): Promise<{
   let scores: OgScores = { social: 0, earned: 0, vouchedBy: 0, backed: 0 };
   let avatar: AvatarConfig | undefined;
   let bio = '';
+  if (!isRouteHandle(handle)) {
+    return { address, lookup: 'invalid', scores, bio };
+  }
   try {
     address = await resolveHandle(handle);
-    if (address) {
-      const [s, p, meta] = await Promise.all([
-        getScores(address).catch(() => ({ social: 0, earned: 0 })),
-        getPeopleCounts(address).catch(() => ({ vouchedBy: 0, backed: 0 })),
-        getMeta(address), // null on a registry without get_meta → default face, no bio
-      ]);
-      scores = { ...s, ...p };
-      avatar = meta?.avatar;
-      bio = meta?.bio ?? '';
-    }
   } catch {
-    /* unclaimed / rpc miss → render a neutral card */
+    return { address, lookup: 'error', scores, bio }; // unknown: neither claimed nor free
   }
-  return { address, scores, avatar, bio };
+  if (address) {
+    const [s, p, meta] = await Promise.all([
+      getScores(address).catch(() => ({ social: 0, earned: 0 })),
+      getPeopleCounts(address).catch(() => ({ vouchedBy: 0, backed: 0 })),
+      // null on a registry without get_meta (or a failed read) → default face, no bio
+      getMeta(address).catch(() => null),
+    ]);
+    scores = { ...s, ...p };
+    avatar = meta?.avatar;
+    bio = meta?.bio ?? '';
+  }
+  return { address, lookup: 'ok', scores, avatar, bio };
 }
+
+/** `cache-control` for a card rendered after a failed lookup: next/og's default is a
+ *  year-long immutable cache, which would pin the neutral card after the RPC recovers. */
+export const OG_RETRY_CACHE = 'public, max-age=60, s-maxage=60';
+
+/** The line under an unclaimed card's handle — only `ok` may say the handle is free. */
+const UNCLAIMED_LINE: Record<OgLookup, string> = {
+  ok: 'available — claim it',
+  error: 'profile lookup unavailable',
+  invalid: 'not a valid handle',
+};
 
 export function ogCard(opts: {
   handle: string;
   address: string | null;
+  /** How the lookup went (`ogResolve`); default `ok`. */
+  lookup?: OgLookup;
   scores: OgScores;
   invite?: boolean;
   /** The published face; a claimed handle without one shows its deterministic default.
@@ -90,10 +114,7 @@ export function ogCard(opts: {
   /** One plain line under the address (sanitized by getMeta; rendered as text). */
   bio?: string;
 }) {
-  const { handle, address, scores, invite, avatar, bio } = opts;
-  const art = stampArt(address ?? `unclaimed-${handle}`, 7);
-  const pts = art.points.split(' ').map((p) => p.split(',').map(Number));
-  const polyPoints = [...pts, pts[0]].map((p) => `${p[0]},${p[1]}`).join(' ');
+  const { handle, address, lookup = 'ok', scores, invite, avatar, bio } = opts;
 
   return (
     <div style={SHELL}>
@@ -108,15 +129,7 @@ export function ogCard(opts: {
         {address ? (
           <OgFace address={address} avatar={avatar} size={380} ring={LIME} />
         ) : (
-          <div style={{ display: 'flex', width: '380px', height: '380px' }}>
-            <svg width="380" height="380" viewBox="0 0 100 100">
-              <circle cx="50" cy="50" r="46" fill={VIOLET} fillOpacity="0.08" />
-              <polyline points={polyPoints} fill="none" stroke={MUTED} strokeOpacity="0.3" strokeWidth="0.6" />
-              {pts.map((p, i) => (
-                <circle key={i} cx={p[0]} cy={p[1]} r={i === 0 ? 4 : 2.4} fill={i === 0 ? GOLD : i % 2 ? CYAN : VIOLET} />
-              ))}
-            </svg>
-          </div>
+          <Constellation seed={`unclaimed-${handle}`} size={380} />
         )}
 
         <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
@@ -127,7 +140,7 @@ export function ogCard(opts: {
           )}
           <div style={{ display: 'flex', fontSize: handleFontSize(handle.length), fontWeight: 700, lineHeight: 1, wordBreak: 'break-all' }}>@{handle}</div>
           <div style={{ display: 'flex', marginTop: '14px', color: MUTED, fontSize: '26px' }}>
-            {address ? shortAddr(address) : 'available — claim it'}
+            {address ? shortAddr(address) : UNCLAIMED_LINE[lookup]}
           </div>
           {address && bio && (
             <div
@@ -156,6 +169,37 @@ export function ogCard(opts: {
 
       <div style={{ display: 'flex', color: MUTED, fontSize: '20px', letterSpacing: '8px', opacity: 0.5 }}>
         {`A<ALVINMUNK<<${handle.toUpperCase()}<<COLLECT<PEOPLE<NOT<POINTS<<<<<<<<`.slice(0, 62)}
+      </div>
+    </div>
+  );
+}
+
+/** Alt text for the site-wide card: it describes what the image shows. */
+export const SITE_CARD_ALT = 'The alvinmunk logo and a constellation, with the line “Collect people, not points.”';
+
+/**
+ * The site-wide card: what every route without its own opengraph-image unfurls into (the
+ * root `opengraph-image`, which Next also uses for twitter:image). The logo, the tagline
+ * and a constellation.
+ */
+export function siteCard() {
+  return (
+    <div style={SHELL}>
+      <div style={{ display: 'flex', flex: 1, alignItems: 'center', gap: '40px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+          <Logo size={88} />
+          <div style={{ display: 'flex', marginTop: '48px', fontSize: '76px', fontWeight: 700, lineHeight: 1.05 }}>
+            Collect people, not points.
+          </div>
+          <div style={{ display: 'flex', marginTop: '24px', color: MUTED, fontSize: '28px', lineHeight: 1.35 }}>
+            A social proof-of-people reputation game on Stellar.
+          </div>
+        </div>
+        <Constellation seed="alvinmunk" size={340} />
+      </div>
+
+      <div style={{ display: 'flex', color: MUTED, fontSize: '20px', letterSpacing: '8px', opacity: 0.5 }}>
+        {'A<ALVINMUNK<<COLLECT<PEOPLE<NOT<POINTS<<<<<<<<<<<<<<<<<<<<<<<<<<<'.slice(0, 62)}
       </div>
     </div>
   );
@@ -318,6 +362,45 @@ function Brand() {
     <div style={{ display: 'flex', alignItems: 'center', gap: '14px', color: MUTED, fontSize: '24px', letterSpacing: '6px' }}>
       <div style={{ width: '14px', height: '14px', borderRadius: '50%', background: GOLD }} />
       ALVINMUNK
+    </div>
+  );
+}
+
+/**
+ * The navbar logo (components/brand/logo.tsx) in palette colours: the constellation mark
+ * and the lowercase wordmark. `size` is the mark's height in px.
+ */
+function Logo({ size }: { size: number }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: `${Math.round(size / 4)}px` }}>
+      <svg width={size} height={size} viewBox="0 0 24 24">
+        <polyline points="5,8 12,5 18,11 9,18" fill="none" stroke={STARLIGHT} strokeOpacity="0.3" strokeWidth="1" />
+        <circle cx="12" cy="5" r="2" fill={VIOLET} />
+        <circle cx="5" cy="8" r="1.4" fill={STARLIGHT} />
+        <circle cx="18" cy="11" r="1.4" fill={STARLIGHT} />
+        <circle cx="9" cy="18" r="1.4" fill={STARLIGHT} />
+      </svg>
+      <div style={{ display: 'flex', fontSize: `${Math.round(size * 0.8)}px`, fontWeight: 700, letterSpacing: '-1px' }}>
+        alvinmunk
+      </div>
+    </div>
+  );
+}
+
+/** A seeded seven-star constellation (the same art an unclaimed profile card shows). */
+function Constellation({ seed, size }: { seed: string; size: number }) {
+  const art = stampArt(seed, 7);
+  const pts = art.points.split(' ').map((p) => p.split(',').map(Number));
+  const polyPoints = [...pts, pts[0]].map((p) => `${p[0]},${p[1]}`).join(' ');
+  return (
+    <div style={{ display: 'flex', width: `${size}px`, height: `${size}px` }}>
+      <svg width={size} height={size} viewBox="0 0 100 100">
+        <circle cx="50" cy="50" r="46" fill={VIOLET} fillOpacity="0.08" />
+        <polyline points={polyPoints} fill="none" stroke={MUTED} strokeOpacity="0.3" strokeWidth="0.6" />
+        {pts.map((p, i) => (
+          <circle key={i} cx={p[0]} cy={p[1]} r={i === 0 ? 4 : 2.4} fill={i === 0 ? GOLD : i % 2 ? CYAN : VIOLET} />
+        ))}
+      </svg>
     </div>
   );
 }

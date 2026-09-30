@@ -9,8 +9,11 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { HandleTransfer } from '@/components/HandleTransfer';
-import { useTranslations, type TFn } from '@/lib/i18n';
+import { useFormat, useTranslations, type TFn } from '@/lib/i18n';
 import { isStellarAddress, shortAddr } from '@alvinmunk/shared';
+
+/** A balance always shows two decimals, grouped for the locale: 1,234.50 | 1.234,50. */
+const TWO_DECIMALS = { minimumFractionDigits: 2, maximumFractionDigits: 2 };
 
 /**
  * Connect a Stellar wallet, show the balance, and send a testnet XLM payment with
@@ -21,6 +24,7 @@ import { isStellarAddress, shortAddr } from '@alvinmunk/shared';
  */
 export default function WalletPage() {
   const t = useTranslations();
+  const format = useFormat();
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [balance, setBalance] = useState<string | null>(null);
   const [to, setTo] = useState('');
@@ -100,7 +104,7 @@ export default function WalletPage() {
                 <p className="mt-2 text-sm">
                   {t('walletPage.balance')}{' '}
                   <span className="font-semibold text-primary">
-                    {balance ? `${Number(balance).toFixed(2)} XLM` : '…'}
+                    {balance ? `${format.number(Number(balance), TWO_DECIMALS)} XLM` : '…'}
                   </span>
                 </p>
               </div>

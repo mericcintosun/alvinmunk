@@ -174,6 +174,33 @@ are darker (e.g. `--warning-text` 28% against the 55% fill). Badge text also cle
 own tint. No raw Tailwind palette colours (`amber-400`, `emerald-500`, …): use `warning`,
 `secondary`, `accent`. `apps/web/src/app/muted-foreground-contrast.test.ts` checks all of it.
 
+`--ring` is the **only** focus colour. `globals.css` declares it once, in `@layer base`:
+
+```css
+:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+```
+
+That one rule covers everything: navbar links, the theme toggle, the mobile menu button, the
+logo, footer links, language pills, buttons, inputs and the `/app` tabs all show the same ring
+on keyboard focus, and no component falls back to a browser default that differs per browser.
+The ring's colour, width and offset also rest on every element (`*` in `@layer base`), so
+`:focus-visible` only switches the style on and a `transition-all` control fades the ring in
+instead of morphing it from the browser's 3px default. The ring sits 4px outside its element:
+a scroll box (`overflow-x-auto`) clips it unless it pads that much — the `/app` tab row uses
+`p-1 -m-1` for exactly that.
+
+**Components never hand-pick a focus ring colour.** Do not add `focus-visible:ring-primary`,
+`ring-lime`, `ring-inset` or a bare `outline-none` to opt out — `ring-*` is for decoration and
+suppressing the global outline hides focus from keyboard users. The only sanctioned opt-out is a
+deliberately scoped `focus-visible:outline-none`, in two places: the landing handle pill, whose
+borderless input lets the wrapper show the ring (`focus-within:ring-2 focus-within:ring-ring`),
+and the dialog panel, which takes focus only programmatically when it opens. The ring clears 3:1 on every
+surface in both themes (worst case 3.93:1 — dark `--ring` on `--muted`; 4.70:1 on the light
+background). `apps/web/src/app/focus-ring.test.ts` asserts the rule, the contrast and the ban.
+
 ## 2. Typography scale
 
 ```css
@@ -280,3 +307,10 @@ modal-overlay 70 · modal 80`.
   since metas and the manifest take no CSS variables). Toasts get the `<html>` class, not the OS.
 - Tokens are the **only** color source — no raw hex in components. A color not in this
   file does not exist in the product.
+- Selected text is `--foreground` on `--primary` at 35% (readable over any text colour in
+  both themes); scrollbars are thin, `--border` on a transparent track.
+- Print (`@media print` in `globals.css`) forces the light tokens over the dark default —
+  a copy of `:root.light` with `--background` set to paper white, kept in step by
+  `theme-print.test.ts` — and drops the fixed screen layers: the starfield, navbar, footer,
+  config banner and vouch notice carry `print:hidden`, and the grain and toasts are hidden
+  by the print block. External links print their URL after the link text.

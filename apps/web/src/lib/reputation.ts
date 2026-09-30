@@ -266,6 +266,27 @@ export async function claimVouch(wallet: Wallet, vouchId: number, secretHex: str
   forgetVouch(vouchId);
 }
 
+/** Cancel an unclaimed half-card this wallet minted (`cancel_vouch`) — for a link that
+ *  leaked: nobody can claim the card afterwards. The stake is NOT refunded. Reverts with
+ *  NotAuthorized (#3) for someone else's card, AlreadyClaimed (#5) once claimed and
+ *  Cancelled (#16) when already cancelled. */
+export async function cancelVouch(wallet: Wallet, vouchId: number): Promise<void> {
+  await invokeAndWait(repId(), 'cancel_vouch', [args.addr(wallet.address), args.u64(vouchId)], wallet);
+  forgetVouch(vouchId);
+}
+
+/** `is_cancelled(vouch_id)` — true once the card's voucher cancelled it. Resolves `null` when
+ *  the read fails, including a deployed contract that predates `cancel_vouch` (where no card
+ *  can be cancelled): callers treat `null` as "not cancelled" and offer no cancel action. */
+export async function isVouchCancelled(vouchId: number): Promise<boolean | null> {
+  try {
+    const v = await readPublic<boolean | undefined>(repId(), 'is_cancelled', [args.u64(vouchId)]);
+    return typeof v === 'boolean' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
 /** How long a read of an unclaimed (or unknown) half-card is reused. Long enough to cover
  *  one dashboard load, whose cards mount a few seconds apart; short enough that a claim
  *  landing while the tab is open still shows up on the next poll. */

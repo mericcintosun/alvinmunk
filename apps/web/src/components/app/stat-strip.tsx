@@ -6,7 +6,7 @@ import { getScores, type PeopleCounts } from '@/lib/reputation';
 import { getPeopleCounts } from '@/lib/constellation';
 import { StateArt } from '@/components/ui/state-art';
 import { cn } from '@/lib/utils';
-import { useLocale, useTranslations } from '@/lib/i18n';
+import { useFormat, useTranslations } from '@/lib/i18n';
 
 /**
  * Dashboard stat strip — the at-a-glance reputation summary that anchors the app shell.
@@ -64,8 +64,7 @@ function pollWhileVisible(load: () => void, ms: number): () => void {
  */
 export function StatStrip({ address, compact = false }: { address: string; compact?: boolean }) {
   const t = useTranslations();
-  const { locale } = useLocale();
-  const numberFormat = new Intl.NumberFormat(locale === 'tr' ? 'tr-TR' : 'en-US');
+  const format = useFormat();
   const [scores, setScores] = useState<{ social: number; earned: number } | null>(null);
   const [people, setPeople] = useState<PeopleCounts | null>(null);
 
@@ -134,7 +133,7 @@ export function StatStrip({ address, compact = false }: { address: string; compa
                   {busy ? (
                     <span className="inline-block h-4 w-5 animate-pulse rounded bg-muted/40" />
                   ) : (
-                    numberFormat.format(value(tile.key))
+                    format.number(value(tile.key))
                   )}
                 </dd>
               </div>
@@ -167,7 +166,7 @@ export function StatStrip({ address, compact = false }: { address: string; compa
                       <span className="text-xs font-medium text-muted-foreground">{t(`statStrip.${tile.key}.label`)}</span>
                     </div>
                     <div className="font-display text-3xl font-semibold tabular-nums">
-                      {numberFormat.format(value(tile.key))}
+                      {format.number(value(tile.key))}
                     </div>
                     <p className="mt-1 hidden text-2xs text-muted-foreground sm:block">{t(`statStrip.${tile.key}.hint`)}</p>
                   </div>

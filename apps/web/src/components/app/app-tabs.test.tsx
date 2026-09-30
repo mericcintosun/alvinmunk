@@ -83,6 +83,18 @@ describe('AppTabs', () => {
     expect(await currentAt('/app/vouch/draft')).toEqual([['/app/vouch', 'page']]);
   });
 
+  it('leaves room inside the scroll box for the global focus ring (#502)', async () => {
+    await currentAt('/app');
+    const scroller = container.querySelector('a[href="/app"]')!.parentElement!;
+    // overflow-x-auto clips anything past the padding box; the ring sits 2px out and is 2px
+    // wide, so the box pads 4px (p-1) and a -m-1 keeps the tabs where they were.
+    for (const c of ['overflow-x-auto', 'p-1', '-m-1']) expect(scroller.classList).toContain(c);
+    // The tabs themselves pick no ring colour of their own.
+    for (const a of Array.from(scroller.querySelectorAll('a'))) {
+      expect(a.className).not.toMatch(/focus-visible:(ring|outline)/);
+    }
+  });
+
   it('marks nothing current when the route has no tab', async () => {
     focus.on = true;
     // Under focus mode the Quests tab is hidden, so its route has no current tab.

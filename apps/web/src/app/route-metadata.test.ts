@@ -19,18 +19,42 @@ import * as walletLayout from './wallet/layout';
 import * as howItWorksLayout from './how-it-works/layout';
 import * as adminLayout from './admin/layout';
 import * as scorePage from './score/[address]/page';
+import * as rootOgImage from './opengraph-image';
+import * as profileOgImage from './u/[handle]/opengraph-image';
+import { SITE_CARD_ALT } from '@/lib/og-card';
 
 // The /app layout renders the wallet-gated client shell; only its metadata matters here.
 vi.mock('@/components/app/app-client-layout', () => ({ AppClientLayout: () => null }));
 
 type Export = Metadata | (() => Metadata | Promise<Metadata>);
+/** An og:image entry a sibling `opengraph-image` file contributes. */
+type FileImage = { url: string; alt?: string; type?: string; width?: number; height?: number };
 /** One route segment: its layout's metadata export (null = no layout) and, optionally,
- *  the og:image a sibling `opengraph-image` file contributes. */
-type Segment = Export | null | { metadata: Export; ogImage: string };
+ *  the og:image a sibling `opengraph-image` file contributes (a bare URL = a 1200×630 card,
+ *  or the entries themselves). */
+type Segment = Export | null | { metadata: Export; ogImage: string } | { metadata: Export; images: FileImage[] };
+
+/** An image route module's exports, or one `generateImageMetadata` item. */
+type ImageMeta = { alt?: string; contentType?: string; size?: { width: number; height: number } };
+
+/**
+ * The og:image entry Next's metadata-image loader emits for an `opengraph-image` route file
+ * (next-metadata-image-loader): `alt`, `type`, `width` and `height` come straight from the
+ * module's `alt` / `contentType` / `size` exports (or a `generateImageMetadata` item).
+ */
+const fileImage = (meta: ImageMeta, url: string): FileImage => ({
+  alt: meta.alt,
+  type: meta.contentType || 'image/png',
+  url,
+  width: meta.size?.width,
+  height: meta.size?.height,
+});
 
 // metadataBase comes from getSiteUrl(): whatever host this run resolves to.
 const at = (path: string, base = rootMetadata.metadataBase as URL) => new URL(path, base).href;
-const DEFAULT_OG = at('/assets/meta/og-default.png');
+/** app/opengraph-image.tsx, as the root segment's image file. */
+const ROOT_OG_FILE = fileImage(rootOgImage, '/opengraph-image?a1b2');
+const DEFAULT_OG = at(ROOT_OG_FILE.url);
 
 /**
  * Resolve metadata the way Next does for a page: the root layout, then each segment's
@@ -42,17 +66,23 @@ async function resolve(pathname: string, ...segments: Segment[]): Promise<Resolv
 }
 
 async function resolveWith(root: Metadata, pathname: string, ...segments: Segment[]) {
-  const items = [root, ...segments, null].map((segment) => {
+  const items = [{ metadata: root, images: [ROOT_OG_FILE] }, ...segments, null].map((segment) => {
     if (segment && 'ogImage' in segment) {
       const files = { openGraph: [{ url: segment.ogImage, width: 1200, height: 630 }] };
       return [segment.metadata, files, null];
     }
+    if (segment && 'images' in segment) return [segment.metadata, { openGraph: segment.images }, null];
     return [segment, null, null];
   }) as unknown as MetadataItems;
   return accumulateMetadata(items, { pathname, trailingSlash: false, isStandaloneMode: false });
 }
 
 const profile = (handle: string) => () => profileLayout.generateMetadata({ params: { handle } });
+/** The /u/<param> image file entries, built from its generateImageMetadata like Next does. */
+const profileImages = (param: string) =>
+  profileOgImage
+    .generateImageMetadata({ params: { handle: param } })
+    .map((meta) => fileImage(meta, `/u/${param}/opengraph-image/${meta.id}?a1b2`));
 const invite = (handle: string) => () => inviteLayout.generateMetadata({ params: { handle } });
 const score = (address: string) => () =>
   scorePage.generateMetadata({ params: Promise.resolve({ address }) });
@@ -88,6 +118,16 @@ describe('route metadata', () => {
     });
     expect(imageUrls(m.openGraph?.images)).toEqual([DEFAULT_OG]);
     expect(m.twitter?.card).toBe('summary_large_image');
+  });
+
+  it('the landing page unfurls with the 1200×630 site card, with alt text (#505)', async () => {
+    expect(rootOgImage.size).toEqual({ width: 1200, height: 630 });
+    const m = await resolve('/');
+    const card = { url: new URL(DEFAULT_OG), width: 1200, height: 630, alt: SITE_CARD_ALT, type: 'image/png' };
+    expect(m.openGraph?.images).toEqual([card]);
+    // No root twitter-image: twitter:image is filled from og:image, dimensions and alt included.
+    expect(m.twitter?.images).toEqual([card]);
+    expect(SITE_CARD_ALT).toMatch(/Collect people, not points/);
   });
 
   it.each([
@@ -129,11 +169,8 @@ describe('route metadata', () => {
   });
 
   it('/u/<handle> is handle-specific, lowercase-canonical, and keeps its opengraph-image', async () => {
-    const m = await resolve('/u/Alice', null, {
-      metadata: profile('Alice'),
-      ogImage: '/u/alice/opengraph-image?a1b2',
-    });
-    const card = at('/u/alice/opengraph-image?a1b2');
+    const m = await resolve('/u/Alice', null, { metadata: profile('Alice'), images: profileImages('Alice') });
+    const card = at('/u/Alice/opengraph-image/card?a1b2');
     const t = texts(m);
     expect(t.title).toBe('@alice · alvinmunk');
     expect(t.ogTitle).toBe('@alice · alvinmunk');
@@ -144,6 +181,21 @@ describe('route metadata', () => {
     expect(imageUrls(m.twitter?.images)).toEqual([card]);
     expect(m.twitter?.card).toBe('summary_large_image');
   });
+
+  it('the /u/<handle> card is 1200×630 and its alt names the handle (#505)', async () => {
+    const m = await resolve('/u/Alice', null, { metadata: profile('Alice'), images: profileImages('Alice') });
+    const card = { width: 1200, height: 630, alt: '@alice’s profile card on alvinmunk', type: 'image/png' };
+    expect(m.openGraph?.images).toEqual([expect.objectContaining(card)]);
+    expect(m.twitter?.images).toEqual([expect.objectContaining(card)]);
+  });
+
+  it.each(['not-a-handle', 'a'.repeat(33), '%3Cscript%3E'])(
+    'the /u card for a param that can never be a handle (%s) gets a generic alt',
+    (param) => {
+      const [meta] = profileOgImage.generateImageMetadata({ params: { handle: param } });
+      expect(meta.alt).toBe('A profile card on alvinmunk');
+    },
+  );
 
   it('/v/<handle> reads as an invite from that handle and uses its opengraph-image for twitter:image', async () => {
     const m = await resolve('/v/Bob', null, {
@@ -203,6 +255,23 @@ describe('route metadata', () => {
     expect(imageUrls(m.openGraph?.images)).toEqual([card]);
     expect(imageUrls(m.twitter?.images)).toEqual([card]);
     expect(m.twitter?.card).toBe('summary_large_image');
+  });
+
+  it('no route unfurls with the retired 317×128 "passport" banner (#505)', async () => {
+    const all = await Promise.all([
+      resolve('/'),
+      resolve('/leaderboard', leaderboardLayout.metadata),
+      resolve('/stats', statsLayout.metadata),
+      resolve('/wallet', walletLayout.metadata),
+      resolve('/how-it-works', howItWorksLayout.metadata),
+      resolve('/app', appLayout.metadata),
+      resolve(`/score/${SCORE_ADDRESS}`, null, null, score(SCORE_ADDRESS)),
+    ]);
+    for (const m of all) {
+      const urls = [...imageUrls(m.openGraph?.images), ...imageUrls(m.twitter?.images)];
+      expect(urls).toEqual([DEFAULT_OG, DEFAULT_OG]);
+      expect(urls.join(' ')).not.toMatch(/og-default/);
+    }
   });
 
   it('only /claim/<id> uses the claim-funnel description', async () => {
@@ -265,13 +334,10 @@ describe('site URL in metadata', () => {
     const preview = 'https://alvinmunk-git-feature.vercel.app';
 
     const home = await resolveWith(previewRoot, '/');
-    expect(imageUrls(home.openGraph?.images)).toEqual([`${preview}/assets/meta/og-default.png`]);
+    expect(imageUrls(home.openGraph?.images)).toEqual([`${preview}/opengraph-image?a1b2`]);
 
-    const u = await resolveWith(previewRoot, '/u/alice', null, {
-      metadata: profile('alice'),
-      ogImage: '/u/alice/opengraph-image?a1b2',
-    });
-    expect(imageUrls(u.openGraph?.images)).toEqual([`${preview}/u/alice/opengraph-image?a1b2`]);
+    const u = await resolveWith(previewRoot, '/u/alice', null, { metadata: profile('alice'), images: profileImages('alice') });
+    expect(imageUrls(u.openGraph?.images)).toEqual([`${preview}/u/alice/opengraph-image/card?a1b2`]);
     expect(u.alternates?.canonical?.url.toString()).toBe(`${preview}/u/alice`);
   });
 });
