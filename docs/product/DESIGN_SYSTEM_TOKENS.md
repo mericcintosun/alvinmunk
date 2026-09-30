@@ -221,6 +221,12 @@ modal-overlay 70 · modal 80`.
 - Two blocks in `globals.css`: `:root` (dark, the default) and `:root.light`. The theme is
   a `dark` / `light` class on `<html>`: the server renders `dark`, and an inline script in
   the root layout swaps it before first paint to the choice saved by `ThemeToggle`
-  (`localStorage` key `alvinmunk.theme`), else the OS `prefers-color-scheme`.
+  (`localStorage` key `alvinmunk.theme`), else the OS `prefers-color-scheme`. The toggle
+  cycles Light → Dark → System; System clears the key, so OS changes are followed again.
+- The browser chrome follows the same theme: `viewport.themeColor` has one colour per
+  `prefers-color-scheme`, and applying a theme pins every `theme-color` meta to it. These
+  colours, and the manifest's `background_color` / `theme_color` (dark), are the
+  `--background` tokens as hex (`THEME_COLOR` in `lib/theme.ts`, the one place hex is allowed,
+  since metas and the manifest take no CSS variables). Toasts get the `<html>` class, not the OS.
 - Tokens are the **only** color source — no raw hex in components. A color not in this
   file does not exist in the product.

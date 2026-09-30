@@ -1,1 +1,49 @@
-aW1wb3J0IHR5cGUgeyBNZXRhZGF0YSwgVmlld3BvcnQgfSBmcm9tICduZXh0JzsKaW1wb3J0ICcuL2dsb2JhbHMuY3NzJzsKaW1wb3J0IHsgZm9udFZhcnMgfSBmcm9tICdAL2xpYi9mb250cyc7CmltcG9ydCB7IFN0YXJmaWVsZCB9IGZyb20gJ0AvY29tcG9uZW50cy9icmFuZC9zdGFyZmllbGQnOwppbXBvcnQgeyBTbW9vdGhTY3JvbGwgfSBmcm9tICdAL2NvbXBvbmVudHMvc21vb3RoLXNjcm9sbCc7CmltcG9ydCB7IE5hdmJhciB9IGZyb20gJ0AvY29tcG9uZW50cy9sYXlvdXQvbmF2YmFyJzsKaW1wb3J0IHsgU2l0ZUZvb3RlciB9IGZyb20gJ0AvY29tcG9uZW50cy9sYXlvdXQvc2l0ZS1mb290ZXInOwppbXBvcnQgeyBUb2FzdGVyIH0gZnJvbSAnQC9jb21wb25lbnRzL3VpL3Rvw6FzdGVyJzsKaW1wb3J0IHsgQW5hbHl0aWNzUHJvdmlkZXIgfSBmcm9tICdAL2NvbXBvbmVudHMvYW5hbHl0aWNzJzsKaW1wb3J0IHsgQ29uZmlnU3RhdHVzQmFubmVyIH0gZnJvbSAnQC9jb21wb25lbnRzL2NvbmZpZy1zdGF0dXMtYmFubmVyJzsKaW1wb3J0IHsgV2FsbGV0UHJvdmlkZXIgfSBmcm9tICdAL2NvbXBvbmVudHMvd2FsbGV0L3dhbGxldC1wcm92aWRlcic7CmltcG9ydCB7IE1vdGlvblByb3ZpZGVyIH0gZnJvbSAnQC9jb21wb25lbnRzL21vdGlvbi9tb3Rpb24tcHJvdmlkZXInOwppbXBvcnQgeyBJMTh uUHJvdmlkZXIgfSBmcm9tICdAL2xpYi9pMThuJzsKaW1wb3J0IHsgcm9vdE1ldGFkYXRhIH0gZnJvbSAnQC9saWIvbWV0YWRhdGEnOwoKLy8gUnVucyBiZWZvcmUgZmlyc3QgcGFpbnQgc28gdGhlIHBhZ2UgbmV2ZXIgZmxhc2hlcyB0aGUgd3JvbmcgdGhlbWU6IGFuIGV4cGxpY2l0IGNob2ljZQovLyAobG9jYWxTdG9yYWdlIGBhbHZpbm11bmsudGhlbWVgLCB3cml0dGVuIGJ5IFRoZW1lVG9nZ2xlKSB3aW5zLCBlbHNlIHRoZSBPUyBwcmVmZXJlbmNlLgovLyBUaGUgc2VydmVyIGFsd2F5cyByZW5kZXJzIGBkYXJrYCwgc28gd2l0aG91dCBKUyB0aGUgYnJhbmQncyBkYXJrIHRoZW1lIGlzIHRoZSBmYWxsYmFjay4KY29uc3QgVEhFTUVfSU5JVCA9IGAoZnVuY3Rpb24oKXt0cnl7dmFyIHQ9bG9jYWxTdG9yYWdlLmdldEl0ZW0oJ2FsdmlubXVuay50aGVtZScpO2lmKHQhPT0nbGlnaHQnJiZ0IT09J2RhcmsnKXt0PXdpbmRvdy5tYXRjaE1lZGlhKCcocHJlZmVycy1jb2xvci1zY2hlbWU6IGxpZ2h0KScpLm1hdGNoZXM/J2xpZ2h0JzonZGFyayd9dmFyIHI9ZG9jdW1lbnQuZG9jdW1lbnRFbGVtZW50O3IuY2xhc3NMaXN0LnJlbW92ZSgnbGlnaHQnLCdkYXJrJyk7ci5jbGFzc0xpc3QuYWRkKHQpO3Iuc3R5bGUuY29sb3JTY2hlbWU9dDt2YXIgbT1kb2N1bWVudC5xdWVyeVNlbGVjdG9yKCdtZXRhW25hbWU9InRoZW1lLWNvbG9yIl0nKTtpZihtKXttLnNldEF0dHJpYnV0ZSgnY29udGVudCcsdD09PSdsaWdodCc/JyNlZGU3ZmYnOicjMGIwNTEyJyl9fWNhdGNoKGUpe319KSgpOwoKZXhwb3J0IGNvbnN0IG1ldGFkYXRhOiBNZXRhZGF0YSA9IHJvb3RNZXRhZGF0YTsKCmV4cG9ydCBjb25zdCB2aWV3cG9ydDogVmlld3BvcnQgPSB7CiAgdGhlbWVDb2xvcjogWwogICAgeyBtZWRpYTogJyhwcmVmZXJzLWNvbG9yLXNjaGVtZTogbGlnaHQpJywgY29sb3I6ICcjZWRlN2ZmJyB9LAogICAgeyBtZWRpYTogJyhwcmVmZXJzLWNvbG9yLXNjaGVtZTogZGFyayknLCBjb2xvcjogJyMwYjA1MTInIH0sCiAgXSwKICBjb2xvclNjaGVtZTogWydsaWdodCcsICdkYXJrJ10sCn07CgpleHBvcnQgZGVmYXVsdCBmdW5jdGlvbiBSb290TGF5b3V0KHsgY2hpbGRyZW4gfTogeyBjaGlsZHJlbjogUmVhY3QuUmVhY3ROb2RlIH0pIHsKICByZXR1cm4gKAogICAgPGh0bWwgbGFuZz0iZW4iIGNsYXNzTmFtZT17YCR7Zm9udFZhcnN9IGRhcmtgfSBzdXBwcmVzc0h5ZHJhdGlvbldhcm5pbmc+CiAgICAgIDxoZWFkPgogICAgICAgIDxzY3JpcHQgZGFuZ2Vyb3VzbHlTZXRJbm5lckhUTUw9e3sgX19odG1sOiBUSEVNRV9JTklUIH19IC8+CiAgICAgIDwvaGVhZD4KICAgICAgPGJvZHkgY2xhc3NOYW1lPSJncmFpbiBtaW4taC1kdmgiIHN1cHByZXNzSHlkcmF0aW9uV2FybmluZz4KICAgICAgICA8V2FsbGV0UHJvdmlkZXI+CiAgICAgICAgICA8STE4blByb3ZpZGVyPgogICAgICAgICAgPE1vdGlvblByb3ZpZGVyPgogICAgICAgICAgPFNtb290aFNjcm9sbCAvPgogICAgICAgICAgPFN0YXJmaWVsZCAvPgogICAgICAgICAgPENvbmZpZ1N0YXR1c0Jhbm5lciAvPgogICAgICAgICAgPE5hdmJhciAvPgogICAgICAgICAgPG1haW4gY2xhc3NOYW1lPSJtaW4taC1bY2FsYygxMDBkdmgtNHJlbSldIj57Y2hpbGRyZW59PC9tYWluPgogICAgICAgICAgPFNpdGVGb290ZXIgLz4KICAgICAgICAgIDxUb2FzdGVyIC8+CiAgICAgICAgICA8QW5hbHl0aWNzUHJvdmlkZXIgLz4KICAgICAgICAgIDwvTW90aW9uUHJvdmlkZXI+CiAgICAgICAgICA8L0kxOG5Qcm92aWRlcj4KICAgICAgICA8L1dhbGxldFByb3ZpZGVyPgogICAgICA8L2JvZHk+CiAgICA8L2h0bWw+CiAgKTsKfQo=
+import type { Metadata, Viewport } from 'next';
+import './globals.css';
+import { fontVars } from '@/lib/fonts';
+import { Starfield } from '@/components/brand/starfield';
+import { SmoothScroll } from '@/components/smooth-scroll';
+import { Navbar } from '@/components/layout/navbar';
+import { SiteFooter } from '@/components/layout/site-footer';
+import { Toaster } from '@/components/ui/toaster';
+import { AnalyticsProvider } from '@/components/analytics';
+import { ConfigStatusBanner } from '@/components/config-status-banner';
+import { WalletProvider } from '@/components/wallet/wallet-provider';
+import { MotionProvider } from '@/components/motion/motion-provider';
+import { I18nProvider } from '@/lib/i18n';
+import { rootMetadata } from '@/lib/metadata';
+import { rootViewport, THEME_INIT } from '@/lib/theme';
+
+// THEME_INIT runs before first paint so the page never flashes the wrong theme: an explicit
+// choice (localStorage `alvinmunk.theme`, written by ThemeToggle) wins, else the OS preference.
+// The server always renders `dark`, so without JS the brand's dark theme is the fallback.
+
+export const metadata: Metadata = rootMetadata;
+// theme-color per colour scheme (the mobile toolbar and PWA title bar), from the --background tokens.
+export const viewport: Viewport = rootViewport;
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en" className={`${fontVars} dark`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
+      </head>
+      <body className="grain min-h-dvh" suppressHydrationWarning>
+        <WalletProvider>
+          <I18nProvider>
+          <MotionProvider>
+          <SmoothScroll />
+          <Starfield />
+          <ConfigStatusBanner />
+          <Navbar />
+          <main className="min-h-[calc(100dvh-4rem)]">{children}</main>
+          <SiteFooter />
+          <Toaster />
+          <AnalyticsProvider />
+          </MotionProvider>
+          </I18nProvider>
+        </WalletProvider>
+      </body>
+    </html>
+  );
+}
