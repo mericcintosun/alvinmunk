@@ -122,10 +122,10 @@ export function StatStrip({ address }: { address: string }) {
           ? TILES.map((tile) => {
               const Icon = tile.icon;
               return (
-                <div key={tile.key} className="glass rounded-2xl p-4">
-                  <div className="mb-2 flex items-center gap-2">
+                <div key={tile.key} className="glass min-w-0 rounded-2xl p-3 sm:p-4">
+                  <div className="mb-2 flex min-w-0 items-center gap-2">
                     <Icon className={cn('size-4', tile.tint)} />
-                    <span className="text-xs font-medium text-muted-foreground">{t(`statStrip.${tile.key}.label`)}</span>
+                    <span className="min-w-0 break-words text-xs font-medium text-muted-foreground">{t(`statStrip.${tile.key}.label`)}</span>
                   </div>
                   <div className="h-9 w-16 animate-pulse rounded bg-muted/40" />
                   <div className="mt-2 h-2 w-20 animate-pulse rounded bg-muted/30" />
@@ -135,12 +135,12 @@ export function StatStrip({ address }: { address: string }) {
           : TILES.map((tile) => {
               const Icon = tile.icon;
               return (
-                <div key={tile.key} className="glass rounded-2xl p-4">
-                  <div className="mb-2 flex items-center gap-2">
+                <div key={tile.key} className="glass min-w-0 rounded-2xl p-3 sm:p-4">
+                  <div className="mb-2 flex min-w-0 items-center gap-2">
                     <Icon className={cn('size-4', tile.tint)} />
-                    <span className="text-xs font-medium text-muted-foreground">{t(`statStrip.${tile.key}.label`)}</span>
+                    <span className="min-w-0 break-words text-xs font-medium text-muted-foreground">{t(`statStrip.${tile.key}.label`)}</span>
                   </div>
-                  <div className="font-display text-3xl font-semibold tabular-nums">
+                  <div className="font-display text-2xl font-semibold tabular-nums sm:text-3xl">
                     {numberFormat.format(value(tile.key))}
                   </div>
                   <p className="mt-1 hidden text-[11px] text-muted-foreground sm:block">{t(`statStrip.${tile.key}.hint`)}</p>
