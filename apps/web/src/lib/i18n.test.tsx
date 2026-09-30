@@ -1,6 +1,7 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { renderToString } from 'react-dom/server';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { I18nProvider, useTranslations, useLocale } from './i18n';
 
 function Consumer() {
@@ -21,8 +22,12 @@ describe('I18nProvider', () => {
   let container: HTMLDivElement;
   let root: Root;
 
+  const cookie = () => document.cookie.match(/(?:^|; )alvinmunk_locale=([^;]*)/)?.[1] ?? null;
+
   beforeEach(() => {
     localStorage.clear();
+    document.cookie = 'alvinmunk_locale=; path=/; max-age=0';
+    document.documentElement.lang = '';
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -33,7 +38,19 @@ describe('I18nProvider', () => {
       root.unmount();
     });
     container.remove();
+    vi.restoreAllMocks();
   });
+
+  async function mount(initialLocale?: 'en' | 'tr') {
+    await act(async () => {
+      root.render(
+        <I18nProvider initialLocale={initialLocale}>
+          <Consumer />
+        </I18nProvider>,
+      );
+    });
+  }
+  const shown = () => [container.querySelector('#locale')?.textContent, container.querySelector('#text')?.textContent];
 
   it('renders English by default and switches locale', async () => {
     await act(async () => {
@@ -53,6 +70,77 @@ describe('I18nProvider', () => {
 
     expect(container.querySelector('#locale')?.textContent).toBe('tr');
     expect(container.querySelector('#text')?.textContent).toBe('Nasıl çalışır');
+  });
+
+  describe('saved locale and <html lang> (#236)', () => {
+    it('keeps <html lang> on the active locale, and a switch saves it to storage and the cookie', async () => {
+      await mount();
+      expect(document.documentElement.lang).toBe('en');
+      await act(async () => (container.querySelector('#switch') as HTMLButtonElement).click());
+      expect(shown()).toEqual(['tr', 'Nasıl çalışır']);
+      expect(document.documentElement.lang).toBe('tr');
+      expect(localStorage.getItem('alvinmunk_locale')).toBe('tr');
+      expect(cookie()).toBe('tr');
+    });
+
+    it('server-renders the cookie\'s locale, so the first paint is already Turkish', () => {
+      const html = renderToString(
+        <I18nProvider initialLocale="tr">
+          <Consumer />
+        </I18nProvider>,
+      );
+      expect(html).toContain('Nasıl çalışır');
+      expect(html).not.toContain('How it works');
+    });
+
+    it('trusts the cookie over the browser language', async () => {
+      vi.spyOn(navigator, 'language', 'get').mockReturnValue('tr-TR');
+      await mount('en');
+      expect(shown()).toEqual(['en', 'How it works']);
+      expect(document.documentElement.lang).toBe('en');
+    });
+
+    it('starts on the cookie\'s Turkish without an English render', async () => {
+      const seen: string[] = [];
+      function Spy() {
+        seen.push(useLocale().locale);
+        return null;
+      }
+      await act(async () => {
+        root.render(
+          <I18nProvider initialLocale="tr">
+            <Spy />
+            <Consumer />
+          </I18nProvider>,
+        );
+      });
+      expect(seen.length).toBeGreaterThan(0);
+      expect(seen.every((l) => l === 'tr')).toBe(true);
+      expect(shown()).toEqual(['tr', 'Nasıl çalışır']);
+      expect(document.documentElement.lang).toBe('tr');
+    });
+
+    it('without a cookie, adopts a choice only localStorage has and writes the cookie', async () => {
+      localStorage.setItem('alvinmunk_locale', 'tr');
+      await mount();
+      expect(shown()).toEqual(['tr', 'Nasıl çalışır']);
+      expect(document.documentElement.lang).toBe('tr');
+      expect(cookie()).toBe('tr');
+    });
+
+    it('without any saved choice, follows a Turkish browser and remembers it', async () => {
+      vi.spyOn(navigator, 'language', 'get').mockReturnValue('tr-TR');
+      await mount();
+      expect(shown()).toEqual(['tr', 'Nasıl çalışır']);
+      expect(cookie()).toBe('tr');
+    });
+
+    it('writes no cookie for an English browser that chose nothing', async () => {
+      vi.spyOn(navigator, 'language', 'get').mockReturnValue('en-US');
+      await mount();
+      expect(shown()).toEqual(['en', 'How it works']);
+      expect(cookie()).toBeNull();
+    });
   });
 
   it('mounts without throwing even if window.localStorage getter throws', async () => {
