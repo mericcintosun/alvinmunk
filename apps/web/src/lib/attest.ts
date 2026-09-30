@@ -20,7 +20,7 @@
  *      signature can't carry over into the next one, and the evidence must be dated inside
  *      the current period (`FRESH_EVIDENCE`): a standing condition must not pay every week.
  */
-import { Address, Keypair, hash, nativeToScVal, xdr } from '@stellar/stellar-sdk';
+import { Address, Keypair, StrKey, hash, nativeToScVal, xdr } from '@stellar/stellar-sdk';
 
 export const MAX_REF_LEN = 200; // evidence.ref upper bound (anti-abuse)
 export const MAX_QUEST_ID = 1_000_000;
@@ -453,7 +453,47 @@ export function parseRepoAllowlist(raw: string | undefined): Set<string> | null 
   return set.size > 0 ? set : null;
 }
 
-/** When an allowlist is configured, only its repos count; otherwise allow any. */
+/**
+ * Only the allowlisted repos count. Fails closed (#163): with no allowlist configured no repo
+ * is eligible — an open default let any merged PR on GitHub earn the quest.
+ */
 export function repoAllowed(allow: Set<string> | null, owner: string, repo: string): boolean {
-  return !allow || allow.has(`${owner}/${repo}`.toLowerCase());
+  return !!allow && allow.has(`${owner}/${repo}`.toLowerCase());
+}
+
+/** A G… or C… address token in free text (checksum checked separately). */
+const ADDRESS_IN_TEXT = /\b[GC][A-Z2-7]{55}\b/g;
+
+/**
+ * The distinct valid Stellar addresses (G… accounts, C… contracts) a PR body names. A
+ * lookalike token with a bad checksum isn't an address anyone can redeem for, so it isn't one.
+ */
+export function addressesInText(text: string | null | undefined): string[] {
+  const found = new Set<string>();
+  for (const [token] of (text ?? '').matchAll(ADDRESS_IN_TEXT)) {
+    if (StrKey.isValidEd25519PublicKey(token) || StrKey.isValidContract(token)) found.add(token);
+  }
+  return [...found];
+}
+
+/**
+ * The `github_pr` binding (#163): the PR body must name `recipient` and no other address, so
+ * one PR maps to one wallet — the same address repeated is still one. Anyone can cite any
+ * merged PR, so this is what stops a wallet redeeming someone else's work.
+ */
+export function prBodyNamesRecipient(
+  body: string | null | undefined,
+  recipient: string,
+): { ok: true } | { ok: false; reason: string } {
+  const named = addressesInText(body);
+  if (named.length === 0) {
+    return { ok: false, reason: 'the PR description must include your Stellar address, so the quest binds to you' };
+  }
+  if (named.length > 1) {
+    return { ok: false, reason: 'the PR description names more than one Stellar address — keep only yours' };
+  }
+  if (named[0] !== recipient) {
+    return { ok: false, reason: 'the Stellar address in the PR description is not yours' };
+  }
+  return { ok: true };
 }
