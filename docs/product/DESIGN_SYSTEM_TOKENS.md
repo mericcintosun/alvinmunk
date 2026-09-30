@@ -41,6 +41,17 @@ light theme (`:root.light`) redefines every token (see §8)._
   --destructive-foreground: 265 60% 6%;
   --success: 157 84% 52%;
   --warning: 38 95% 62%;
+  /* Text variants of the semantic colours: what text-* utilities read (tailwind textColor).
+     4.5:1 on every surface in both themes; bg-, border- and ring- keep the fills above. */
+  --primary-text: 265 100% 72%;
+  --onchain-text: 265 100% 72%;
+  --secondary-text: 157 84% 52%;
+  --success-text: 157 84% 52%;
+  --accent-text: 36 100% 64%;
+  --warning-text: 38 95% 62%;
+  --destructive-text: 350 82% 64%;
+  --tertiary-text: 193 100% 52%;
+  --lime-text: 79 94% 64%;
 
   --border: 265 26% 16%;
   --input: 265 26% 16%;
@@ -91,6 +102,15 @@ light theme (`:root.light`) redefines every token (see §8)._
   --destructive-foreground: 265 60% 8%;
   --success: 157 84% 45%;
   --warning: 38 95% 55%;
+  --primary-text: 265 100% 54%;
+  --onchain-text: 265 100% 54%;
+  --secondary-text: 157 84% 24%;
+  --success-text: 157 84% 24%;
+  --accent-text: 36 100% 28%;
+  --warning-text: 38 95% 28%;
+  --destructive-text: 350 82% 42%;
+  --tertiary-text: 193 100% 27%;
+  --lime-text: 79 94% 22%;
   --border: 265 26% 85%;
   --input: 265 26% 85%;
   --ring: 265 100% 60%;
@@ -137,6 +157,16 @@ the dark label (4.73:1); the light theme's 60% violet keeps white (5.30:1). `flo
 `--secondary`), which is why the light theme's `--flow-violet` is lighter than its `--primary`
 (5.02:1 at the violet stop, where 60% would give 3.66:1). `destructive` labels are dark too
 (5.61:1 dark, 4.63:1 light). `apps/web/src/app/button-contrast.test.ts` checks every variant.
+
+**Coloured text clears AA (4.5:1) in both themes**, on every surface (`background`, `card`,
+`surface`, `surface-2`, `popover`, `muted`). The semantic colours are bright fills, so text
+reads a per-theme `--<name>-text` variant (`primary`, `onchain`, `secondary`, `success`,
+`accent`, `warning`, `destructive`, `tertiary`, `lime`): `tailwind.config.ts` `textColor`
+points `text-<name>` at it, while `bg-`, `border-` and `ring-` keep the fill. Most dark
+variants equal the fill (primary is lifted to 72% for the lighter surfaces); the light ones
+are darker (e.g. `--warning-text` 28% against the 55% fill). Badge text also clears AA on its
+own tint. No raw Tailwind palette colours (`amber-400`, `emerald-500`, …): use `warning`,
+`secondary`, `accent`. `apps/web/src/app/muted-foreground-contrast.test.ts` checks all of it.
 
 ## 2. Typography scale
 

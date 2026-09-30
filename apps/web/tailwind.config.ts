@@ -63,6 +63,19 @@ const config: Config = {
           2: 'hsl(var(--surface-2) / <alpha-value>)',
         },
       },
+      // text-* reads each semantic colour's *-text variant (4.5:1 on every surface in both
+      // themes); bg-, border-, ring- and the rest keep the brighter fill from `colors`.
+      textColor: {
+        primary: { DEFAULT: 'hsl(var(--primary-text) / <alpha-value>)' },
+        onchain: 'hsl(var(--onchain-text) / <alpha-value>)',
+        secondary: { DEFAULT: 'hsl(var(--secondary-text) / <alpha-value>)' },
+        success: 'hsl(var(--success-text) / <alpha-value>)',
+        accent: { DEFAULT: 'hsl(var(--accent-text) / <alpha-value>)' },
+        warning: 'hsl(var(--warning-text) / <alpha-value>)',
+        destructive: { DEFAULT: 'hsl(var(--destructive-text) / <alpha-value>)' },
+        tertiary: 'hsl(var(--tertiary-text) / <alpha-value>)',
+        lime: { DEFAULT: 'hsl(var(--lime-text) / <alpha-value>)' },
+      },
       fontFamily: {
         display: ['var(--font-display)', 'system-ui', 'sans-serif'],
         sans: ['var(--font-sans)', 'system-ui', 'sans-serif'],

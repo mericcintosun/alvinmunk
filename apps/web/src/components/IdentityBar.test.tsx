@@ -52,6 +52,24 @@ vi.mock('@/components/fx/share-row', () => ({ ShareRow: () => null }));
 
 import { IdentityBar } from './IdentityBar';
 import { defaultAvatarId } from '@/lib/avatar';
+import { buttonVariants } from '@/components/ui/button';
+
+// jsdom has no layout, so the hit area is asserted through the classes that size it:
+// `h-N w-N` is N × 4px, and hover / focus-visible must be the ghost icon button's own.
+const GHOST_STATES = buttonVariants({ variant: 'ghost', size: 'icon' })
+  .split(' ')
+  .filter((c) => c.startsWith('hover:') || c.startsWith('focus-visible:'));
+function expectInlineIconButton(el: HTMLElement | null) {
+  expect(el?.tagName).toBe('BUTTON');
+  expect(el?.getAttribute('type')).toBe('button');
+  const cls = el!.className.split(/\s+/);
+  const px = (axis: 'h' | 'w') =>
+    Number(cls.find((c) => new RegExp(`^${axis}-\\d+$`).test(c))?.slice(2)) * 4;
+  expect(px('h')).toBeGreaterThanOrEqual(32);
+  expect(px('w')).toBeGreaterThanOrEqual(32);
+  // the negative margin keeps the row's layout (and 375px wrapping) as it was with a bare glyph
+  expect(cls).toEqual(expect.arrayContaining(['rounded-full', '-m-2', ...GHOST_STATES]));
+}
 
 const ME: Profile = { handle: 'me', address: 'GME', createdAt: 1 };
 
@@ -146,6 +164,21 @@ describe('IdentityBar profile meta', () => {
     await typeBio('ş'.repeat(50));
     expect((byLabel('Bio') as HTMLInputElement).value).toBe('ş'.repeat(40));
     expect(container.textContent).toContain('80/80');
+  });
+
+  it('gives every inline edit and cancel control a 32px ghost icon hit area', async () => {
+    await mount();
+    expectInlineIconButton(byLabel('Edit handle'));
+    expectInlineIconButton(byLabel('Edit bio'));
+    await click(byLabel('Edit handle'));
+    expectInlineIconButton(byLabel('Cancel'));
+    await click(byLabel('Edit bio'));
+    expectInlineIconButton(byLabel('Cancel bio edit'));
+    // the controls still work
+    await click(byLabel('Cancel'));
+    await click(byLabel('Cancel bio edit'));
+    expect(container.querySelector('[aria-label="New handle"]')).toBeNull();
+    expect(container.querySelector('[aria-label="Bio"]')).toBeNull();
   });
 
   it('explains a missing handle in the user’s words', async () => {
