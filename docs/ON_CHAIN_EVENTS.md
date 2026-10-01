@@ -632,6 +632,54 @@ env.events().publish(
     (to, meta.avatar, meta.bio));
 ```
 
+### `invite` / `bound`
+
+The `/v/<handle>` recruiting link lands on-chain. The **invitee** calls
+`set_inviter(caller, inviter)` and signs; the inviter never signs. This is a
+one-shot, write-once record: `AlreadyInvited` (#12) prevents rebinding, so the
+invite graph can't be rewritten or forged. The inviter must currently hold a
+handle (`NoHandle` #4); self-invites revert with `SelfInvite` (#11). The
+invitee needs no handle of their own, and the binding survives renames and
+releases — it records addresses, not which name is currently held.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| **topics[0]** | `Symbol("invite")` | Event discriminator |
+| **topics[1]** | `Symbol("bound")` | Sub-type |
+
+**Data tuple**:
+
+| Index | Type | Description |
+|-------|------|-------------|
+| 0 | `Address` | `invitee` — the wallet that signed (`caller`) |
+| 1 | `Address` | `inviter` — the wallet that held the recruiting handle |
+
+**Only the invitee signs.** `set_inviter` calls `caller.require_auth()` and
+does NOT require the inviter's authorization, so the binding is the invitee's
+unilateral declaration and cannot be forged by the inviter.
+
+**Error codes** (append-only, never renumber):
+
+| Code | Name | When |
+|------|------|------|
+| #4 | `NoHandle` | `inviter` holds no handle at bind time |
+| #11 | `SelfInvite` | `caller == inviter` |
+| #12 | `AlreadyInvited` | `caller` already has a binding |
+
+**Contract source**: `registry/src/lib.rs` → `fn set_inviter()`
+
+```rust
+env.events().publish(
+    (symbol_short!("invite"), symbol_short!("bound")),
+    (caller, inviter));
+```
+
+**Indexer fold.** Each `invite/bound` event adds a directed edge `invitee → inviter`
+to the invite graph. Because bindings are write-once, there is at most one event per
+invitee. The viral coefficient for a cohort is the fraction of invitees who later
+mint at least one vouch — fold `invite/bound` events to get invitees, then fold
+`vouch/minted` events to count how many of them became vouchers.
+
 ---
 
 ## 4. Gate Contract
@@ -845,6 +893,7 @@ Quick-reference table of all event discriminators and their sub-types.
 | `att_key` | `budget`, `near_cap` | QuestRegistry | [↑](#att_key--budget-attester-budget-set) |
 | `handle` | `claimed`, `released`, `moved` | Registry | [↑](#3-registry-contract-handles) |
 | `meta` | `set`, `cleared` | Registry | [↑](#meta--set) |
+| `invite` | `bound` | Registry | [↑](#invite--bound) |
 | `gate` | `created` | Gate | [↑](#4-gate-contract) |
 | `unlocked` | *(none)* | Gate | [↑](#unlocked) |
 | `tipped` | *(none)* | Rewards | [↑](#tipped) |
@@ -1188,6 +1237,29 @@ So `face-03` is `0x0000000000000003` and the kit skin 3 / hair 7 / eyes 5 / mout
 acc 9 / bg 2 is `0x0100030705040902`. The ranges are the portrait assets the web app
 ships (`FACE_IDS` / `KIT_COUNTS` in `apps/web/src/lib/avatar.ts`, which packs with
 `encodeAvatar`); adding assets means upgrading the contract to accept them.
+
+### Invite binding (`invited_by`)
+
+`invited_by(addr) -> Option<Address>` returns the address that invited `addr` (the
+`inviter` field of the `invite/bound` event), or `None` while unbound. The binding
+is stored as `DataKey::InvitedBy(addr)` (persistent, TTL-bumped like the handle
+entries). It is write-once: once set it can never be overwritten, even if the
+inviter later renames or releases their handle.
+
+**Only the invitee signs.** `set_inviter` requires `caller.require_auth()` only.
+The inviter does NOT sign and cannot forge or veto the binding.
+
+**Error codes for `set_inviter`**:
+
+| Code | Name | When |
+|------|------|------|
+| #4 | `NoHandle` | `inviter` holds no handle at call time |
+| #11 | `SelfInvite` | `caller == inviter` |
+| #12 | `AlreadyInvited` | `caller` already has a binding |
+
+A registry deployed before this view has no `invited_by` or `set_inviter`; treat a
+failed call as "no binding" and skip the bind attempt entirely (the web app does
+this in `getInvitedBy` in `apps/web/src/lib/registry.ts`).
 
 ### `QuestConfig`
 

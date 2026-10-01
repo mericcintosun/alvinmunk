@@ -36,6 +36,8 @@ import {
   handleAvailability,
   isHandleAvailable,
   transferHandle,
+  setInviter,
+  getInvitedBy,
 } from './registry';
 import type { Wallet } from './wallet';
 import type { ReadNetwork } from './read-network';
@@ -162,6 +164,63 @@ describe('setMeta', () => {
     await expect(setMeta(wallet, { kind: 'face', id: 'face-02' }, '')).rejects.toThrow();
     readPublicMock.mockResolvedValueOnce(null);
     await expect(getMeta(G)).resolves.toBeNull();
+  });
+});
+
+describe('setInviter', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    registry = 'CREGISTRY';
+  });
+
+  it('invokes set_inviter with (caller, inviter) addresses', async () => {
+    invokeMock.mockResolvedValueOnce(undefined);
+    const inviter = 'G'.padEnd(56, 'B');
+    await setInviter(wallet, inviter);
+    expect(invokeMock).toHaveBeenCalledWith(
+      'CREGISTRY',
+      'set_inviter',
+      [{ __addr: G }, { __addr: inviter }],
+      wallet,
+    );
+  });
+
+  it('throws by default so callers can choose to surface or swallow the error', async () => {
+    invokeMock.mockRejectedValueOnce(new Error('HostError: Error(Contract, #12)'));
+    await expect(setInviter(wallet, 'G'.padEnd(56, 'B'))).rejects.toThrow('#12');
+  });
+});
+
+describe('getInvitedBy', () => {
+  beforeEach(() => {
+    readPublicMock.mockReset();
+    registry = 'CREGISTRY';
+  });
+
+  it('returns the inviter address the registry reports', async () => {
+    const inviter = 'G'.padEnd(56, 'C');
+    readPublicMock.mockResolvedValueOnce(inviter);
+    await expect(getInvitedBy(G)).resolves.toBe(inviter);
+    expect(readPublicMock).toHaveBeenCalledWith('CREGISTRY', 'invited_by', [{ __addr: G }]);
+  });
+
+  it('resolves null when the wallet was never invited', async () => {
+    readPublicMock.mockResolvedValueOnce(null);
+    await expect(getInvitedBy(G)).resolves.toBeNull();
+  });
+
+  it('resolves null (never throws) on a registry without invited_by or a broken RPC', async () => {
+    readPublicMock.mockRejectedValueOnce(new Error(MISSING_FN.replaceAll('get_meta', 'invited_by')));
+    await expect(getInvitedBy(G)).resolves.toBeNull();
+    readPublicMock.mockRejectedValueOnce(new Error('fetch failed'));
+    await expect(getInvitedBy(G)).resolves.toBeNull();
+  });
+
+  it('resolves null without an address or a configured registry, and never calls the RPC', async () => {
+    await expect(getInvitedBy('')).resolves.toBeNull();
+    registry = '';
+    await expect(getInvitedBy(G)).resolves.toBeNull();
+    expect(readPublicMock).not.toHaveBeenCalled();
   });
 });
 

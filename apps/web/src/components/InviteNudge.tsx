@@ -8,12 +8,15 @@ import { Sticker } from '@/components/ui/sticker';
 import { useWallet } from '@/components/wallet/wallet-provider';
 import { useTranslations } from '@/lib/i18n';
 import { clearInviteRef, loadInviteRef, normalizeRefHandle } from '@/lib/invite-ref';
+import { getInvitedBy } from '@/lib/registry';
 
 /**
  * Invite nudge — if you arrived via a /v/<handle> link, the dashboard reminds you to
  * vouch your inviter back (closes the recruiting loop). Dismissable; clears the ref.
  * Your own link (opened to preview it before sharing) is not an invite: that ref is
- * dropped instead of shown.
+ * dropped instead of shown. Once the inviter is bound on-chain (`invited_by` is set,
+ * done during onboarding) the nudge hides itself — the graph already has the edge,
+ * only the vouch-back remains.
  */
 export function InviteNudge() {
   const t = useTranslations();
@@ -32,7 +35,19 @@ export function InviteNudge() {
     setRef(stored);
   }, [ownHandle]);
 
-  if (!ref) return null;
+  // Hide once the invite edge exists on-chain: the graph has it, only vouch-back remains.
+  const address = profile?.address;
+  const [bound, setBound] = useState(false);
+  useEffect(() => {
+    if (!address) return;
+    let alive = true;
+    getInvitedBy(address).then((inv) => alive && setBound(Boolean(inv)));
+    return () => {
+      alive = false;
+    };
+  }, [address]);
+
+  if (!ref || bound) return null;
 
   function dismiss() {
     clearInviteRef();

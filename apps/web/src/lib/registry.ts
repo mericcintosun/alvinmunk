@@ -185,6 +185,32 @@ export async function transferHandle(from: Wallet, to: Wallet): Promise<string> 
   return hash;
 }
 
+/**
+ * Bind, once, that `wallet` was invited by `inviterAddress` (the one-shot on-chain invite
+ * graph edge). `inviterAddress` must currently hold a handle; the wallet itself needs no
+ * handle. Throws on any contract error — callers decide whether to surface it or swallow it.
+ */
+export async function setInviter(wallet: Wallet, inviterAddress: string): Promise<void> {
+  await invokeAndWait(
+    registryId(),
+    'set_inviter',
+    [args.addr(wallet.address), args.addr(inviterAddress)],
+    wallet,
+  );
+}
+
+/**
+ * Who invited `address` (public, wallet-free), or null while unbound — also null when the
+ * deployed registry predates `invited_by` (treat a failed read as "no binding").
+ */
+export async function getInvitedBy(address: string): Promise<string | null> {
+  if (!registryId() || !address) return null;
+  const v = await readPublic<string | null>(registryId(), 'invited_by', [args.addr(address)]).catch(
+    () => null,
+  );
+  return v ?? null;
+}
+
 /** Registry error codes `set_meta` can revert with (mirrors the contract's Error enum). */
 export const META_ERRORS = { NoHandle: 4, BioTooLong: 5, BadBio: 6, BadAvatar: 7 } as const;
 

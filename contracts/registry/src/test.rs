@@ -1417,3 +1417,180 @@ fn the_release_build_is_set_up_by_its_constructor() {
     RegistryContractClient::new(&env, &id).upgrade(&hash);
     assert_eq!(env.auths()[0].0, admin);
 }
+
+// --- Error-code pins (append-only; a renumber breaks clients) ---
+
+#[test]
+fn invite_error_codes_are_appended_after_existing_ones() {
+    assert_eq!(Error::HandleCoolingDown as u32, 9);
+    assert_eq!(Error::AlreadyHasHandle as u32, 10);
+    assert_eq!(Error::SelfInvite as u32, 11);
+    assert_eq!(Error::AlreadyInvited as u32, 12);
+}
+
+// --- Invite binding ---
+
+/// `invite/bound (invitee, inviter)` event helper.
+fn invite_event(
+    client: &RegistryContractClient,
+    invitee: &Address,
+    inviter: &Address,
+) -> (Address, Vec<Val>, Val) {
+    let env = &client.env;
+    (
+        client.address.clone(),
+        (symbol_short!("invite"), symbol_short!("bound")).into_val(env),
+        (invitee.clone(), inviter.clone()).into_val(env),
+    )
+}
+
+#[test]
+fn set_inviter_binds_once_and_emits_invite_bound() {
+    let (env, client, _admin) = setup();
+    let inviter = claimed(&env, &client, "alice");
+    let invitee = Address::generate(&env);
+    client.set_inviter(&invitee, &inviter);
+
+    // only the invitee signs — inviter.require_auth() must NOT be called
+    assert_eq!(
+        env.auths(),
+        std::vec![(
+            invitee.clone(),
+            AuthorizedInvocation {
+                function: AuthorizedFunction::Contract((
+                    client.address.clone(),
+                    Symbol::new(&env, "set_inviter"),
+                    (invitee.clone(), inviter.clone()).into_val(&env),
+                )),
+                sub_invocations: std::vec![],
+            }
+        )]
+    );
+    // exactly one event: invite/bound (invitee, inviter)
+    assert_eq!(
+        env.events().all(),
+        vec![&env, invite_event(&client, &invitee, &inviter)]
+    );
+    assert_eq!(client.invited_by(&invitee), Some(inviter.clone()));
+
+    // one inviter per invitee, forever: a second call reverts and changes nothing
+    let other = claimed(&env, &client, "bob");
+    assert_eq!(
+        client.try_set_inviter(&invitee, &other),
+        Err(Ok(Error::AlreadyInvited.into()))
+    );
+    assert_eq!(client.invited_by(&invitee), Some(inviter.clone()));
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Contract, #11)")]
+fn set_inviter_rejects_self() {
+    let (env, client, _admin) = setup();
+    let alice = claimed(&env, &client, "alice");
+    client.set_inviter(&alice, &alice); // panics: SelfInvite #11
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Contract, #4)")]
+fn set_inviter_rejects_an_inviter_without_a_handle() {
+    let (env, client, _admin) = setup();
+    let invitee = Address::generate(&env);
+    client.set_inviter(&invitee, &Address::generate(&env)); // panics: NoHandle #4
+}
+
+/// A released inviter's Rev entry is gone, so `set_inviter` reverts with NoHandle.
+#[test]
+#[should_panic(expected = "HostError: Error(Contract, #4)")]
+fn set_inviter_rejects_a_released_inviter() {
+    let (env, client, _admin) = setup();
+    let inviter = claimed(&env, &client, "alice");
+    client.release(&inviter);
+    let invitee = Address::generate(&env);
+    client.set_inviter(&invitee, &inviter); // panics: NoHandle #4
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn set_inviter_requires_the_callers_auth() {
+    let (env, client, _admin) = setup();
+    let inviter = claimed(&env, &client, "alice");
+    let invitee = Address::generate(&env);
+    env.mock_auths(&[]); // nobody signs from here on
+    client.set_inviter(&invitee, &inviter);
+}
+
+/// `invited_by` returns None until bound; the inviter's own row is also None.
+#[test]
+fn invited_by_is_none_until_bound() {
+    let (env, client, _admin) = setup();
+    let inviter = claimed(&env, &client, "alice");
+    let invitee = Address::generate(&env);
+    // before binding: both None
+    assert_eq!(client.invited_by(&invitee), None);
+    assert_eq!(client.invited_by(&inviter), None); // inviter's own row stays None
+
+    client.set_inviter(&invitee, &inviter);
+    assert_eq!(client.invited_by(&invitee), Some(inviter.clone()));
+    assert_eq!(client.invited_by(&inviter), None); // still None after binding
+}
+
+/// The binding records addresses, not names: a rename or release of either wallet keeps
+/// the invite history intact.
+#[test]
+fn invite_binding_survives_rename_and_release() {
+    let (env, client, _admin) = setup();
+    let inviter = claimed(&env, &client, "old");
+    let invitee = Address::generate(&env);
+    client.set_inviter(&invitee, &inviter);
+
+    client.claim(&inviter, &symbol_short!("new"));
+    assert_eq!(client.invited_by(&invitee), Some(inviter.clone()));
+
+    client.release(&inviter);
+    assert_eq!(client.invited_by(&invitee), Some(inviter));
+}
+
+/// The invitee may already hold a handle — only the inviter needs one.
+#[test]
+fn set_inviter_accepts_an_invitee_who_already_holds_a_handle() {
+    let (env, client, _admin) = setup();
+    let inviter = claimed(&env, &client, "alice");
+    let invitee = claimed(&env, &client, "bob");
+    client.set_inviter(&invitee, &inviter);
+    assert_eq!(client.invited_by(&invitee), Some(inviter));
+}
+
+#[test]
+fn set_inviter_extends_the_binding_to_bump_extend() {
+    for ttls in [TESTNET_TTLS, MAINNET_TTLS] {
+        let (env, client) = setup_with_ttls(ttls);
+        let inviter = Address::generate(&env);
+        client.claim(&inviter, &symbol_short!("alice"));
+        let invitee = Address::generate(&env);
+        // days later the inviter's entries have aged; binding tops the new entry up
+        env.ledger()
+            .with_mut(|l| l.sequence_number += DAY_LEDGERS * 3);
+        client.set_inviter(&invitee, &inviter);
+        assert_eq!(
+            ttl(&env, &client, &DataKey::InvitedBy(invitee.clone())),
+            BUMP_EXTEND
+        );
+    }
+}
+
+/// `invited_by` is a pure read (the web app only simulates it): it must not extend.
+#[test]
+fn invited_by_does_not_extend_the_binding() {
+    let (env, client) = setup_with_ttls(TESTNET_TTLS);
+    let inviter = Address::generate(&env);
+    client.claim(&inviter, &symbol_short!("alice"));
+    let invitee = Address::generate(&env);
+    client.set_inviter(&invitee, &inviter);
+    env.ledger()
+        .with_mut(|l| l.sequence_number += DAY_LEDGERS * 3);
+    assert_eq!(client.invited_by(&invitee), Some(inviter));
+    assert_eq!(
+        ttl(&env, &client, &DataKey::InvitedBy(invitee)),
+        BUMP_EXTEND - DAY_LEDGERS * 3
+    );
+}
