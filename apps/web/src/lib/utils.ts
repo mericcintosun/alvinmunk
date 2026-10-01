@@ -63,7 +63,7 @@ export function humanizeError(
   const firstLine = raw.split(/Event log|\n/)[0].trim();
   // Unknown contract code → always give the user a next step, never a dead end.
   if (code != null) return `That didn't go through (chain error ${code}). Try again in a moment.`;
-  return firstLine.length > 120 ? `${firstLine.slice(0, 117)}…` : firstLine || 'Something went wrong';
+  return firstLine.length > 120 ? `${firstLine.slice(0, 117)}…` : firstLine || fallback;
 }
 
 /**
