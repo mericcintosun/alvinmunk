@@ -1,0 +1,111 @@
+# cargo-deny configuration for alvinmunk Soroban contracts
+# See: https://embarkstudios.github.io/cargo-deny/
+
+# Note that all fields that take a lint level have these possible values:
+# * deny - An error will be produced and the check will fail
+# * warn - A warning will be produced, but the check will not fail
+# * allow - No warning or error will be produced, though in some cases a note will be
+
+[graph]
+# Build for wasm32 target since these are Soroban contracts
+targets = [
+    { triple = "wasm32-unknown-unknown" },
+]
+all-features = false
+no-default-features = false
+
+[output]
+feature-depth = 1
+
+# Advisories - check for security vulnerabilities
+[advisories]
+# A list of advisory IDs to ignore. Use sparingly and document why.
+ignore = [
+    # Add any advisory IDs that need to be temporarily ignored with reasons
+    # Example: { id = "RUSTSEC-2020-0001", reason = "Waiting for upstream fix" },
+]
+
+# Licenses - enforce allowed licenses
+[licenses]
+# List of explicitly allowed licenses
+# See https://spdx.org/licenses/ for list of possible licenses
+# Using permissive licenses common in Rust/Soroban ecosystem
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "Unlicense",
+    "0BSD",
+    "Zlib",
+]
+
+# The confidence threshold for detecting a license from license text.
+confidence-threshold = 0.8
+
+# Allow 1 or more licenses on a per-crate basis
+exceptions = [
+    # Example: { allow = ["GPL-3.0"], crate = "some-gpl-crate" },
+]
+
+# Uncomment and add clarifications if needed
+# [[licenses.clarify]]
+# crate = "ring"
+# expression = "MIT AND ISC AND OpenSSL"
+# license-files = [
+#     { path = "LICENSE", hash = 0xbd0eed23 }
+# ]
+
+[licenses.private]
+ignore = true
+registries = []
+
+# Bans - control which crates and versions are allowed
+[bans]
+# Lint level for when multiple versions of the same crate are detected
+multiple-versions = "warn"
+# Lint level for when a crate version requirement is `*`
+wildcards = "warn"
+# The graph highlighting used when creating dotgraphs for crates with multiple versions
+highlight = "all"
+# The default lint level for `default` features
+workspace-default-features = "allow"
+external-default-features = "allow"
+
+# List of crates that are allowed
+allow = []
+
+# List of crates to deny
+deny = [
+    # Deny crates with known security issues
+    # Example: { crate = "openssl@0.9.0", reason = "Known security vulnerability" },
+]
+
+# Certain crates/versions that will be skipped when doing duplicate detection
+skip = []
+
+# Skip trees for duplicate detection
+skip-tree = []
+
+# Sources - control where crates can come from
+[sources]
+# Lint level for what to happen when a crate from a crate registry that is not
+# in the allow list is encountered
+unknown-registry = "warn"
+# Lint level for what to happen when a crate from a git repository that is not
+# in the allow list is encountered
+unknown-git = "warn"
+# List of URLs for allowed crate registries. Defaults to the crates.io index
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# List of URLs for allowed Git repositories
+allow-git = []
+
+[sources.allow-org]
+# GitHub organizations to allow git sources for
+github = []
+gitlab = []
+bitbucket = []

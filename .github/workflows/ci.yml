@@ -3,8 +3,52 @@ name: CI
 on:
   push:
   pull_request:
+  schedule:
+    # Run security checks weekly on Monday at 9:00 UTC
+    - cron: '0 9 * * 1'
 
 jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Rust setup for cargo-audit
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Run cargo-deny (advisories, bans, licenses, sources) against contracts/deny.toml
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: contracts/Cargo.toml
+
+      # Run cargo-audit for RustSec advisories. Unmaintained/yanked warnings don't fail the
+      # job (cargo-audit's default); only an actual vulnerability does.
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Run cargo audit
+        working-directory: contracts
+        run: cargo audit
+
+      # pnpm audit for npm dependencies
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Bare `pnpm audit` would fail today on 2 critical next@14.2.35 advisories that have no
+      # 14.x patch (fix tracked in issue #255 — a major-version upgrade, out of this job's
+      # scope). scripts/pnpm-audit-gate.mjs suppresses only those two, by GHSA id, with a
+      # documented reason in security/pnpm-audit-allowlist.json — any other critical advisory
+      # still fails the job. See docs/SECURITY_AUDIT_POLICY.md.
+      - name: Run pnpm audit (gated allowlist)
+        run: node scripts/pnpm-audit-gate.mjs --prod --level critical
+
   contracts:
     runs-on: ubuntu-latest
     defaults:

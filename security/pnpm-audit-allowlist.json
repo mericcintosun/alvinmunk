@@ -1,0 +1,12 @@
+{
+  "GHSA-p293-qw3h-jr36": {
+    "reason": "next@14.2.35 RCE on Windows-hosted servers; patched only in next>=15.5.24. Fixing means the 14->15 major upgrade tracked in issue #255 (React 19, next.config.mjs, async params) — out of scope for a CI-only PR. Deployed on Vercel (Linux), not Windows.",
+    "issue": "https://github.com/mericcintosun/alvinmunk/issues/255",
+    "added": "2026-09-29"
+  },
+  "GHSA-2xp9-vwfh-vxw4": {
+    "reason": "next@14.2.35 RCE in the Image Optimization API via AVIF; patched only in next>=15.5.24, same #255 upgrade. No CVE id is assigned to this advisory, so pnpm's own auditConfig.ignoreCves (package.json) can never match it — this allowlist is the only way to suppress it deliberately.",
+    "issue": "https://github.com/mericcintosun/alvinmunk/issues/255",
+    "added": "2026-09-29"
+  }
+}
