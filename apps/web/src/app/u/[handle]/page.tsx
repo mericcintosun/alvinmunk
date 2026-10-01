@@ -23,6 +23,7 @@ import { readNetworkFor, withReadNetwork } from '@/lib/read-network';
 import { ReadOnlyBanner } from '@/components/read-only-banner';
 import { parseRouteHandle } from '@/lib/profile';
 import { useFormat, useTranslations } from '@/lib/i18n';
+import { ReportDialog } from '@/components/report-dialog';
 
 /**
  * Public profile. The handle is resolved ON-CHAIN via the registry, so ANY claimed
@@ -53,6 +54,7 @@ export default function ProfilePage({
   const [meta, setMeta] = useState<OnChainMeta | null>(null);
   const [lookupError, setLookupError] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [reporting, setReporting] = useState(false);
 
   useEffect(() => {
     if (route.at) router.replace(withReadNetwork(`/u/${handle}`, net));
@@ -273,10 +275,24 @@ export default function ProfilePage({
           route always reads THAT network, so offering it on a ?network= override would
           hand out a badge for the wrong profile. */}
       {!net && (
-        <div className="mt-5">
+        <div className="mt-5 flex items-center justify-between">
           <EmbedBadge handle={handle} />
+          {!isMe && (
+            <button
+              onClick={() => setReporting(true)}
+              className="text-xs text-muted-foreground underline hover:text-foreground"
+            >
+              Report this profile
+            </button>
+          )}
         </div>
       )}
+
+      <ReportDialog
+        open={reporting}
+        onClose={() => setReporting(false)}
+        target={handle}
+      />
     </div>
   );
 }

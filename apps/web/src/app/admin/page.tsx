@@ -65,7 +65,7 @@ export default function AdminPage() {
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
-  const [section, setSection] = useState<ContentSection>('rewards');
+  const [section, setSection] = useState<ContentSection | 'reports'>('rewards');
 
   const loadAdmins = useCallback(() => {
     setAdmins(null);
@@ -109,6 +109,9 @@ export default function AdminPage() {
   }
 
   const sections = manageableSections(wallet.address, admins);
+  const allSections: Array<ContentSection | 'reports'> = [...sections];
+  if (sections.length > 0) allSections.push('reports');
+  
   if (sections.length === 0) {
     const unread = CONTENT_SECTIONS.every((s) => !admins[s]);
     return (
@@ -131,7 +134,7 @@ export default function AdminPage() {
     );
   }
 
-  const current = sections.includes(section) ? section : sections[0];
+  const current = allSections.includes(section) ? section : allSections[0];
   return (
     <div className="container max-w-5xl py-12">
       <p className="eyebrow text-secondary">admin // content</p>
@@ -152,7 +155,7 @@ export default function AdminPage() {
         </p>
       )}
       <nav className="mb-6 mt-8 flex gap-2" aria-label="Content sections">
-        {sections.map((s) => (
+        {allSections.map((s) => (
           <Button
             key={s}
             size="sm"
@@ -166,9 +169,13 @@ export default function AdminPage() {
       {current === 'rewards' && <RewardsAdmin wallet={wallet} />}
       {current === 'gates' && <GatesAdmin wallet={wallet} />}
       {current === 'quests' && <QuestsAdmin wallet={wallet} />}
+      {current === 'reports' && <ReportsAdmin wallet={wallet} />}
     </div>
   );
 }
+
+import { adminRelease } from '@/lib/registry';
+import { setFrozen } from '@/lib/rewards';
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
@@ -726,6 +733,99 @@ function QuestsAdmin({ wallet }: { wallet: Wallet }) {
           Review quest
         </Button>
       </div>
+      <WriteStatus write={write} />
+    </Panel>
+  );
+}
+
+// ── Reports ──
+
+function ReportsAdmin({ wallet }: { wallet: Wallet }) {
+  const [reports, setReports] = useState<any[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const write = useWrite('rewards'); // using rewards section for write context
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoadError(null);
+    try {
+      const res = await fetch('/api/report');
+      if (!res.ok) throw new Error('Failed to load reports');
+      const data = await res.json();
+      setReports(data.reports || []);
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : 'Error loading reports');
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function resolve(id: string) {
+    setBusy(true);
+    try {
+      const res = await fetch('/api/report', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      if (!res.ok) throw new Error('Failed to resolve report');
+      await load();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Error resolving report');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleAdminRelease(target: string) {
+    write.review(
+      `Forcefully release handle @${target} (e.g. for impersonation)`,
+      () => adminRelease(wallet, target)
+    );
+  }
+
+  function handleSetFrozen(target: string) {
+    write.review(
+      `Freeze account ${shortAddr(target)} from claiming rewards`,
+      () => setFrozen(wallet, target, true)
+    );
+  }
+
+  return (
+    <Panel title="Reports" note="Open reports from users about handles or vouches.">
+      {loadError && <LoadError message={loadError} retry={load} />}
+      {reports?.length === 0 && (
+        <p className="mt-4 text-sm text-muted-foreground">No open reports.</p>
+      )}
+      <ul className="mt-4 grid gap-2">
+        {(reports ?? []).map((r) => (
+          <li key={r.id} className={rowClass}>
+            <div className="flex flex-col gap-1">
+              <span className="font-medium">
+                Target: {r.target} {r.vouchId !== undefined && `(Vouch #${r.vouchId})`}
+              </span>
+              <span className="text-muted-foreground">Reason: {r.reason}</span>
+              {r.detail && <span className="text-muted-foreground">Detail: {r.detail}</span>}
+              <span className="text-xs text-muted-foreground">Reported: {new Date(r.ts).toLocaleString()}</span>
+            </div>
+            <div className="flex flex-col gap-2 items-end">
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" disabled={write.busy || busy} onClick={() => handleAdminRelease(r.target)}>
+                  Release Handle
+                </Button>
+                <Button size="sm" variant="outline" disabled={write.busy || busy} onClick={() => handleSetFrozen(r.target)}>
+                  Freeze Account
+                </Button>
+                <Button size="sm" onClick={() => resolve(r.id)} disabled={write.busy || busy}>
+                  Mark Resolved
+                </Button>
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
       <WriteStatus write={write} />
     </Panel>
   );

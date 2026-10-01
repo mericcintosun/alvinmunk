@@ -34,6 +34,7 @@ import { useCreateProfile } from '@/hooks/use-create-profile';
 import { HANDLE_MAX_CHARS } from '@/lib/profile';
 import { useTranslations } from '@/lib/i18n';
 import { cn, contractErrorCode, humanizeError, withTimeout } from '@/lib/utils';
+import { ReportDialog } from '@/components/report-dialog';
 
 /** Read the claim code from the URL: the claim key's seed (#k=…) on current links, the
  *  plain secret (#s=…, or the older ?s= query) on links to cards minted before the key.
@@ -89,6 +90,7 @@ function ClaimInner({ params }: { params: { id: string } }) {
   const [voucherHandle, setVoucherHandle] = useState<string | null>(null);
   /** The voucher's published face (undefined = none / still loading → deterministic default). */
   const [voucherAvatar, setVoucherAvatar] = useState<AvatarConfig | undefined>(undefined);
+  const [reporting, setReporting] = useState(false);
 
   useEffect(() => setClaimCode(readClaimCode()), []);
 
@@ -425,6 +427,24 @@ function ClaimInner({ params }: { params: { id: string } }) {
           </div>
         )}
       </div>
+
+      {!done && vouch && (
+        <div className="mt-8 flex justify-center">
+          <button
+            onClick={() => setReporting(true)}
+            className="text-xs text-muted-foreground underline hover:text-foreground"
+          >
+            Report this vouch
+          </button>
+        </div>
+      )}
+
+      <ReportDialog
+        open={reporting}
+        onClose={() => setReporting(false)}
+        target={voucherHandle || vouch?.from || 'unknown'}
+        vouchId={vid}
+      />
     </div>
   );
 }

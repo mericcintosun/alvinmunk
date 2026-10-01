@@ -159,6 +159,20 @@ export async function claimHandle(wallet: Wallet, handle: string): Promise<void>
   );
 }
 
+/**
+ * Admin: forcefully release a handle (e.g. for impersonation or offensive content).
+ * The caller must be the registry's admin. Resolves the transaction hash.
+ */
+export async function adminRelease(wallet: Wallet, handle: string): Promise<string> {
+  const { hash } = await invokeAndWait(
+    registryId(),
+    'admin_release',
+    [args.sym(handle)],
+    wallet,
+  );
+  return hash;
+}
+
 /** Registry error codes `transfer_handle` can revert with (mirrors the contract's Error enum). */
 export const TRANSFER_ERRORS = { NoHandle: 4, AlreadyHasHandle: 10 } as const;
 
