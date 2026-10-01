@@ -258,10 +258,12 @@ export function Quests({ address }: { address: string }) {
         </div>
         <p className="text-sm text-muted-foreground">{t('quests.subtitle')}</p>
         {streak && streak.weeks > 0 && (
-          <StateArt kind="streak-fire" size={64} className="absolute right-4 top-4 motion-safe:animate-float" />
-        )}
-        {streak && (
           <div className="mt-3 flex flex-wrap items-center gap-3">
+            <StateArt
+              kind="streak-fire"
+              size={40}
+              className="shrink-0 motion-safe:animate-float"
+            />
             <span className="eyebrow-mono text-muted-foreground">
               {t('quests.weeklyStamp')}
             </span>
