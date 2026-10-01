@@ -1,32 +1,70 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+// @vitest-environment node
+// Claim keys hash and sign with stellar-sdk, which needs Node's own Uint8Array; jsdom's
+// cross-realm one fails the SDK's checks.
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { Keypair, StrKey } from '@stellar/stellar-sdk';
+import type { ReadNetwork } from './read-network';
 
 const readPublicMock = vi.fn();
+const { invokeMock, REP_ID, TESTNET } = vi.hoisted(() => ({
+  invokeMock: vi.fn(),
+  // 32 × 0x11 as a contract strkey — the contract of the shared claim-message vector.
+  REP_ID: 'CAIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRDB3V',
+  TESTNET: 'Test SDF Network ; September 2015',
+}));
 
+vi.mock('./stellar', () => ({ networkPassphrase: TESTNET }));
+// The profile and vouch reads go through the app's @alvinmunk/sdk client (its own tests pin
+// the views, arguments and decoding against a mocked RPC); here it is a stub.
+const sdkMock = vi.hoisted(() => ({ getProfile: vi.fn(), getVouch: vi.fn() }));
+vi.mock('./sdk', () => ({ readClient: () => sdkMock }));
 vi.mock('./contracts', () => ({
-  repId: () => 'CREPID',
+  repId: () => REP_ID,
   questId: () => 'CQUESTID',
   readPublic: (...a: unknown[]) => readPublicMock(...a),
   readContract: vi.fn(),
-  invokeAndWait: vi.fn(),
+  invokeAndWait: (...a: unknown[]) => invokeMock(...a),
   args: {
     addr: (g: string) => ({ __addr: g }),
+    u32: (n: number) => ({ __u32: n }),
     u64: (n: number) => ({ __u64: n }),
     str: (s: string) => ({ __str: s }),
     bytes: (b: Uint8Array) => ({ __bytes: b }),
+    bytesVec: (bs: Uint8Array[]) => ({ __bytesVec: bs }),
+    strs: (ss: string[]) => ({ __strs: ss }),
   },
 }));
 
 import {
+  getQuestAttestation,
+  claimLink,
+  claimMessage,
+  claimPublicKey,
+  cancelVouch,
+  claimVouch,
+  claimVouchSigned,
   clampVouchNote,
+  isClaimCode,
+  mintVouch,
+  mintVouches,
+  parseClaimCode,
+  signClaim,
   fromHex,
   toHex,
   getCounts,
   getPending,
   getProfile,
   getScores,
+  getVouch,
+  forgetVouch,
+  isVouchCancelled,
+  VOUCH_BATCH_MAX,
+  VOUCH_READ_CONCURRENCY,
+  VOUCH_READ_TTL_MS,
   VOUCH_NOTE_MAX_BYTES,
   VOUCH_NOTE_MAX_CHARS,
   vouchNoteBytes,
+  vouchNoteChars,
 } from './reputation';
 
 function expectBytes(actual: Uint8Array, expected: number[]) {
@@ -78,6 +116,14 @@ describe('vouch note limit', () => {
     expect(vouchNoteBytes('💧')).toBe(4);
   });
 
+  it('counts characters the way the cap does, one per emoji', () => {
+    expect(vouchNoteChars('')).toBe(0);
+    expect(vouchNoteChars('gm ş€')).toBe(5);
+    expect(vouchNoteChars('💧💧')).toBe(2);
+    // A clamped note is always exactly at or under the count the composer shows.
+    expect(vouchNoteChars(clampVouchNote('💧'.repeat(61)))).toBe(VOUCH_NOTE_MAX_CHARS);
+  });
+
   it('keeps a note of 60 characters, one-byte or four-byte alike', () => {
     for (const ch of ['a', 'ş', '€', '💧']) {
       const note = ch.repeat(60);
@@ -114,49 +160,234 @@ describe('vouch note limit', () => {
 });
 
 describe('getProfile', () => {
-  beforeEach(() => readPublicMock.mockReset());
-
-  it('maps the aggregate view to a typed ProfileView', async () => {
-    readPublicMock.mockResolvedValueOnce({ social: 30n, earned: 50n, verified: true });
-    const p = await getProfile('GADDR');
-    expect(p).toEqual({ social: 30, earned: 50, verified: true });
-    expect(readPublicMock).toHaveBeenCalledWith('CREPID', 'get_profile', expect.any(Array));
+  beforeEach(() => {
+    readPublicMock.mockReset();
+    sdkMock.getProfile.mockReset();
   });
 
-  it('defaults missing fields to zero/false', async () => {
-    readPublicMock.mockResolvedValueOnce(undefined);
+  it("reads the SDK's profile of the address", async () => {
+    sdkMock.getProfile.mockResolvedValueOnce({ social: 30, earned: 50, verified: true });
     const p = await getProfile('GADDR');
-    expect(p).toEqual({ social: 0, earned: 0, verified: false });
+    expect(p).toEqual({ social: 30, earned: 50, verified: true });
+    expect(sdkMock.getProfile).toHaveBeenCalledWith('GADDR');
+    expect(readPublicMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects when the profile cannot be read, so callers never show made-up zeros', async () => {
+    const down = new Error('simulate get_profile failed: fetch failed');
+    sdkMock.getProfile.mockRejectedValueOnce(down);
+    await expect(getProfile('GADDR')).rejects.toBe(down);
   });
 
   it('shares one get_profile read between widgets asking at the same time', async () => {
-    readPublicMock.mockResolvedValue({ social: 1n, earned: 2n, verified: true });
+    sdkMock.getProfile.mockResolvedValue({ social: 1, earned: 2, verified: true });
     const [a, b] = await Promise.all([getProfile('GADDR'), getProfile('GADDR')]);
     expect(a).toEqual(b);
-    expect(readPublicMock).toHaveBeenCalledTimes(1);
+    expect(sdkMock.getProfile).toHaveBeenCalledTimes(1);
     await getProfile('GADDR'); // settled → the next read is fresh
-    expect(readPublicMock).toHaveBeenCalledTimes(2);
+    expect(sdkMock.getProfile).toHaveBeenCalledTimes(2);
   });
 });
 
 describe('getScores', () => {
-  beforeEach(() => readPublicMock.mockReset());
+  beforeEach(() => sdkMock.getProfile.mockReset());
 
-  it('prefers the single get_profile call (1 round-trip)', async () => {
-    readPublicMock.mockResolvedValueOnce({ social: 15n, earned: 5n, verified: false });
+  it('takes both tracks from the single get_profile read (1 round-trip)', async () => {
+    sdkMock.getProfile.mockResolvedValueOnce({ social: 15, earned: 5, verified: false });
     const s = await getScores('GADDR');
     expect(s).toEqual({ social: 15, earned: 5 });
-    expect(readPublicMock).toHaveBeenCalledTimes(1);
+    expect(sdkMock.getProfile).toHaveBeenCalledTimes(1);
   });
 
-  it('falls back to get_score + get_earned when get_profile is unavailable', async () => {
-    readPublicMock
-      .mockRejectedValueOnce(new Error('unknown method get_profile'))
-      .mockResolvedValueOnce(12n) // get_score
-      .mockResolvedValueOnce(8n); // get_earned
-    const s = await getScores('GADDR');
-    expect(s).toEqual({ social: 12, earned: 8 });
-    expect(readPublicMock).toHaveBeenCalledTimes(3);
+  it('shares the read with a getProfile caller asking at the same time', async () => {
+    sdkMock.getProfile.mockResolvedValue({ social: 3, earned: 4, verified: true });
+    const [p, s] = await Promise.all([getProfile('GADDR'), getScores('GADDR')]);
+    expect(p).toEqual({ social: 3, earned: 4, verified: true });
+    expect(s).toEqual({ social: 3, earned: 4 });
+    expect(sdkMock.getProfile).toHaveBeenCalledTimes(1);
+  });
+
+  it('never rejects: an unreadable profile scores zero', async () => {
+    sdkMock.getProfile.mockRejectedValueOnce(new Error('fetch failed'));
+    await expect(getScores('GADDR')).resolves.toEqual({ social: 0, earned: 0 });
+  });
+});
+
+describe('getVouch', () => {
+  beforeEach(() => {
+    sdkMock.getVouch.mockReset();
+    invokeMock.mockReset();
+    forgetVouch();
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  const card = {
+    id: 7,
+    from: 'GFROM',
+    note: 'hi',
+    claimed: false,
+    claimer: null,
+    created: 1,
+    stake: 5,
+    slashed: false,
+  };
+
+  it("reads an override network's card with its own client, memoized apart from the deployment's (#438)", async () => {
+    const netClient = { getVouch: vi.fn().mockResolvedValue({ ...card, note: 'on testnet', claimed: true }) };
+    const net = { network: 'testnet', client: netClient } as unknown as ReadNetwork;
+    sdkMock.getVouch.mockResolvedValue({ ...card, claimed: true });
+    await expect(getVouch(7, net)).resolves.toMatchObject({ note: 'on testnet' });
+    await expect(getVouch(7)).resolves.toMatchObject({ note: 'hi' });
+    // Both claimed, so both stay memoized — each under its own network.
+    await expect(getVouch(7, net)).resolves.toMatchObject({ note: 'on testnet' });
+    await expect(getVouch(7)).resolves.toMatchObject({ note: 'hi' });
+    expect(netClient.getVouch).toHaveBeenCalledTimes(1);
+    expect(sdkMock.getVouch).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads the SDK's half-card, null for an unknown id", async () => {
+    sdkMock.getVouch.mockResolvedValueOnce(card).mockResolvedValueOnce(null);
+    await expect(getVouch(7)).resolves.toEqual(card);
+    await expect(getVouch(8)).resolves.toBeNull();
+    expect(sdkMock.getVouch.mock.calls).toEqual([[7], [8]]);
+  });
+
+  it('shares one read per id between cards scanning the same vouch at once', async () => {
+    sdkMock.getVouch.mockResolvedValue(card);
+    const [a, b] = await Promise.all([getVouch(7), getVouch(7)]);
+    expect(a).toBe(b);
+    expect(sdkMock.getVouch).toHaveBeenCalledTimes(1);
+  });
+
+  it('reuses a settled read for cards that mount later, until the TTL passes', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    sdkMock.getVouch.mockResolvedValue(card);
+    await getVouch(7); // PendingHalfCards
+    now.mockReturnValue(1_000_000 + VOUCH_READ_TTL_MS - 1);
+    await expect(getVouch(7)).resolves.toEqual(card); // OwedBonuses, a moment later
+    expect(sdkMock.getVouch).toHaveBeenCalledTimes(1);
+
+    // Still unclaimed, so a later poll must look again: it may have been claimed since.
+    now.mockReturnValue(1_000_000 + VOUCH_READ_TTL_MS);
+    await getVouch(7);
+    expect(sdkMock.getVouch).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a claimed card for the session, but not a slashed unclaimed one', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const claimed = { ...card, claimed: true, claimer: 'GCLAIMER' };
+    const slashed = { ...card, id: 8, slashed: true }; // expired: still claimable
+    sdkMock.getVouch.mockImplementation(async (id: number) => (id === 7 ? claimed : slashed));
+    await getVouch(7);
+    await getVouch(8);
+    now.mockReturnValue(1_000_000 + 100 * VOUCH_READ_TTL_MS);
+    await expect(getVouch(7)).resolves.toEqual(claimed);
+    await expect(getVouch(8)).resolves.toEqual(slashed);
+    expect(sdkMock.getVouch.mock.calls).toEqual([[7], [8], [8]]);
+  });
+
+  it('remembers an unknown id only for the TTL (a fresh mint may not be visible yet)', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    sdkMock.getVouch.mockResolvedValueOnce(null).mockResolvedValueOnce(card);
+    await expect(getVouch(7)).resolves.toBeNull();
+    await expect(getVouch(7)).resolves.toBeNull();
+    now.mockReturnValue(1_000_000 + VOUCH_READ_TTL_MS);
+    await expect(getVouch(7)).resolves.toEqual(card);
+    expect(sdkMock.getVouch).toHaveBeenCalledTimes(2);
+  });
+
+  it('never keeps a failed read: the next card reads again', async () => {
+    sdkMock.getVouch.mockRejectedValueOnce(new Error('429')).mockResolvedValueOnce(card);
+    await expect(getVouch(7)).rejects.toThrow('429');
+    await expect(getVouch(7)).resolves.toEqual(card);
+    expect(sdkMock.getVouch).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-reads a card this tab just claimed', async () => {
+    sdkMock.getVouch.mockResolvedValueOnce(card).mockResolvedValueOnce({ ...card, claimed: true });
+    invokeMock.mockResolvedValue(undefined);
+    await getVouch(7);
+    await claimVouch({ address: 'GCLAIMER' } as never, 7, 'ab'.repeat(32));
+    await expect(getVouch(7)).resolves.toMatchObject({ claimed: true });
+    expect(sdkMock.getVouch).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not store a read that started before the card was forgotten', async () => {
+    let finish!: (v: typeof card) => void;
+    sdkMock.getVouch
+      .mockReturnValueOnce(new Promise((r) => (finish = r)))
+      .mockResolvedValueOnce({ ...card, claimed: true });
+    const early = getVouch(7);
+    forgetVouch(7); // e.g. a claim landed while the read was in flight
+    finish(card);
+    await early;
+    await expect(getVouch(7)).resolves.toMatchObject({ claimed: true });
+  });
+
+  it(`reads at most ${VOUCH_READ_CONCURRENCY} cards at once, then the rest as slots free up`, async () => {
+    const release: Array<() => void> = [];
+    let active = 0;
+    let peak = 0;
+    sdkMock.getVouch.mockImplementation(
+      (id: number) =>
+        new Promise((resolve) => {
+          peak = Math.max(peak, ++active);
+          release.push(() => {
+            active--;
+            resolve({ ...card, id });
+          });
+        }),
+    );
+    const ids = Array.from({ length: 20 }, (_, i) => i + 1);
+    const all = Promise.all(ids.map((id) => getVouch(id)));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sdkMock.getVouch).toHaveBeenCalledTimes(VOUCH_READ_CONCURRENCY);
+    while (release.length) {
+      release.shift()!();
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    expect((await all).map((v) => v?.id)).toEqual(ids);
+    expect(sdkMock.getVouch).toHaveBeenCalledTimes(20);
+    expect(peak).toBe(VOUCH_READ_CONCURRENCY);
+  });
+});
+
+describe('on a ?network= override (#290)', () => {
+  const netClient = { getProfile: vi.fn() };
+  const net = {
+    network: 'testnet',
+    contracts: { reputation: 'CTESTREP', registry: 'CTESTREG' },
+    client: netClient,
+  } as unknown as ReadNetwork;
+
+  beforeEach(() => {
+    readPublicMock.mockReset();
+    sdkMock.getProfile.mockReset();
+    netClient.getProfile.mockReset();
+  });
+
+  it("reads scores with the override's client, and never shares a read with the deployment's", async () => {
+    netClient.getProfile.mockResolvedValueOnce({ social: 12, earned: 3, verified: false });
+    sdkMock.getProfile.mockResolvedValueOnce({ social: 0, earned: 0, verified: false });
+    const [testnet, deployment] = await Promise.all([getScores('GSAME', net), getScores('GSAME')]);
+    expect(testnet).toEqual({ social: 12, earned: 3 });
+    expect(deployment).toEqual({ social: 0, earned: 0 });
+    expect(netClient.getProfile).toHaveBeenCalledWith('GSAME');
+    expect(sdkMock.getProfile).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads the people counters and the quest attestation from the override's contract", async () => {
+    readPublicMock.mockResolvedValueOnce([4, 2]);
+    expect(await getCounts('GSAME', net)).toEqual({ vouchedBy: 4, backed: 2 });
+    expect(readPublicMock).toHaveBeenLastCalledWith('CTESTREP', 'get_counts', [{ __addr: 'GSAME' }], net);
+    readPublicMock.mockResolvedValueOnce(null);
+    await getQuestAttestation('GSAME', net);
+    expect(readPublicMock).toHaveBeenLastCalledWith(
+      'CTESTREP',
+      'get_attestation',
+      [{ __addr: 'GSAME' }, { __u32: 2 }],
+      net,
+    );
   });
 });
 
@@ -166,7 +397,7 @@ describe('getCounts', () => {
   it('maps the (vouched_by, backed) tuple', async () => {
     readPublicMock.mockResolvedValueOnce([3, 1]);
     expect(await getCounts('GADDR')).toEqual({ vouchedBy: 3, backed: 1 });
-    expect(readPublicMock).toHaveBeenCalledWith('CREPID', 'get_counts', expect.any(Array));
+    expect(readPublicMock).toHaveBeenCalledWith(REP_ID, 'get_counts', expect.any(Array), undefined);
   });
 
   it('is null, not zero, when the contract predates get_counts', async () => {
@@ -192,7 +423,7 @@ describe('getPending', () => {
       { voucher: 'GALICE', amount: 5 },
       { voucher: 'GCAROL', amount: 5 },
     ]);
-    expect(readPublicMock).toHaveBeenCalledWith('CREPID', 'get_pending', expect.any(Array));
+    expect(readPublicMock).toHaveBeenCalledWith(REP_ID, 'get_pending', expect.any(Array));
   });
 
   it('is empty once the claimer has verified', async () => {
@@ -203,5 +434,224 @@ describe('getPending', () => {
   it('rejects when the contract predates get_pending, instead of reading as nothing owed', async () => {
     readPublicMock.mockRejectedValueOnce(new Error('simulate get_pending failed: MissingValue'));
     await expect(getPending('GBOB')).rejects.toThrow('get_pending');
+  });
+});
+
+describe('isVouchCancelled', () => {
+  beforeEach(() => readPublicMock.mockReset());
+
+  it('reads is_cancelled for the card', async () => {
+    readPublicMock.mockResolvedValueOnce(true);
+    expect(await isVouchCancelled(7)).toBe(true);
+    expect(readPublicMock).toHaveBeenCalledWith(REP_ID, 'is_cancelled', [{ __u64: 7 }]);
+    readPublicMock.mockResolvedValueOnce(false);
+    expect(await isVouchCancelled(8)).toBe(false);
+  });
+
+  it('is null, not false, when the contract predates cancel_vouch', async () => {
+    readPublicMock.mockRejectedValueOnce(new Error('simulate is_cancelled failed: MissingValue'));
+    expect(await isVouchCancelled(7)).toBeNull();
+    readPublicMock.mockResolvedValueOnce(undefined);
+    expect(await isVouchCancelled(7)).toBeNull();
+  });
+});
+
+// ── claim keys (issue #121) ──
+
+const CLASSIC = 'GARCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCEIRCFRVX'; // 32 × 0x22
+const PASSKEY = 'CAZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGMZTGGJH'; // 32 × 0x33
+const MAINNET = 'Public Global Stellar Network ; September 2015';
+
+/** Vouch 7's claim message on testnet from REP_ID — the same bytes
+ *  contracts/reputation/src/test.rs pins for the contract's `claim_message`. */
+const CLAIM_MESSAGE_HEAD = [
+  '000000100000000100000005', // vec of 5
+  '0000000f00000015616c76696e6d756e6b5f766f7563685f636c61696d000000', // Symbol("alvinmunk_vouch_claim")
+  '0000000d00000020cee0302d59844d32bdca915c8203dd44b33fbb7edc19051ea37abedf28ecd472', // BytesN<32> network id
+  '00000012000000011111111111111111111111111111111111111111111111111111111111111111', // Address, contract
+  '000000050000000000000007', // u64 vouch id
+].join('');
+const CLAIM_MESSAGE_G =
+  CLAIM_MESSAGE_HEAD + '0000001200000000000000002222222222222222222222222222222222222222222222222222222222222222';
+const CLAIM_MESSAGE_C =
+  CLAIM_MESSAGE_HEAD + '00000012000000013333333333333333333333333333333333333333333333333333333333333333';
+
+// RFC 8032 §7.1, test 1: an ed25519 seed and its public key.
+const RFC_SEED = '9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60';
+const RFC_PUBLIC = 'd75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a';
+
+function verifies(publicKey: Uint8Array, message: Uint8Array, sig: Uint8Array): boolean {
+  const kp = Keypair.fromPublicKey(StrKey.encodeEd25519PublicKey(Buffer.from(publicKey)));
+  return kp.verify(Buffer.from(message), Buffer.from(sig));
+}
+
+describe('claimMessage', () => {
+  it("is the contract's claim message byte for byte, for classic and passkey claimers", () => {
+    expect(toHex(claimMessage(TESTNET, REP_ID, 7, CLASSIC))).toBe(CLAIM_MESSAGE_G);
+    expect(toHex(claimMessage(TESTNET, REP_ID, 7, PASSKEY))).toBe(CLAIM_MESSAGE_C);
+  });
+});
+
+describe('signClaim', () => {
+  const seed = fromHex(RFC_SEED);
+
+  it('derives the standard ed25519 public key from the seed', () => {
+    expect(toHex(claimPublicKey(seed))).toBe(RFC_PUBLIC);
+  });
+
+  it('signs a claim that verifies for the claimer, card, contract and network it names only', () => {
+    const pub = claimPublicKey(seed);
+    const sig = signClaim(seed, TESTNET, REP_ID, 7, CLASSIC);
+    expect(verifies(pub, claimMessage(TESTNET, REP_ID, 7, CLASSIC), sig)).toBe(true);
+    // A front-runner's address, another card, another deployment, another network.
+    expect(verifies(pub, claimMessage(TESTNET, REP_ID, 7, PASSKEY), sig)).toBe(false);
+    expect(verifies(pub, claimMessage(TESTNET, REP_ID, 8, CLASSIC), sig)).toBe(false);
+    expect(verifies(pub, claimMessage(TESTNET, PASSKEY, 7, CLASSIC), sig)).toBe(false);
+    expect(verifies(pub, claimMessage(MAINNET, REP_ID, 7, CLASSIC), sig)).toBe(false);
+  });
+});
+
+describe('vouch mint and claim', () => {
+  const wallet = { address: CLASSIC } as Parameters<typeof mintVouch>[0];
+
+  beforeEach(() => invokeMock.mockReset());
+
+  it('mints with the public key of a fresh seed and hands the seed back for the link', async () => {
+    invokeMock.mockResolvedValue(7n);
+    const { id, seed } = await mintVouch(wallet, 'gm');
+
+    expect(id).toBe(7);
+    expect(isClaimCode(seed)).toBe(true);
+    expect(invokeMock).toHaveBeenCalledWith(
+      REP_ID,
+      'mint_vouch_signed',
+      [{ __addr: CLASSIC }, { __bytes: claimPublicKey(fromHex(seed)) }, { __str: 'gm' }],
+      wallet,
+    );
+    expect(JSON.stringify(invokeMock.mock.calls)).not.toContain(seed);
+    // Every mint gets its own key.
+    const again = await mintVouch(wallet, 'gm');
+    expect(again.seed).not.toBe(seed);
+  });
+
+  it('batch-mints one fresh claim key per note in a single call, in order', async () => {
+    invokeMock.mockResolvedValue([4n, 5n, 6n]);
+    const cards = await mintVouches(wallet, ['ada', 'grace', 'linus']);
+
+    expect(cards.map((c) => c.id)).toEqual([4, 5, 6]);
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    const [contract, method, callArgs, signer] = invokeMock.mock.calls[0];
+    expect([contract, method, signer]).toEqual([REP_ID, 'mint_vouches', wallet]);
+    expect(callArgs[0]).toEqual({ __addr: CLASSIC });
+    expect(callArgs[2]).toEqual({ __strs: ['ada', 'grace', 'linus'] });
+    // Card i is bound to the public half of seed i; the seeds stay here.
+    const keys = (callArgs[1] as { __bytesVec: Uint8Array[] }).__bytesVec;
+    expect(keys).toEqual(cards.map((c) => claimPublicKey(fromHex(c.seed))));
+    for (const c of cards) expect(isClaimCode(c.seed)).toBe(true);
+    expect(new Set(cards.map((c) => c.seed)).size).toBe(3);
+    expect(JSON.stringify(invokeMock.mock.calls)).not.toContain(cards[0].seed);
+  });
+
+  it('refuses an empty or oversized batch before asking the wallet to sign', async () => {
+    expect(VOUCH_BATCH_MAX).toBe(10);
+    await expect(mintVouches(wallet, [])).rejects.toThrow('1 to 10');
+    await expect(mintVouches(wallet, Array(VOUCH_BATCH_MAX + 1).fill('gm'))).rejects.toThrow('not 11');
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it('passes a reverted batch through, and rejects a result that does not match the notes', async () => {
+    invokeMock.mockRejectedValueOnce(new Error('HostError: Error(Contract, #9)'));
+    await expect(mintVouches(wallet, ['a', 'b'])).rejects.toThrow('#9');
+    invokeMock.mockResolvedValueOnce([4n]);
+    await expect(mintVouches(wallet, ['a', 'b'])).rejects.toThrow('unexpected result');
+  });
+
+  it('claims with a signature for the wallet, never the seed itself', async () => {
+    invokeMock.mockResolvedValue(undefined);
+    await claimVouchSigned(wallet, 7, RFC_SEED);
+
+    const [contract, method, callArgs] = invokeMock.mock.calls[0];
+    expect([contract, method]).toEqual([REP_ID, 'claim_vouch_signed']);
+    expect(callArgs.slice(0, 2)).toEqual([{ __addr: CLASSIC }, { __u64: 7 }]);
+    const sig = (callArgs[2] as { __bytes: Uint8Array }).__bytes;
+    expect(sig).toHaveLength(64);
+    expect(verifies(fromHex(RFC_PUBLIC), claimMessage(TESTNET, REP_ID, 7, CLASSIC), sig)).toBe(true);
+    expect(toHex(sig)).not.toContain(RFC_SEED);
+  });
+
+  it('still claims an older card with its secret', async () => {
+    invokeMock.mockResolvedValue(undefined);
+    await claimVouch(wallet, 3, 'ab'.repeat(32));
+    expect(invokeMock).toHaveBeenCalledWith(
+      REP_ID,
+      'claim_vouch',
+      [{ __addr: CLASSIC }, { __u64: 3 }, { __bytes: fromHex('ab'.repeat(32)) }],
+      wallet,
+    );
+  });
+
+  it("cancels the voucher's own card, then reads it from the chain again", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    sdkMock.getVouch.mockReset().mockResolvedValue({ id: 9, claimed: false });
+    forgetVouch();
+    await getVouch(9);
+    await cancelVouch(wallet, 9);
+    expect(invokeMock).toHaveBeenCalledWith(REP_ID, 'cancel_vouch', [{ __addr: CLASSIC }, { __u64: 9 }], wallet);
+    await getVouch(9);
+    expect(sdkMock.getVouch).toHaveBeenCalledTimes(2);
+  });
+
+  it('passes a refused cancel through for the caller to explain', async () => {
+    invokeMock.mockRejectedValueOnce(new Error('HostError: Error(Contract, #16)'));
+    await expect(cancelVouch(wallet, 9)).rejects.toThrow('#16');
+  });
+});
+
+describe('claim links', () => {
+  const seed = 'cd'.repeat(32);
+
+  it('puts the claim key in the fragment and reads it back', () => {
+    const link = claimLink('https://alvinmunk.app/', 7, { kind: 'key', code: seed });
+    expect(link).toBe(`https://alvinmunk.app/claim/7#k=${seed}`);
+    const url = new URL(link);
+    expect(url.search).toBe('');
+    expect(parseClaimCode(url.hash, url.search)).toEqual({ kind: 'key', code: seed });
+  });
+
+  it('keeps reading older links: #s= and the original ?s= query', () => {
+    expect(claimLink('https://a.b', 2, { kind: 'secret', code: seed })).toBe(`https://a.b/claim/2#s=${seed}`);
+    expect(parseClaimCode(`#s=${seed}`, '')).toEqual({ kind: 'secret', code: seed });
+    expect(parseClaimCode('', `?s=${seed}`)).toEqual({ kind: 'secret', code: seed });
+    expect(parseClaimCode('', '')).toBeNull();
+  });
+
+  it('accepts only 32 bytes of hex as a claim code', () => {
+    expect(isClaimCode(seed)).toBe(true);
+    expect(isClaimCode(seed.toUpperCase())).toBe(true);
+    expect(isClaimCode(seed.slice(1))).toBe(false);
+    expect(isClaimCode(`${seed}0`)).toBe(false);
+    expect(isClaimCode(`zz${seed.slice(2)}`)).toBe(false);
+  });
+});
+
+describe('getQuestAttestation', () => {
+  beforeEach(() => readPublicMock.mockReset());
+  const ADDR = 'GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H';
+
+  it('reads the quest-schema attestation from the reputation contract', async () => {
+    readPublicMock.mockResolvedValueOnce({ issuer: 'GATT', value: 25n, timestamp: 1_760_000_000n, revoked: false });
+    const a = await getQuestAttestation(ADDR);
+    expect(readPublicMock).toHaveBeenCalledWith(REP_ID, 'get_attestation', [{ __addr: ADDR }, { __u32: 2 }], undefined);
+    expect(a).toEqual({ issuer: 'GATT', value: 25n, timestamp: 1_760_000_000, revoked: false });
+  });
+
+  it('returns null when the address has no quest attestation', async () => {
+    readPublicMock.mockResolvedValueOnce(undefined);
+    await expect(getQuestAttestation(ADDR)).resolves.toBeNull();
+  });
+
+  it('lets a failed read throw instead of reporting no quests', async () => {
+    readPublicMock.mockRejectedValueOnce(new Error('rpc down'));
+    await expect(getQuestAttestation(ADDR)).rejects.toThrow('rpc down');
   });
 });

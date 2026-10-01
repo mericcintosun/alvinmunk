@@ -14,7 +14,12 @@ vi.mock('./contracts', () => ({
   },
 }));
 
-import { TRACK, getGates, checkGate, isUnlocked, unlockGate } from './gate';
+// checkGate reads through the app's @alvinmunk/sdk client (its own tests pin the view and
+// arguments against a mocked RPC); here it is a stub.
+const sdkMock = vi.hoisted(() => ({ checkGate: vi.fn() }));
+vi.mock('./sdk', () => ({ readClient: () => sdkMock }));
+
+import { TRACK, getGates, getGateStatus, checkGate, isUnlocked, unlockGate } from './gate';
 import type { Wallet } from './wallet';
 
 describe('gate TRACK constants', () => {
@@ -67,37 +72,38 @@ describe('getGates', () => {
 describe('checkGate', () => {
   beforeEach(() => {
     readPublicMock.mockReset();
+    sdkMock.checkGate.mockReset();
     gateIdMock.mockReturnValue('CGATEID');
   });
 
   it('returns true if address passes gate', async () => {
-    readPublicMock.mockResolvedValueOnce(true);
+    sdkMock.checkGate.mockResolvedValueOnce(true);
     const result = await checkGate('GADDR', 1);
-    
+
     expect(result).toBe(true);
-    expect(readPublicMock).toHaveBeenCalledWith('CGATEID', 'check', [
-      { __addr: 'GADDR' },
-      { __u32: 1 },
-    ]);
+    expect(sdkMock.checkGate).toHaveBeenCalledWith('GADDR', 1);
+    expect(readPublicMock).not.toHaveBeenCalled();
   });
 
   it('returns false if address fails gate', async () => {
-    readPublicMock.mockResolvedValueOnce(false);
+    sdkMock.checkGate.mockResolvedValueOnce(false);
     const result = await checkGate('GADDR', 1);
     expect(result).toBe(false);
+    expect(sdkMock.checkGate).toHaveBeenCalledTimes(1);
   });
 
-  it('returns false if readPublic fails', async () => {
-    readPublicMock.mockRejectedValueOnce(new Error('fail'));
+  it('returns false if the read fails', async () => {
+    sdkMock.checkGate.mockRejectedValueOnce(new Error('fail'));
     const result = await checkGate('GADDR', 1);
     expect(result).toBe(false);
+    expect(sdkMock.checkGate).toHaveBeenCalledTimes(1);
   });
-  
+
   it('returns false if gateId is missing', async () => {
     gateIdMock.mockReturnValueOnce('');
     const result = await checkGate('GADDR', 1);
     expect(result).toBe(false);
-    expect(readPublicMock).not.toHaveBeenCalled();
+    expect(sdkMock.checkGate).not.toHaveBeenCalled();
   });
 });
 
@@ -127,6 +133,39 @@ describe('isUnlocked', () => {
     readPublicMock.mockRejectedValueOnce(new Error('fail'));
     const result = await isUnlocked('GADDR', 2);
     expect(result).toBe(false);
+  });
+});
+
+describe('getGateStatus', () => {
+  beforeEach(() => {
+    readPublicMock.mockReset();
+    gateIdMock.mockReturnValue('CGATEID');
+  });
+
+  it('reads every gate with passes/unlocked in one get_status call', async () => {
+    readPublicMock.mockResolvedValueOnce([
+      { gate: { id: 1, track: 0, min: 10n, label: 'Noobs', active: true }, passes: true, unlocked: true },
+      { gate: { id: 2, track: 1, min: 50n, label: 'Pros', active: false }, passes: false, unlocked: false },
+    ]);
+    await expect(getGateStatus('GADDR')).resolves.toEqual([
+      { gate: { id: 1, track: 0, min: 10, label: 'Noobs', active: true }, passes: true, unlocked: true },
+      { gate: { id: 2, track: 1, min: 50, label: 'Pros', active: false }, passes: false, unlocked: false },
+    ]);
+    expect(readPublicMock).toHaveBeenCalledTimes(1);
+    expect(readPublicMock).toHaveBeenCalledWith('CGATEID', 'get_status', [{ __addr: 'GADDR' }]);
+  });
+
+  it('returns no gates without a gate contract, and makes no call', async () => {
+    gateIdMock.mockReturnValueOnce('');
+    await expect(getGateStatus('GADDR')).resolves.toEqual([]);
+    expect(readPublicMock).not.toHaveBeenCalled();
+  });
+
+  it('reads an RPC failure or an empty result as no gates', async () => {
+    readPublicMock.mockRejectedValueOnce(new Error('fail'));
+    await expect(getGateStatus('GADDR')).resolves.toEqual([]);
+    readPublicMock.mockResolvedValueOnce(undefined);
+    await expect(getGateStatus('GADDR')).resolves.toEqual([]);
   });
 });
 

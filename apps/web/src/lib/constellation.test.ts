@@ -1,15 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { RepEvent } from './events';
+import type { ReadNetwork } from './read-network';
 
-const { getCountsMock, fetchEventsMock } = vi.hoisted(() => ({
+const { getCountsMock, fetchEventsMock, getVouchMock } = vi.hoisted(() => ({
   getCountsMock: vi.fn(),
   fetchEventsMock: vi.fn(),
+  getVouchMock: vi.fn(),
 }));
 
-vi.mock('./reputation', () => ({ getCounts: getCountsMock, getVouch: vi.fn() }));
+vi.mock('./reputation', () => ({ getCounts: getCountsMock, getVouch: getVouchMock }));
 vi.mock('./events', () => ({ fetchReputationEvents: fetchEventsMock }));
 
-import { addrHue, getPeopleCounts, timeAgo } from './constellation';
+import {
+  addrHue,
+  fetchBackedBy,
+  fetchVouchersOf,
+  getPeopleCounts,
+  mutualNeighbours,
+  suggestPeople,
+  timeAgo,
+} from './constellation';
 
 const NOW = Math.floor(Date.now() / 1000);
 
@@ -48,9 +58,15 @@ describe('timeAgo', () => {
     expect(timeAgo(NOW - 7 * 86_400)).toBe('1 week ago');
     expect(timeAgo(NOW - 60 * 86_400)).toBe('2 months ago');
   });
+
+  it('formats relative times in the requested locale', () => {
+    expect(timeAgo(NOW - 86_400, 'tr')).toBe('dün');
+    expect(timeAgo(NOW - 3 * 86_400, 'tr')).toBe('3 gün önce');
+  });
 });
 
 const ME = 'G'.padEnd(56, 'M');
+const THEY = 'G'.padEnd(56, 'T');
 const A = 'G'.padEnd(56, 'A');
 const B = 'G'.padEnd(56, 'B');
 const C = 'G'.padEnd(56, 'C');
@@ -96,5 +112,282 @@ describe('getPeopleCounts', () => {
     getCountsMock.mockResolvedValue({ vouchedBy: 0, backed: 0 });
     fetchEventsMock.mockResolvedValue([claimed(1, A, B)]);
     expect(await getPeopleCounts(ME)).toEqual({ vouchedBy: 0, backed: 0 });
+  });
+});
+
+// ── suggestPeople ──────────────────────────────────────────────────────────────
+
+/**
+ * Helpers for building `vouch:claimed` events in the shape the engine expects.
+ * data = [vouchId, from, claimer], topics = ['vouch', 'claimed']
+ */
+function claimedEdge(vouchId: number, from: string, claimer: string) {
+  return { topics: ['vouch', 'claimed'], data: [vouchId, from, claimer] };
+}
+
+// Stable test addresses
+const ME2 = 'G'.padEnd(56, 'M');
+const A2 = 'G'.padEnd(56, 'A');
+const B2 = 'G'.padEnd(56, 'B');
+const C2 = 'G'.padEnd(56, 'C');
+const D2 = 'G'.padEnd(56, 'D');
+const E2 = 'G'.padEnd(56, 'E');
+const F2 = 'G'.padEnd(56, 'F');
+
+describe('suggestPeople', () => {
+  it('returns an empty array when there are no events', () => {
+    expect(suggestPeople(ME2, [], 6)).toEqual([]);
+  });
+
+  it('returns nothing when the viewer is isolated in the graph', () => {
+    // A and B know each other but ME has no edges at all
+    const events = [claimedEdge(1, A2, B2)];
+    expect(suggestPeople(ME2, events, 6)).toEqual([]);
+  });
+
+  it('suggests a second-degree neighbour', () => {
+    // ME → A → C: C is second-degree, A is direct
+    const events = [
+      claimedEdge(1, ME2, A2), // ME directly connected to A
+      claimedEdge(2, A2, C2), // A connected to C
+    ];
+    const results = suggestPeople(ME2, events, 6);
+    expect(results).toHaveLength(1);
+    expect(results[0].address).toBe(C2);
+    expect(results[0].sharedCount).toBe(1);
+    expect(results[0].handle).toBeNull();
+  });
+
+  it('never suggests the viewer themselves', () => {
+    // A self-loop won't happen on-chain, but the engine must be defensive
+    const events = [
+      claimedEdge(1, ME2, A2),
+      claimedEdge(2, A2, ME2), // A vouched ME back → ME is "second-degree" through A
+    ];
+    const results = suggestPeople(ME2, events, 6);
+    expect(results.every((s) => s.address !== ME2)).toBe(true);
+  });
+
+  it('never suggests someone already directly connected', () => {
+    // ME – A – B – ME: B is directly vouched by ME, so not a suggestion
+    const events = [
+      claimedEdge(1, ME2, A2),
+      claimedEdge(2, A2, B2),
+      claimedEdge(3, ME2, B2), // direct edge ME↔B
+    ];
+    const results = suggestPeople(ME2, events, 6);
+    expect(results.every((s) => s.address !== B2)).toBe(true);
+    expect(results.every((s) => s.address !== A2)).toBe(true);
+  });
+
+  it('ranks by shared-connection count, highest first', () => {
+    // ME knows A and B.
+    // C is vouched by A and B   → sharedCount 2
+    // D is vouched by A only    → sharedCount 1
+    const events = [
+      claimedEdge(1, ME2, A2),
+      claimedEdge(2, ME2, B2),
+      claimedEdge(3, A2, C2),
+      claimedEdge(4, B2, C2),
+      claimedEdge(5, A2, D2),
+    ];
+    const results = suggestPeople(ME2, events, 6);
+    expect(results[0].address).toBe(C2);
+    expect(results[0].sharedCount).toBe(2);
+    expect(results[1].address).toBe(D2);
+    expect(results[1].sharedCount).toBe(1);
+  });
+
+  it('treats vouches as undirected (A vouched B means B also knows A)', () => {
+    // ME → A (ME minted a vouch for A).
+    // B → A (B minted a vouch for A): B is reachable from ME via A, sharedCount = 1.
+    const events = [
+      claimedEdge(1, ME2, A2),
+      claimedEdge(2, B2, A2), // reversed direction — still an undirected edge A↔B
+    ];
+    const results = suggestPeople(ME2, events, 6);
+    expect(results).toHaveLength(1);
+    expect(results[0].address).toBe(B2);
+  });
+
+  it('respects the max cap', () => {
+    // ME knows A; A knows B, C, D, E, F — five candidates
+    const events = [
+      claimedEdge(1, ME2, A2),
+      claimedEdge(2, A2, B2),
+      claimedEdge(3, A2, C2),
+      claimedEdge(4, A2, D2),
+      claimedEdge(5, A2, E2),
+      claimedEdge(6, A2, F2),
+    ];
+    expect(suggestPeople(ME2, events, 3)).toHaveLength(3);
+    expect(suggestPeople(ME2, events, 6)).toHaveLength(5);
+  });
+
+  it('is stable and deterministic: same input → same output order', () => {
+    const events = [claimedEdge(1, ME2, A2), claimedEdge(2, A2, C2), claimedEdge(3, A2, D2)];
+    const r1 = suggestPeople(ME2, events, 6);
+    const r2 = suggestPeople(ME2, events, 6);
+    expect(r1.map((s) => s.address)).toEqual(r2.map((s) => s.address));
+  });
+
+  it('ignores non-vouch events gracefully', () => {
+    const events = [
+      { topics: ['tipped', ME2, A2], data: [1, ME2, A2] },
+      { topics: ['vouch', 'minted'], data: [1, ME2, A2] }, // minted, not claimed
+      claimedEdge(2, ME2, A2),
+      claimedEdge(3, A2, C2),
+    ];
+    const results = suggestPeople(ME2, events, 6);
+    expect(results).toHaveLength(1);
+    expect(results[0].address).toBe(C2);
+  });
+
+  it('skips malformed event data without throwing', () => {
+    const events = [
+      { topics: ['vouch', 'claimed'], data: [] }, // too short
+      { topics: ['vouch', 'claimed'], data: [1, ME2] }, // missing claimer
+      claimedEdge(2, ME2, A2),
+      claimedEdge(3, A2, B2),
+    ];
+    expect(() => suggestPeople(ME2, events, 6)).not.toThrow();
+    const results = suggestPeople(ME2, events, 6);
+    expect(results[0].address).toBe(B2);
+  });
+});
+
+// ── fetchBackedBy ─────────────────────────────────────────────────────────────
+
+describe('fetchBackedBy', () => {
+  beforeEach(() => {
+    fetchEventsMock.mockReset();
+    getVouchMock.mockReset();
+    getVouchMock.mockResolvedValue(null); // failed/unknown reads degrade to an empty note
+  });
+
+  it('lists whom ME backed, newest first, de-duplicated per recipient', async () => {
+    fetchEventsMock.mockResolvedValue([
+      claimed(1, ME, A),
+      claimed(2, ME, B),
+      claimed(3, ME, A), // a repeat pair counts once — its newest edge stands
+      claimed(4, C, B), // someone else's edge to B: not ME's backing
+    ]);
+    const out = await fetchBackedBy(ME);
+    expect(out.map((s) => s.from)).toEqual([A, B]);
+    expect(out.map((s) => s.vouchId)).toEqual([3, 2]);
+  });
+
+  it('enriches each edge with the note and timestamp from get_vouch', async () => {
+    fetchEventsMock.mockResolvedValue([claimed(7, ME, A)]);
+    getVouchMock.mockResolvedValue({ note: 'unblocked me at 2am', created: 123 });
+    const out = await fetchBackedBy(ME);
+    expect(out).toEqual([{ from: A, vouchId: 7, note: 'unblocked me at 2am', created: 123 }]);
+  });
+
+  it('degrades a failed get_vouch to an empty note instead of dropping the person', async () => {
+    fetchEventsMock.mockResolvedValue([claimed(7, ME, A)]);
+    getVouchMock.mockRejectedValue(new Error('rpc down'));
+    const out = await fetchBackedBy(ME);
+    expect(out).toEqual([{ from: A, vouchId: 7, note: '', created: 0 }]);
+  });
+
+  it('reads nobody for a wallet that never vouched', async () => {
+    fetchEventsMock.mockResolvedValue([claimed(1, A, B)]);
+    expect(await fetchBackedBy(ME)).toEqual([]);
+  });
+
+  it('respects the max cap', async () => {
+    fetchEventsMock.mockResolvedValue([claimed(1, ME, A), claimed(2, ME, B), claimed(3, ME, C)]);
+    expect((await fetchBackedBy(ME, 2)).map((s) => s.from)).toEqual([C, B]);
+  });
+
+  it('skips self-vouches and malformed events', async () => {
+    fetchEventsMock.mockResolvedValue([
+      { topics: ['vouch', 'claimed'], data: [1] }, // too short
+      { topics: ['vouch', 'minted'], data: [2, ME, A] }, // not a claim
+      { topics: ['vouch', 'claimed'], data: [3, ME, ME] }, // self-vouch, rejected on-chain
+      claimed(4, ME, A),
+    ]);
+    expect((await fetchBackedBy(ME)).map((s) => s.from)).toEqual([A]);
+  });
+});
+
+// ── mutualNeighbours ──────────────────────────────────────────────────────
+
+describe('mutualNeighbours', () => {
+  it('is the intersection of the two undirected neighbour sets', () => {
+    // ME↔A, ME↔B; THEY↔A, THEY↔C → only A is shared.
+    const events = [
+      claimedEdge(1, ME, A),
+      claimedEdge(2, ME, B),
+      claimedEdge(3, THEY, A),
+      claimedEdge(4, THEY, C),
+    ];
+    expect(mutualNeighbours(ME, THEY, events)).toEqual([A]);
+  });
+
+  it('counts an edge in either direction (undirected)', () => {
+    // THEY vouched A; A vouched ME → A is mutual even though both edges point inward.
+    const events = [claimedEdge(1, THEY, A), claimedEdge(2, A, ME)];
+    expect(mutualNeighbours(ME, THEY, events)).toEqual([A]);
+  });
+
+  it('never includes the viewer or the subject themselves', () => {
+    // ME↔THEY directly, plus ME↔A and THEY↔A → only A.
+    const events = [claimedEdge(1, ME, THEY), claimedEdge(2, ME, A), claimedEdge(3, THEY, A)];
+    expect(mutualNeighbours(ME, THEY, events)).toEqual([A]);
+  });
+
+  it('returns empty when there is nothing shared', () => {
+    const events = [claimedEdge(1, ME, A), claimedEdge(2, THEY, B)];
+    expect(mutualNeighbours(ME, THEY, events)).toEqual([]);
+  });
+
+  it('returns empty for two isolated viewers or the same address twice', () => {
+    expect(mutualNeighbours(ME, THEY, [])).toEqual([]);
+    expect(mutualNeighbours(ME, ME, [claimedEdge(1, ME, A)])).toEqual([]);
+  });
+
+  it('is deterministic: sorted by address, same input → same output', () => {
+    const events = [
+      claimedEdge(1, ME, C),
+      claimedEdge(2, ME, A),
+      claimedEdge(3, THEY, C),
+      claimedEdge(4, THEY, A),
+      claimedEdge(5, THEY, B),
+      claimedEdge(6, ME, B),
+    ];
+    const out = mutualNeighbours(ME, THEY, events);
+    expect(out).toEqual([A, B, C]);
+    expect(mutualNeighbours(ME, THEY, events)).toEqual(out);
+  });
+
+  it('ignores malformed and non-claimed events', () => {
+    const events = [
+      { topics: ['vouch', 'claimed'], data: [] },
+      { topics: ['tipped', ME, A], data: [1] },
+      claimedEdge(2, ME, A),
+      claimedEdge(3, THEY, A),
+    ];
+    expect(mutualNeighbours(ME, THEY, events)).toEqual([A]);
+  });
+});
+
+// ── the ?network= override (#438) ────────────────────────────────────────────
+
+describe('vouch lists on a ?network= override', () => {
+  beforeEach(() => {
+    fetchEventsMock.mockReset();
+    getVouchMock.mockReset().mockResolvedValue({ note: 'hi', created: 5 });
+  });
+
+  it('read the override network for the events and every get_vouch alike', async () => {
+    const net = { network: 'testnet' } as unknown as ReadNetwork;
+    fetchEventsMock.mockResolvedValue([claimed(1, A, ME), claimed(2, ME, B)]);
+    expect((await fetchVouchersOf(ME, 14, net)).map((s) => s.from)).toEqual([A]);
+    expect((await fetchBackedBy(ME, 14, net)).map((s) => s.from)).toEqual([B]);
+    expect(fetchEventsMock).toHaveBeenCalledWith({ net });
+    expect(getVouchMock).toHaveBeenCalledWith(1, net);
+    expect(getVouchMock).toHaveBeenCalledWith(2, net);
   });
 });

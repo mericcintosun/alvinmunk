@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # One-shot clean redeploy of all 5 alvinmunk contracts (now with upgrade() + att_set v1),
-# fully wired: init → attesters → quests → reward table + treasury → gates.
+# fully wired: deploy (each contract's constructor sets its admin and wiring in the deploy
+# transaction itself, #127) → attesters → quests → reward table + treasury → gates.
 # Prereq: `passport-admin` funded on testnet; contracts built (stellar contract build).
 set -uo pipefail
 
@@ -11,7 +12,10 @@ ATTKEY=45a2a358b25f4a7e66253e09c9ff7a322f732fbe8befe9cb41cebf8087fae834
 W="$(dirname "$0")/../contracts/target/wasm32v1-none/release"
 ADMIN_ADDR=$(stellar keys address "$ADMIN")
 
-dep() { stellar contract deploy --wasm "$W/$1" --source "$ADMIN" --network "$NET" 2>/dev/null; }
+# $1 = wasm; the rest are the contract's constructor arguments. A failed deploy stops the
+# script: every later step would wire an empty id.
+dep() { stellar contract deploy --wasm "$W/$1" --source "$ADMIN" --network "$NET" -- "${@:2}" 2>/dev/null; }
+fail() { echo "  ✗ FAILED: deploy $1" >&2; exit 1; }
 # retry wrapper for the (idempotent) post-deploy calls — survives transient TxBadSeq races.
 inv() {
   local n=1
@@ -22,18 +26,19 @@ inv() {
 }
 
 echo "==> deploying 5 contracts"
-REP=$(dep alvinmunk_reputation.wasm);        echo "  reputation=$REP"
-QUEST=$(dep alvinmunk_quest_registry.wasm);  echo "  quest=$QUEST"
-REWARDS=$(dep alvinmunk_rewards.wasm);        echo "  rewards=$REWARDS"
-REGISTRY=$(dep alvinmunk_registry.wasm);      echo "  registry=$REGISTRY"
-GATE=$(dep alvinmunk_gate.wasm);              echo "  gate=$GATE"
+REP=$(dep alvinmunk_reputation.wasm --admin "$ADMIN_ADDR") || fail reputation
+echo "  reputation=$REP"
+QUEST=$(dep alvinmunk_quest_registry.wasm --admin "$ADMIN_ADDR" --reputation "$REP") || fail quest_registry
+echo "  quest=$QUEST"
+REWARDS=$(dep alvinmunk_rewards.wasm --admin "$ADMIN_ADDR" --usdc "$USDC" --reputation "$REP") || fail rewards
+echo "  rewards=$REWARDS"
+REGISTRY=$(dep alvinmunk_registry.wasm --admin "$ADMIN_ADDR") || fail registry
+echo "  registry=$REGISTRY"
+GATE=$(dep alvinmunk_gate.wasm --admin "$ADMIN_ADDR" --reputation "$REP") || fail gate
+echo "  gate=$GATE"
 
-echo "==> init"
-inv "$REP" init --admin "$ADMIN_ADDR"
-inv "$QUEST" init --admin "$ADMIN_ADDR" --reputation "$REP"
-inv "$REWARDS" init --admin "$ADMIN_ADDR" --usdc "$USDC" --reputation "$REP"
-inv "$REGISTRY" init --admin "$ADMIN_ADDR"
-inv "$GATE" init --admin "$ADMIN_ADDR" --reputation "$REP"
+echo "==> wiring"
+inv "$REWARDS" set_quest_registry --quest_registry "$QUEST" # streak-gated rewards read get_streak
 
 echo "==> attesters"
 inv "$REP" add_attester --attester "$QUEST"     # quest_registry mints Earned via cross-call
@@ -63,3 +68,29 @@ echo "NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID=$QUEST"
 echo "NEXT_PUBLIC_REWARDS_CONTRACT_ID=$REWARDS"
 echo "NEXT_PUBLIC_REGISTRY_CONTRACT_ID=$REGISTRY"
 echo "NEXT_PUBLIC_GATE_CONTRACT_ID=$GATE"
+
+# The ops scripts (status, bump-ttl, e2e-testnet, freeze-rings) read their ids from this
+# manifest via scripts/lib/env.mjs, so record the new set there. Commit it with the README.
+if [ -n "$REP" ] && [ -n "$QUEST" ] && [ -n "$REWARDS" ] && [ -n "$REGISTRY" ] && [ -n "$GATE" ]; then
+  MANIFEST="$(dirname "$0")/../deployments/$NET.json"
+  mkdir -p "$(dirname "$MANIFEST")"
+  cat >"$MANIFEST" <<JSON
+{
+  "network": "$NET",
+  "passphrase": "Test SDF Network ; September 2015",
+  "rpcUrl": "https://soroban-testnet.stellar.org",
+  "horizonUrl": "https://horizon-testnet.stellar.org",
+  "contracts": {
+    "reputation": "$REP",
+    "questRegistry": "$QUEST",
+    "rewards": "$REWARDS",
+    "registry": "$REGISTRY",
+    "gate": "$GATE",
+    "usdcSac": "$USDC"
+  }
+}
+JSON
+  echo "(wrote $MANIFEST)"
+else
+  echo "  ✗ a deploy failed: deployments/$NET.json left unchanged" >&2
+fi

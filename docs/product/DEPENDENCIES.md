@@ -46,7 +46,7 @@ shadcn components are added on demand and **committed into the repo**
 
 ## 3. Version pinning & coupling (Tyler/Elliot)
 
-- **`@stellar/stellar-sdk`: pin exact** (`"16.x.y"`, no caret). Protocol-coupled; a silent
+- **`@stellar/stellar-sdk`: pin exact** (`"16.3.0"`, no caret). Protocol-coupled; a silent
   minor can break tx decoding. Keep all SDK usage behind `lib/contracts.ts` + `lib/stellar.ts`
   (the adapter) so a future bump touches one place.
 - **Next 14→15**: run `npx @next/codemod upgrade`; audit `fetch` caching + async request
@@ -55,6 +55,10 @@ shadcn components are added on demand and **committed into the repo**
   CSS `@theme`, `@tailwindcss/postcss`). Our tokens are already CSS-variable-based, so a
   later v4 move is low-friction.
 - **Do NOT** migrate Next-major + Tailwind-major + SDK-major in the same change. One at a time.
+- **Dependabot** (`.github/dependabot.yml`) opens weekly update PRs for npm, cargo and
+  GitHub Actions. npm minor/patch bumps come as one grouped PR, except `@stellar/stellar-sdk`,
+  which gets its own. It never proposes a major of `next`, `react`, `tailwindcss` or
+  `@stellar/stellar-sdk` (or of the packages that move with them): those stay deliberate.
 
 ## 4. SSR / wallet boundary (the #1 footgun)
 
@@ -83,6 +87,7 @@ library (MUI/Chakra/Mantine).
 |------|-----------|
 | Radix slows / a primitive breaks | new primitives from Base UI / React Aria; Radix ones are already vendored via shadcn |
 | SDK minor breaks tx decode | exact pin + single adapter module |
+| Transitive `axios` advisories | root `pnpm.overrides` forces `axios@^1.18.0` across the tree |
 | Hydration errors from wallet | client boundary + `dynamic(ssr:false)` |
 | OG generation rabbit-hole | start with one template + static fallback, expand later |
 | Stacked migrations break everything | one major at a time, each its own green PR |

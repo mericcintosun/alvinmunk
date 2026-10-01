@@ -1,10 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { getWallet } from '@/lib/wallet';
 import { txExplorerUrl } from '@/lib/stellar';
 import { getEarnedScore } from '@/lib/reputation';
-import { claimReward, getRewards, getUsdcBalance, isClaimed, stroopsToUsdc, usdcToStroops, type RewardEntry } from '@/lib/rewards';
+import { getStreak } from '@/lib/quests';
+import { claimReward, getRewardsFor, getUsdcBalance, stroopsToUsdc, usdcToStroops, type RewardStatus } from '@/lib/rewards';
 import {
   getAnchorConfig,
   getWithdrawalStatus,
@@ -21,61 +22,92 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { withTimeout, humanizeError } from '@/lib/utils';
 import { toast } from '@/components/ui/toaster';
+import { useTranslations } from '@/lib/i18n';
+import { MoneyFlowConfirm, isRealMoney, type MoneyConfirmRequest } from '@/components/MoneyFlowConfirm';
 
 // Rewards contract error codes → friendly copy (mirrors contracts/rewards Error enum).
-const REWARD_ERRORS: Record<number, string> = {
-  3: 'You need more Earned XP to unlock this reward.',
-  4: 'You’ve already claimed this reward.',
-  5: 'Rewards are paused right now — try again later.',
-  7: 'This reward isn’t active.',
-  9: 'The daily reward limit was reached — try again tomorrow.',
-  10: 'This account is under review and can’t claim right now.',
-  12: 'You need to receive funds first before claiming (mainnet rule).',
-  13: 'This reward’s pool is used up.',
-  // 15–17 are admin-only (add_reward / set_reward_active / set_daily_cap).
-  15: 'A reward needs an Earned XP threshold above zero.',
-  16: 'This reward pays more than the daily limit allows.',
-  17: 'The daily limit can’t go below an active reward’s payout.',
-};
+// Built from `t` so the copy follows the active locale. 15–17 and 19 are admin-only
+// (add_reward / set_reward_active / set_daily_cap / set_reward_min_streak).
+export function buildRewardErrors(t: (key: string) => string): Record<number, string> {
+  return {
+    3: t('rewards.error.xp'),
+    4: t('rewards.error.already'),
+    5: t('rewards.error.paused'),
+    7: t('rewards.error.inactive'),
+    9: t('rewards.error.daily'),
+    10: t('rewards.error.review'),
+    12: t('rewards.error.funding'),
+    13: t('rewards.error.pool'),
+    15: t('rewards.error.threshold'),
+    16: t('rewards.error.overDailyCap'),
+    17: t('rewards.error.capBelowReward'),
+    18: t('rewards.error.streakTooShort'),
+    19: t('rewards.error.streakUnset'),
+    100: t('rewards.error.treasury'),
+  };
+}
+
+// Blocks that stop every row alike (paused, account under review, unfunded): shown once.
+const WALLET_BLOCKS = new Set([5, 10, 12]);
+// Row blocks the row doesn't already show (XP, streak and supply are on the row itself).
+const ROW_HINTS = new Set([9, 19]);
 
 /**
  * Rank -> reward unlock table (Green belt). Each reward is admin-registered on-chain
  * (Earned-XP threshold -> USDC); the contract pays the STORED amount, so rank buys
  * something real and the treasury can't be drained. Earned-gated (vouches never unlock it).
+ * A reward can also require a live weekly quest streak (`min_streak`); `get_streak`
+ * already reads a lapsed run as 0, so the count shown is the one the contract checks.
+ *
+ * The table renders from ONE `get_rewards_for` simulation: each row's `claimed` and
+ * `eligible` come from the contract, with `reason` = the error `claim_reward` would revert
+ * with, so a row that can't be claimed says why instead of failing on click.
  */
-type Row = RewardEntry & { claimed: boolean };
-
 export function Rewards({ address }: { address: string }) {
+  const t = useTranslations();
   const [earned, setEarned] = useState<number | null>(null);
-  const [rows, setRows] = useState<Row[] | null>(null);
+  const [streak, setStreak] = useState<number>(0);
+  const [rows, setRows] = useState<RewardStatus[] | null>(null);
+  const [remainingToday, setRemainingToday] = useState<bigint | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
   const [hash, setHash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A mainnet claim waiting on its confirmation (#291).
+  const [pending, setPending] = useState<{ id: number; request: MoneyConfirmRequest } | null>(null);
 
   const refresh = useCallback(async () => {
     // Timeout the gating reads so a slow RPC degrades to "no rewards" instead of an
     // endless skeleton in front of a tester/judge.
-    const [e, table] = await Promise.all([
+    const [e, table, weeks] = await Promise.all([
       withTimeout(getEarnedScore(address, address), 12_000, 'score').catch(() => 0),
-      withTimeout(getRewards(address), 12_000, 'rewards').catch(() => [] as RewardEntry[]),
+      withTimeout(getRewardsFor(address, address), 12_000, 'rewards').catch(() => ({
+        rows: [] as RewardStatus[],
+        remainingToday: null,
+      })),
+      withTimeout(getStreak(address, address), 12_000, 'streak')
+        .then((st) => st.weeks)
+        .catch(() => 0),
     ]);
     setEarned(e);
-    const withClaimed = await Promise.all(
-      table.map(async (r) => ({
-        ...r,
-        claimed: await withTimeout(isClaimed(r.id, address, address), 12_000, 'claim status').catch(
-          () => false,
-        ),
-      })),
-    );
-    setRows(withClaimed);
+    setStreak(weeks);
+    setRows(table.rows);
+    setRemainingToday(table.remainingToday);
   }, [address]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  async function onClaim(id: number) {
+  /** Mainnet claims pay real USDC: confirm first. Testnet claims run on the click, as before. */
+  function onClaim(id: number, amount: bigint) {
+    if (!isRealMoney()) {
+      void claim(id);
+      return;
+    }
+    setPending({ id, request: { kind: 'claim', to: address, amount: stroopsToUsdc(amount) } });
+  }
+
+  async function claim(id: number) {
     setBusy(id);
     setError(null);
     setHash(null);
@@ -83,9 +115,9 @@ export function Rewards({ address }: { address: string }) {
       const wallet = await getWallet();
       await claimReward(wallet, id);
       await refresh();
-      toast.success('Reward claimed — USDC is in your wallet 🎉');
+      toast.success(t('rewards.toast.success'));
     } catch (e) {
-      const msg = humanizeError(e, REWARD_ERRORS);
+      const msg = humanizeError(e, buildRewardErrors(t), 'reward');
       setError(msg);
       toast.error(msg);
     } finally {
@@ -93,18 +125,25 @@ export function Rewards({ address }: { address: string }) {
     }
   }
 
+  const errors = buildRewardErrors(t);
+  const walletBlock = rows?.find((r) => WALLET_BLOCKS.has(r.reason))?.reason;
+
   return (
-    <Frame label="spend // rank" index="04" accent="secondary">
+    <Frame label={t('rewards.frame')} index="04" accent="secondary">
       <div className="p-5">
         <div className="mb-1 flex items-center justify-between">
-          <h2 className="text-base font-semibold">Rank rewards</h2>
+          <h2 className="text-base font-semibold">{t('rewards.title')}</h2>
           <Badge variant="onchain">
-            Earned XP: {earned === null ? '…' : <NumberTicker value={earned} className="ml-0.5" />}
+            {t('rewards.earnedXp')}: {earned === null ? '…' : <NumberTicker value={earned} className="ml-0.5" />}
           </Badge>
         </div>
-        <p className="mb-4 text-sm text-muted-foreground">
-          Earned XP unlocks real USDC — rank buys something. Vouches (Social XP) never do.
-        </p>
+        <p className="mb-4 text-sm text-muted-foreground">{t('rewards.subtitle')}</p>
+        {remainingToday !== null && (
+          <p className="mb-3 text-xs text-muted-foreground">
+            {t('rewards.dailyLeft', { amount: stroopsToUsdc(remainingToday) })}
+          </p>
+        )}
+        {walletBlock !== undefined && <p className="mb-3 text-sm text-destructive">{errors[walletBlock]}</p>}
 
         {rows === null ? (
           <div className="flex flex-col gap-2">
@@ -112,14 +151,15 @@ export function Rewards({ address }: { address: string }) {
             <Skeleton className="h-12 w-full" />
           </div>
         ) : rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No rewards registered yet.</p>
+          <p className="text-sm text-muted-foreground">{t('rewards.noRewards')}</p>
         ) : (
           <ul className="flex flex-col gap-2">
-            {rows.map((r) => {
-              const unlocked = (earned ?? 0) >= Number(r.threshold);
+            {rows.map(({ entry: r, claimed, eligible, reason }) => {
+              const minStreak = r.min_streak ?? 0;
               const cap = r.max_claims ?? 0;
               const left = cap > 0 ? Math.max(0, cap - (r.claims ?? 0)) : null;
               const soldOut = left === 0;
+              const hint = !claimed && ROW_HINTS.has(reason) ? errors[reason] : null;
               return (
                 <li
                   key={r.id}
@@ -130,25 +170,34 @@ export function Rewards({ address }: { address: string }) {
                     <span className="font-semibold text-primary">{stroopsToUsdc(r.amount)} USDC</span>
                     {left !== null && (
                       <span className="ml-2 text-xs text-muted-foreground">
-                        · {soldOut ? 'none left' : `${left} of ${cap} left`}
+                        ·{' '}
+                        {soldOut
+                          ? t('rewards.noneLeft')
+                          : t('rewards.leftOfCap', { left: String(left), cap: String(cap) })}
                       </span>
                     )}
+                    {minStreak > 0 && (
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        · needs a {minStreak}-week streak (you: {streak})
+                      </span>
+                    )}
+                    {hint && <span className="mt-0.5 block text-xs text-destructive">{hint}</span>}
                   </span>
                   <Button
                     size="sm"
-                    variant={r.claimed || soldOut || !unlocked ? 'secondary' : 'primary'}
-                    onClick={() => onClaim(r.id)}
-                    disabled={busy !== null || r.claimed || soldOut || !unlocked}
+                    variant={claimed || soldOut || !eligible ? 'secondary' : 'primary'}
+                    onClick={() => onClaim(r.id, r.amount)}
+                    disabled={busy !== null || pending !== null || claimed || soldOut || !eligible}
                   >
-                    {r.claimed
-                      ? 'Claimed'
+                    {claimed
+                      ? t('rewards.claimed')
                       : soldOut
-                        ? 'Sold out'
+                        ? t('rewards.soldOut')
                         : busy === r.id
-                          ? 'Claiming…'
-                          : unlocked
-                            ? 'Claim'
-                            : 'Locked'}
+                          ? t('rewards.claiming')
+                          : eligible
+                            ? t('rewards.claim')
+                            : t('rewards.locked')}
                   </Button>
                 </li>
               );
@@ -163,13 +212,24 @@ export function Rewards({ address }: { address: string }) {
             rel="noreferrer"
             className="mt-2 block text-center text-xs text-secondary underline"
           >
-            claimed on-chain →
+            {t('rewards.claimedOnChain')}
           </a>
         )}
         {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
 
         <AnchorCashout address={address} />
       </div>
+
+      {pending && (
+        <MoneyFlowConfirm
+          request={pending.request}
+          onCancel={() => setPending(null)}
+          onConfirm={() => {
+            setPending(null);
+            void claim(pending.id);
+          }}
+        />
+      )}
     </Frame>
   );
 }
@@ -181,6 +241,7 @@ export function Rewards({ address }: { address: string }) {
  * until the anchor reaches a terminal state.
  */
 function AnchorCashout({ address }: { address: string }) {
+  const t = useTranslations();
   const anchor = getAnchorConfig();
   const anchorDomain = anchor?.homeDomain;
   const [amount, setAmount] = useState('');
@@ -224,7 +285,7 @@ function AnchorCashout({ address }: { address: string }) {
     setError(null);
     try {
       if (balance !== null && usdcToStroops(amount) > balance) {
-        throw new Error('The withdrawal amount exceeds your available USDC.');
+        throw new Error(t('rewards.cashout.exceeds'));
       }
       const wallet = await getWallet();
       const next = await startWithdrawal(wallet, amount);
@@ -261,27 +322,29 @@ function AnchorCashout({ address }: { address: string }) {
       {anchor ? (
         <>
           <label htmlFor="cashout-amount" className="mb-2 block text-xs text-muted-foreground">
-            Cash out USDC to local currency via {anchor.homeDomain}
+            {t('rewards.cashout.label', { domain: anchor.homeDomain })}
           </label>
           <div className="flex gap-2">
             <Input
               id="cashout-amount"
               className="h-9 min-w-0 flex-1"
               inputMode="decimal"
-              placeholder="USDC amount"
+              placeholder={t('rewards.cashout.placeholder')}
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
             />
             <Button size="sm" variant="onchain" onClick={() => void cashOut()} disabled={busy !== null || !amount}>
-              {busy === 'start' ? 'Starting…' : 'Cash out'}
+              {busy === 'start' ? t('rewards.cashout.starting') : t('rewards.cashout.button')}
             </Button>
           </div>
           {balance !== null && (
-            <p className="mt-1 text-xs text-muted-foreground">Available: {stroopsToUsdc(balance)} USDC</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t('rewards.cashout.available', { amount: stroopsToUsdc(balance) })}
+            </p>
           )}
           {w && (
             <p className="mt-2 text-xs text-secondary" aria-live="polite">
-              Withdrawal {w.status.replaceAll('_', ' ')}
+              {t('rewards.cashout.withdrawal', { status: w.status.replaceAll('_', ' ') })}
               {w.message ? ` — ${w.message}` : ''}
             </p>
           )}
@@ -293,7 +356,9 @@ function AnchorCashout({ address }: { address: string }) {
               onClick={() => void sendToAnchor()}
               disabled={busy !== null}
             >
-              {busy === 'send' ? 'Sending…' : `Send ${w?.amountIn} USDC to ${anchor.homeDomain}`}
+              {busy === 'send'
+                ? t('rewards.cashout.sending')
+                : t('rewards.cashout.send', { amount: String(w?.amountIn ?? ''), domain: anchor.homeDomain })}
             </Button>
           )}
           {paidHash && (
@@ -303,15 +368,13 @@ function AnchorCashout({ address }: { address: string }) {
               rel="noreferrer"
               className="mt-2 block text-xs text-secondary underline"
             >
-              Payment sent — view transaction →
+              {t('rewards.cashout.paid')}
             </a>
           )}
           {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
         </>
       ) : (
-        <p className="text-xs text-muted-foreground">
-          Cash out to local cash via a Stellar anchor (SEP-24 off-ramp) — coming at mainnet.
-        </p>
+        <p className="text-xs text-muted-foreground">{t('rewards.cashout.unavailable')}</p>
       )}
     </div>
   );

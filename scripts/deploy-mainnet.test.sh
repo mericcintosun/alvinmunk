@@ -75,6 +75,8 @@ case "$1 ${2:-}" in
         case "$fn" in
           get_require_funding) echo "${STUB_VIEW_FUNDING:-true}" ;;
           get_daily_cap) echo "\"$DAILY_CAP\"" ;;
+          # the id `contract deploy` below hands out for quest_registry's wasm
+          get_quest_registry) echo "\"${STUB_VIEW_QUEST:-C$(sha "$STUB_WASM/alvinmunk_quest_registry.wasm" | tr '0-9a-f' 'A-P' | cut -c1-55)}\"" ;;
           is_attester) echo true ;;
           *) exit 98 ;;
         esac ;;
@@ -240,16 +242,14 @@ check "dry run: deployment-log.md untouched" no_log
 check "dry run: build dir cleaned up" [ -z "$(ls -A "$W/tmp")" ]
 for re in \
   "contract upload --wasm .*/alvinmunk_reputation.wasm --optimize=false --source-account admin --network mainnet$" \
-  "contract deploy --wasm-hash [0-9a-f]{64} --source-account admin --network mainnet$" \
-  "--id <reputation-id> .* -- init --admin $ADMIN_G$" \
-  "--id <quest_registry-id> .* -- init --admin $ADMIN_G --reputation <reputation-id>$" \
-  "--id <rewards-id> .* -- init --admin $ADMIN_G --usdc $CIRCLE_USDC --reputation <reputation-id>$" \
-  "--id <registry-id> .* -- init --admin $ADMIN_G$" \
-  "--id <gate-id> .* -- init --admin $ADMIN_G --reputation <reputation-id>$" \
+  "contract deploy --wasm-hash [0-9a-f]{64} --source-account admin --network mainnet -- --admin $ADMIN_G$" \
+  "contract deploy --wasm-hash [0-9a-f]{64} .* -- --admin $ADMIN_G --reputation <reputation-id>$" \
+  "contract deploy --wasm-hash [0-9a-f]{64} .* -- --admin $ADMIN_G --usdc $CIRCLE_USDC --reputation <reputation-id>$" \
   "--id <rewards-id> .* -- set_daily_cap --cap 500000000$" \
   "--id <rewards-id> .* -- set_require_funding --on true$" \
   "--id <reputation-id> .* -- add_attester --attester <quest_registry-id>$" \
   "--id <quest_registry-id> .* -- add_attester_key --key $ATTESTER_HEX$" \
+  "--id <rewards-id> .* -- set_quest_registry --quest_registry <quest_registry-id>$" \
   "-- create_quest --id 4 --schema_id 2 --xp 25$" \
   "-- add_reward --reward_id 3 --threshold 100 --amount 20000000$" \
   "-- create_gate --id 2 --track 1 --min 30 --label '\"Bounty board\"'$" \
@@ -258,6 +258,7 @@ for re in \
   check "dry run prints /$re/" out_has "$re"
 done
 check "dry run: never friendbot / faucet / --fund" out_lacks "friendbot|faucet|--fund"
+check "dry run: no post-deploy init (#127)" out_lacks " -- init "
 check "dry run: attester G-address is not a reputation attester" out_lacks "add_attester --attester G"
 fresh_repo && exec_script "${BASE[@]}" DRY_RUN=1 ATTESTER=$ATTESTER_G
 check "ATTESTER as a G... public key works" out_has "add_attester_key --key $ATTESTER_HEX$"
@@ -295,20 +296,27 @@ for c in reputation quest_registry rewards registry gate; do
   check "full run: $c id + wasm hash logged" log_has "^\| $c \| \[\`C[A-Z2-7]{55}\`\]\(https://stellar.expert/explorer/public/contract/C[A-Z2-7]{55}\) \| \`$h\` \|$"
 done
 check "full run: no secret in the log" no_secret_in_log
-check "full run: upload, deploy, init per contract" \
-  [ "$(grep -E 'contract (upload|deploy)| -- init ' "$LOG" | awk '{ print $3 }' | tr '\n' ' ')" = "$(printf 'upload deploy invoke %.0s' 1 2 3 4 5)" ]
-check "full run: 5 inits" [ "$(calls ' -- init ')" = 5 ]
+check "full run: upload then deploy per contract" \
+  [ "$(grep -E 'contract (upload|deploy)' "$LOG" | awk '{ print $3 }' | tr '\n' ' ')" = "$(printf 'upload deploy %.0s' 1 2 3 4 5)" ]
+check "full run: every deploy passes its constructor's arguments" \
+  [ "$(calls 'contract deploy --wasm-hash .* -- --admin ')" = 5 ]
+check "full run: registry and gate get their constructor arguments" \
+  [ "$(calls "contract deploy .* -- --admin $ADMIN_G$")" = 2 ]
+check "full run: no post-deploy init (#127)" [ "$(calls ' -- init ')" = 0 ]
 check "full run: safety settings before the reward table" \
   [ "$(grep -n set_require_funding "$LOG" | cut -d: -f1)" -lt "$(grep -n add_reward "$LOG" | head -1 | cut -d: -f1)" ]
-check "full run: 3 read-backs" [ "$(calls '--send=no')" = 3 ]
+check "full run: 4 read-backs" [ "$(calls '--send=no')" = 4 ]
+check "full run: rewards wired to quest_registry before seeding" \
+  [ "$(grep -n set_quest_registry "$LOG" | cut -d: -f1)" -lt "$(grep -n create_quest "$LOG" | head -1 | cut -d: -f1)" ]
 check "full run: prints the web env" out_has "NEXT_PUBLIC_GATE_CONTRACT_ID=C[A-Z2-7]{55}"
 
 # --- failures once contracts exist are logged as INCOMPLETE ---
 typed mainnet "${BASE[@]}" STUB_FAIL="--usdc"
-check "init failure: front-run warning" out_has "init of rewards \(C[A-Z2-7]{55}\) failed. If someone else initialized it first"
-check "init failure: init is not retried" [ "$(calls '--usdc')" = 1 ]
-check "init failure: INCOMPLETE entry names the step" log_has "INCOMPLETE \(failed during: init rewards\)"
-check "init failure: later contracts 'not deployed'" log_has "^\| gate \| not deployed \|"
+check "deploy failure: names the contract" out_has "deploy of rewards failed"
+check "deploy failure: a deploy is not retried" [ "$(calls '--usdc')" = 1 ]
+check "deploy failure: INCOMPLETE entry names the step" log_has "INCOMPLETE \(failed during: deploy rewards\)"
+check "deploy failure: earlier contracts logged" log_has "^\| quest_registry \| \[\`C[A-Z2-7]{55}\`\]"
+check "deploy failure: later contracts 'not deployed'" log_has "^\| gate \| not deployed \|"
 typed mainnet "${BASE[@]}" STUB_BAD_UPLOAD=1
 check "upload hash mismatch: aborts" out_has "is not the local build's sha256"
 check "upload hash mismatch: nothing deployed or logged" nothing_deployed
@@ -318,6 +326,9 @@ check "idempotent setter: INCOMPLETE (seed data)" log_has "INCOMPLETE \(failed d
 typed mainnet "${BASE[@]}" STUB_VIEW_FUNDING=false
 check "read-back mismatch: aborts" out_has "get_require_funding is not true"
 check "read-back mismatch: INCOMPLETE (verify)" log_has "INCOMPLETE \(failed during: verify\)"
+typed mainnet "${BASE[@]}" STUB_VIEW_QUEST=CWRONG
+check "quest_registry read-back mismatch: aborts" out_has "get_quest_registry is not C[A-Z2-7]{55}"
+check "quest_registry read-back mismatch: INCOMPLETE (verify)" log_has "INCOMPLETE \(failed during: verify\)"
 typed mainnet "${BASE[@]}" STUB_INT="add_attester_key"
 check "Ctrl-C mid-deploy: INCOMPLETE (attesters)" log_has "INCOMPLETE \(failed during: attesters\)"
 check "Ctrl-C mid-deploy: stops submitting" [ "$(calls create_quest)" = 0 ]

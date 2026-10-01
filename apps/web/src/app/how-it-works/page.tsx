@@ -1,6 +1,6 @@
-// Note: 'use client' means metadata must be defined in a parent layout or a separate
-// metadata export file. The title/description for this route are set in the root layout
-// template ('%s · alvinmunk') — "How it works" becomes "How it works · alvinmunk".
+// Note: 'use client' means metadata must be defined in a parent layout. This route's
+// title/description live in how-it-works/layout.tsx and use the root title template
+// ('%s · alvinmunk') — "How it works" becomes "How it works · alvinmunk".
 
 'use client';
 
@@ -13,6 +13,7 @@ import { Sticker } from '@/components/ui/sticker';
 import { buttonVariants } from '@/components/ui/button';
 import { useTranslations } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { ReputationSnippet } from '@/components/ReputationSnippet';
 
 /** Renders `raw` with `highlight` wrapped in a <strong> — for bolding inline XP labels. */
 function SplitHighlight({ raw, highlight }: { raw: string; highlight: string }) {
@@ -42,12 +43,12 @@ export default function HowItWorks() {
   return (
     <div className="container max-w-5xl py-16">
       {/* header */}
-      <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-primary/80">{t('howItWorks.eyebrow')}</p>
+      <p className="eyebrow-mono text-primary/80">{t('howItWorks.eyebrow')}</p>
       <h1 className="display-hero mt-4 flex flex-wrap items-center gap-3 font-display text-5xl font-semibold tracking-tight sm:text-6xl">
         {t('howItWorks.title')}
-        <Sticker name="star-lime" size={48} className="h-10 w-auto motion-safe:animate-float" />
-        <Sticker name="star-arc" size={56} className="hidden h-8 w-auto opacity-80 sm:block" />
-        <Sticker name="doodle-spiral" size={30} className="hidden h-6 w-auto opacity-70 sm:block" />
+        <Sticker name="star-lime" size={48} priority className="h-10 w-auto motion-safe:animate-float" />
+        <Sticker name="star-arc" size={56} priority className="hidden h-8 w-auto opacity-80 sm:block" />
+        <Sticker name="doodle-spiral" size={30} priority className="hidden h-6 w-auto opacity-70 sm:block" />
       </h1>
       <p className="mt-5 max-w-xl text-lg text-muted-foreground text-balance">
         {t('howItWorks.subtitle')}
@@ -123,7 +124,7 @@ export default function HowItWorks() {
                   i >= 1 && 'border-t sm:[&:nth-child(2)]:border-t-0 lg:[&:nth-child(3)]:border-t-0',
                 )}
               >
-                <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-primary/60">{l.id}</span>
+                <span className="eyebrow-mono text-primary/60">{l.id}</span>
                 <h3 className="mt-3 font-semibold">{t(l.tKey)}</h3>
                 <p className="mt-1.5 text-sm text-muted-foreground">{t(l.dKey)}</p>
               </div>
@@ -140,20 +141,7 @@ export default function HowItWorks() {
         <p className="mt-3 text-sm text-muted-foreground">
           {t('howItWorks.devs.body')}
         </p>
-        <div className="mt-6 border border-border/70 bg-background/70">
-          <div className="flex items-center gap-1.5 border-b border-border/60 px-3 py-2">
-            <span className="size-2.5 rounded-full bg-destructive/70" />
-            <span className="size-2.5 rounded-full bg-warning/70" />
-            <span className="size-2.5 rounded-full bg-secondary/70" />
-            <span className="ml-2 font-mono text-[10px] text-muted-foreground">read-reputation.ts</span>
-          </div>
-          <pre className="overflow-x-auto p-5 font-mono text-xs leading-relaxed text-foreground/80">
-{`// read a Social score (non-cashable)
-const score = await getScore(address);   // → 42
-// read the cashable Earned track
-const earned = await getEarned(address); // → 30`}
-          </pre>
-        </div>
+        <ReputationSnippet className="mt-6" />
       </section>
 
       <div className="relative mt-16 flex justify-center">

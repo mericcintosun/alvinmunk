@@ -1,9 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { Users, Activity, ExternalLink } from 'lucide-react';
-import { shortAddress } from '@/lib/utils';
+import { shortAddr } from '@alvinmunk/shared';
 import { cn } from '@/lib/utils';
+import { usePoll } from '@/lib/use-poll';
+import type { VouchFunnel } from '@/lib/vouch-funnel';
+import { LoopHealth } from '@/components/LoopHealth';
+import { useFormat } from '@/lib/i18n';
 
 type NetKey = 'testnet' | 'mainnet';
 
@@ -14,6 +19,8 @@ interface Stats {
   target: number;
   latestLedger?: number;
   addresses: string[];
+  funnel: VouchFunnel | null;
+  funnelError?: string;
   error?: string;
 }
 
@@ -31,37 +38,53 @@ function explorer(net: NetKey, addr: string) {
 }
 
 export default function StatsPage() {
+  const format = useFormat();
   const [tab, setTab] = useState<NetKey>('testnet');
   const [data, setData] = useState<Record<NetKey, Stats | null>>({ testnet: null, mainnet: null });
+  // Per-network: true once a poll has failed and we have not yet recovered. The last good
+  // `data[tab]` is kept on screen (never cleared on failure) — only the "live"/"stale"
+  // marker below reacts, so an outage never masquerades as a fresh zero.
+  const [stale, setStale] = useState<Record<NetKey, boolean>>({ testnet: false, mainnet: false });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let alive = true;
-    const load = () => {
-      fetch(`/api/stats?network=${tab}`, { cache: 'no-store' })
-        .then((r) => r.json())
-        .then((d: Stats) => {
-          if (alive) {
-            setData((prev) => ({ ...prev, [tab]: d }));
-            setLoading(false);
-          }
-        })
-        .catch(() => alive && setLoading(false));
-    };
     setLoading(!data[tab]);
-    load();
-    const t = setInterval(load, 10000); // live: refresh every 10s
-    return () => {
-      alive = false;
-      clearInterval(t);
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
+  // Refresh every 10s while the tab is visible, never overlapping (lib/use-poll.ts). The tab is
+  // the poll's key: switching network restarts it with an immediate fetch, and the signal
+  // drops the previous network's late response.
+  usePoll(
+    async (signal) => {
+      try {
+        const r = await fetch(`/api/stats?network=${tab}`, { cache: 'no-store' });
+        if (!r.ok) throw new Error(`stats ${r.status}`);
+        const d = (await r.json()) as Stats;
+        if (signal.aborted) return;
+        setData((prev) => ({ ...prev, [tab]: d }));
+        setStale((prev) => ({ ...prev, [tab]: false }));
+        setLoading(false);
+      } catch (err) {
+        if (signal.aborted) return;
+        // Keep the last good numbers on a failed poll; only the marker below reacts.
+        setStale((prev) => ({ ...prev, [tab]: true }));
+        setLoading(false);
+        throw err; // so the poll backs off
+      }
+    },
+    30_000, // /api/stats reuses a scan for 30 s (#444), so poll no faster
+    tab,
+  );
+
   const s = data[tab];
-  const users = s?.users ?? 0;
+  const users = s?.users;
   const target = s?.target ?? (tab === 'testnet' ? 50 : 20);
-  const pct = Math.min(100, Math.round((users / target) * 100));
+  const pct = users === undefined ? 0 : Math.min(100, Math.round((users / target) * 100));
+  const isStale = stale[tab];
+  // The testnet tab lists the app's own contracts (NEXT_PUBLIC_* ids, api/stats), the ones
+  // /score reads, so its wallets open there. A mainnet wallet would get an unrelated score.
+  const inApp = tab === 'testnet';
 
   return (
     <div className="container max-w-3xl py-12">
@@ -98,7 +121,9 @@ export default function StatsPage() {
             <p className="mt-2 text-sm text-muted-foreground">
               Mainnet goes live at the Black belt. The counter turns on the moment the contracts deploy.
             </p>
-            <p className="mt-4 font-display text-4xl font-semibold text-muted-foreground/50">0 / {target}</p>
+            <p className="mt-4 font-display text-4xl font-semibold text-muted-foreground">
+              0 / {format.number(target)}
+            </p>
           </div>
         ) : (
           <>
@@ -108,12 +133,13 @@ export default function StatsPage() {
                 <div>
                   <p className="text-xs font-medium text-muted-foreground">Wallets on-chain</p>
                   <p className="font-display text-5xl font-semibold tabular-nums">
-                    {loading && !s ? '—' : users}
+                    {users === undefined ? '—' : format.number(users)}
                   </p>
                 </div>
               </div>
               <p className="font-display text-2xl font-semibold text-muted-foreground">
-                {users} <span className="text-muted-foreground/50">/ {target}</span>
+                {users === undefined ? '—' : format.number(users)}{' '}
+                <span className="text-muted-foreground">/ {format.number(target)}</span>
               </p>
             </div>
 
@@ -125,35 +151,69 @@ export default function StatsPage() {
               />
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
-              {pct}% toward {TABS.find((t) => t.key === tab)?.goal}
+              {users === undefined ? '—' : pct}% toward {TABS.find((t) => t.key === tab)?.goal}
               {s?.latestLedger ? ` · ledger ${s.latestLedger}` : ''}
-              <span className="ml-2 inline-flex items-center gap-1 text-secondary/80">
-                <Activity className="size-3" /> live
+              <span className={cn('ml-2 inline-flex items-center gap-1', isStale ? 'text-warning' : 'text-secondary')} title={isStale ? 'Sync delayed' : 'Live'}>
+                <Activity className="size-3" /> {isStale ? 'stale' : 'live'}
               </span>
             </p>
           </>
         )}
       </div>
 
+      {/* contract-backed claim funnel (hidden where the contracts are not live yet) */}
+      {(!s || s.configured) && (
+        <LoopHealth
+          funnel={s?.funnel}
+          loading={loading && !s}
+          error={s ? s.funnelError : isStale ? 'Stats could not be loaded. Retrying…' : undefined}
+        />
+      )}
+
       {/* wallet list */}
       {s?.configured && s.addresses.length > 0 && (
         <div className="mt-6">
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Wallets ({s.addresses.length})
+            Wallets ({format.number(s.addresses.length)})
           </h2>
           <div className="grid gap-1.5 sm:grid-cols-2">
-            {s.addresses.map((a) => (
-              <a
-                key={a}
-                href={explorer(tab, a)}
-                target="_blank"
-                rel="noreferrer"
-                className="group flex items-center justify-between rounded-xl border border-border/50 bg-surface/30 px-3 py-2 font-mono text-xs transition-colors hover:border-border hover:bg-surface/60"
-              >
-                <span>{shortAddress(a, 6, 6)}</span>
-                <ExternalLink className="size-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
-              </a>
-            ))}
+            {s.addresses.map((a) =>
+              inApp ? (
+                <div
+                  key={a}
+                  className="flex items-center rounded-xl border border-border/50 bg-surface/30 font-mono text-xs transition-colors focus-within:border-border hover:border-border hover:bg-surface/60"
+                >
+                  <Link
+                    href={`/score/${a}`}
+                    aria-label={`Score for ${shortAddr(a, 6, 6)}`}
+                    className="flex-1 rounded-l-xl px-3 py-2"
+                  >
+                    {shortAddr(a, 6, 6)}
+                  </Link>
+                  <a
+                    href={explorer(tab, a)}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`${shortAddr(a, 6, 6)} on stellar.expert (opens in a new tab)`}
+                    title="stellar.expert"
+                    className="rounded-r-xl px-3 py-2 text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    <ExternalLink className="size-3.5" />
+                  </a>
+                </div>
+              ) : (
+                <a
+                  key={a}
+                  href={explorer(tab, a)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="group flex items-center justify-between rounded-xl border border-border/50 bg-surface/30 px-3 py-2 font-mono text-xs transition-colors hover:border-border hover:bg-surface/60"
+                >
+                  <span>{shortAddr(a, 6, 6)}</span>
+                  <ExternalLink className="size-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                </a>
+              ),
+            )}
           </div>
         </div>
       )}

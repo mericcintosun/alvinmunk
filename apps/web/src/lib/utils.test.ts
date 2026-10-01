@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { humanizeError, withTimeout, contractErrorCode, shortAddress, shareInFlight } from './utils';
+import { humanizeError, withTimeout, contractErrorCode, shareInFlight, concurrencyLimit } from './utils';
 
 describe('contractErrorCode', () => {
   it('extracts a Soroban contract error code', () => {
@@ -24,15 +24,104 @@ describe('humanizeError', () => {
     expect(msg).toBe('boom');
   });
 
-  it('uses a fallback for unknown chain error', () => {
-    const msg = humanizeError(new Error('HostError: Error(Contract, #99)\nEvent log (newest first): scary stuff'), {}, 'Something went wrong — try again');
-    expect(msg).toContain('Something went wrong — try again');
-  });
-});
+  describe('XLM fee errors', () => {
+    it('maps txInsufficientBalance to XLM fee copy', () => {
+      const msg = humanizeError(new Error('txInsufficientBalance'));
+      expect(msg).toContain('XLM');
+      expect(msg).toContain('network fee');
+      expect(msg).not.toContain('USDC');
+    });
 
-describe('shortAddress', () => {
-  it('middle-truncates long addresses', () => {
-    expect(shortAddress('GABCDEFGHIJKLMNOP')).toBe('GABC…MNOP');
+    it('maps txInsufficientFee to XLM fee copy', () => {
+      const msg = humanizeError(new Error('txInsufficientFee'));
+      expect(msg).toContain('XLM');
+      expect(msg).toContain('network fee');
+      expect(msg).not.toContain('USDC');
+    });
+
+    it('matches txInsufficientBalance case-insensitively', () => {
+      const msg = humanizeError(new Error('TxInsufficientBalance'));
+      expect(msg).toContain('XLM');
+      expect(msg).not.toContain('USDC');
+    });
+  });
+
+  describe('USDC/trustline errors in tip flow', () => {
+    it('maps SAC BalanceError to USDC copy in tip flow', () => {
+      const msg = humanizeError(new Error('BalanceError'), {}, 'tip');
+      expect(msg).toContain('USDC');
+      expect(msg).toContain('claim a reward');
+    });
+
+    it('maps "insufficient balance" to USDC copy in tip flow', () => {
+      const msg = humanizeError(new Error('insufficient balance'), {}, 'tip');
+      expect(msg).toContain('USDC');
+    });
+
+    it('maps trustline error to recipient copy in tip flow', () => {
+      const msg = humanizeError(new Error('trustline'), {}, 'tip');
+      expect(msg).toContain('recipient');
+      expect(msg).toContain("can't receive the tip");
+    });
+
+    it('does NOT map bare "insufficient" to USDC when no flow specified', () => {
+      const msg = humanizeError(new Error('insufficient funds'));
+      expect(msg).not.toContain('USDC');
+      expect(msg).toBe('insufficient funds');
+    });
+  });
+
+  describe('USDC/trustline errors in reward flow', () => {
+    it('maps BalanceError to USDC copy in reward flow', () => {
+      const msg = humanizeError(new Error('BalanceError'), {}, 'reward');
+      expect(msg).toContain('USDC');
+      expect(msg).toContain('claim a reward');
+    });
+
+    it('maps trustline error to self (not recipient) in reward flow', () => {
+      const msg = humanizeError(new Error('trustline'), {}, 'reward');
+      expect(msg).toContain('You');
+      expect(msg).toContain("can't receive the reward");
+      expect(msg).not.toContain('recipient');
+      expect(msg).not.toContain('tip');
+    });
+  });
+
+  describe('SAC edge cases', () => {
+    it('maps the SAC "zero balance" message to USDC copy in tip flow', () => {
+      const msg = humanizeError(new Error('zero balance is not sufficient to spend'), {}, 'tip');
+      expect(msg).toContain('USDC');
+    });
+
+    it('does not read an auth failure as a missing trustline', () => {
+      const msg = humanizeError(new Error('Error(Auth, InvalidAction): not authorized'), {}, 'tip');
+      expect(msg).not.toContain('enabled this USDC');
+    });
+
+    it('keeps trustline copy out of flows that move no USDC', () => {
+      const msg = humanizeError(new Error('trustline entry is missing'));
+      expect(msg).toBe('trustline entry is missing');
+    });
+
+    it('still prefers the XLM fee copy inside a USDC flow', () => {
+      const msg = humanizeError(new Error('send tip failed: txInsufficientBalance'), {}, 'tip');
+      expect(msg).toContain('network fee');
+      expect(msg).not.toContain('USDC');
+    });
+  });
+
+  describe('non-USDC flows', () => {
+    it('does not apply USDC heuristics to vouch mint errors', () => {
+      const msg = humanizeError(new Error('balance is not sufficient'));
+      expect(msg).not.toContain('USDC');
+      expect(msg).toBe('balance is not sufficient');
+    });
+
+    it('does not apply USDC heuristics to handle claim errors', () => {
+      const msg = humanizeError(new Error('insufficient balance'));
+      expect(msg).not.toContain('USDC');
+      expect(msg).toBe('insufficient balance');
+    });
   });
 });
 
@@ -75,5 +164,65 @@ describe('shareInFlight', () => {
     expect(pending.size).toBe(0);
     await expect(shareInFlight(pending, 'k', async () => 2)).resolves.toBe(2);
     expect(pending.size).toBe(0);
+  });
+});
+
+describe('concurrencyLimit', () => {
+  /** A task that stays in flight until the test resolves it. */
+  function deferred() {
+    let resolve!: () => void;
+    let reject!: (e: Error) => void;
+    const promise = new Promise<void>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  it('runs at most `limit` tasks at once and starts the rest in call order', async () => {
+    const gate = concurrencyLimit(2);
+    const tasks = Array.from({ length: 5 }, deferred);
+    const started: number[] = [];
+    let active = 0;
+    let peak = 0;
+    const all = tasks.map((d, i) =>
+      gate(async () => {
+        started.push(i);
+        peak = Math.max(peak, ++active);
+        await d.promise;
+        active--;
+        return i;
+      }),
+    );
+    await flush();
+    expect(started).toEqual([0, 1]);
+
+    tasks[1].resolve();
+    await flush();
+    expect(started).toEqual([0, 1, 2]);
+
+    // A caller arriving while the queue drains waits its turn instead of jumping the limit.
+    const late = deferred();
+    all.push(gate(async () => (started.push(5), await late.promise, 5)));
+    tasks[0].resolve();
+    await flush();
+    expect(started).toEqual([0, 1, 2, 3]);
+
+    tasks[2].resolve();
+    tasks[3].resolve();
+    tasks[4].resolve();
+    late.resolve();
+    expect(await Promise.all(all)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(started).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(peak).toBe(2);
+  });
+
+  it('frees the slot of a task that rejects', async () => {
+    const gate = concurrencyLimit(1);
+    const first = gate(async () => Promise.reject(new Error('rpc')));
+    const second = gate(async () => 'next');
+    await expect(first).rejects.toThrow('rpc');
+    await expect(second).resolves.toBe('next');
   });
 });

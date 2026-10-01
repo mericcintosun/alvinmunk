@@ -1,18 +1,51 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { contentSecurityPolicy } from './src/config/csp.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // @alvinmunk/shared ships raw TS; let Next transpile it from the workspace.
-  // passkey-kit (+ its sibling SDKs) also ship raw, uncompiled TS → transpile them too.
-  transpilePackages: ['@alvinmunk/shared', 'passkey-kit', 'passkey-kit-sdk', 'sac-sdk'],
-  experimental: {
-    // stellar-sdk pulls some node-ish deps; keep server externals tidy.
-    serverComponentsExternalPackages: ['@stellar/stellar-sdk'],
+  poweredByHeader: false,
+  async headers() {
+    return [
+      {
+        // Apply to every route (pages + API)
+        source: '/(.*)',
+        headers: [
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          {
+            key: 'Strict-Transport-Security',
+            value: 'max-age=63072000; includeSubDomains',
+          },
+          {
+            key: 'Permissions-Policy',
+            value:
+              'camera=(), microphone=(), geolocation=(), publickey-credentials-get=(self), publickey-credentials-create=(self)',
+          },
+          {
+            // Report-only first (#179): violations reach /api/csp-report and nothing is
+            // blocked. After a clean week on preview and production, rename the key to
+            // Content-Security-Policy to enforce it (docs/CSP.md).
+            key: 'Content-Security-Policy-Report-Only',
+            value: contentSecurityPolicy(process.env),
+          },
+        ],
+      },
+      {
+        // /claim/* links carry a one-time secret in the URL fragment; suppress the
+        // Referer header so it never leaks to third-party resources on that page.
+        source: '/claim/:path*',
+        headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }],
+      },
+    ];
   },
+  // @alvinmunk/shared and @alvinmunk/sdk ship raw TS in the workspace; let Next transpile them.
+  // passkey-kit (+ its sibling SDKs) also ship raw, uncompiled TS → transpile them too.
+  transpilePackages: ['@alvinmunk/shared', '@alvinmunk/sdk', 'passkey-kit', 'passkey-kit-sdk', 'sac-sdk', '@stellar/stellar-sdk'],
   images: {
     // The sticker asset kit (public/assets/**) is already web-optimized art; skip Next's
     // recompression so every sticker/illustration stays pixel-for-pixel lossless.

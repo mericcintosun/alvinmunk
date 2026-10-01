@@ -63,19 +63,44 @@ const config: Config = {
           2: 'hsl(var(--surface-2) / <alpha-value>)',
         },
       },
+      fontSize: {
+        // The floor of the type scale (11px): dense metadata, chips, hints. Nothing goes below it.
+        '2xs': ['0.6875rem', { lineHeight: '1rem' }],
+      },
+      // text-* reads each semantic colour's *-text variant (4.5:1 on every surface in both
+      // themes); bg-, border-, ring- and the rest keep the brighter fill from `colors`.
+      textColor: {
+        primary: { DEFAULT: 'hsl(var(--primary-text) / <alpha-value>)' },
+        onchain: 'hsl(var(--onchain-text) / <alpha-value>)',
+        secondary: { DEFAULT: 'hsl(var(--secondary-text) / <alpha-value>)' },
+        success: 'hsl(var(--success-text) / <alpha-value>)',
+        accent: { DEFAULT: 'hsl(var(--accent-text) / <alpha-value>)' },
+        warning: 'hsl(var(--warning-text) / <alpha-value>)',
+        destructive: { DEFAULT: 'hsl(var(--destructive-text) / <alpha-value>)' },
+        tertiary: 'hsl(var(--tertiary-text) / <alpha-value>)',
+        lime: { DEFAULT: 'hsl(var(--lime-text) / <alpha-value>)' },
+      },
       fontFamily: {
         display: ['var(--font-display)', 'system-ui', 'sans-serif'],
         sans: ['var(--font-sans)', 'system-ui', 'sans-serif'],
         mono: ['var(--font-mono)', 'monospace'],
       },
+      // One monotonic scale from --radius, 0.25rem a step. 2xl / 3xl must be set here too:
+      // Tailwind's own (1rem / 1.5rem) would make rounded-2xl squarer than rounded-xl.
       borderRadius: {
-        lg: 'var(--radius)',
-        md: 'calc(var(--radius) - 0.25rem)',
         sm: 'calc(var(--radius) - 0.5rem)',
+        md: 'calc(var(--radius) - 0.25rem)',
+        lg: 'var(--radius)',
         xl: 'calc(var(--radius) + 0.25rem)',
+        '2xl': 'calc(var(--radius) + 0.5rem)',
+        '3xl': 'calc(var(--radius) + 0.75rem)',
       },
+      // Every shadow reads a colour token, so the light theme gets a soft slate shadow
+      // (--glass-shadow) instead of the dark theme's near-black. Use these, not shadow-lg / -2xl.
       boxShadow: {
-        card: '0 1px 0 0 hsl(0 0% 100% / 0.04) inset, 0 8px 30px -12px hsl(230 60% 2% / 0.8)',
+        card: 'inset 0 1px 0 0 hsl(var(--hairline) / 0.06), 0 8px 30px -12px hsl(var(--glass-shadow) / 0.3)',
+        popover: '0 12px 32px -16px hsl(var(--glass-shadow) / 0.35)',
+        toast: '0 16px 40px -20px hsl(var(--glass-shadow) / 0.4)',
         'glow-primary': '0 0 24px -4px hsl(var(--primary) / 0.45)',
         'glow-onchain': '0 0 24px -4px hsl(var(--onchain) / 0.40)',
       },

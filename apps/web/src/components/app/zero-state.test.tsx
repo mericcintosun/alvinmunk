@@ -22,6 +22,8 @@ vi.mock('@/lib/constellation', () => ({ getPeopleCounts: getPeopleCountsMock }))
 vi.mock('@/lib/feed', () => ({ fetchActivity: fetchActivityMock }));
 vi.mock('@/lib/registry', () => ({ reverseHandles: reverseHandlesMock }));
 vi.mock('@/lib/myvouches', () => ({ getPendingVouches: getPendingVouchesMock }));
+// PendingHalfCards offers the revoke to the connected wallet's own cards (#137).
+vi.mock('@/components/wallet/wallet-provider', () => ({ useWallet: () => ({ profile: null }) }));
 
 import { StatStrip } from './stat-strip';
 import { ActivityFeed } from '../ActivityFeed';
@@ -55,6 +57,38 @@ describe('first-run UI states', () => {
     expect(container.textContent).toContain('Your constellation is still quiet');
   });
 
+  it('keeps the zero-state card and numbers mounted across a 15 s refresh', async () => {
+    vi.useFakeTimers();
+    try {
+      // The first read lands; the refresh stays in flight, which is when a skeleton would show.
+      getScoresMock
+        .mockResolvedValueOnce({ social: 0, earned: 0 })
+        .mockReturnValueOnce(new Promise(() => {}));
+      getPeopleCountsMock.mockResolvedValue({ vouchedBy: 0, backed: 0 });
+
+      await act(async () => {
+        root.render(<StatStrip address="GB123" />);
+        await Promise.resolve();
+      });
+      expect(container.querySelectorAll('.animate-pulse')).toHaveLength(0);
+      expect(container.textContent).toContain('Your constellation is still quiet');
+      const card = Array.from(container.querySelectorAll('p')).find(
+        (p) => p.textContent === 'Your constellation is still quiet',
+      );
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+
+      expect(getScoresMock).toHaveBeenCalledTimes(2);
+      expect(container.querySelectorAll('.animate-pulse')).toHaveLength(0);
+      // Same node, never unmounted and remounted.
+      expect(card?.isConnected).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('shows a friendly empty state for the activity feed before any vouches appear', async () => {
     fetchActivityMock.mockResolvedValue([]);
     reverseHandlesMock.mockResolvedValue({});
@@ -67,7 +101,7 @@ describe('first-run UI states', () => {
     expect(container.textContent).toContain('No activity yet');
   });
 
-  it('shows a friendly empty state for pending half-cards when none are waiting', async () => {
+  it('shows a friendly empty state for the pending half-cards when none are waiting', async () => {
     getPendingVouchesMock.mockResolvedValue([]);
 
     await act(async () => {
@@ -76,5 +110,41 @@ describe('first-run UI states', () => {
     });
 
     expect(container.textContent).toContain('No half-cards waiting');
+  });
+
+  it('hides the empty pending frame when the caller opts out', async () => {
+    getPendingVouchesMock.mockResolvedValue([]);
+
+    await act(async () => {
+      root.render(<PendingHalfCards hideWhenEmpty />);
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).not.toContain('No half-cards waiting');
+    expect(container.querySelector('.spotlight')).toBeNull();
+  });
+
+  it('shows no loading frame either when the caller opts out (it may never appear)', async () => {
+    getPendingVouchesMock.mockReturnValue(new Promise(() => {}));
+
+    await act(async () => {
+      root.render(<PendingHalfCards hideWhenEmpty />);
+    });
+
+    expect(container.innerHTML).toBe('');
+  });
+
+  it('still lists waiting half-cards when the caller opts out of the empty state', async () => {
+    getPendingVouchesMock.mockResolvedValue([
+      { id: 7, note: 'for the soup', created: 1, claimUrl: 'https://x/claim/7', daysLeft: 3 },
+    ]);
+
+    await act(async () => {
+      root.render(<PendingHalfCards hideWhenEmpty />);
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain('for the soup');
+    expect(container.textContent).toContain('pending // awaiting_claim');
   });
 });

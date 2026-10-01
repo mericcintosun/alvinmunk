@@ -5,6 +5,22 @@
 //! verifies a real action (merged GitHub PR, referral wallet did a real tx),
 //! then calls here. We check the allowlist + replay set, then cross-call
 //! Reputation.award_xp. NO decentralized oracle.
+//!
+//! Attester scope: a quest bound to a key (`set_quest_attester`) accepts only that key,
+//! so a partner's quest key can't mint Earned XP on any other quest. Unbound quests accept
+//! any key in the global allowlist (`add_attester_key`), which is for in-house keys only.
+//!
+//! Attester budget: a key can carry a daily Earned-XP budget (`set_attester_budget`), so
+//! a leaked key mints at most one day's budget. Keys without one stay unlimited.
+//!
+//! Signature lifetime: an award signature names its network, this contract and an expiry
+//! (`expires_at`), and `award_quest` refuses it once the ledger time passes that expiry.
+//!
+//! Repeatable quests (#154): `set_quest_period` makes a quest completable once per period
+//! (`604_800` = weekly, aligned with the streak week) instead of once ever. Its replay guard
+//! is kept per period, and its award signature also names the period, so a signature
+//! issued in one period can't be redeemed in the next. One-shot quests (no period, the
+//! default) keep their original guard and payload.
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short,
@@ -21,6 +37,24 @@ const DAY_LEDGERS: u32 = 17_280; // ~1 day
 const BUMP_EXTEND: u32 = 2_592_000; // ~150 days
 const BUMP_THRESHOLD: u32 = BUMP_EXTEND - DAY_LEDGERS;
 const WEEK_SECS: u64 = 604_800; // weekly retention loop (Green belt)
+const DAY_SECS: u64 = 86_400; // attester budget day: 00:00:00 to 23:59:59 UTC
+const BUDGET_WARN_PERCENT: u128 = 80; // `att_key/near_cap` fires on reaching this share
+
+// A day's usage counter lives in temporary storage and is only read during its own day.
+// Two days of ledgers keep it alive to the end of that day even when ledgers close faster
+// than 5s, on testnet too (its min_temporary_ttl is one hour).
+const USAGE_TTL: u32 = 2 * DAY_LEDGERS;
+
+/// Shortest repeat period `set_quest_period` accepts: one day. A shorter one would let a
+/// wallet farm Earned XP (and streak weeks) faster than any attester can check evidence.
+const MIN_PERIOD_SECS: u64 = DAY_SECS;
+
+// Domain tag, first element of every signed award payload (see `payload`). It names the
+// entrypoint and payload version, so the signature can never verify for another protocol's
+// message or for a later payload format, which must use a new tag.
+const AWARD_DOMAIN: &str = "alvinmunk_award_quest_v1";
+/// Domain tag of a REPEATABLE quest's payload, which also names the period and its epoch.
+const AWARD_DOMAIN_V2: &str = "alvinmunk_award_quest_v2";
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -32,6 +66,12 @@ pub enum Error {
     QuestNotFound = 4,
     AlreadyClaimed = 5,
     QuestInactive = 6,
+    AttesterBudgetExceeded = 7,
+    /// The ledger time is past the award signature's `expires_at`. The client asks the
+    /// attester for a fresh signature and submits again.
+    SignatureExpired = 8,
+    /// `set_quest_period` got a period above 0 but shorter than a day.
+    InvalidPeriod = 9,
 }
 
 #[contracttype]
@@ -44,6 +84,16 @@ pub enum DataKey {
     Quest(u32),              // QuestConfig
     Claimed(u32, Address),   // replay guard: (quest_id, recipient) -> bool
     Streak(Address),         // weekly retention streak per player
+    QuestAttester(u32),      // quest_id -> BytesN<32>: the only key that may award it
+    /// key -> daily Earned-XP budget (u64); absent = unlimited.
+    AttesterBudget(BytesN<32>),
+    /// Temporary: (key, day) -> Earned XP the key awarded that day.
+    AttesterUsed(BytesN<32>, u64),
+    /// quest_id -> repeat period in seconds (u64); absent = one-shot.
+    QuestPeriod(u32),
+    /// Repeatable quests' replay guard: (quest_id, recipient, epoch) -> bool, where
+    /// epoch = timestamp / period. One-shot quests keep using `Claimed`.
+    ClaimedIn(u32, Address, u64),
 }
 
 #[contracttype]
@@ -67,15 +117,27 @@ pub struct Streak {
     pub best: u32,
 }
 
+/// `get_attester_usage` result. `budget` is the key's daily Earned-XP budget (`0` =
+/// unlimited); `used` is what it awarded during `day` (timestamp / 86_400, UTC) while a
+/// budget was set. Usage is not counted while a key is unlimited.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AttesterUsage {
+    pub budget: u64,
+    pub used: u64,
+    pub day: u64,
+}
+
 #[contract]
 pub struct QuestRegistryContract;
 
 #[contractimpl]
 impl QuestRegistryContract {
-    pub fn init(env: Env, admin: Address, reputation: Address) {
-        if env.storage().instance().has(&DataKey::Admin) {
-            panic_with_error!(&env, Error::AlreadyInitialized);
-        }
+    /// Deploy-time setup (#127): `stellar contract deploy … -- --admin <ADDR> --reputation <C…>` runs this inside
+    /// the deploy transaction, so nobody can claim the admin between deploy and setup —
+    /// there is no `init` to front-run. `upgrade` never runs a constructor: a contract
+    /// deployed before this change was set up by its old `init` and keeps that state.
+    pub fn __constructor(env: Env, admin: Address, reputation: Address) {
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage()
             .instance()
@@ -113,11 +175,54 @@ impl QuestRegistryContract {
             .set(&DataKey::AttesterKey(key), &true);
     }
 
+    /// Revoke a key from the global allowlist. Quest bindings are separate: a key bound to
+    /// a quest keeps awarding it until `clear_quest_attester`.
     pub fn remove_attester_key(env: Env, key: BytesN<32>) {
         Self::admin(&env).require_auth();
         env.storage()
             .persistent()
             .remove(&DataKey::AttesterKey(key));
+    }
+
+    /// Bind `quest_id` to one attester key (admin). From then on only `key` can award that
+    /// quest; the global allowlist no longer applies to it. The key need not (and, for a
+    /// partner, must not) be in the global allowlist. Rebinding replaces the previous key.
+    pub fn set_quest_attester(env: Env, quest_id: u32, key: BytesN<32>) {
+        Self::admin(&env).require_auth();
+        if !env.storage().persistent().has(&DataKey::Quest(quest_id)) {
+            panic_with_error!(&env, Error::QuestNotFound);
+        }
+        let k = DataKey::QuestAttester(quest_id);
+        env.storage().persistent().set(&k, &key);
+        env.storage()
+            .persistent()
+            .extend_ttl(&k, BUMP_THRESHOLD, BUMP_EXTEND);
+        env.events().publish(
+            (symbol_short!("quest"), symbol_short!("att_bind")),
+            (quest_id, key),
+        );
+    }
+
+    /// Remove a quest's bound key (admin), so the quest falls back to the global allowlist.
+    /// A no-op without an event when nothing is bound.
+    pub fn clear_quest_attester(env: Env, quest_id: u32) {
+        Self::admin(&env).require_auth();
+        let k = DataKey::QuestAttester(quest_id);
+        let old: Option<BytesN<32>> = env.storage().persistent().get(&k);
+        if let Some(old) = old {
+            env.storage().persistent().remove(&k);
+            env.events().publish(
+                (symbol_short!("quest"), symbol_short!("att_clear")),
+                (quest_id, old),
+            );
+        }
+    }
+
+    /// The key bound to `quest_id`, or `None` when the quest uses the global allowlist.
+    pub fn get_quest_attester(env: Env, quest_id: u32) -> Option<BytesN<32>> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::QuestAttester(quest_id))
     }
 
     pub fn create_quest(env: Env, id: u32, schema_id: u32, xp: u64) {
@@ -136,6 +241,48 @@ impl QuestRegistryContract {
             .publish((symbol_short!("quest"), symbol_short!("created")), id);
     }
 
+    /// Make quest `id` repeatable once per `period_secs` (admin), or one-shot again with `0`.
+    /// Periods are aligned on the Unix epoch like the streak week, so `604_800` repeats
+    /// weekly, Thursday 00:00 UTC to Thursday 00:00 UTC. A period above 0 but under a day
+    /// reverts with `InvalidPeriod`. Kept under its own key, so `QuestConfig` keeps its
+    /// shape and `create_quest` leaves it alone.
+    ///
+    /// The change applies to the next award. Signatures issued under the old setting stop
+    /// verifying. Back to one-shot, the original once-ever guard applies again, so a wallet
+    /// that only completed the repeatable version can complete it once more.
+    pub fn set_quest_period(env: Env, id: u32, period_secs: u64) {
+        Self::admin(&env).require_auth();
+        if !env.storage().persistent().has(&DataKey::Quest(id)) {
+            panic_with_error!(&env, Error::QuestNotFound);
+        }
+        let key = DataKey::QuestPeriod(id);
+        if period_secs == 0 {
+            env.storage().persistent().remove(&key);
+        } else {
+            if period_secs < MIN_PERIOD_SECS {
+                panic_with_error!(&env, Error::InvalidPeriod);
+            }
+            env.storage().persistent().set(&key, &period_secs);
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, BUMP_THRESHOLD, BUMP_EXTEND);
+        }
+        env.events().publish(
+            (symbol_short!("quest"), symbol_short!("period")),
+            (id, period_secs),
+        );
+    }
+
+    /// Each quest's repeat period in seconds, in input order (`0` = one-shot, or no such
+    /// quest).
+    pub fn get_quest_periods(env: Env, ids: Vec<u32>) -> Vec<u64> {
+        let mut out = Vec::new(&env);
+        for id in ids.iter() {
+            out.push_back(Self::period(&env, id));
+        }
+        out
+    }
+
     /// Enable/disable a quest. Admin-only. A disabled quest can't be awarded.
     pub fn set_quest_active(env: Env, id: u32, active: bool) {
         Self::admin(&env).require_auth();
@@ -151,34 +298,89 @@ impl QuestRegistryContract {
             .extend_ttl(&DataKey::Quest(id), BUMP_THRESHOLD, BUMP_EXTEND);
     }
 
-    /// The canonical message an attester signs to authorize a quest award — exposed so the
-    /// off-chain attester signs EXACTLY what the contract verifies (no byte-mismatch risk).
-    pub fn quest_payload(env: Env, quest_id: u32, recipient: Address) -> Bytes {
-        Self::payload(&env, quest_id, &recipient)
+    /// Cap how much Earned XP `key` can award per UTC day (admin); `0` removes the cap.
+    /// Takes effect immediately and counts from the next award: XP the key awarded earlier
+    /// today while it was unlimited is not included. It covers every quest the key awards,
+    /// quest-bound ones included, is kept if the key is removed from the allowlist, and
+    /// applies again if it is re-added.
+    pub fn set_attester_budget(env: Env, key: BytesN<32>, budget: u64) {
+        Self::admin(&env).require_auth();
+        let k = DataKey::AttesterBudget(key.clone());
+        if budget == 0 {
+            env.storage().persistent().remove(&k);
+        } else {
+            env.storage().persistent().set(&k, &budget);
+            env.storage()
+                .persistent()
+                .extend_ttl(&k, BUMP_THRESHOLD, BUMP_EXTEND);
+        }
+        env.events().publish(
+            (symbol_short!("att_key"), symbol_short!("budget")),
+            (key, budget),
+        );
+    }
+
+    /// `key`'s daily budget and what it has used of it today (see `AttesterUsage`).
+    pub fn get_attester_usage(env: Env, key: BytesN<32>) -> AttesterUsage {
+        let day = Self::current_day(&env);
+        AttesterUsage {
+            budget: env
+                .storage()
+                .persistent()
+                .get(&DataKey::AttesterBudget(key.clone()))
+                .unwrap_or(0),
+            used: env
+                .storage()
+                .temporary()
+                .get(&DataKey::AttesterUsed(key, day))
+                .unwrap_or(0),
+            day,
+        }
+    }
+
+    /// The canonical message an attester signs to authorize a quest award (see `payload`),
+    /// exactly as `award_quest` would rebuild it now (for a repeatable quest: in the current
+    /// period). For checking an off-chain build against a deployment: an attester must build
+    /// the bytes itself, never sign what an RPC returns.
+    pub fn quest_payload(env: Env, quest_id: u32, recipient: Address, expires_at: u64) -> Bytes {
+        Self::payload(&env, quest_id, &recipient, expires_at)
     }
 
     /// Award a verified quest to `recipient`. Replay-guarded. Dual authorization:
-    ///   1. `attester` (an allowlisted ed25519 PUBKEY) signs the canonical payload — it
-    ///      alone can mint Earned XP (the anti-sybil keystone). A signature, not an on-chain
-    ///      tx, so the serverless attester stays stateless.
+    ///   1. `attester` (an ed25519 PUBKEY) signs the canonical payload — it alone can mint
+    ///      Earned XP (the anti-sybil keystone). A signature, not an on-chain tx, so the
+    ///      serverless attester stays stateless. It must be the quest's bound key when the
+    ///      quest has one, otherwise a key in the global allowlist.
     ///   2. `recipient.require_auth()` proves on-chain ownership of the credited wallet —
     ///      works uniformly for classic (G…) and passkey smart-account (C…) wallets.
+    ///
+    /// The signature is valid through `expires_at` (a ledger timestamp, in seconds, that
+    /// the attester sets 10 minutes ahead) and reverts with `SignatureExpired` after it, so
+    /// an unredeemed signature stops being a standing grant. `expires_at` is part of the
+    /// signed payload: a client that changes it fails signature verification.
+    ///
+    /// A repeatable quest's payload also names its period and the current epoch, so its
+    /// signature only verifies in the period it was issued for, and its replay guard allows
+    /// one award per recipient per period.
+    ///
+    /// The quest's XP then counts against the attester key's daily budget, if it has one:
+    /// an award past it reverts with `AttesterBudgetExceeded`.
     pub fn award_quest(
         env: Env,
         attester: BytesN<32>,
         sig: BytesN<64>,
         quest_id: u32,
         recipient: Address,
+        expires_at: u64,
     ) {
-        if !env
-            .storage()
-            .persistent()
-            .get(&DataKey::AttesterKey(attester.clone()))
-            .unwrap_or(false)
-        {
+        if env.ledger().timestamp() > expires_at {
+            panic_with_error!(&env, Error::SignatureExpired);
+        }
+        if !Self::attester_may_award(&env, &attester, quest_id) {
             panic_with_error!(&env, Error::NotAuthorized);
         }
-        let message = Self::payload(&env, quest_id, &recipient);
+        let period = Self::period(&env, quest_id);
+        let message = Self::payload_for(&env, quest_id, &recipient, expires_at, period);
         env.crypto().ed25519_verify(&attester, &message, &sig);
         recipient.require_auth();
 
@@ -191,15 +393,24 @@ impl QuestRegistryContract {
             panic_with_error!(&env, Error::QuestInactive);
         }
 
-        // Replay guard: check-and-set atomically.
-        let claim_key = DataKey::Claimed(quest_id, recipient.clone());
+        // Replay guard: check-and-set atomically, once ever or once per period.
+        let claim_key = Self::claim_key(&env, quest_id, &recipient, period);
         if env.storage().persistent().get(&claim_key).unwrap_or(false) {
             panic_with_error!(&env, Error::AlreadyClaimed);
         }
         env.storage().persistent().set(&claim_key, &true);
+        // A period's guard only has to outlive the period (its signatures can't verify in
+        // the next one): keep it two periods, capped at the one-shot guard's lifetime.
+        let keep = if period == 0 {
+            BUMP_EXTEND
+        } else {
+            Self::period_ledgers(period)
+        };
         env.storage()
             .persistent()
-            .extend_ttl(&claim_key, BUMP_THRESHOLD, BUMP_EXTEND);
+            .extend_ttl(&claim_key, keep.min(BUMP_THRESHOLD), keep);
+
+        Self::spend_attester_budget(&env, &attester, quest.xp);
 
         // Weekly retention streak: completing any quest in a new consecutive week
         // extends the run; a skipped week resets it (the all-time best is kept).
@@ -222,6 +433,25 @@ impl QuestRegistryContract {
             (symbol_short!("quest"), symbol_short!("awarded")),
             (quest_id, recipient),
         );
+    }
+
+    /// Whether `who` has completed `quest_id`: the replay guard `award_quest` sets, so a
+    /// `true` here means another award for the pair reverts with `AlreadyClaimed`. For a
+    /// repeatable quest it answers for the current period, so it reads `false` again once
+    /// the period rolls over. `false` for an unknown quest. Pure read, any caller, no TTL
+    /// bumps.
+    pub fn is_completed(env: Env, quest_id: u32, who: Address) -> bool {
+        Self::completed(&env, quest_id, &who)
+    }
+
+    /// Batched `is_completed` for one wallet: one flag per id, in input order (duplicates
+    /// repeat), so a quest list renders from one read. Each id is one persistent read.
+    pub fn get_completed(env: Env, who: Address, ids: Vec<u32>) -> Vec<bool> {
+        let mut out = Vec::new(&env);
+        for id in ids.iter() {
+            out.push_back(Self::completed(&env, id, &who));
+        }
+        out
     }
 
     /// The current weekly epoch (timestamp / WEEK_SECS) — the UI's "this week". Weeks run
@@ -260,14 +490,101 @@ impl QuestRegistryContract {
 
     // --- internal ---
 
-    /// Canonical signing payload: XDR of [quest_id, recipient, this_contract]. Binding the
-    /// contract address stops a signature being replayed against another deployment.
-    fn payload(env: &Env, quest_id: u32, recipient: &Address) -> Bytes {
+    /// The bytes an attester signs to award `quest_id` to `recipient`: the XDR of the ScVal
+    /// vector `[Symbol(AWARD_DOMAIN), network_id, this contract, quest_id: u32, recipient,
+    /// expires_at: u64]`. `network_id` is sha256 of the network passphrase. Mirrored by
+    /// `questPayload` in apps/web/src/lib/attest.ts; the format is documented in
+    /// docs/ON_CHAIN_EVENTS.md.
+    ///
+    /// A repeatable quest signs `[Symbol(AWARD_DOMAIN_V2), network_id, this contract,
+    /// quest_id: u32, recipient, period_secs: u64, epoch: u64, expires_at: u64]` instead,
+    /// with `epoch = ledger timestamp / period_secs`. One-shot quests keep the v1 bytes.
+    fn payload(env: &Env, quest_id: u32, recipient: &Address, expires_at: u64) -> Bytes {
+        Self::payload_for(
+            env,
+            quest_id,
+            recipient,
+            expires_at,
+            Self::period(env, quest_id),
+        )
+    }
+
+    /// `payload` for a quest whose period was already read.
+    fn payload_for(
+        env: &Env,
+        quest_id: u32,
+        recipient: &Address,
+        expires_at: u64,
+        period: u64,
+    ) -> Bytes {
+        let tag = if period == 0 {
+            AWARD_DOMAIN
+        } else {
+            AWARD_DOMAIN_V2
+        };
         let mut parts: Vec<Val> = Vec::new(env);
+        parts.push_back(Symbol::new(env, tag).into_val(env));
+        parts.push_back(env.ledger().network_id().into_val(env));
+        parts.push_back(env.current_contract_address().into_val(env));
         parts.push_back(quest_id.into_val(env));
         parts.push_back(recipient.clone().into_val(env));
-        parts.push_back(env.current_contract_address().into_val(env));
+        if period > 0 {
+            parts.push_back(period.into_val(env));
+            parts.push_back(Self::epoch(env, period).into_val(env));
+        }
+        parts.push_back(expires_at.into_val(env));
         parts.to_xdr(env)
+    }
+
+    fn completed(env: &Env, quest_id: u32, who: &Address) -> bool {
+        let key = Self::claim_key(env, quest_id, who, Self::period(env, quest_id));
+        env.storage().persistent().get(&key).unwrap_or(false)
+    }
+
+    /// A quest's repeat period in seconds; `0` = one-shot (and for an unknown quest).
+    fn period(env: &Env, quest_id: u32) -> u64 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::QuestPeriod(quest_id))
+            .unwrap_or(0)
+    }
+
+    /// The current period index of a repeatable quest, aligned on the Unix epoch.
+    fn epoch(env: &Env, period: u64) -> u64 {
+        env.ledger().timestamp() / period
+    }
+
+    /// The replay-guard key for an award now: once ever for a one-shot quest, once per
+    /// current period for a repeatable one.
+    fn claim_key(env: &Env, quest_id: u32, who: &Address, period: u64) -> DataKey {
+        if period == 0 {
+            DataKey::Claimed(quest_id, who.clone())
+        } else {
+            DataKey::ClaimedIn(quest_id, who.clone(), Self::epoch(env, period))
+        }
+    }
+
+    /// Two periods in ledgers (5s), capped at `BUMP_EXTEND`.
+    fn period_ledgers(period: u64) -> u32 {
+        let ledgers = (period / 5).saturating_mul(2);
+        u32::try_from(ledgers).unwrap_or(u32::MAX).min(BUMP_EXTEND)
+    }
+
+    /// A quest's bound key is its only attester; an unbound quest takes any globally
+    /// allowlisted key.
+    fn attester_may_award(env: &Env, attester: &BytesN<32>, quest_id: u32) -> bool {
+        let bound: Option<BytesN<32>> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::QuestAttester(quest_id));
+        match bound {
+            Some(key) => key == *attester,
+            None => env
+                .storage()
+                .persistent()
+                .get(&DataKey::AttesterKey(attester.clone()))
+                .unwrap_or(false),
+        }
     }
 
     /// Weeks are aligned on the Unix epoch, and 1970-01-01 was a Thursday, so every week
@@ -307,6 +624,45 @@ impl QuestRegistryContract {
             .extend_ttl(&key, BUMP_THRESHOLD, BUMP_EXTEND);
         env.events()
             .publish((symbol_short!("streak"), player.clone()), (s.weeks, s.best));
+    }
+
+    /// Count `xp` against `key`'s budget for today, if the key has a budget. Reverts with
+    /// `AttesterBudgetExceeded` when it would go past it, and emits `att_key/near_cap` on
+    /// the award that first reaches BUDGET_WARN_PERCENT of it that day.
+    fn spend_attester_budget(env: &Env, key: &BytesN<32>, xp: u64) {
+        let budget_key = DataKey::AttesterBudget(key.clone());
+        let budget: u64 = match env.storage().persistent().get(&budget_key) {
+            Some(budget) => budget,
+            None => return,
+        };
+        env.storage()
+            .persistent()
+            .extend_ttl(&budget_key, BUMP_THRESHOLD, BUMP_EXTEND);
+
+        let day = Self::current_day(env);
+        let used_key = DataKey::AttesterUsed(key.clone(), day);
+        let used: u64 = env.storage().temporary().get(&used_key).unwrap_or(0);
+        let now = match used.checked_add(xp) {
+            Some(now) if now <= budget => now,
+            _ => panic_with_error!(env, Error::AttesterBudgetExceeded),
+        };
+        env.storage().temporary().set(&used_key, &now);
+        env.storage()
+            .temporary()
+            .extend_ttl(&used_key, USAGE_TTL, USAGE_TTL);
+
+        let near = |used: u64| used as u128 * 100 >= budget as u128 * BUDGET_WARN_PERCENT;
+        if near(now) && !near(used) {
+            env.events().publish(
+                (symbol_short!("att_key"), symbol_short!("near_cap")),
+                (key.clone(), now, budget),
+            );
+        }
+    }
+
+    /// Budget days are UTC calendar days: 00:00:00 to 23:59:59.
+    fn current_day(env: &Env) -> u64 {
+        env.ledger().timestamp() / DAY_SECS
     }
 
     fn admin(env: &Env) -> Address {

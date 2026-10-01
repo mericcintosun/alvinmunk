@@ -10,11 +10,13 @@
 #   Gate 3  the operator types `mainnet` at a prompt read from the terminal, never from stdin.
 #
 # Then it builds (cargo --locked, into a fresh directory), uploads and deploys each contract
-# and inits it straight away, turns on set_daily_cap(DAILY_CAP) and set_require_funding(true),
-# wires the attesters, seeds the quests / reward table / gates exactly like
-# scripts/redeploy-all.sh, reads the safety settings back, and appends the contract ids, wasm
-# hashes, deployer key and commit SHA to deployment-log.md. It never calls friendbot or the
-# faucet and never moves USDC: fund the rewards treasury by hand afterwards.
+# with its constructor arguments (the admin and wiring are set inside the deploy transaction,
+# #127: there is no `init` to front-run), turns on set_daily_cap(DAILY_CAP) and
+# set_require_funding(true),
+# wires the attesters and rewards -> quest_registry, seeds the quests / reward table / gates
+# exactly like scripts/redeploy-all.sh, reads the safety settings back, and appends the
+# contract ids, wasm hashes, deployer key and commit SHA to deployment-log.md. It never calls
+# friendbot or the faucet and never moves USDC: fund the rewards treasury by hand afterwards.
 #
 # Usage (inputs are env vars; see docs/DEPLOY_MAINNET.md):
 #   ADMIN=<identity> ATTESTER=<identity|G...> USDC_SAC=<C...> DAILY_CAP=<stroops> \
@@ -130,7 +132,7 @@ invoke() { # $1 = contract id, rest = function + args
 }
 
 # Admin setters that are safe to repeat, retried so a transient RPC or TxBadSeq error does not
-# strand a half-wired deploy. `init` is never retried.
+# strand a half-wired deploy. A deploy is never retried.
 invoke_retry() {
   local n=1
   until invoke "$@"; do
@@ -141,17 +143,17 @@ invoke_retry() {
   done
 }
 
-# Upload the built wasm, deploy an instance, and init it immediately: `init` is open to anyone
-# until it has run, so the window between deploy and init stays as short as possible.
-deploy_and_init() { # $1 = contract, rest = init args
+# Upload the built wasm and deploy an instance. The constructor arguments go to the contract's
+# `__constructor` inside the deploy transaction itself, so the contract never exists without
+# its admin (#127): there is no separate `init` anyone could call first.
+deploy_contract() { # $1 = contract, rest = constructor args
   local c=$1 wasm="$BUILD_DIR/alvinmunk_$1.wasm" hash onchain id
   shift
   hash=$(hash_of "$c")
   if [ "$DRY_RUN" = 1 ]; then
     show stellar contract upload --wasm "$wasm" --optimize=false --source-account "$ADMIN" --network "$NETWORK"
-    show stellar contract deploy --wasm-hash "$hash" --source-account "$ADMIN" --network "$NETWORK"
+    show stellar contract deploy --wasm-hash "$hash" --source-account "$ADMIN" --network "$NETWORK" -- "$@"
     printf -v "ID_$c" '<%s-id>' "$c"
-    invoke "$(id_of "$c")" init "$@"
     return 0
   fi
   STEP="upload $c"
@@ -159,13 +161,10 @@ deploy_and_init() { # $1 = contract, rest = init args
     die "upload of $c failed"
   [ "$onchain" = "$hash" ] || die "the uploaded $c wasm hash '$onchain' is not the local build's sha256 $hash"
   STEP="deploy $c"
-  id=$(stellar contract deploy --wasm-hash "$hash" --source-account "$ADMIN" --network "$NETWORK") ||
+  id=$(stellar contract deploy --wasm-hash "$hash" --source-account "$ADMIN" --network "$NETWORK" -- "$@") ||
     die "deploy of $c failed"
   [[ $id =~ $C_RE ]] || die "deploy of $c returned '$id', not a contract id"
   printf -v "ID_$c" '%s' "$id"
-  STEP="init $c"
-  invoke "$id" init "$@" ||
-    die "init of $c ($id) failed. If someone else initialized it first, never use this contract; rerun the deploy."
   ok "$c $id"
 }
 
@@ -319,12 +318,12 @@ fi
 
 # --- Mainnet writes ---
 
-info "Deploying and initializing (upload, deploy, init per contract)"
-deploy_and_init reputation --admin "$ADMIN_ADDR"
-deploy_and_init quest_registry --admin "$ADMIN_ADDR" --reputation "$ID_reputation"
-deploy_and_init rewards --admin "$ADMIN_ADDR" --usdc "$USDC_SAC" --reputation "$ID_reputation"
-deploy_and_init registry --admin "$ADMIN_ADDR"
-deploy_and_init gate --admin "$ADMIN_ADDR" --reputation "$ID_reputation"
+info "Deploying (upload, then deploy with the constructor's arguments, per contract)"
+deploy_contract reputation --admin "$ADMIN_ADDR"
+deploy_contract quest_registry --admin "$ADMIN_ADDR" --reputation "$ID_reputation"
+deploy_contract rewards --admin "$ADMIN_ADDR" --usdc "$USDC_SAC" --reputation "$ID_reputation"
+deploy_contract registry --admin "$ADMIN_ADDR"
+deploy_contract gate --admin "$ADMIN_ADDR" --reputation "$ID_reputation"
 
 info "Treasury safety: daily cap + proof-of-funding"
 STEP="rewards safety settings"
@@ -335,6 +334,11 @@ info "Attesters: quest_registry -> reputation, attester key -> quest_registry"
 STEP="attesters"
 invoke_retry "$ID_reputation" add_attester --attester "$ID_quest_registry" || die "reputation.add_attester failed"
 invoke_retry "$ID_quest_registry" add_attester_key --key "$ATTESTER_KEY" || die "quest_registry.add_attester_key failed"
+
+info "Wiring rewards -> quest_registry (streak-gated rewards read get_streak)"
+STEP="wiring"
+invoke_retry "$ID_rewards" set_quest_registry --quest_registry "$ID_quest_registry" ||
+  die "rewards.set_quest_registry failed"
 
 info "Seeding quests, reward table and gates"
 STEP="seed data"
@@ -352,7 +356,7 @@ invoke_retry "$ID_gate" create_gate --id 1 --track 0 --min 20 --label '"Inner ci
 invoke_retry "$ID_gate" create_gate --id 2 --track 1 --min 30 --label '"Bounty board"' || die "create_gate 2 failed"
 
 if [ "$DRY_RUN" = 1 ]; then
-  info "Then it reads back get_require_funding, get_daily_cap and reputation.is_attester(quest_registry)"
+  info "Then it reads back get_require_funding, get_daily_cap, get_quest_registry and reputation.is_attester(quest_registry)"
   ok "DRY RUN complete: nothing was submitted and $DEPLOY_LOG was not touched. Rerun without DRY_RUN=1 to deploy."
   exit 0
 fi
@@ -361,9 +365,11 @@ info "Verifying the safety settings on chain"
 STEP="verify"
 [ "$(view "$ID_rewards" get_require_funding)" = true ] || die "rewards.get_require_funding is not true"
 [ "$(view "$ID_rewards" get_daily_cap)" = "$DAILY_CAP" ] || die "rewards.get_daily_cap is not $DAILY_CAP"
+[ "$(view "$ID_rewards" get_quest_registry)" = "$ID_quest_registry" ] ||
+  die "rewards.get_quest_registry is not $ID_quest_registry"
 [ "$(view "$ID_reputation" is_attester --who "$ID_quest_registry")" = true ] ||
   die "quest_registry is not an attester of reputation"
-ok "proof-of-funding on, daily cap $DAILY_CAP, quest_registry allowlisted"
+ok "proof-of-funding on, daily cap $DAILY_CAP, rewards wired to quest_registry, quest_registry allowlisted"
 
 STEP="write log"
 write_log COMPLETE

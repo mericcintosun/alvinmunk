@@ -1,17 +1,27 @@
 /**
- * My minted vouches — kept locally (the claim-secret only ever exists client-side) so
+ * My minted vouches — kept locally (the claim code only ever exists client-side) so
  * the dashboard can resurface UNCLAIMED half-cards: the re-engagement hook (your stake
  * gets slashed if nobody claims within the window — re-share the link). The claimed ones
  * also surface the voucher bonus still waiting on each claimer (`getOwedBonuses`).
  */
-import { buildClaimUrl } from '@alvinmunk/shared';
-import { getPending, getVouch, VOUCH_TTL_SECS } from './reputation';
+import {
+  claimLink,
+  getPending,
+  getVouch,
+  isVouchCancelled,
+  VOUCH_TTL_SECS,
+  type ClaimCode,
+} from './reputation';
 import { reverseHandle } from './registry';
 import { subscribeToPush } from './push';
+import { readJSON, writeJSON } from './storage';
 
 export interface MyVouch {
   id: number;
-  secret: string;
+  /** The card's claim-key seed (hex) — set for cards minted with `mint_vouch_signed`. */
+  seed?: string;
+  /** The legacy claim secret (hex) — set on cards stored before the claim key existed. */
+  secret?: string;
   note: string;
   created: number; // unix seconds
   /** Stellar address of the voucher — stored so we can look up push subscriptions
@@ -22,26 +32,52 @@ export interface MyVouch {
 const KEY = 'alvinmunk.myVouches';
 
 export function getMyVouches(): MyVouch[] {
-  if (typeof localStorage === 'undefined') return [];
-  try {
-    return JSON.parse(localStorage.getItem(KEY) ?? '[]') as MyVouch[];
-  } catch {
-    return [];
-  }
+  return readJSON<MyVouch[]>(KEY, []);
 }
 
 export function addMyVouch(v: MyVouch): void {
-  if (typeof localStorage === 'undefined') return;
   const list = [v, ...getMyVouches().filter((x) => x.id !== v.id)].slice(0, 60);
-  localStorage.setItem(KEY, JSON.stringify(list));
+  writeJSON(KEY, list);
+}
+
+/**
+ * Vouch IDs this device still wants notifications for (pending, unclaimed, not cancelled,
+ * in-window).
+ * Used when a rotated push subscription must be re-registered after the server already
+ * pruned the old record (#169) — the server's vouchIds set is rebuilt from this list.
+ */
+export async function getPendingVouchIds(): Promise<number[]> {
+  const mine = getMyVouches();
+  if (mine.length === 0) return [];
+  const now = Math.floor(Date.now() / 1000);
+  const ids = await Promise.all(
+    mine.map(async (m) => {
+      const v = await getVouch(m.id).catch(() => null);
+      if (!v || v.claimed || v.slashed) return null;
+      if (now >= v.created + VOUCH_TTL_SECS) return null;
+      if ((await isVouchCancelled(m.id)) === true) return null;
+      return m.id;
+    }),
+  );
+  return ids.filter((id): id is number => id !== null);
 }
 
 export interface PendingVouch extends MyVouch {
   claimUrl: string;
   daysLeft: number;
+  /** The card's voucher, as stored on chain — the only address that can cancel it. */
+  from: string;
+  /** The deployed contract can cancel this card (`cancel_vouch`): its `is_cancelled` read
+   *  answered. False on a contract that predates it, or when that read failed. */
+  revocable: boolean;
 }
 
-/** Minted vouches still awaiting a claim (not claimed, not slashed, in-window). */
+/** The code a stored card's link carries: its claim-key seed, or an older card's secret. */
+function claimCodeOf(m: MyVouch): ClaimCode {
+  return m.seed ? { kind: 'key', code: m.seed } : { kind: 'secret', code: m.secret ?? '' };
+}
+
+/** Minted vouches still awaiting a claim (not claimed, not slashed, not cancelled, in-window). */
 export async function getPendingVouches(origin: string): Promise<PendingVouch[]> {
   const mine = getMyVouches();
   const now = Math.floor(Date.now() / 1000);
@@ -52,10 +88,14 @@ export async function getPendingVouches(origin: string): Promise<PendingVouch[]>
       if (!v || v.claimed || v.slashed) return;
       const deadline = v.created + VOUCH_TTL_SECS;
       if (now >= deadline) return; // window closed — stake already slashable
+      const cancelled = await isVouchCancelled(m.id);
+      if (cancelled) return; // the voucher revoked the link
       out.push({
         ...m,
-        claimUrl: `${buildClaimUrl(origin, m.id)}?s=${m.secret}`,
+        claimUrl: claimLink(origin, m.id, claimCodeOf(m)),
         daysLeft: Math.max(0, Math.ceil((deadline - now) / 86_400)),
+        from: v.from,
+        revocable: cancelled === false,
       });
     }),
   );
@@ -107,14 +147,9 @@ export async function getOwedBonuses(me: string): Promise<OwedBonus[]> {
 const SEEN_CLAIMED_KEY = 'alvinmunk.seenClaimed';
 
 function getSeenClaimed(): { ids: number[]; baselined: boolean } {
-  if (typeof localStorage === 'undefined') return { ids: [], baselined: true };
-  try {
-    const raw = localStorage.getItem(SEEN_CLAIMED_KEY);
-    if (raw === null) return { ids: [], baselined: false };
-    return { ids: JSON.parse(raw) as number[], baselined: true };
-  } catch {
-    return { ids: [], baselined: true };
-  }
+  const ids = readJSON<number[] | null>(SEEN_CLAIMED_KEY, null);
+  if (ids === null) return { ids: [], baselined: false };
+  return { ids, baselined: true };
 }
 
 /**
@@ -153,10 +188,8 @@ export async function pollNewlyClaimed(): Promise<{ id: number; note: string }[]
       if (baselined && !seen.has(m.id)) fresh.push({ id: m.id, note: m.note });
     }),
   );
-  if (typeof localStorage !== 'undefined') {
-    // Persist the union so a claim is reported once; first run only baselines (no toasts).
-    const next = Array.from(new Set([...seenIds, ...claimedNow]));
-    localStorage.setItem(SEEN_CLAIMED_KEY, JSON.stringify(next));
-  }
+  // Persist the union so a claim is reported once; first run only baselines (no toasts).
+  const next = Array.from(new Set([...seenIds, ...claimedNow]));
+  writeJSON(SEEN_CLAIMED_KEY, next);
   return baselined ? fresh : [];
 }

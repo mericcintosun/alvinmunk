@@ -3,8 +3,38 @@
   "ui": "tui",
   "tasks": {
     "build": {
-      "dependsOn": ["^build"],
-      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        ".next/**",
+        "!.next/cache/**",
+        "dist/**"
+      ],
+      "env": [
+        "NEXT_PUBLIC_*"
+      ],
+      "passThroughEnv": [
+        "ATTESTER_SECRET_KEY",
+        "GITHUB_TOKEN",
+        "KV_REST_API_TOKEN",
+        "KV_REST_API_URL",
+        "MAINNET_GATE_CONTRACT_ID",
+        "MAINNET_QUEST_REGISTRY_CONTRACT_ID",
+        "MAINNET_REGISTRY_CONTRACT_ID",
+        "MAINNET_REPUTATION_CONTRACT_ID",
+        "MAINNET_REWARDS_CONTRACT_ID",
+        "MAINNET_RPC_URL",
+        "MAINNET_USDC_SAC_ID",
+        "PASSKEY_RELAYER_API_KEY",
+        "PASSKEY_RELAYER_URL",
+        "QUEST_GITHUB_ID",
+        "QUEST_GITHUB_REPOS",
+        "USDC_ISSUER_SECRET_KEY",
+        "VAPID_PRIVATE_KEY",
+        "VAPID_PUBLIC_KEY",
+        "VAPID_SUBJECT"
+      ]
     },
     "dev": {
       "cache": false,
@@ -12,10 +42,14 @@
     },
     "lint": {},
     "typecheck": {
-      "dependsOn": ["^build"]
+      "dependsOn": [
+        "^build"
+      ]
     },
     "test": {
-      "dependsOn": ["^build"]
+      "dependsOn": [
+        "^build"
+      ]
     },
     "clean": {
       "cache": false

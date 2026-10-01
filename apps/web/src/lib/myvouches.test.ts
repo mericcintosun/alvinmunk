@@ -5,21 +5,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { PendingBonusView, VouchView } from './reputation';
 
-const { getVouchMock, getPendingMock, reverseHandleMock } = vi.hoisted(() => ({
+const { getVouchMock, getPendingMock, reverseHandleMock, isVouchCancelledMock } = vi.hoisted(() => ({
   getVouchMock: vi.fn(),
   getPendingMock: vi.fn(),
   reverseHandleMock: vi.fn(),
+  isVouchCancelledMock: vi.fn(),
 }));
 
-vi.mock('./reputation', () => ({
+vi.mock('./reputation', async (importOriginal) => ({
+  claimLink: (await importOriginal<typeof import('./reputation')>()).claimLink,
   getVouch: getVouchMock,
   getPending: getPendingMock,
+  isVouchCancelled: isVouchCancelledMock,
   VOUCH_TTL_SECS: 604_800,
 }));
 vi.mock('./registry', () => ({ reverseHandle: reverseHandleMock }));
 vi.mock('./push', () => ({ subscribeToPush: vi.fn() }));
 
-import { addMyVouch, getOwedBonuses } from './myvouches';
+import { addMyVouch, getMyVouches, getOwedBonuses, getPendingVouchIds, getPendingVouches } from './myvouches';
 
 const ME = 'GME';
 const OTHER_WALLET = 'GOTHER';
@@ -53,6 +56,7 @@ beforeEach(() => {
   getVouchMock.mockReset().mockImplementation(async (id: number) => vouches.get(id) ?? null);
   getPendingMock.mockReset().mockImplementation(async (c: string) => pending.get(c) ?? []);
   reverseHandleMock.mockReset().mockResolvedValue(null);
+  isVouchCancelledMock.mockReset().mockResolvedValue(false);
 });
 
 describe('getOwedBonuses', () => {
@@ -157,5 +161,83 @@ describe('getOwedBonuses', () => {
     pending.set(BOB, [{ voucher: ME, amount: 5 }]);
     reverseHandleMock.mockRejectedValue(new Error('registry down'));
     expect(await getOwedBonuses(ME)).toMatchObject([{ claimer: BOB, handle: null }]);
+  });
+
+  it('handles throwing localStorage getter gracefully in getMyVouches and addMyVouch', () => {
+    const original = Object.getOwnPropertyDescriptor(window, 'localStorage');
+    Object.defineProperty(window, 'localStorage', {
+      get() {
+        throw new DOMException('SecurityError', 'SecurityError');
+      },
+      configurable: true,
+    });
+
+    try {
+      expect(getMyVouches()).toEqual([]);
+      expect(() => addMyVouch({ id: 99, secret: 's', note: 'test', created: 0 })).not.toThrow();
+    } finally {
+      if (original) {
+        Object.defineProperty(window, 'localStorage', original);
+      }
+    }
+  });
+});
+
+describe('getPendingVouches', () => {
+  it("re-shares each open card with its own claim code, in the fragment only", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const open = (id: number): VouchView => ({
+      id,
+      from: ME,
+      note: 'n',
+      claimed: false,
+      claimer: null,
+      created: now,
+      stake: 5,
+      slashed: false,
+    });
+    addMyVouch({ id: 1, seed: 'aa', note: 'new', created: now });
+    addMyVouch({ id: 2, secret: 'bb', note: 'old', created: now }); // stored before claim keys
+    vouches.set(1, open(1));
+    vouches.set(2, open(2));
+
+    const urls = (await getPendingVouches('https://alvinmunk.app')).map((v) => v.claimUrl).sort();
+    expect(urls).toEqual(['https://alvinmunk.app/claim/1#k=aa', 'https://alvinmunk.app/claim/2#s=bb']);
+  });
+
+  const openCard = (id: number) => {
+    const now = Math.floor(Date.now() / 1000);
+    addMyVouch({ id, seed: 'aa', note: `n${id}`, created: now });
+    vouches.set(id, { id, from: ME, note: `n${id}`, claimed: false, claimer: null, created: now, stake: 5, slashed: false });
+  };
+
+  it('drops a card its voucher cancelled, and offers the cancel on the others', async () => {
+    openCard(1);
+    openCard(2);
+    isVouchCancelledMock.mockImplementation(async (id: number) => id === 1);
+
+    const cards = await getPendingVouches('https://alvinmunk.app');
+    expect(cards.map((v) => [v.id, v.from, v.revocable])).toEqual([[2, ME, true]]);
+  });
+
+  it('keeps the card but offers no cancel when is_cancelled cannot be read (older contract)', async () => {
+    openCard(1);
+    isVouchCancelledMock.mockResolvedValue(null);
+
+    const cards = await getPendingVouches('https://alvinmunk.app');
+    expect(cards.map((v) => [v.id, v.revocable])).toEqual([[1, false]]);
+  });
+});
+
+describe('getPendingVouchIds', () => {
+  it('leaves out cancelled cards, and keeps cards whose flag cannot be read', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    for (const id of [1, 2, 3]) {
+      addMyVouch({ id, seed: 'aa', note: 'n', created: now });
+      vouches.set(id, { id, from: ME, note: 'n', claimed: false, claimer: null, created: now, stake: 5, slashed: false });
+    }
+    isVouchCancelledMock.mockImplementation(async (id: number) => (id === 1 ? true : id === 2 ? null : false));
+
+    expect((await getPendingVouchIds()).sort()).toEqual([2, 3]);
   });
 });

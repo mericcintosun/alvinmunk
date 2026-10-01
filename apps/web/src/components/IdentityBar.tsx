@@ -8,13 +8,13 @@ import { useWallet } from '@/components/wallet/wallet-provider';
 import {
   claimHandle,
   getMeta,
-  isHandleAvailable,
+  handleAvailability,
   isMetaUnsupported,
   META_ERRORS,
   setMeta,
 } from '@/lib/registry';
 import { BIO_MAX_BYTES, bioBytes, normalizeHandle, sanitizeBio } from '@/lib/profile';
-import { useTranslations, type TFn } from '@/lib/i18n';
+import { useLocale, useTranslations, type TFn } from '@/lib/i18n';
 import { ShareRow } from '@/components/fx/share-row';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -37,6 +37,10 @@ function metaErrors(t: TFn): Record<number, string> {
 
 const sameAvatar = (a?: AvatarConfig, b?: AvatarConfig) => JSON.stringify(a) === JSON.stringify(b);
 
+// Inline pencil / X controls are ghost icon buttons with a 32px hit area. The negative margin
+// gives the row back the extra 16px, so it lays out (and wraps) as if only the glyph were there.
+const INLINE_ICON = '-m-2 shrink-0 text-muted-foreground';
+
 /**
  * Identity bar — your @handle as the profile ID, with inline claim/edit (re-stamps the
  * handle on-chain) + share + public-profile link. The handle was claimed at onboarding;
@@ -46,6 +50,7 @@ const sameAvatar = (a?: AvatarConfig, b?: AvatarConfig) => JSON.stringify(a) ===
  */
 export function IdentityBar() {
   const t = useTranslations();
+  const { locale } = useLocale();
   const { profile, connect, setProfile } = useWallet();
   const [editing, setEditing] = useState(false);
   const [editingBio, setEditingBio] = useState(false);
@@ -131,7 +136,7 @@ export function IdentityBar() {
     if (!profile) return;
     const h = normalizeHandle(value);
     if (h.length < 3) {
-      toast.error('Pick a handle — 3+ letters or numbers.');
+      toast.error(t('identity.handleTooShort'));
       return;
     }
     if (h === profile.handle) {
@@ -140,17 +145,28 @@ export function IdentityBar() {
     }
     setBusy(true);
     try {
-      if (!(await isHandleAvailable(h))) {
-        toast.error(`@${h} is taken — pick another.`);
+      // its previous owner may take back a handle it freed, so ask on behalf of this wallet
+      const a = await handleAvailability(h, profile.address);
+      if (a.status === 'reserved') {
+        toast.error(
+          t('identity.handle.reserved', {
+            handle: h,
+            date: a.until.toLocaleDateString(locale, { dateStyle: 'medium' }),
+          }),
+        );
+        return;
+      }
+      if (a.status === 'taken') {
+        toast.error(t('identity.handleTaken', { handle: h }));
         return;
       }
       const w = await connect();
       await claimHandle(w, h); // rename on-chain
       setProfile({ ...profile, handle: h });
-      toast.success(`@${h} stamped on-chain.`);
+      toast.success(t('identity.handleStamped', { handle: h }));
       setEditing(false);
     } catch (e) {
-      toast.error(humanizeError(e, { 3: t('error.claim.taken') }, t('error.fallback')));
+      toast.error(e instanceof Error ? e.message : t('identity.claimFailed'));
     } finally {
       setBusy(false);
     }
@@ -175,53 +191,60 @@ export function IdentityBar() {
               onChange={(e) => setValue(e.target.value)}
               placeholder={profile.handle}
               className="h-9 w-40 font-mono"
-              aria-label="New handle"
+              aria-label={t('identity.newHandle')}
             />
             <Button size="sm" variant="flow" type="submit" disabled={busy}>
-              {busy ? '…' : 'stamp'}
+              {busy ? '…' : t('identity.stamp')}
             </Button>
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon-sm"
               onClick={() => setEditing(false)}
-              className="text-muted-foreground hover:text-foreground"
-              aria-label="Cancel"
+              className={INLINE_ICON}
+              aria-label={t('identity.cancel')}
             >
-              <X className="size-4" />
-            </button>
+              <X />
+            </Button>
           </form>
         ) : (
           <>
             <button
               onClick={() => setPicking((p) => !p)}
               disabled={savingMeta}
-              className="rounded-full outline-none ring-offset-2 ring-offset-background transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-lime"
-              aria-label="Change your face"
-              title="Change your face"
+              className="rounded-full transition-transform hover:scale-105"
+              aria-label={t('identity.changeFace')}
+              title={t('identity.changeFace')}
             >
               <Avatar address={profile.address} avatar={profile.avatar} handle={profile.handle} size={40} />
             </button>
-            <h1 className="truncate font-display text-lg font-semibold">@{profile.handle}</h1>
-            <Badge variant="onchain">on-chain</Badge>
-            <button
+            <p className="truncate font-display text-lg font-semibold">@{profile.handle}</p>
+            <Badge variant="onchain">{t('identity.onChain')}</Badge>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
               onClick={() => {
                 setValue(profile.handle);
                 setEditing(true);
               }}
-              className="text-muted-foreground transition-colors hover:text-primary"
-              aria-label="Edit handle"
+              className={cn(INLINE_ICON, '[&_svg]:size-3.5')}
+              aria-label={t('identity.editHandle')}
             >
-              <Pencil className="size-3.5" />
-            </button>
+              <Pencil />
+            </Button>
           </>
         )}
       </div>
-      <div className="flex shrink-0 items-center gap-3">
+      {/* max-w-full + wrap: a longer locale's labels drop the share row to its own line on
+          a phone instead of widening the page. */}
+      <div className="flex max-w-full shrink-0 flex-wrap items-center gap-3">
         <Link href={`/u/${profile.handle}`} className="text-sm text-primary hover:underline">
-          View profile →
+          {t('identity.viewProfile')}
         </Link>
         <ShareRow
           path={`/u/${profile.handle}`}
-          text="My constellation on alvinmunk — collect people, not points."
+          text={t('identity.shareText')}
         />
       </div>
     </div>
@@ -245,7 +268,7 @@ export function IdentityBar() {
               aria-label={t('identity.bio.label')}
             />
             <span
-              className="shrink-0 font-mono text-[10px] text-muted-foreground"
+              className="shrink-0 font-mono text-2xs text-muted-foreground"
               title={t('identity.bio.bytesHint')}
             >
               {bioBytes(bioValue)}/{BIO_MAX_BYTES}
@@ -253,37 +276,42 @@ export function IdentityBar() {
             <Button size="sm" variant="flow" type="submit" disabled={savingMeta}>
               {t('identity.bio.save')}
             </Button>
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon-sm"
               onClick={() => setEditingBio(false)}
-              className="text-muted-foreground hover:text-foreground"
+              className={cn(INLINE_ICON, '[&_svg]:size-3.5')}
               aria-label={t('identity.bio.cancel')}
             >
-              <X className="size-3.5" />
-            </button>
+              <X />
+            </Button>
           </form>
         ) : (
           <>
             {profile.bio ? (
               <p className="min-w-0 truncate text-xs text-muted-foreground">{profile.bio}</p>
             ) : (
-              <span className="font-mono text-[10px] text-muted-foreground/60">
+              <span className="font-mono text-2xs text-muted-foreground">
                 {t('identity.bio.add')}
               </span>
             )}
-            <button
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
               onClick={() => {
                 setBioValue(profile.bio ?? '');
                 setEditingBio(true);
               }}
               disabled={savingMeta}
-              className="shrink-0 text-muted-foreground transition-colors hover:text-primary disabled:opacity-50"
+              className={cn(INLINE_ICON, '[&_svg]:size-3')}
               aria-label={t('identity.bio.edit')}
             >
-              <Pencil className="size-3" />
-            </button>
+              <Pencil />
+            </Button>
             {savingMeta && (
-              <span className="font-mono text-[10px] text-muted-foreground" aria-live="polite">
+              <span className="font-mono text-2xs text-muted-foreground" aria-live="polite">
                 {t('identity.meta.saving')}
               </span>
             )}
@@ -294,16 +322,16 @@ export function IdentityBar() {
       {picking && (
         <div className="mt-3 rounded-xl border border-border/60 bg-surface/40 p-3">
           <div className="mb-3 flex justify-center gap-1">
-            {(['faces', 'remix'] as const).map((t) => (
+            {(['faces', 'remix'] as const).map((faceTab) => (
               <button
-                key={t}
-                onClick={() => setTab(t)}
+                key={faceTab}
+                onClick={() => setTab(faceTab)}
                 className={cn(
-                  'rounded-full px-3 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors',
-                  tab === t ? 'bg-lime text-lime-foreground' : 'text-muted-foreground hover:text-foreground',
+                  'rounded-full px-3 py-1 font-mono text-2xs uppercase tracking-wider transition-colors',
+                  tab === faceTab ? 'bg-lime text-lime-foreground' : 'text-muted-foreground hover:text-foreground',
                 )}
               >
-                {t === 'faces' ? 'pick a face' : 'remix'}
+                {faceTab === 'faces' ? t('identity.pickFace') : t('identity.remix')}
               </button>
             ))}
           </div>

@@ -8,23 +8,101 @@
  * Ownership is thus proven ON-CHAIN — no off-chain ownership signature, and it works for
  * passkey smart accounts (C…) as well as classic (G…) wallets.
  */
-import { invokeAndWait, readContract, readPublic, args, questId as questRegistryId } from './contracts';
-import { humanizeError } from './utils';
+import { scValToNative } from '@stellar/stellar-sdk';
+import {
+  enumKey,
+  invokeAndWait,
+  invokeAndWaitHash,
+  readContract,
+  readLedgerData,
+  readPublic,
+  args,
+  questId as questRegistryId,
+} from './contracts';
+import { contractErrorCode, humanizeError } from './utils';
 import type { EvidenceType } from './attest';
 import type { Wallet } from './wallet';
 
 // QuestRegistry contract error codes → friendly copy (mirrors contracts/quest_registry Error enum).
+const ALREADY_CLAIMED = 5;
 const QUEST_ERRORS: Record<number, string> = {
   3: 'This quest verification isn’t authorized — try again in a moment.',
   4: 'That quest doesn’t exist.',
   5: 'You’ve already completed this quest.',
   6: 'This quest isn’t active right now.',
+  7: 'Quest rewards hit today’s limit — try again after 00:00 UTC.',
+  8: 'The quest approval expired before it reached the chain — complete the quest again.',
 };
 
 export interface QuestResult {
   ok: boolean;
   hash?: string;
   error?: string;
+  /** The wallet had already completed this quest: the attester answered 409, or the
+   *  contract's replay guard refused the award (`AlreadyClaimed`). */
+  completed?: boolean;
+}
+
+// --- Admin content management. Every write is `admin.require_auth()`-gated on-chain. ---
+
+/** A quest's on-chain config (contracts/quest_registry `QuestConfig`). */
+export interface QuestConfig {
+  id: number;
+  schemaId: number;
+  xp: bigint;
+  active: boolean;
+}
+
+/**
+ * Look up quest `id` by reading its stored `DataKey::Quest(id)` entry straight from the
+ * ledger: the registry has no quest getter yet (#114), so the admin view works from a typed
+ * id. `null` when no such quest exists. Throws on RPC failure.
+ */
+export async function readQuest(id: number): Promise<QuestConfig | null> {
+  const [v] = await readLedgerData(questRegistryId(), [enumKey('Quest', args.u32(id))]);
+  if (!v) return null;
+  const raw = scValToNative(v) as { id: number; schema_id: number; xp: bigint; active: boolean };
+  return {
+    id: Number(raw.id),
+    schemaId: Number(raw.schema_id),
+    xp: BigInt(raw.xp),
+    active: Boolean(raw.active),
+  };
+}
+
+/** Define or replace quest `id` (always saved ACTIVE). Resolves the confirmed tx hash. */
+export async function createQuest(
+  wallet: Wallet,
+  id: number,
+  schemaId: number,
+  xp: bigint,
+): Promise<string> {
+  return invokeAndWaitHash(
+    questRegistryId(),
+    'create_quest',
+    [args.u32(id), args.u32(schemaId), args.u64(xp)],
+    wallet,
+  );
+}
+
+/** Make quest `id` repeatable once per `periodSecs` (`WEEK_SECS` = weekly), or one-shot
+ *  again with `0`. The contract refuses a period above 0 but under a day. */
+export async function setQuestPeriod(wallet: Wallet, id: number, periodSecs: number): Promise<string> {
+  return invokeAndWaitHash(
+    questRegistryId(),
+    'set_quest_period',
+    [args.u32(id), args.u64(periodSecs)],
+    wallet,
+  );
+}
+
+export async function setQuestActive(wallet: Wallet, id: number, active: boolean): Promise<string> {
+  return invokeAndWaitHash(
+    questRegistryId(),
+    'set_quest_active',
+    [args.u32(id), args.bool(active)],
+    wallet,
+  );
 }
 
 /** Weekly retention streak (Green belt) — consecutive weeks with a completed quest. */
@@ -47,6 +125,55 @@ export async function getStreak(addr: string, source?: string): Promise<Streak> 
     best: Number(v?.best ?? 0),
     lastWeek: Number(v?.last_week ?? 0),
   };
+}
+
+/**
+ * Which of `questIds` `who` has completed, from one `get_completed` read (the replay guard
+ * `award_quest` sets — for a repeatable quest, in the current period), keyed by quest id. Resolves `null` when the read fails — including a
+ * deployed contract that predates the view — or returns something other than one flag per
+ * id, so the UI leaves every quest available instead of guessing. Omit `source` for a
+ * wallet-free read.
+ */
+export async function getCompleted(
+  who: string,
+  questIds: number[],
+  source?: string,
+): Promise<Map<number, boolean> | null> {
+  try {
+    const call = [args.addr(who), args.u32s(questIds)];
+    const v = source
+      ? await readContract<unknown>(questRegistryId(), 'get_completed', call, source)
+      : await readPublic<unknown>(questRegistryId(), 'get_completed', call);
+    if (!Array.isArray(v) || v.length !== questIds.length) return null;
+    if (!v.every((flag) => typeof flag === 'boolean')) return null;
+    return new Map(questIds.map((id, i) => [id, v[i] as boolean]));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Each of `questIds`' repeat period in seconds (0 = one-shot), from one `get_quest_periods`
+ * read, keyed by quest id. Resolves `null` when the read fails — including a deployed
+ * contract that predates repeatable quests, where every quest is one-shot — or returns
+ * something other than one period per id. Omit `source` for a wallet-free read.
+ */
+export async function getQuestPeriods(
+  questIds: number[],
+  source?: string,
+): Promise<Map<number, number> | null> {
+  try {
+    const call = [args.u32s(questIds)];
+    const v = source
+      ? await readContract<unknown>(questRegistryId(), 'get_quest_periods', call, source)
+      : await readPublic<unknown>(questRegistryId(), 'get_quest_periods', call);
+    if (!Array.isArray(v) || v.length !== questIds.length) return null;
+    const periods = v.map((p) => (typeof p === 'bigint' || typeof p === 'number' ? Number(p) : NaN));
+    if (!periods.every((p) => Number.isSafeInteger(p) && p >= 0)) return null;
+    return new Map(questIds.map((id, i) => [id, periods[i]]));
+  } catch {
+    return null;
+  }
 }
 
 /** The current streak week in UTC unix seconds: `start` is its first second and `end` its
@@ -121,14 +248,18 @@ export async function completeQuest(
   const res = await fetch('/api/attest', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ questId, recipient: wallet.address, evidence, timestamp: Date.now() }),
+    body: JSON.stringify({ questId, recipient: wallet.address, evidence }),
   });
   const data = (await res.json().catch(() => ({}))) as {
     attester?: string;
     sig?: string;
+    expiresAt?: number;
     error?: string;
   };
-  if (!res.ok || !data.attester || !data.sig) {
+  if (res.status === 409) {
+    return { ok: false, error: data.error ?? QUEST_ERRORS[ALREADY_CLAIMED], completed: true };
+  }
+  if (!res.ok || !data.attester || !data.sig || !Number.isSafeInteger(data.expiresAt)) {
     return { ok: false, error: data.error ?? `error ${res.status}` };
   }
 
@@ -143,11 +274,16 @@ export async function completeQuest(
         args.bytes(b64ToBytes(data.sig)),
         args.u32(questId),
         args.addr(wallet.address),
+        // Signed into the payload: the contract refuses the signature after this time.
+        args.u64(BigInt(data.expiresAt as number)),
       ],
       wallet,
     );
     return { ok: true };
   } catch (e) {
-    return { ok: false, error: humanizeError(e, QUEST_ERRORS) };
+    const error = humanizeError(e, QUEST_ERRORS);
+    return contractErrorCode(e) === ALREADY_CLAIMED
+      ? { ok: false, error, completed: true }
+      : { ok: false, error };
   }
 }

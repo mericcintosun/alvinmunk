@@ -16,7 +16,15 @@ test('dev wallet onboarding creates a profile and mints a shareable vouch', asyn
     timeout: 120_000,
   });
 
-  await page.getByLabel('Handle').fill(handle);
+  // The heading is server-rendered, so it can show before hydration. Text typed before then never
+  // reaches React state, and re-typing the same value fires no onChange (React's value tracker
+  // already holds it). Clear and refill until the availability line — rendered by React — shows.
+  const handleInput = page.getByLabel('Handle');
+  await expect(async () => {
+    await handleInput.fill('');
+    await handleInput.fill(handle);
+    await expect(page.getByText(`@${handle} is free`)).toBeVisible({ timeout: 15_000 });
+  }).toPass({ timeout: 120_000 });
   await page.getByRole('button', { name: /Create my profile/i }).click();
 
   await expect(page.getByRole('link', { name: /View profile/i })).toBeVisible({
@@ -39,11 +47,11 @@ test('dev wallet onboarding creates a profile and mints a shareable vouch', asyn
 
   const link = page
     .locator('code')
-    .filter({ hasText: /\/claim\/\d+#s=/ })
+    .filter({ hasText: /\/claim\/\d+#k=/ })
     .first();
 
   await expect(link).toBeVisible({ timeout: 60_000 });
-  await expect(link).toContainText(/\/claim\/\d+#s=[0-9a-f]+/i);
+  await expect(link).toContainText(/\/claim\/\d+#k=[0-9a-f]+/i);
   await expect(page.getByRole('button', { name: /Copy link/i })).toBeVisible();
   await expect(page.getByRole('link', { name: /View profile/i })).toBeVisible({
     timeout: 60_000,

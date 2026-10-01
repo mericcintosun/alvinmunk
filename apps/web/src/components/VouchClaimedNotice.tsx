@@ -3,13 +3,34 @@
 import { useEffect, useState } from 'react';
 import { Bell } from 'lucide-react';
 import { toast } from '@/components/ui/toaster';
-import { pollNewlyClaimed } from '@/lib/myvouches';
+import { useWallet } from '@/components/wallet/wallet-provider';
+import { pollNewlyClaimed, getPendingVouchIds } from '@/lib/myvouches';
 import {
   registerServiceWorker,
   requestPermission,
   getPermission,
   getActivePushSubscription,
+  getPushAvailabilityHint,
+  subscribeToPush,
+  syncPushSubscription,
 } from '@/lib/push';
+import { useLocale, useTranslations } from '@/lib/i18n';
+
+/**
+ * Give the service worker the owning wallet address so its pushsubscriptionchange handler
+ * can prove ownership when PATCHing /api/push/subscribe (localStorage is unavailable
+ * inside a service worker). Best-effort — if it fails the SW falls back to a plain re-subscribe.
+ */
+async function shareWalletWithServiceWorker(walletAddress: string): Promise<void> {
+  try {
+    const reg = await registerServiceWorker();
+    if (!reg || !reg.active) return;
+    const cache = await caches.open('alvinmunk-push-meta');
+    await cache.put('/__push/wallet', new Response(JSON.stringify({ walletAddress })));
+  } catch {
+    // Ignore — best-effort.
+  }
+}
 
 /**
  * VouchClaimedNotice
@@ -27,6 +48,8 @@ import {
  *    and we never re-surface it for this session.
  */
 export function VouchClaimedNotice() {
+  const t = useTranslations();
+  const { locale } = useLocale();
   // ─── 1. In-session poll ────────────────────────────────────────────────────
   useEffect(() => {
     let alive = true;
@@ -34,19 +57,42 @@ export function VouchClaimedNotice() {
       .then((claimed) => {
         if (!alive || claimed.length === 0) return;
         if (claimed.length === 1) {
-          toast.success(`🌟 Your vouch ignited — "${claimed[0].note}" was claimed.`);
+          toast.success(t('vouchNotice.claimed.one', { note: claimed[0].note }));
         } else {
-          toast.success(`🌟 ${claimed.length} of your vouches were claimed — your sky grew.`);
+          toast.success(t('vouchNotice.claimed.many', {
+            count: new Intl.NumberFormat(locale === 'tr' ? 'tr-TR' : 'en-US').format(claimed.length),
+          }));
         }
       })
       .catch(() => {});
     return () => {
       alive = false;
     };
-  }, []);
+  }, [locale, t]);
+
+  // ─── 1b. Rotation re-sync (#169) ──────────────────────────────────────────
+  // Push services rotate endpoints; a rotated subscription used to never reach the
+  // server again (the next notify 410s and prunes it). On every dashboard mount, if
+  // permission is granted and the active endpoint differs from the last one the server
+  // acknowledged, move the stored record (PATCH) so notifications keep flowing.
+  const { profile } = useWallet();
+  const walletAddress = profile?.address;
+  useEffect(() => {
+    if (!walletAddress) return;
+    let alive = true;
+    syncPushSubscription(walletAddress, () => getPendingVouchIds())
+      .catch(() => {})
+      .finally(() => {
+        if (alive) void shareWalletWithServiceWorker(walletAddress);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [walletAddress]);
 
   // ─── 2. Push opt-in prompt ─────────────────────────────────────────────────
   const [showBanner, setShowBanner] = useState(false);
+  const [pushAvailabilityHint, setPushAvailabilityHint] = useState<string | null>(null);
   const [requesting, setRequesting] = useState(false);
 
   useEffect(() => {
@@ -56,6 +102,13 @@ export function VouchClaimedNotice() {
     //   • VAPID public key is configured (no key → push is disabled in this deploy)
     //   • We don't already have an active subscription
 
+    if (!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY) return;
+    const availabilityHint = getPushAvailabilityHint();
+    if (availabilityHint) {
+      setPushAvailabilityHint(availabilityHint);
+      setShowBanner(true);
+      return;
+    }
     if (
       typeof window === 'undefined' ||
       !('serviceWorker' in navigator) ||
@@ -64,7 +117,6 @@ export function VouchClaimedNotice() {
     ) {
       return;
     }
-    if (!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY) return;
     if (Notification.permission !== 'default') return;
 
     // Check if already subscribed (e.g. from a previous session).
@@ -82,10 +134,13 @@ export function VouchClaimedNotice() {
       await registerServiceWorker();
       const perm = await requestPermission();
       if (perm === 'granted') {
-        // The actual per-vouch subscription is created when the next mint happens
-        // (subscribeToVouchPush in VouchCompose). Here we just register the SW so
-        // future subscriptions can be taken out immediately.
-        toast.success("🔔 Push notifications enabled — we'll tell you when your star is claimed.");
+        // Opt in now, without a vouch (#297): tips received reach this device even if
+        // this wallet never mints. A later mint adds its vouch ID to the same record.
+        if (walletAddress) {
+          await subscribeToPush(walletAddress);
+          void shareWalletWithServiceWorker(walletAddress);
+        }
+        toast.success(t('vouchNotice.push.enabled'));
       }
     } catch {
       // Ignore — user may have blocked the prompt
@@ -101,22 +156,24 @@ export function VouchClaimedNotice() {
     <div
       role="status"
       aria-live="polite"
-      className="fixed bottom-20 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-border/60 bg-surface/90 px-4 py-3 shadow-lg backdrop-blur-sm sm:bottom-6"
+      className="fixed bottom-20 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-border/60 bg-surface/90 px-4 py-3 shadow-toast backdrop-blur-sm sm:bottom-6 print:hidden"
     >
       <Bell className="size-4 shrink-0 text-primary" aria-hidden />
       <p className="text-sm text-foreground">
-        Get notified when someone claims your vouch.
+        {pushAvailabilityHint ? t('vouchNotice.push.installHint') : t('vouchNotice.push.prompt')}
       </p>
-      <button
-        onClick={handleEnable}
-        disabled={requesting}
-        className="ml-1 shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-80 disabled:opacity-50"
-      >
-        {requesting ? 'Enabling…' : 'Enable'}
-      </button>
+      {!pushAvailabilityHint && (
+        <button
+          onClick={handleEnable}
+          disabled={requesting}
+          className="ml-1 shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-80 disabled:opacity-50"
+        >
+          {requesting ? t('vouchNotice.push.enabling') : t('vouchNotice.push.enable')}
+        </button>
+      )}
       <button
         onClick={() => setShowBanner(false)}
-        aria-label="Dismiss push notification prompt"
+        aria-label={t('vouchNotice.push.dismiss')}
         className="ml-1 shrink-0 rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
       >
         ✕

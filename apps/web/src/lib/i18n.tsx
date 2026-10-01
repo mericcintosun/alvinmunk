@@ -4,7 +4,7 @@
  * Usage (client components):
  *   const t = useTranslations();
  *   t('nav.howItWorks')           // → "How it works" | "Nasıl çalışır"
- *   t('onboard.landing.handleFree', { handle: 'beko' }) // → "✓ @beko is free"
+ *   t('onboard.handleFree', { handle: 'beko' }) // → "✓ @beko is free"
  *
  * Usage (server components / outside React):
  *   import { getTranslations } from '@/lib/i18n';
@@ -17,7 +17,7 @@
 
 'use client';
 
-import {
+import React, {
   createContext,
   useCallback,
   useContext,
@@ -25,10 +25,13 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { getItem, setItem } from './storage';
+import { LOCALE_KEY, parseLocale, type Locale } from './locale';
+import { getFormat, type Formatters } from './format';
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
-export type Locale = 'en' | 'tr';
+export type { Locale };
 export type Messages = Record<string, string>;
 export type TFn = (key: string, vars?: Record<string, string>) => string;
 
@@ -68,32 +71,49 @@ interface I18nContextValue {
 
 const I18nContext = createContext<I18nContextValue | null>(null);
 
-const STORAGE_KEY = 'alvinmunk_locale';
-
-function readStoredLocale(): Locale {
-  if (typeof window === 'undefined') return 'en';
-  const stored = window.localStorage.getItem(STORAGE_KEY);
-  if (stored === 'en' || stored === 'tr') return stored;
-  // Auto-detect from browser language if no preference stored yet.
+/** A choice only localStorage holds (saved before the cookie existed), else the browser's language. */
+function readClientLocale(): Locale | null {
+  const stored = parseLocale(getItem(LOCALE_KEY));
+  if (stored) return stored;
   const lang = navigator.language?.slice(0, 2).toLowerCase();
-  return lang === 'tr' ? 'tr' : 'en';
+  return lang === 'tr' ? 'tr' : null;
 }
 
-export function I18nProvider({ children }: { children: ReactNode }) {
-  // Start with 'en' to avoid hydration mismatch; swap after mount.
-  const [locale, setLocaleState] = useState<Locale>('en');
+/** Mirror the locale into the cookie the root layout reads, so the next load is rendered in it. */
+function writeLocaleCookie(l: Locale) {
+  try {
+    document.cookie = `${LOCALE_KEY}=${l}; path=/; max-age=31536000; SameSite=Lax`;
+  } catch {
+    /* cookies unavailable */
+  }
+}
+
+/**
+ * `initialLocale` is the saved choice the root layout read from the cookie; the server HTML
+ * and the first client render both use it, so a returning Turkish user never sees English
+ * first (#236). Without a cookie, the page starts in English and, after mount, adopts a
+ * choice only localStorage has or a Turkish browser language — and writes the cookie.
+ */
+export function I18nProvider({ children, initialLocale }: { children: ReactNode; initialLocale?: Locale }) {
+  const [locale, setLocaleState] = useState<Locale>(initialLocale ?? 'en');
 
   useEffect(() => {
-    setLocaleState(readStoredLocale());
-  }, []);
+    if (initialLocale) return; // the cookie already decided, on the server
+    const detected = readClientLocale();
+    if (!detected) return;
+    setLocaleState(detected);
+    writeLocaleCookie(detected);
+  }, [initialLocale]);
+
+  // <html lang> follows every switch, so assistive tech reads Turkish as Turkish (WCAG 3.1.1).
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
 
   const setLocale = useCallback((l: Locale) => {
     setLocaleState(l);
-    try {
-      window.localStorage.setItem(STORAGE_KEY, l);
-    } catch {
-      // localStorage blocked — ignore
-    }
+    setItem(LOCALE_KEY, l);
+    writeLocaleCookie(l);
   }, []);
 
   const t = useCallback<TFn>(
@@ -123,4 +143,11 @@ export function useLocale(): { locale: Locale; setLocale: (l: Locale) => void } 
   const ctx = useContext(I18nContext);
   if (!ctx) return { locale: 'en', setLocale: () => {} };
   return { locale: ctx.locale, setLocale: ctx.setLocale };
+}
+
+// ─── number / date formatting ────────────────────────────────────────────────
+
+/** Formatters for the active locale (English outside the provider, like useTranslations). */
+export function useFormat(): Formatters {
+  return getFormat(useLocale().locale);
 }

@@ -16,29 +16,34 @@ import {
   type LeaderboardEntry,
 } from '@alvinmunk/shared';
 import { fetchReputationEvents } from './events';
+import { readJSON, writeJSON } from './storage';
+import type { ReadNetwork } from './read-network';
 
 const SNAPSHOT_KEY = 'alvinmunk.leaderboard.snapshot';
 
-function loadSnapshot(): SocialRecord[] {
-  if (typeof localStorage === 'undefined') return [];
-  try {
-    return JSON.parse(localStorage.getItem(SNAPSHOT_KEY) ?? '[]') as SocialRecord[];
-  } catch {
-    return [];
-  }
+/** One snapshot per network: an override view must never merge into the deployment's. */
+const snapshotKey = (net?: ReadNetwork | null) => (net ? `${SNAPSHOT_KEY}.${net.network}` : SNAPSHOT_KEY);
+
+function loadSnapshot(net?: ReadNetwork | null): SocialRecord[] {
+  return readJSON<SocialRecord[]>(snapshotKey(net), []);
 }
-function saveSnapshot(records: SocialRecord[]): void {
-  if (typeof localStorage !== 'undefined') {
-    localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(records));
-  }
+function saveSnapshot(records: SocialRecord[], net?: ReadNetwork | null): void {
+  writeJSON(snapshotKey(net), records);
 }
 
-/** Pull recent reputation events → social records + claimed vouch pairs. */
-export async function fetchWindow(): Promise<{ records: SocialRecord[]; pairs: VouchPair[] }> {
+type FetchOptions = {
+  throwOnError?: boolean;
+  /** Read another network (the ?network= override); default: the deployment's. */
+  net?: ReadNetwork | null;
+};
+
+/** Pull recent reputation events → social records + claimed vouch pairs. Always a fresh
+ *  scan (`maxAgeMs: 0`): the board polls every 5s, faster than the shared window's TTL. */
+export async function fetchWindow(options?: FetchOptions): Promise<{ records: SocialRecord[]; pairs: VouchPair[] }> {
   const records: SocialRecord[] = [];
   const pairs: VouchPair[] = [];
 
-  for (const { topics, data, ledger } of await fetchReputationEvents()) {
+  for (const { topics, data, ledger } of await fetchReputationEvents({ ...options, maxAgeMs: 0 })) {
     if (topics[0] === EVENTS.SOCIAL) {
       const total = Array.isArray(data) ? Number(data[1]) : Number(data);
       records.push({ address: String(topics[1]), total, ledger });
@@ -50,11 +55,19 @@ export async function fetchWindow(): Promise<{ records: SocialRecord[]; pairs: V
   return { records, pairs };
 }
 
-export async function fetchLeaderboard(): Promise<LeaderboardEntry[]> {
-  const { records, pairs } = await fetchWindow();
+export async function fetchLeaderboard(options?: FetchOptions): Promise<LeaderboardEntry[]> {
+  // `throwOnError` always propagates a failure — regardless of whether a snapshot exists —
+  // so the caller can tell an outage apart from a genuinely quiet network. Swallowing the
+  // error whenever a snapshot happened to be present would silently keep the "live" badge
+  // on screen through an outage that started after the first successful load: the exact bug
+  // this option exists to prevent (issue #209).
+  const { records, pairs } = await fetchWindow(options);
+
   // Merge with the persisted snapshot so older scores survive the RPC window.
-  const merged = mergeSocialRecords(loadSnapshot(), records);
-  saveSnapshot(merged);
+  const merged = mergeSocialRecords(loadSnapshot(options?.net), records);
+  if (records.length > 0 || pairs.length > 0) {
+    saveSnapshot(merged, options?.net);
+  }
   const flagged = new Set(detectReciprocalRings(pairs));
   return rankLeaderboard(merged, flagged);
 }

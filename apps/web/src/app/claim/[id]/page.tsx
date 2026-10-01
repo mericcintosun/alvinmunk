@@ -5,7 +5,21 @@ import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { shortAddr } from '@alvinmunk/shared';
 import { useWallet } from '@/components/wallet/wallet-provider';
-import { claimVouch, getVouch, VOUCH_TTL_SECS, type VouchView } from '@/lib/reputation';
+import {
+  claimVouch,
+  claimVouchSigned,
+  getVouch,
+  isClaimCode,
+  isVouchCancelled,
+  parseClaimCode,
+  VOUCH_TTL_SECS,
+  type ClaimCode,
+  type VouchView,
+} from '@/lib/reputation';
+import { getMeta, reverseHandle } from '@/lib/registry';
+import { Avatar } from '@/components/Avatar';
+import { FeedbackPrompt } from '@/components/FeedbackPrompt';
+import type { AvatarConfig } from '@/lib/avatar';
 import { Crest } from '@/components/brand/crest';
 import { Frame } from '@/components/fx/frame';
 import { Stamp } from '@/components/fx/stamp';
@@ -14,24 +28,38 @@ import { Button, buttonVariants } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StateArt } from '@/components/ui/state-art';
 import { Sticker } from '@/components/ui/sticker';
-import { cn, humanizeError, withTimeout } from '@/lib/utils';
+import { Input } from '@/components/ui/input';
+import { HandleHint } from '@/components/handle-hint';
+import { useCreateProfile } from '@/hooks/use-create-profile';
+import { HANDLE_MAX_CHARS } from '@/lib/profile';
+import { useTranslations } from '@/lib/i18n';
+import { cn, contractErrorCode, humanizeError, withTimeout } from '@/lib/utils';
 
-/** Read the claim-secret from the URL fragment (#s=…), falling back to the legacy ?s=
- *  query for links shared before the switch. The fragment never reaches the server. */
-function readSecret(): string {
-  if (typeof window === 'undefined') return '';
-  const fromHash = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('s');
-  const fromQuery = new URLSearchParams(window.location.search).get('s');
-  return fromHash ?? fromQuery ?? '';
+/** Read the claim code from the URL: the claim key's seed (#k=…) on current links, the
+ *  plain secret (#s=…, or the older ?s= query) on links to cards minted before the key.
+ *  The fragment never reaches the server. */
+function readClaimCode(): ClaimCode | null {
+  if (typeof window === 'undefined') return null;
+  return parseClaimCode(window.location.hash, window.location.search);
 }
+
+const BAD_CODE = "This link's claim code is invalid.";
 
 const CLAIM_ERRORS: Record<number, string> = {
   4: "This vouch doesn't exist or has expired.",
   5: 'This star is already lit — it was claimed already.',
   6: "You can't claim your own vouch. Share the link with someone you trust instead.",
-  8: "This link's claim code is invalid.",
+  8: BAD_CODE,
   9: 'Daily limit reached — try again tomorrow.',
+  13: "This link doesn't fit this vouch — ask the person who sent it to share it again.",
 };
+
+/** A claim signature that doesn't verify traps in the host (Error(Crypto, …)), not with a
+ *  contract code: the link's key isn't this card's, or the link was cut short. */
+function claimErrorMessage(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e ?? '');
+  return raw.includes('Error(Crypto,') ? BAD_CODE : humanizeError(e, CLAIM_ERRORS);
+}
 
 export default function ClaimPage(props: { params: { id: string } }) {
   return (
@@ -45,17 +73,24 @@ function ClaimInner({ params }: { params: { id: string } }) {
   const { id } = params;
   const vid = Number(id);
   const validId = Number.isInteger(vid) && vid >= 0;
-  const { connect, profile } = useWallet();
-  const [secret, setSecret] = useState('');
+  const { connect, profile, wallet } = useWallet();
+  const t = useTranslations();
+  const [claimCode, setClaimCode] = useState<ClaimCode | null>(null);
   const [state, setState] = useState<'preview' | 'claiming' | 'done' | 'error'>('preview');
   const [error, setError] = useState<string | null>(null);
   const [vouch, setVouch] = useState<VouchView | null | undefined>(undefined);
+  /** The voucher revoked this card (`cancel_vouch`, #137): it can no longer be claimed. */
+  const [cancelled, setCancelled] = useState(false);
   // Distinguish "couldn't read the chain" (retryable) from "this vouch doesn't exist"
   // so a slow/failing RPC never masquerades as an expired or missing vouch.
   const [loadError, setLoadError] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  /** @handle of the voucher (null = none or lookup still in flight). Never blocks the claim. */
+  const [voucherHandle, setVoucherHandle] = useState<string | null>(null);
+  /** The voucher's published face (undefined = none / still loading → deterministic default). */
+  const [voucherAvatar, setVoucherAvatar] = useState<AvatarConfig | undefined>(undefined);
 
-  useEffect(() => setSecret(readSecret()), []);
+  useEffect(() => setClaimCode(readClaimCode()), []);
 
   useEffect(() => {
     if (!validId) {
@@ -64,9 +99,19 @@ function ClaimInner({ params }: { params: { id: string } }) {
     }
     let alive = true;
     setVouch(undefined);
+    setCancelled(false);
     setLoadError(false);
-    withTimeout(getVouch(vid), 15_000, 'vouch')
-      .then((v) => alive && setVouch(v ?? null))
+    Promise.all([
+      withTimeout(getVouch(vid), 15_000, 'vouch'),
+      // Never rejects: an unreadable flag, or a contract without `is_cancelled`, reads as not
+      // cancelled — the claim itself still reverts with #16 on a cancelled card.
+      withTimeout(isVouchCancelled(vid), 15_000, 'vouch').catch(() => null),
+    ])
+      .then(([v, c]) => {
+        if (!alive) return;
+        setVouch(v ?? null);
+        setCancelled(c === true);
+      })
       .catch(() => {
         if (alive) {
           setVouch(null);
@@ -80,14 +125,37 @@ function ClaimInner({ params }: { params: { id: string } }) {
 
   const loading = validId && vouch === undefined && !loadError;
 
+  // Who vouched (#218): the voucher's @handle and face, looked up after the vouch loads and
+  // fire-and-forget — a slow or failing read only keeps the address fallback; it never
+  // blocks or delays the Claim button.
+  useEffect(() => {
+    const from = vouch?.from;
+    if (!from) return;
+    let alive = true;
+    reverseHandle(from)
+      .then((h) => alive && setVoucherHandle(h))
+      .catch(() => {});
+    getMeta(from)
+      .then((meta) => alive && setVoucherAvatar(meta?.avatar))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [vouch?.from]);
+
   const nowSec = Math.floor(Date.now() / 1000);
   const deadline = vouch ? vouch.created + VOUCH_TTL_SECS : 0;
   const daysLeft = vouch ? Math.max(0, Math.ceil((deadline - nowSec) / 86_400)) : 0;
   const windowOpen = vouch ? !vouch.slashed && !vouch.claimed && nowSec < deadline : false;
 
   async function onClaim() {
-    if (!secret) {
+    if (!claimCode) {
       setError('This link is missing its claim code.');
+      setState('error');
+      return;
+    }
+    if (!isClaimCode(claimCode.code)) {
+      setError(BAD_CODE);
       setState('error');
       return;
     }
@@ -95,7 +163,9 @@ function ClaimInner({ params }: { params: { id: string } }) {
     setError(null);
     try {
       const wallet = await connect();
-      await claimVouch(wallet, vid, secret);
+      // The seed only signs here; the transaction carries a signature bound to this wallet.
+      if (claimCode.kind === 'key') await claimVouchSigned(wallet, vid, claimCode.code);
+      else await claimVouch(wallet, vid, claimCode.code);
       setState('done');
       // Fire-and-forget push notification to the voucher — no await so it never
       // blocks the success UX. Silently ignored if push infra is not configured.
@@ -111,7 +181,13 @@ function ClaimInner({ params }: { params: { id: string } }) {
         }).catch(() => {});
       }
     } catch (e) {
-      setError(humanizeError(e, CLAIM_ERRORS));
+      // Revoked since the page loaded: show the cancelled state rather than an error.
+      if (contractErrorCode(e) === 16) {
+        setCancelled(true);
+        setState('preview');
+        return;
+      }
+      setError(claimErrorMessage(e));
       setState('error');
     }
   }
@@ -124,7 +200,7 @@ function ClaimInner({ params }: { params: { id: string } }) {
   if (loading) {
     return (
       <div className="container max-w-lg py-16">
-        <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-primary/80">
+        <p className="eyebrow-mono text-primary/80">
           {'// incoming_vouch'}
         </p>
         <Skeleton className="mt-4 h-10 w-3/4" />
@@ -145,7 +221,7 @@ function ClaimInner({ params }: { params: { id: string } }) {
   if (!validId || loadError) {
     return (
       <div className="container max-w-lg py-16">
-        <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-primary/80">
+        <p className="eyebrow-mono text-primary/80">
           {`// ${validId ? 'unreadable' : 'invalid_link'}`}
         </p>
         <h1 className="mt-4 font-display text-4xl font-semibold tracking-tight">
@@ -170,13 +246,37 @@ function ClaimInner({ params }: { params: { id: string } }) {
     );
   }
 
+  // Revoked by the voucher (the link leaked): a final state, not a dead Claim button.
+  if (cancelled && vouch && !vouch.claimed && !done) {
+    return (
+      <div className="container max-w-lg py-16">
+        <p className="eyebrow-mono text-primary/80">
+          {t('claim.cancelled.frame')}
+        </p>
+        <h1 className="mt-4 font-display text-4xl font-semibold tracking-tight">
+          {t('claim.cancelled.title')}
+        </h1>
+        <p className="mt-3 max-w-sm text-muted-foreground text-balance">{t('claim.cancelled.body')}</p>
+        <div className="mt-7 flex flex-col items-start gap-3">
+          <Link href="/app" className="font-mono text-xs text-muted-foreground underline">
+            {t('claim.openApp')}
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="container max-w-lg py-16">
-      <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-primary/80">
+      <p className="eyebrow-mono text-primary/80">
         {done ? '// connected' : '// incoming_vouch'}
       </p>
-      <h1 className="mt-4 font-display text-4xl font-semibold tracking-tight">
-        {done ? "You're connected." : 'Someone vouched for you.'}
+      <h1 className="mt-4 font-display text-3xl font-semibold tracking-tight [overflow-wrap:anywhere] sm:text-4xl">
+        {done
+          ? "You're connected."
+          : voucherHandle
+            ? t('claim.voucher.headlineHandle', { handle: voucherHandle })
+            : t('claim.voucher.headlineFallback')}
       </h1>
       <p className="mt-3 max-w-sm text-muted-foreground text-balance">
         {done
@@ -186,12 +286,27 @@ function ClaimInner({ params }: { params: { id: string } }) {
 
       <Frame label={`vouch // #${id}`} index={status} className="mt-7">
         {/* the two halves */}
-        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 p-6">
+        {/* minmax(0, …): a long @handle truncates instead of widening its half (#477). */}
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 p-6">
           <div className="flex flex-col items-center gap-2 text-center">
-            <Crest address={vouch?.from ?? `voucher-${id}`} size={88} points={6} animate />
-            <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-              {vouch ? shortAddr(vouch.from) : 'from'}
+            {vouch ? (
+              <Avatar address={vouch.from} avatar={voucherAvatar} handle={voucherHandle ?? undefined} size={88} />
+            ) : (
+              <Crest address={`voucher-${id}`} size={88} points={6} animate />
+            )}
+            <span className="max-w-full truncate font-mono text-2xs uppercase tracking-wider text-muted-foreground">
+              {voucherHandle ? `@${voucherHandle}` : vouch ? shortAddr(vouch.from) : 'from'}
             </span>
+            {voucherHandle && vouch && !done && (
+              <Link
+                href={`/u/${voucherHandle}`}
+                target="_blank"
+                rel="noreferrer"
+                className="max-w-full truncate font-mono text-2xs uppercase tracking-wider text-primary/70 underline underline-offset-2 hover:text-primary transition-colors"
+              >
+                {t('claim.voucher.viewProfile', { handle: voucherHandle })}
+              </Link>
+            )}
           </div>
           <ArrowRight className={cn('size-5', done ? 'text-primary' : 'text-muted-foreground')} />
           <div className="flex flex-col items-center gap-2 text-center">
@@ -206,10 +321,10 @@ function ClaimInner({ params }: { params: { id: string } }) {
               {done ? (
                 <Crest address={profile?.address ?? `claimer-${id}`} size={80} points={6} animate />
               ) : (
-                <span className="font-mono text-[10px] uppercase text-muted-foreground">your half</span>
+                <span className="font-mono text-2xs uppercase text-muted-foreground">your half</span>
               )}
             </div>
-            <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+            <span className="font-mono text-2xs uppercase tracking-wider text-muted-foreground">
               {done ? 'you' : 'unclaimed'}
             </span>
           </div>
@@ -275,24 +390,36 @@ function ClaimInner({ params }: { params: { id: string } }) {
               href={`https://twitter.com/intent/tweet?${new URLSearchParams({
                 text: vouch?.note
                   ? `Someone just vouched for me on alvinmunk 🌟 "${vouch.note}" — reputation has a face, not a number. Collect people, not points:`
-                  : 'My star just ignited on alvinmunk 🌟 — reputation has a face. Collect people, not points:',
+                  : 'My star just ignited on alvinmunk 🌟 — reputation has a face, not a number. Collect people, not points:',
                 url: `${typeof window !== 'undefined' ? window.location.origin : ''}${profile ? `/u/${profile.handle}` : '/'}`,
               }).toString()}`}
               target="_blank"
               rel="noreferrer"
               className={cn(buttonVariants({ variant: 'flow', size: 'lg' }))}
             >
-              Share your star 🌟
+              Share your star <ArrowRight className="size-4" />
             </a>
-            <Link
-              href="/app"
-              className={cn(buttonVariants({ variant: 'secondary', size: 'lg' }))}
-            >
-              {profile ? 'Now light someone else’s star' : 'Create your profile'} <ArrowRight className="size-4" />
+
+            {/* Inline handle picker — the claimer just got a wallet, so they can pick
+                a name without a second connect or FaceID prompt. */}
+            {!profile && <ClaimHandlePicker />}
+
+            {/* Asked once, at the moment of delight (#287). The handle arrives once they name it. */}
+            <FeedbackPrompt
+              action="claim"
+              handle={profile?.handle}
+              address={profile?.address ?? wallet?.address}
+              className="w-full"
+            />
+
+            {/* Skipping naming still leaves a valid claim; the old "Create your profile"
+                path (and, for a returning user, their profile) both stay reachable. */}
+            <Link href="/app" className="font-mono text-xs text-muted-foreground underline">
+              {profile ? t('claim.openApp') : t('claim.skip')}
             </Link>
             {profile && (
               <Link href={`/u/${profile.handle}`} className="font-mono text-xs text-muted-foreground underline">
-                view_your_profile →
+                {t('claim.viewProfile')}
               </Link>
             )}
           </div>
@@ -302,11 +429,60 @@ function ClaimInner({ params }: { params: { id: string } }) {
   );
 }
 
+function ClaimHandlePicker() {
+  const t = useTranslations();
+  const { handle, setHandle, avail, retryAvailability, reservedUntil, creating, createProfile, normalizedHandle } =
+    useCreateProfile({ from: 'claim' });
+
+  return (
+    <form
+      className="flex w-full flex-col gap-2 rounded-2xl border border-border/60 bg-surface/30 p-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void createProfile();
+      }}
+    >
+      <p className="text-sm font-medium">{t('claim.handle.title')}</p>
+      <p className="text-xs text-muted-foreground">{t('claim.handle.subtitle')}</p>
+      <div className="flex items-center gap-2">
+        <span className="text-lg text-muted-foreground">@</span>
+        <Input
+          value={handle}
+          onChange={(e) => setHandle(e.target.value)}
+          placeholder={t('claim.handle.placeholder')}
+          aria-label={t('claim.handle.ariaLabel')}
+          aria-describedby="claim-handle-status claim-handle-rules"
+          maxLength={HANDLE_MAX_CHARS}
+          className="flex-1"
+        />
+      </div>
+      <HandleHint id="claim-handle-rules" value={handle} />
+      <p id="claim-handle-status" aria-live="polite" className="min-h-4 text-xs">
+        {avail === 'checking' && <span className="text-muted-foreground">{t('claim.handle.checking')}</span>}
+        {avail === 'free' && <span className="text-secondary">{t('claim.handle.free', { handle: normalizedHandle })}</span>}
+        {avail === 'taken' && <span className="text-destructive">{t('claim.handle.taken', { handle: normalizedHandle })}</span>}
+        {avail === 'reserved' && reservedUntil && <span className="text-destructive">{t('claim.handle.reserved', { handle: normalizedHandle, date: reservedUntil })}</span>}
+        {avail === 'error' && (
+          <span className="text-destructive">
+            {t('claim.handle.checkError', { handle: normalizedHandle })}{' '}
+            <button type="button" onClick={retryAvailability} className="underline underline-offset-2">
+              {t('claim.handle.retry')}
+            </button>
+          </span>
+        )}
+      </p>
+      <Button type="submit" variant="flow" size="lg" disabled={creating || avail === 'taken' || avail === 'reserved' || avail === 'error' || normalizedHandle.length < 3}>
+        {creating ? t('claim.handle.submitting') : t('claim.handle.submit', { handle: normalizedHandle || 'handle' })}
+      </Button>
+    </form>
+  );
+}
+
 function Field({ label, value }: { label: string; value: string }) {
   return (
-    <div className="px-4 py-3 text-center">
-      <p className="text-[9px] uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
-      <p className="mt-1 text-sm text-foreground">{value}</p>
+    <div className="flex flex-col gap-1 px-4 py-3 text-center">
+      <span className="text-2xs uppercase tracking-wider text-muted-foreground">{label}</span>
+      <span className="text-xs text-foreground">{value}</span>
     </div>
   );
 }

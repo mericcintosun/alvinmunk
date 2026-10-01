@@ -1,13 +1,19 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { brandPalette, rgba, type BrandPalette } from '@/lib/brand-palette';
+import { useLightTheme } from '@/lib/use-light-theme';
 
 /**
  * Cosmic starfield — a single GPU-friendly canvas: depth-layered stars that twinkle,
  * drift with mouse + scroll parallax, and the occasional shooting star. Honors
  * prefers-reduced-motion (renders a static field, no rAF). The CSS `nebula` background
  * glows behind the transparent canvas. This is the real "stars look like stars" layer.
+ * Colours come from the brand palette of the current theme: pale stars on the dark sky,
+ * dark ones on the light sky (normal canvas blending, so they never wash out).
  */
+type Tone = 'starlight' | 'gold' | 'violet';
+
 interface Star {
   x: number;
   y: number;
@@ -16,8 +22,7 @@ interface Star {
   base: number; // base alpha
   phase: number;
   speed: number;
-  hue: number; // 40 warm-white · 24 amber · 255 violet
-  light: number; // lightness %
+  tone: Tone;
 }
 interface Shoot {
   x: number;
@@ -30,6 +35,16 @@ interface Shoot {
 
 export function Starfield() {
   const ref = useRef<HTMLCanvasElement>(null);
+  const light = useLightTheme();
+  const palette = useRef<BrandPalette>(brandPalette(light));
+  /** Repaints a static (reduced-motion) field; the animated one picks the palette up per frame. */
+  const repaint = useRef<(() => void) | null>(null);
+
+  // Declared before the setup effect so the first paint already uses the right palette.
+  useEffect(() => {
+    palette.current = brandPalette(light);
+    repaint.current?.();
+  }, [light]);
 
   useEffect(() => {
     const canvas = ref.current;
@@ -52,7 +67,7 @@ export function Starfield() {
     const mkStar = (): Star => {
       const depth = Math.random();
       const roll = Math.random();
-      const hue = roll < 0.84 ? 40 : roll < 0.93 ? 24 : 255;
+      const tone: Tone = roll < 0.84 ? 'starlight' : roll < 0.93 ? 'gold' : 'violet';
       return {
         x: Math.random() * w,
         y: Math.random() * h,
@@ -61,8 +76,7 @@ export function Starfield() {
         base: 0.25 + depth * 0.6,
         phase: Math.random() * Math.PI * 2,
         speed: 0.4 + Math.random() * 1.4,
-        hue,
-        light: hue === 40 ? 95 : hue === 24 ? 70 : 80,
+        tone,
       };
     };
 
@@ -83,13 +97,14 @@ export function Starfield() {
       if (x < 0) x += w;
       let y = (s.y + oy) % h;
       if (y < 0) y += h;
+      const color = rgba(palette.current[s.tone], alpha);
       ctx.beginPath();
       ctx.arc(x, y, s.r, 0, Math.PI * 2);
-      ctx.fillStyle = `hsla(${s.hue} 100% ${s.light}% / ${alpha})`;
+      ctx.fillStyle = color;
       ctx.fill();
       if (s.depth > 0.7) {
         ctx.shadowBlur = 6;
-        ctx.shadowColor = `hsla(${s.hue} 100% ${s.light}% / ${alpha})`;
+        ctx.shadowColor = color;
         ctx.fill();
         ctx.shadowBlur = 0;
       }
@@ -97,8 +112,8 @@ export function Starfield() {
 
     const drawShoot = (sh: Shoot) => {
       const grad = ctx.createLinearGradient(sh.x, sh.y, sh.x - sh.vx * sh.len, sh.y - sh.vy * sh.len);
-      grad.addColorStop(0, `hsla(40 100% 95% / ${sh.life})`);
-      grad.addColorStop(1, 'hsla(40 100% 95% / 0)');
+      grad.addColorStop(0, rgba(palette.current.starlight, sh.life));
+      grad.addColorStop(1, rgba(palette.current.starlight, 0));
       ctx.strokeStyle = grad;
       ctx.lineWidth = 1.6;
       ctx.beginPath();
@@ -166,9 +181,11 @@ export function Starfield() {
       raf = requestAnimationFrame(frame);
     } else {
       renderStatic();
+      repaint.current = renderStatic;
     }
 
     return () => {
+      repaint.current = null;
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', onResize);
       window.removeEventListener('mousemove', onMouse);
@@ -179,7 +196,7 @@ export function Starfield() {
   return (
     <canvas
       ref={ref}
-      className="nebula pointer-events-none fixed inset-0 -z-10 h-full w-full"
+      className="nebula pointer-events-none fixed inset-0 -z-10 h-full w-full print:hidden"
       aria-hidden
     />
   );

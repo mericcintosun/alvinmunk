@@ -4,6 +4,7 @@
  * client-side cache so returning users skip onboarding.
  */
 import type { AvatarConfig } from './avatar';
+import { readJSON, writeJSON, remove } from './storage';
 
 export interface Profile {
   handle: string;
@@ -14,36 +15,72 @@ export interface Profile {
   avatar?: AvatarConfig;
   /** Short plain-text bio (see `sanitizeBio`), mirrored from the registry's `set_meta`. */
   bio?: string;
+  /** Where the profile was created from, e.g. `claim`. Used for analytics. */
+  source?: string;
 }
 
 const KEY = 'alvinmunk.profile';
 
 export function loadProfile(): Profile | null {
-  if (typeof localStorage === 'undefined') return null;
-  const raw = localStorage.getItem(KEY);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as Profile;
-  } catch {
-    return null;
-  }
+  return readJSON<Profile | null>(KEY, null);
 }
 
 export function saveProfile(p: Profile): void {
-  if (typeof localStorage === 'undefined') return;
-  localStorage.setItem(KEY, JSON.stringify(p));
+  writeJSON(KEY, p);
 }
 
 export function clearProfile(): void {
-  if (typeof localStorage !== 'undefined') localStorage.removeItem(KEY);
+  remove(KEY);
 }
+
+/** Handle length bounds: the registry takes 3–20 characters of `a–z`, `0–9` and `_`. */
+export const HANDLE_MIN_CHARS = 3;
+export const HANDLE_MAX_CHARS = 20;
 
 /** Normalize a user-typed handle: lowercase, alnum + underscore, <= 20 chars. */
 export function normalizeHandle(input: string): string {
   return input
     .toLowerCase()
     .replace(/[^a-z0-9_]/g, '')
-    .slice(0, 20);
+    .slice(0, HANDLE_MAX_CHARS);
+}
+
+/** The characters `normalizeHandle` drops from `input` (after lowercasing), each once and in
+ *  typing order, so a form can say why "Ayşe K" became "@ayek". */
+export function removedHandleChars(input: string): string[] {
+  const removed: string[] = [];
+  for (const ch of input.toLowerCase()) {
+    if (!/[a-z0-9_]/.test(ch) && !removed.includes(ch)) removed.push(ch);
+  }
+  return removed;
+}
+
+/**
+ * A `/u/<handle>` or `/v/<handle>` route param read as a handle (#188): URL-decoded,
+ * lowercased and without one leading `@`. `at` says the param had that `@`, so the page can
+ * redirect to the canonical path; `valid` says it can be a handle at all (`isRouteHandle`),
+ * so an invalid one is never looked up or offered for claiming.
+ */
+export function parseRouteHandle(param: string): { handle: string; at: boolean; valid: boolean } {
+  let raw = param;
+  try {
+    raw = decodeURIComponent(param);
+  } catch {
+    /* a stray `%`: keep the param as it came */
+  }
+  raw = raw.toLowerCase();
+  const at = raw.startsWith('@');
+  const handle = at ? raw.slice(1) : raw;
+  return { handle, at, valid: isRouteHandle(handle) };
+}
+
+/**
+ * Whether a lowercased route handle can name a profile: `[a-z0-9_]`, 3 to 32 characters.
+ * The app creates at most `HANDLE_MAX_CHARS`, but the registry holds any Symbol up to 32,
+ * and a longer on-chain handle must still render (the /u and /v pages size for 32).
+ */
+export function isRouteHandle(handle: string): boolean {
+  return /^[a-z0-9_]{3,32}$/.test(handle);
 }
 
 /** The registry's bio cap. It counts UTF-8 BYTES, so `ş` costs 2 and most emoji 4. */

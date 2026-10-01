@@ -1,9 +1,17 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Report a vulnerability
+    url: https://github.com/mericcintosun/alvinmunk/security/advisories/new
+    about: Privately report a security vulnerability to the maintainers
   - name: alvinmunk Strategy Docs
     url: https://github.com/mericcintosun/alvinmunk/tree/main/belts
     about: Belt roadmaps and strategy documentation
+  - name: Drips Wave (get paid to contribute)
+    url: https://www.drips.network/wave
+    about: alvinmunk is part of the Drips Wave / Stellar Wave program — one-week sprints, point-bountied issues, USDC rewards
+  - name: Claim a bountied (Stellar Wave) issue
+    url: https://github.com/mericcintosun/alvinmunk/labels/Stellar%20Wave
+    about: Point-bountied issues open to Wave contributors — apply through the Drips Wave app, one active issue per person
   - name: Project Board
     url: https://github.com/mericcintosun/alvinmunk/projects
     about: Follow the sprint progress
-

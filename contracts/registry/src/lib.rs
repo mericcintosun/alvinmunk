@@ -2,7 +2,8 @@
 //! Registry — on-chain username/handle ↔ address mapping for Stellar Passport.
 //!
 //! Identity is its own primitive (decoupled from `reputation`, which other apps read
-//! separately). Permissionless first-come `claim`, reverse lookup, rename, and release.
+//! separately). Permissionless first-come `claim`, reverse lookup, rename, release, and a
+//! two-signature `transfer_handle` that moves a handle to another wallet.
 //! Handles are normalized/validated OFF-CHAIN (lowercase, `[a-z0-9_]`, 3–20 chars); the
 //! contract only enforces UNIQUENESS. A `Symbol` is the cheap interned key for a handle.
 //!
@@ -12,6 +13,12 @@
 //!
 //! A handle holder can also publish a profile face and a short bio (`set_meta`), keyed by
 //! ADDRESS, so a freed handle never carries its previous owner's profile to the next one.
+//! `transfer_handle`, which both wallets sign, moves the profile along with the handle.
+//!
+//! A released or renamed-away handle cools down for `HANDLE_COOLDOWN_SECS` before anyone
+//! else may claim it (its previous owner can take it back at any time), so the tips,
+//! invites and profile visits still aimed at an old `@handle` can't be captured by
+//! whoever grabs it next. A transferred handle is never free, so it never cools down.
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short, Address,
@@ -28,6 +35,14 @@ const DAY_LEDGERS: u32 = 17_280; // ~1 day
 const BUMP_EXTEND: u32 = 2_592_000; // ~150 days
 const BUMP_THRESHOLD: u32 = BUMP_EXTEND - DAY_LEDGERS;
 
+/// How long a freed handle stays reserved for its previous owner, in ledger time
+/// (`env.ledger().timestamp()`, seconds) — the only clock the cooldown is checked against.
+const HANDLE_COOLDOWN_SECS: u64 = 30 * 86_400; // 30 days
+/// Lifetime of a `Cooldown` entry (temporary storage, so it deletes itself): twice the
+/// window at 5s ledgers, so it outlives `until` even if ledgers close faster. Not BUMP_*:
+/// a temporary entry extended past max_entry_ttl traps instead of clamping.
+const COOLDOWN_TTL_LEDGERS: u32 = 60 * DAY_LEDGERS; // ~60 days
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -40,6 +55,8 @@ pub enum Error {
     BadBio = 6,
     BadAvatar = 7,
     TooMany = 8,
+    HandleCoolingDown = 9,
+    AlreadyHasHandle = 10,
 }
 
 /// Bio limit in UTF-8 BYTES (what `String::len` counts), not characters: 80 ASCII
@@ -74,9 +91,19 @@ const KIT_BG: u64 = 5;
 #[derive(Clone)]
 pub enum DataKey {
     Admin,
-    Fwd(Symbol),   // handle -> Address
-    Rev(Address),  // Address -> handle (one handle per address)
-    Meta(Address), // Address -> ProfileMeta (only while the address holds a handle)
+    Fwd(Symbol),      // handle -> Address
+    Rev(Address),     // Address -> handle (one handle per address)
+    Meta(Address),    // Address -> ProfileMeta (only while the address holds a handle)
+    Cooldown(Symbol), // freed handle -> CooldownInfo (temporary storage)
+}
+
+/// A freed handle's reservation: only `prev_owner` may claim it before `until` (ledger
+/// timestamp, seconds); from `until` on it is first-come again.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CooldownInfo {
+    pub prev_owner: Address,
+    pub until: u64,
 }
 
 /// A handle holder's public profile. `avatar` is the packed face (layout above); `bio` is
@@ -93,10 +120,11 @@ pub struct RegistryContract;
 
 #[contractimpl]
 impl RegistryContract {
-    pub fn init(env: Env, admin: Address) {
-        if env.storage().instance().has(&DataKey::Admin) {
-            panic_with_error!(&env, Error::AlreadyInitialized);
-        }
+    /// Deploy-time setup (#127): `stellar contract deploy … -- --admin <ADDR>` runs this inside
+    /// the deploy transaction, so nobody can claim the admin between deploy and setup —
+    /// there is no `init` to front-run. `upgrade` never runs a constructor: a contract
+    /// deployed before this change was set up by its old `init` and keeps that state.
+    pub fn __constructor(env: Env, admin: Address) {
         env.storage().instance().set(&DataKey::Admin, &admin);
     }
 
@@ -108,10 +136,12 @@ impl RegistryContract {
     }
 
     /// Claim `handle` for `caller` (first-come). If `caller` already holds a different
-    /// handle, this RENAMES: the old one is freed and `released` is published for it
-    /// before `claimed`. Reverts if the handle is held by someone else. Re-claiming the
-    /// handle `caller` already holds is a no-op (no writes, no event; TTLs are refreshed).
-    /// Profile meta is keyed by address, so a rename keeps it.
+    /// handle, this RENAMES: the old one is freed into a cooldown and `released` is
+    /// published for it before `claimed`. Reverts with `HandleTaken` if the handle is held
+    /// by someone else, and with `HandleCoolingDown` if someone else freed it less than
+    /// `HANDLE_COOLDOWN_SECS` ago (its previous owner may reclaim it at any time).
+    /// Re-claiming the handle `caller` already holds is a no-op (no writes, no event; TTLs
+    /// are refreshed). Profile meta is keyed by address, so a rename keeps it.
     pub fn claim(env: Env, caller: Address, handle: Symbol) {
         caller.require_auth();
 
@@ -120,6 +150,19 @@ impl RegistryContract {
             if owner != caller {
                 panic_with_error!(&env, Error::HandleTaken);
             }
+        }
+
+        let ckey = DataKey::Cooldown(handle.clone());
+        if let Some(cd) = env
+            .storage()
+            .temporary()
+            .get::<DataKey, CooldownInfo>(&ckey)
+        {
+            if cd.prev_owner != caller && env.ledger().timestamp() < cd.until {
+                panic_with_error!(&env, Error::HandleCoolingDown);
+            }
+            // taken back by its previous owner, or the window has passed
+            env.storage().temporary().remove(&ckey);
         }
 
         let rkey = DataKey::Rev(caller.clone());
@@ -135,9 +178,10 @@ impl RegistryContract {
             env.storage()
                 .persistent()
                 .remove(&DataKey::Fwd(old.clone()));
+            let until = Self::start_cooldown(&env, &caller, &old);
             env.events().publish(
                 (symbol_short!("handle"), symbol_short!("released")),
-                (caller.clone(), old),
+                (caller.clone(), old, until),
             );
         }
 
@@ -176,7 +220,16 @@ impl RegistryContract {
         out
     }
 
-    /// Release the caller's own handle (frees it for re-claim) and drop its profile meta.
+    /// The cooldown a freed `handle` is in: who freed it and from when (`until`, ledger
+    /// timestamp) anyone may claim it. `None` if the handle is held, was never freed, its
+    /// cooldown has passed, or `admin_release` lifted it. Pure read, any caller.
+    pub fn cooldown(env: Env, handle: Symbol) -> Option<CooldownInfo> {
+        let cd: CooldownInfo = env.storage().temporary().get(&DataKey::Cooldown(handle))?;
+        (env.ledger().timestamp() < cd.until).then_some(cd)
+    }
+
+    /// Release the caller's own handle and drop its profile meta. The handle cools down
+    /// for `HANDLE_COOLDOWN_SECS`: until then only `caller` may claim it again.
     pub fn release(env: Env, caller: Address) {
         caller.require_auth();
         let rkey = DataKey::Rev(caller.clone());
@@ -189,18 +242,79 @@ impl RegistryContract {
             .persistent()
             .remove(&DataKey::Fwd(handle.clone()));
         env.storage().persistent().remove(&rkey);
+        let until = Self::start_cooldown(&env, &caller, &handle);
         env.events().publish(
             (symbol_short!("handle"), symbol_short!("released")),
-            (caller.clone(), handle),
+            (caller.clone(), handle, until),
         );
         Self::clear_meta(&env, caller);
     }
 
+    /// Move `from`'s handle to `to` in one call, for a user switching wallets (e.g. from the
+    /// throwaway dev key to a passkey): `release` + `claim` would leave the handle free to
+    /// anyone between the two transactions. Both sign — `from` gives the handle up and `to`
+    /// accepts it, so nobody can push a handle onto an address that never asked for it.
+    /// Reverts with `NoHandle` if `from` holds none and `AlreadyHasHandle` if `to` already
+    /// holds one (`to == from` included), keeping one handle per address.
+    ///
+    /// The handle is never free in between, so this is not a release: it starts no cooldown
+    /// and publishes only `handle/moved`, never `released` or `claimed`. A held handle has no
+    /// cooldown entry (`claim` removes it), so there is none to carry over either. The
+    /// profile meta moves with the handle (the same person on a new wallet keeps their face
+    /// and bio), announced as `meta/cleared` for `from` then `meta/set` for `to`, so an
+    /// address-keyed indexer needs no new rule. Nothing else moves: state other contracts key
+    /// by address (Social and Earned XP in `reputation`) stays with `from`.
+    pub fn transfer_handle(env: Env, from: Address, to: Address) {
+        from.require_auth();
+
+        let from_rkey = DataKey::Rev(from.clone());
+        let handle: Symbol = env
+            .storage()
+            .persistent()
+            .get(&from_rkey)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::NoHandle));
+        let to_rkey = DataKey::Rev(to.clone());
+        if env.storage().persistent().has(&to_rkey) {
+            panic_with_error!(&env, Error::AlreadyHasHandle);
+        }
+        // after the checks, so a self-transfer reverts with `AlreadyHasHandle` rather than
+        // asking the same address to authorize twice
+        to.require_auth();
+
+        let fkey = DataKey::Fwd(handle.clone());
+        env.storage().persistent().set(&fkey, &to);
+        env.storage().persistent().remove(&from_rkey);
+        env.storage().persistent().set(&to_rkey, &handle);
+        Self::bump(&env, &fkey);
+        Self::bump(&env, &to_rkey);
+        env.events().publish(
+            (symbol_short!("handle"), symbol_short!("moved")),
+            (from.clone(), to.clone(), handle),
+        );
+
+        let from_mkey = DataKey::Meta(from.clone());
+        if let Some(meta) = env
+            .storage()
+            .persistent()
+            .get::<DataKey, ProfileMeta>(&from_mkey)
+        {
+            Self::clear_meta(&env, from);
+            let to_mkey = DataKey::Meta(to.clone());
+            env.storage().persistent().set(&to_mkey, &meta);
+            Self::bump(&env, &to_mkey);
+            env.events().publish(
+                (symbol_short!("meta"), symbol_short!("set")),
+                (to, meta.avatar, meta.bio),
+            );
+        }
+    }
+
     /// Admin force-release a handle (squatting / abuse), dropping the holder's profile
-    /// meta with it. Admin-gated.
+    /// meta with it. Abuse removal frees the handle outright: it starts no cooldown and
+    /// ends any the handle is already in. Admin-gated.
     pub fn admin_release(env: Env, handle: Symbol) {
         Self::admin(&env).require_auth();
-        let fkey = DataKey::Fwd(handle);
+        let fkey = DataKey::Fwd(handle.clone());
         if let Some(owner) = env.storage().persistent().get::<DataKey, Address>(&fkey) {
             env.storage()
                 .persistent()
@@ -208,6 +322,7 @@ impl RegistryContract {
             env.storage().persistent().remove(&fkey);
             Self::clear_meta(&env, owner);
         }
+        env.storage().temporary().remove(&DataKey::Cooldown(handle));
     }
 
     /// Publish `caller`'s profile face and bio, replacing any earlier ones. `caller` must
@@ -266,6 +381,27 @@ impl RegistryContract {
         env.storage()
             .persistent()
             .extend_ttl(key, BUMP_THRESHOLD, BUMP_EXTEND);
+    }
+
+    /// Reserve the just-freed `handle` for `prev_owner` for `HANDLE_COOLDOWN_SECS` of ledger
+    /// time; returns `until`, the timestamp from which anyone may claim it.
+    fn start_cooldown(env: &Env, prev_owner: &Address, handle: &Symbol) -> u64 {
+        let until = env
+            .ledger()
+            .timestamp()
+            .saturating_add(HANDLE_COOLDOWN_SECS);
+        let ckey = DataKey::Cooldown(handle.clone());
+        env.storage().temporary().set(
+            &ckey,
+            &CooldownInfo {
+                prev_owner: prev_owner.clone(),
+                until,
+            },
+        );
+        env.storage()
+            .temporary()
+            .extend_ttl(&ckey, COOLDOWN_TTL_LEDGERS, COOLDOWN_TTL_LEDGERS);
+        until
     }
 
     /// Drop `addr`'s profile when it gives up its handle, announcing it if there was one.

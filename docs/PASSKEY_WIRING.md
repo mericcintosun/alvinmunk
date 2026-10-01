@@ -95,11 +95,10 @@ hard-disabled on mainnet, so passkey is the only mainnet provider.
 
 ## Deferred follow-ups (not blocking onboarding)
 
-1. **Quests via passkey** — the `/api/attest` ownership proof currently verifies an **ed25519
-   `G…`** signature. A passkey signer is **secp256r1 against the smart account (`C…`)**, so
-   `signMessage` throws a clear "use the in-app wallet" error for now (mirrors how Freighter
-   quests are deferred). To wire it: extend the attester to verify the smart-account signer
-   (via `kit.authenticatePasskey()` / the WebAuthn verifier), then implement `signMessage`.
+1. ~~**Quests via passkey**~~ — no longer blocked: `/api/attest` takes no off-chain ownership
+   signature (and `Wallet.signMessage` is gone, #200). Ownership is proven on-chain when the
+   wallet submits `award_quest`, which runs `recipient.require_auth()` — a passkey smart
+   account satisfies that like any other signer.
 2. **USDC trustline / tip-receiving for passkey** — `enableUsdc` is a classic `changeTrust`
    op; smart accounts hold SAC balances differently. Tip-**sending** routes through `invoke`;
    tip-**receiving** needs the smart-account trustline path wired.
@@ -110,5 +109,7 @@ hard-disabled on mainnet, so passkey is the only mainnet provider.
 2. On a phone: FaceID enroll → smart account (`C…`) created → handle claimed, fee sponsored,
    in <15s.
 3. Returning user: FaceID → `connectWallet()` resolves the same `C…` address (silent restore).
+   In a fresh browser (or on a second device the passkey synced to), "I already have an account"
+   reaches the same `C…` address and handle without enrolling a new passkey.
 4. Vouch / claim / reward / gate all succeed through `invoke` (the smart-account path).
 5. Dev wallet still hard-disabled on mainnet; passkey is the only mainnet provider.

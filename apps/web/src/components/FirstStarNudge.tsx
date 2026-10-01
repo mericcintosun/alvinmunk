@@ -1,8 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ArrowDown } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
+import Link from 'next/link';
 import { getMyVouches } from '@/lib/myvouches';
+import { useTranslations } from '@/lib/i18n';
+import { getItem, setItem } from '@/lib/storage';
+import { buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 /**
  * First-run "vouch-first" nudge (roundtable / Kaan): at 0 users the activation moment is
@@ -13,10 +18,11 @@ import { getMyVouches } from '@/lib/myvouches';
 const DISMISS_KEY = 'alvinmunk.firstStar.dismissed';
 
 export function FirstStarNudge() {
+  const t = useTranslations();
   const [show, setShow] = useState(false);
 
   useEffect(() => {
-    const dismissed = typeof localStorage !== 'undefined' && localStorage.getItem(DISMISS_KEY) === '1';
+    const dismissed = getItem(DISMISS_KEY) === '1';
     setShow(!dismissed && getMyVouches().length === 0);
   }, []);
 
@@ -24,22 +30,24 @@ export function FirstStarNudge() {
 
   return (
     <div className="rounded-2xl border border-secondary/40 bg-secondary/10 p-5 text-center">
-      <p className="text-base font-semibold">Your sky starts with one star ✦</p>
+      <p className="text-base font-semibold">{t('firstStarNudge.title')}</p>
       <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground text-balance">
-        alvinmunk begins by backing someone. Vouch for one person you trust below — they don&apos;t
-        even need an account yet. Their star ignites when they claim it.
+        {t('firstStarNudge.body')}
       </p>
-      <div className="mt-3 flex items-center justify-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-secondary">
-        <ArrowDown className="size-3.5 motion-safe:animate-bounce" />
-        light your first star
+      <div className="mt-3 flex items-center justify-center gap-2 eyebrow-mono text-secondary">
+        {/* The vouch form lives on /app/vouch, not below this card (#475). */}
+        <Link href="/app/vouch" className={cn(buttonVariants({ variant: 'flow', size: 'sm' }), 'font-mono')}>
+          {t('firstStarNudge.action')}
+          <ArrowRight aria-hidden />
+        </Link>
         <button
           onClick={() => {
-            if (typeof localStorage !== 'undefined') localStorage.setItem(DISMISS_KEY, '1');
+            setItem(DISMISS_KEY, '1');
             setShow(false);
           }}
-          className="ml-3 text-muted-foreground/60 underline hover:text-foreground"
+          className="ml-3 text-muted-foreground underline hover:text-foreground"
         >
-          dismiss
+          {t('firstStarNudge.dismiss')}
         </button>
       </div>
     </div>

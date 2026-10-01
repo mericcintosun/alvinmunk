@@ -1,6 +1,9 @@
+import { isStellarAddress } from '@alvinmunk/shared';
 import { NextResponse } from 'next/server';
 import { rpc, scValToNative, xdr } from '@stellar/stellar-sdk';
 import roster from '@/data/onboarded-wallets.json';
+import { aggregateVouchFunnel, readVouchRecords, type VouchFunnel } from '@/lib/vouch-funnel';
+import { withRoute } from '@/lib/api-route';
 
 /**
  * Network stats — unique wallets that have interacted with the app's contracts, per network.
@@ -15,6 +18,16 @@ import roster from '@/data/onboarded-wallets.json';
  *
  * Refresh the roster by re-running `scripts/scan-roster.mjs` (widens the window + fully
  * paginates) and committing its output. A durable indexer (issue #12) would fold both paths.
+ *
+ * The vouch claim funnel (`funnel`) is read from the reputation contract's storage instead
+ * (lib/vouch-funnel.ts), so it holds beyond the event window. It reads every half-card, so
+ * it is cached per network for a few minutes.
+ *
+ * The whole response is memoized per network for STATS_TTL_MS, and concurrent requests share
+ * the scan in flight, so polling from many tabs costs one scan (1 + up to MAX_PAGES RPC calls)
+ * per window instead of one per request. The response is also cacheable by the CDN for the
+ * same window. The count only changes when someone onboards, so 30 s of staleness is harmless.
+ * The durable indexer (#109) would replace the scan entirely.
  */
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -23,16 +36,31 @@ export const revalidate = 0;
 // history; this only needs to see the last day or so of fresh onboarding.
 const LIVE_WINDOW = 17_280; // ~1 day of ledgers
 const MAX_PAGES = 25;
-const ADDR = /^[GC][A-Z2-7]{55}$/;
+
+// How long a scan is reused, here and at the CDN (`s-maxage` below must stay in step).
+const STATS_TTL_MS = 30_000;
+const CACHE_CONTROL = `public, s-maxage=${STATS_TTL_MS / 1000}, stale-while-revalidate=120`;
 
 type NetKey = 'testnet' | 'mainnet';
+
+/** An RPC URL env value, trimmed with blank treated as unset — the same normalisation as the
+ *  app's validated config (`readNetworkConfig`), so `allowHttp` is decided on the URL in use. */
+function rpcUrl(env: string | undefined, fallback: string): string {
+  return env?.trim() || fallback;
+}
+
+/** An RPC client for `url`. `http://` (a local quickstart node) needs `allowHttp`, as in every
+ *  other route; without it the SDK constructor throws. */
+function rpcServer(url: string): rpc.Server {
+  return new rpc.Server(url, { allowHttp: url.startsWith('http://') });
+}
 
 const NETWORKS: Record<
   NetKey,
   { rpc: string; rep?: string; registry?: string; exclude?: (string | undefined)[] }
 > = {
   testnet: {
-    rpc: process.env.NEXT_PUBLIC_RPC_URL || 'https://soroban-testnet.stellar.org',
+    rpc: rpcUrl(process.env.NEXT_PUBLIC_RPC_URL, 'https://soroban-testnet.stellar.org'),
     rep: process.env.NEXT_PUBLIC_REPUTATION_CONTRACT_ID,
     registry: process.env.NEXT_PUBLIC_REGISTRY_CONTRACT_ID,
     // The app's own contracts appear in event topics (e.g. the quest_registry as att_set
@@ -47,7 +75,7 @@ const NETWORKS: Record<
     ],
   },
   mainnet: {
-    rpc: process.env.MAINNET_RPC_URL || 'https://mainnet.sorobanrpc.com',
+    rpc: rpcUrl(process.env.MAINNET_RPC_URL, 'https://mainnet.sorobanrpc.com'),
     rep: process.env.MAINNET_REPUTATION_CONTRACT_ID,
     registry: process.env.MAINNET_REGISTRY_CONTRACT_ID,
     exclude: [
@@ -66,7 +94,7 @@ const TARGET: Record<NetKey, number> = { testnet: 50, mainnet: 20 };
 
 function collectAddrs(v: unknown, out: Set<string>): void {
   if (typeof v === 'string') {
-    if (ADDR.test(v)) out.add(v);
+    if (isStellarAddress(v)) out.add(v);
   } else if (Array.isArray(v)) {
     for (const x of v) collectAddrs(x, out);
   } else if (v && typeof v === 'object') {
@@ -88,9 +116,12 @@ async function liveScan(cfg: (typeof NETWORKS)[NetKey]): Promise<{ seen: Set<str
   const seen = new Set<string>();
   const ids = [cfg.rep, cfg.registry].filter(Boolean) as string[];
   if (ids.length === 0) return { seen, latest: 0 };
-  const server = new rpc.Server(cfg.rpc);
+  let server: rpc.Server;
   let latest = 0;
   try {
+    // Inside the try: a malformed URL makes the constructor throw, and that falls back to the
+    // roster-only count like any other RPC failure instead of failing the request.
+    server = rpcServer(cfg.rpc);
     latest = (await server.getLatestLedger()).sequence;
   } catch {
     return { seen, latest: 0 };
@@ -121,8 +152,11 @@ async function liveScan(cfg: (typeof NETWORKS)[NetKey]): Promise<{ seen: Set<str
 
 async function statsFor(net: NetKey) {
   const cfg = NETWORKS[net];
-  const rosterList = ((roster as Record<string, string[]>)[net] ?? []).filter((a) => ADDR.test(a));
+  const rosterList = ((roster as Record<string, string[]>)[net] ?? []).filter((a) => isStellarAddress(a));
   const configured = Boolean(cfg.rep || cfg.registry) || rosterList.length > 0;
+
+  // Read alongside the live scan; it does not depend on it.
+  const funnelRead = funnelFor(net);
 
   // Durable floor: the committed roster. Never decays.
   const seen = new Set<string>(rosterList);
@@ -134,6 +168,8 @@ async function statsFor(net: NetKey) {
   // Drop the app's own contract addresses so only real user wallets are counted.
   for (const id of cfg.exclude ?? []) if (id) seen.delete(id);
 
+  const { funnel, funnelError } = await funnelRead;
+
   const addresses = [...seen];
   return {
     network: net,
@@ -143,14 +179,81 @@ async function statsFor(net: NetKey) {
     latestLedger: latest || undefined,
     roster: rosterList.length,
     addresses: addresses.slice(0, 300),
+    funnel,
+    funnelError,
   };
 }
 
-export async function GET(req: Request) {
+type StatsResult = Awaited<ReturnType<typeof statsFor>>;
+
+const statsCache = new Map<NetKey, { expires: number; result: Promise<StatsResult> }>();
+
+/** The network's stats, shared by concurrent requests and reused for STATS_TTL_MS after the
+ *  scan finishes (a scan in flight never expires, however slow, so it is never run twice). A
+ *  scan that throws is not kept, so the next request retries it. */
+function cachedStatsFor(net: NetKey): Promise<StatsResult> {
+  const hit = statsCache.get(net);
+  if (hit && Date.now() < hit.expires) return hit.result;
+  const entry = { expires: Infinity, result: statsFor(net) };
+  statsCache.set(net, entry);
+  void entry.result.then(
+    () => {
+      entry.expires = Date.now() + STATS_TTL_MS;
+    },
+    () => {
+      if (statsCache.get(net) === entry) statsCache.delete(net);
+    },
+  );
+  return entry.result;
+}
+
+const FUNNEL_TTL_MS = 5 * 60_000;
+
+interface FunnelResult {
+  funnel: VouchFunnel | null;
+  funnelError?: string;
+}
+
+const funnelCache = new Map<NetKey, { at: number; result: Promise<FunnelResult> }>();
+
+/** The network's funnel, shared by concurrent requests and reused for FUNNEL_TTL_MS. A
+ *  failed read is not kept, so the next request retries it. */
+function funnelFor(net: NetKey): Promise<FunnelResult> {
+  const hit = funnelCache.get(net);
+  if (hit && Date.now() - hit.at < FUNNEL_TTL_MS) return hit.result;
+  const entry = { at: Date.now(), result: readFunnel(NETWORKS[net]) };
+  funnelCache.set(net, entry);
+  void entry.result.then((r) => {
+    if (r.funnelError && funnelCache.get(net) === entry) funnelCache.delete(net);
+  });
+  return entry.result;
+}
+
+async function readFunnel(cfg: (typeof NETWORKS)[NetKey]): Promise<FunnelResult> {
+  if (!cfg.rep) return { funnel: null };
+  try {
+    const { total, records } = await readVouchRecords(rpcServer(cfg.rpc), cfg.rep);
+    // Same rule as the wallet count: the app's own contracts are not users.
+    const excluded = new Set(cfg.exclude?.filter(Boolean));
+    const users = records.filter((v) => !excluded.has(v.from) && !(v.claimer && excluded.has(v.claimer)));
+    return {
+      funnel: aggregateVouchFunnel(users, {
+        now: Math.floor(Date.now() / 1000),
+        unread: total - records.length,
+      }),
+    };
+  } catch (err) {
+    // Log the detail server-side only: an RPC error can carry the (possibly keyed) RPC URL.
+    console.error('[stats] vouch funnel read failed:', err);
+    return { funnel: null, funnelError: 'Vouch state could not be read from RPC right now.' };
+  }
+}
+
+export const GET = withRoute('GET /api/stats', async (req: Request) => {
   const net = (new URL(req.url).searchParams.get('network') || 'testnet') as NetKey;
   if (net !== 'testnet' && net !== 'mainnet') {
     return NextResponse.json({ error: 'bad network' }, { status: 400 });
   }
-  const data = await statsFor(net);
-  return NextResponse.json(data, { headers: { 'cache-control': 'no-store' } });
-}
+  const data = await cachedStatsFor(net);
+  return NextResponse.json(data, { headers: { 'cache-control': CACHE_CONTROL } });
+});

@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { xdr, Address, StrKey } from '@stellar/stellar-sdk';
+import type { ReadNetwork } from './read-network';
 
 const { getLatestLedgerMock, getEventsMock } = vi.hoisted(() => ({
   getLatestLedgerMock: vi.fn(),
@@ -8,14 +9,20 @@ const { getLatestLedgerMock, getEventsMock } = vi.hoisted(() => ({
 
 vi.mock('./stellar', () => ({
   server: { getLatestLedger: getLatestLedgerMock, getEvents: getEventsMock },
-  config: { contracts: { reputation: 'CREP', rewards: 'CRWD' } },
+  config: { contracts: { reputation: 'CREP', rewards: 'CRWD', questRegistry: 'CQST' } },
 }));
 
 import {
+  clearEventCache,
   decodeScVal,
   fetchReputationEvents,
+  fetchTipEvents,
   fetchTipsSent,
+  fetchTipEventsSince,
+  fetchContractEvents,
+  fetchQuestEvents,
   EVENT_LEDGER_WINDOW,
+  EVENT_WINDOW_TTL_MS,
   MAX_PAGES,
   PAGE_SIZE,
 } from './events';
@@ -24,7 +31,7 @@ import {
  * Helper: assert two Uint8Arrays have the same bytes.
  */
 function expectBytesEqual(actual: Uint8Array, expected: Uint8Array) {
-  expect(actual).toBeInstanceOf(Uint8Array);
+  expect(ArrayBuffer.isView(actual)).toBe(true);
   expect(actual.length).toBe(expected.length);
   for (let i = 0; i < actual.length; i++) {
     expect(actual[i]).toBe(expected[i]);
@@ -104,7 +111,7 @@ describe('decodeScVal', () => {
   describe('address values', () => {
     it('decodes an account address (G…) ScVal to a string', () => {
       // Construct an account address ScVal using a raw 32-byte key buffer
-      const keyBuf = new Uint8Array(32);
+      const keyBuf = Buffer.alloc(32);
       for (let i = 0; i < 32; i++) keyBuf[i] = i + 1;
       const pubKey = xdr.PublicKey.publicKeyTypeEd25519(keyBuf);
       const scAddr = xdr.ScAddress.scAddressTypeAccount(pubKey);
@@ -128,15 +135,15 @@ describe('decodeScVal', () => {
 
   describe('bytes', () => {
     it('decodes a Bytes ScVal to a Uint8Array with order preserved', () => {
-      const data = new Uint8Array([0xde, 0xad, 0xbe, 0xef, 0xca, 0xfe, 0xba, 0xbe]);
+      const data = Buffer.from([0xde, 0xad, 0xbe, 0xef, 0xca, 0xfe, 0xba, 0xbe]);
       const scv = xdr.ScVal.scvBytes(data);
       const result = decodeScVal(scv);
-      expect(result).toBeInstanceOf(Uint8Array);
+      expect(ArrayBuffer.isView(result)).toBe(true);
       expectBytesEqual(result as Uint8Array, data);
     });
 
     it('decodes a non-trivial byte sequence correctly', () => {
-      const data = new Uint8Array(64);
+      const data = Buffer.alloc(64);
       for (let i = 0; i < data.length; i++) data[i] = i;
       const scv = xdr.ScVal.scvBytes(data);
       const result = decodeScVal(scv) as Uint8Array;
@@ -158,7 +165,7 @@ describe('decodeScVal', () => {
 
     it('decodes a Vec containing different ScVal types recursively', () => {
       // Build a consistent address ScVal without Keypair (jsdom incompatible)
-      const keyBuf = new Uint8Array(32).fill(0xab);
+      const keyBuf = Buffer.alloc(32, 0xab);
       const pubKey = xdr.PublicKey.publicKeyTypeEd25519(keyBuf);
       const scAddr = xdr.ScAddress.scAddressTypeAccount(pubKey);
       const addrScv = xdr.ScVal.scvAddress(scAddr);
@@ -167,7 +174,7 @@ describe('decodeScVal', () => {
         xdr.ScVal.scvSymbol('user'),
         addrScv,
         xdr.ScVal.scvU32(7),
-        xdr.ScVal.scvBytes(new Uint8Array([0x01, 0x02])),
+        xdr.ScVal.scvBytes(Buffer.from([0x01, 0x02])),
       ]);
       const result = decodeScVal(scv) as unknown[];
       expect(Array.isArray(result)).toBe(true);
@@ -175,7 +182,7 @@ describe('decodeScVal', () => {
       expect(typeof result[1]).toBe('string');
       expect((result[1] as string)).toMatch(/^G[A-Z2-7]{55}$/);
       expect(result[2]).toBe(7);
-      expect(result[3]).toBeInstanceOf(Uint8Array);
+      expect(ArrayBuffer.isView(result[3])).toBe(true);
     });
   });
 
@@ -230,8 +237,13 @@ describe('contract event reads', () => {
   const sym = (v: string) => xdr.ScVal.scvSymbol(v).toXDR('base64');
 
   beforeEach(() => {
+    clearEventCache();
     getLatestLedgerMock.mockReset().mockResolvedValue({ sequence: 20_000 });
     getEventsMock.mockReset().mockResolvedValue({ events: [] });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('scans the reputation window with the 2-segment wildcard', async () => {
@@ -244,11 +256,129 @@ describe('contract event reads', () => {
     expect(getEventsMock).toHaveBeenCalledTimes(1); // a quiet window is still one request
   });
 
-  it('shares one scan between concurrent callers, and re-reads once it settles', async () => {
-    await Promise.all([fetchReputationEvents(), fetchReputationEvents(), fetchReputationEvents()]);
+  it("scans the override network's reputation contract on its own RPC, never the deployment's (#290)", async () => {
+    const testnetServer = {
+      getLatestLedger: vi.fn().mockResolvedValue({ sequence: 50_000 }),
+      getEvents: vi.fn().mockResolvedValue({ events: [] }),
+    };
+    const net = {
+      network: 'testnet',
+      contracts: { reputation: 'CTESTREP', registry: 'CTESTREG' },
+      server: testnetServer,
+    } as unknown as ReadNetwork;
+    await Promise.all([fetchReputationEvents({ net }), fetchReputationEvents()]);
+    expect(testnetServer.getEvents).toHaveBeenCalledWith({
+      startLedger: 41_000,
+      filters: [{ type: 'contract', contractIds: ['CTESTREP'], topics: [['*', '*']] }],
+      limit: 1000,
+    });
+    // The deployment's scan ran on its own, not shared with the override's.
     expect(getEventsMock).toHaveBeenCalledTimes(1);
+    expect(getEventsMock.mock.calls[0][0].filters[0].contractIds).toEqual(['CREP']);
+    // Each window is reused within the TTL from its own network's cache.
+    await Promise.all([fetchReputationEvents({ net }), fetchReputationEvents()]);
+    expect(testnetServer.getEvents).toHaveBeenCalledTimes(1);
+    expect(getEventsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keys the shared window by network, even for one contract id on both', async () => {
+    const otherServer = {
+      getLatestLedger: vi.fn().mockResolvedValue({ sequence: 50_000 }),
+      getEvents: vi.fn().mockResolvedValue({ events: [] }),
+    };
+    const net = { network: 'testnet', contracts: { reputation: 'CREP' }, server: otherServer } as unknown as ReadNetwork;
+    await fetchReputationEvents();
+    await fetchReputationEvents({ net }); // within the TTL of the deployment's window
+    expect(otherServer.getEvents).toHaveBeenCalledTimes(1);
+  });
+
+  it('shares one scan between concurrent callers', async () => {
+    const [a, b, c] = await Promise.all([fetchReputationEvents(), fetchReputationEvents(), fetchReputationEvents()]);
+    expect(getEventsMock).toHaveBeenCalledTimes(1);
+    expect(b).toBe(a);
+    expect(c).toBe(a);
+  });
+
+  it('reuses a settled window for callers that mount later, until the TTL passes', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const first = await fetchReputationEvents(); // the feed mounts
+    now.mockReturnValue(1_000_000 + EVENT_WINDOW_TTL_MS - 1);
+    expect(await fetchReputationEvents()).toBe(first); // the 3D hero, seconds later
+    expect(getLatestLedgerMock).toHaveBeenCalledTimes(1);
+    expect(getEventsMock).toHaveBeenCalledTimes(1);
+
+    now.mockReturnValue(1_000_000 + EVENT_WINDOW_TTL_MS);
     await fetchReputationEvents();
     expect(getEventsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('shares one scan between plain and throwOnError callers', async () => {
+    await Promise.all([fetchReputationEvents(), fetchReputationEvents({ throwOnError: true })]);
+    expect(getEventsMock).toHaveBeenCalledTimes(1);
+    await fetchReputationEvents({ throwOnError: true });
+    expect(getEventsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('scans again for maxAgeMs 0, and that scan refreshes the window for everyone', async () => {
+    await fetchReputationEvents();
+    const fresh = await fetchReputationEvents({ maxAgeMs: 0 });
+    expect(getEventsMock).toHaveBeenCalledTimes(2);
+    expect(await fetchReputationEvents()).toBe(fresh);
+    expect(getEventsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('never keeps a failed scan: the next caller reads again', async () => {
+    getEventsMock.mockRejectedValueOnce(new Error('429'));
+    await expect(fetchReputationEvents()).resolves.toEqual([]);
+    await expect(fetchReputationEvents({ throwOnError: true })).resolves.toEqual([]);
+    expect(getEventsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the reputation and tip windows apart, each read once', async () => {
+    await Promise.all([fetchReputationEvents(), fetchTipEvents()]);
+    await Promise.all([fetchReputationEvents(), fetchTipEvents()]);
+    expect(getEventsMock.mock.calls.map((c) => c[0].filters[0].contractIds)).toEqual([['CREP'], ['CRWD']]);
+  });
+
+  it("does not cache one sender's tips (badges read them once, on demand)", async () => {
+    const from = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 1));
+    await fetchTipsSent(from);
+    await fetchTipsSent(from);
+    expect(getEventsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("scans the quest registry's 2-topic events — quest awards and streaks — in one shared window (#279)", async () => {
+    const player = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 3));
+    getEventsMock.mockResolvedValue({
+      events: [
+        {
+          id: '0000085899350016-0000000001',
+          topic: [sym('streak'), new Address(player).toScVal().toXDR('base64')],
+          value: xdr.ScVal.scvVec([xdr.ScVal.scvU32(3), xdr.ScVal.scvU32(4)]).toXDR('base64'),
+          ledger: 19_990,
+          ledgerClosedAt: '2026-09-29T10:00:00Z',
+        },
+      ],
+    });
+    const [events] = await Promise.all([fetchQuestEvents(), fetchQuestEvents()]);
+    expect(getEventsMock).toHaveBeenCalledTimes(1);
+    expect(getEventsMock).toHaveBeenCalledWith({
+      startLedger: 11_000,
+      filters: [{ type: 'contract', contractIds: ['CQST'], topics: [['*', '*']] }],
+      limit: PAGE_SIZE, // one page: the window's first request
+    });
+    // The RPC's event id and close time ride along, for stable ids and real timestamps.
+    expect(events).toEqual([
+      {
+        topics: ['streak', player],
+        data: [3, 4],
+        ledger: 19_990,
+        id: '0000085899350016-0000000001',
+        closedAt: Date.parse('2026-09-29T10:00:00Z') / 1000,
+      },
+    ]);
+    await fetchQuestEvents(); // within the TTL
+    expect(getEventsMock).toHaveBeenCalledTimes(1);
   });
 
   it('reads tips with a 3-segment filter pinned to the sender', async () => {
@@ -278,6 +408,18 @@ describe('contract event reads', () => {
     expect(events).toEqual([{ topics: ['tipped', from, to], data: 5n, ledger: 19_999 }]);
   });
 
+  it('reads every tip in the window with a three-segment tipped filter', async () => {
+    getLatestLedgerMock.mockResolvedValue({ sequence: 20_000 });
+    getEventsMock.mockResolvedValue({ events: [] });
+
+    await fetchTipEvents();
+
+    const filter = getEventsMock.mock.calls[0][0].filters[0];
+    expect(filter.contractIds).toEqual(['CRWD']);
+    // ('tipped', from, to) has THREE topics; a 2-segment wildcard would never match it.
+    expect(filter.topics).toEqual([[sym('tipped'), '*', '*']]);
+  });
+
   it('returns no tips for a malformed sender without calling RPC', async () => {
     await expect(fetchTipsSent('not-an-address')).resolves.toEqual([]);
     expect(getEventsMock).not.toHaveBeenCalled();
@@ -286,6 +428,26 @@ describe('contract event reads', () => {
   it('degrades to [] when RPC fails', async () => {
     getEventsMock.mockRejectedValue(new Error('rpc down'));
     await expect(fetchReputationEvents()).resolves.toEqual([]);
+  });
+
+  it('still degrades to [] for a plain caller when getLatestLedger fails, not just getEvents', async () => {
+    getLatestLedgerMock.mockRejectedValue(new Error('rpc down'));
+    await expect(fetchReputationEvents()).resolves.toEqual([]);
+  });
+
+  it('throws instead of degrading when a caller opts into throwOnError', async () => {
+    getEventsMock.mockRejectedValue(new Error('rpc down'));
+    await expect(fetchReputationEvents({ throwOnError: true })).rejects.toThrow('rpc down');
+  });
+
+  it('throws on throwOnError even when getLatestLedger (not just getEvents) fails', async () => {
+    getLatestLedgerMock.mockRejectedValue(new Error('rpc down'));
+    await expect(fetchReputationEvents({ throwOnError: true })).rejects.toThrow('rpc down');
+  });
+
+  it('does not throw with throwOnError when the RPC succeeds with a genuinely quiet window', async () => {
+    getEventsMock.mockResolvedValue({ events: [] });
+    await expect(fetchReputationEvents({ throwOnError: true })).resolves.toEqual([]);
   });
 
   describe('cursor pagination', () => {
@@ -395,8 +557,314 @@ describe('contract event reads', () => {
       expect(c).toBe(a);
       expect(indexes(a)).toEqual(range(2 * PAGE_SIZE + 1));
 
-      await fetchReputationEvents(); // settled scans are not cached
+      await fetchReputationEvents({ maxAgeMs: 0 }); // a fresh read scans all three pages again
       expect(getEventsMock).toHaveBeenCalledTimes(6);
     });
+  });
+});
+
+// ── fetchContractEvents — mocked-RPC unit tests ──────────────────────────────
+describe('fetchContractEvents', () => {
+  const TOPIC_SYM = (v: string) => xdr.ScVal.scvSymbol(v).toXDR('base64');
+  const WILDCARD = '*';
+
+  beforeEach(() => {
+    clearEventCache();
+    getLatestLedgerMock.mockReset().mockResolvedValue({ sequence: 20_000 });
+    getEventsMock.mockReset().mockResolvedValue({ events: [], cursor: undefined });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns [] immediately when contractId is empty, without calling RPC', async () => {
+    const events = await fetchContractEvents('', [WILDCARD, WILDCARD], 100);
+    expect(events).toEqual([]);
+    expect(getLatestLedgerMock).not.toHaveBeenCalled();
+    expect(getEventsMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects when contractId is empty and throwOnError is true', async () => {
+    await expect(
+      fetchContractEvents('', [WILDCARD, WILDCARD], 100, { throwOnError: true }),
+    ).rejects.toThrow('No contract ID');
+  });
+
+  it('sends the correct contractId and topic filter to RPC', async () => {
+    const CONTRACT = 'CQUEST';
+    const quest = TOPIC_SYM('quest');
+    const awarded = TOPIC_SYM('awarded');
+
+    await fetchContractEvents(CONTRACT, [quest, awarded], 50);
+
+    expect(getEventsMock).toHaveBeenCalledTimes(1);
+    const call = getEventsMock.mock.calls[0][0];
+    expect(call.filters[0].contractIds).toEqual([CONTRACT]);
+    expect(call.filters[0].topics).toEqual([[quest, awarded]]);
+    expect(call.limit).toBe(50);
+  });
+
+  it('decodes topics and data and returns them with the ledger', async () => {
+    const from = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 1));
+    const to = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 2));
+    const amount = xdr.ScVal.scvI128(
+      new xdr.Int128Parts({
+        lo: xdr.Uint64.fromString('5000000'),
+        hi: xdr.Int64.fromString('0'),
+      }),
+    ).toXDR('base64');
+
+    getEventsMock.mockResolvedValue({
+      events: [
+        {
+          topic: [
+            TOPIC_SYM('tipped'),
+            new Address(from).toScVal().toXDR('base64'),
+            new Address(to).toScVal().toXDR('base64'),
+          ],
+          value: amount,
+          ledger: 19_800,
+        },
+      ],
+      cursor: undefined,
+    });
+
+    const events = await fetchContractEvents('CRWD', [TOPIC_SYM('tipped'), WILDCARD, WILDCARD], 100);
+
+    expect(events).toHaveLength(1);
+    expect(events[0].ledger).toBe(19_800);
+    expect(events[0].topics[0]).toBe('tipped');
+    expect(events[0].topics[1]).toBe(from);
+    expect(events[0].topics[2]).toBe(to);
+    expect(events[0].data).toBe(5_000_000n);
+  });
+
+  it('degrades to [] when the RPC call throws, instead of propagating', async () => {
+    getEventsMock.mockRejectedValue(new Error('network timeout'));
+    const events = await fetchContractEvents('CREP', [WILDCARD, WILDCARD], 100);
+    expect(events).toEqual([]);
+  });
+
+  it('propagates the RPC error when throwOnError is true', async () => {
+    getEventsMock.mockRejectedValue(new Error('rpc unavailable'));
+    await expect(
+      fetchContractEvents('CREP', [WILDCARD, WILDCARD], 100, { throwOnError: true }),
+    ).rejects.toThrow('rpc unavailable');
+  });
+
+  it('shares one in-flight scan among concurrent callers with the same key', async () => {
+    const [a, b, c] = await Promise.all([
+      fetchContractEvents('CREP', [WILDCARD, WILDCARD], 500),
+      fetchContractEvents('CREP', [WILDCARD, WILDCARD], 500),
+      fetchContractEvents('CREP', [WILDCARD, WILDCARD], 500),
+    ]);
+    expect(getEventsMock).toHaveBeenCalledTimes(1);
+    expect(b).toBe(a);
+    expect(c).toBe(a);
+  });
+
+  it('treats different contract IDs as separate scan keys (no cross-contamination)', async () => {
+    await Promise.all([
+      fetchContractEvents('CREP', [WILDCARD, WILDCARD], 500),
+      fetchContractEvents('CRWD', [TOPIC_SYM('tipped'), WILDCARD, WILDCARD], 500),
+    ]);
+    expect(getEventsMock).toHaveBeenCalledTimes(2);
+    const ids = getEventsMock.mock.calls.map((c) => c[0].filters[0].contractIds[0]);
+    expect(ids).toContain('CREP');
+    expect(ids).toContain('CRWD');
+  });
+
+  it('reuses a settled scan within the maxAgeMs window', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const first = await fetchContractEvents('CREP', [WILDCARD, WILDCARD], 500, {
+      maxAgeMs: EVENT_WINDOW_TTL_MS,
+    });
+    now.mockReturnValue(1_000_000 + EVENT_WINDOW_TTL_MS - 1);
+    const second = await fetchContractEvents('CREP', [WILDCARD, WILDCARD], 500, {
+      maxAgeMs: EVENT_WINDOW_TTL_MS,
+    });
+    expect(getEventsMock).toHaveBeenCalledTimes(1);
+    expect(second).toBe(first);
+  });
+
+  it('re-scans when the settled cache is older than maxAgeMs', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    await fetchContractEvents('CREP', [WILDCARD, WILDCARD], 500, {
+      maxAgeMs: EVENT_WINDOW_TTL_MS,
+    });
+    now.mockReturnValue(1_000_000 + EVENT_WINDOW_TTL_MS);
+    await fetchContractEvents('CREP', [WILDCARD, WILDCARD], 500, {
+      maxAgeMs: EVENT_WINDOW_TTL_MS,
+    });
+    expect(getEventsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not cache a failed scan — the next call rescans', async () => {
+    getEventsMock.mockRejectedValueOnce(new Error('first fail'));
+    await expect(fetchContractEvents('CREP', [WILDCARD, WILDCARD], 100)).resolves.toEqual([]);
+    await expect(fetchContractEvents('CREP', [WILDCARD, WILDCARD], 100)).resolves.toEqual([]);
+    expect(getEventsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns events from quest_registry decoded with correct topics for quest-awarded pattern', async () => {
+    const recipient = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 5));
+    const questId = xdr.ScVal.scvU32(42).toXDR('base64');
+
+    getEventsMock.mockResolvedValue({
+      events: [
+        {
+          topic: [TOPIC_SYM('quest'), TOPIC_SYM('awarded')],
+          value: xdr.ScVal.scvVec([
+            xdr.ScVal.scvU32(42),
+            new Address(recipient).toScVal(),
+          ]).toXDR('base64'),
+          ledger: 19_500,
+        },
+      ],
+      cursor: undefined,
+    });
+
+    const events = await fetchContractEvents(
+      'CQUEST_REG',
+      [TOPIC_SYM('quest'), TOPIC_SYM('awarded')],
+      100,
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0].topics).toEqual(['quest', 'awarded']);
+    expect(events[0].ledger).toBe(19_500);
+    // data is a vec: [questId=42, recipient address]
+    expect(Array.isArray(events[0].data)).toBe(true);
+    expect((events[0].data as unknown[])[0]).toBe(42);
+    expect((events[0].data as unknown[])[1]).toBe(recipient);
+  });
+});
+
+describe('fetchTipEventsSince — the tip-notification cron reader (#297)', () => {
+  const FROM_G = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 1));
+  const TO_C = StrKey.encodeContract(Buffer.alloc(32, 2));
+  const raw = (id: string | undefined, ledger = 500) => ({
+    ...(id ? { id } : {}),
+    ledger,
+    topic: [xdr.ScVal.scvSymbol('tipped'), new Address(FROM_G).toScVal(), new Address(TO_C).toScVal()],
+    value: xdr.ScVal.scvI128(
+      new xdr.Int128Parts({ hi: xdr.Int64.fromString('0'), lo: xdr.Uint64.fromString('20000000') }),
+    ),
+  });
+  const full = (tag: string) => Array.from({ length: PAGE_SIZE }, (_, i) => raw(`${tag}${i}`));
+  const filters = [
+    {
+      type: 'contract',
+      contractIds: ['CRWD'],
+      topics: [[xdr.ScVal.scvSymbol('tipped').toXDR('base64'), '*', '*']],
+    },
+  ];
+  type Page = { events: ReturnType<typeof raw>[]; cursor: string };
+
+  /**
+   * A fake RPC: `pages` maps a request (`cursor`, or `ledger:<startLedger>`) to its page; any
+   * other cursor is caught up — no events, the same cursor back, as stellar-rpc answers.
+   */
+  function serve(pages: Record<string, Page | Error>) {
+    getEventsMock.mockImplementation(async (req: { cursor?: string; startLedger?: number }) => {
+      const key = req.cursor ?? `ledger:${req.startLedger}`;
+      const page = pages[key];
+      if (page instanceof Error) throw page;
+      return page ?? { events: [], cursor: req.cursor ?? `end-of-${key}` };
+    });
+  }
+
+  beforeEach(() => {
+    getLatestLedgerMock.mockReset().mockResolvedValue({ sequence: 20_000 });
+    getEventsMock.mockReset();
+  });
+
+  it('starts its first run at the latest ledger — no backlog of old tips', async () => {
+    serve({ 'ledger:20000': { events: [], cursor: 'c-end' } });
+    const res = await fetchTipEventsSince(null);
+    expect(getEventsMock).toHaveBeenNthCalledWith(1, { filters, startLedger: 20_000, limit: PAGE_SIZE });
+    expect(res).toEqual({ events: [], cursor: 'c-end', ok: true });
+  });
+
+  it('resumes from the stored cursor and decodes each tip', async () => {
+    serve({ 'c-1': { events: [raw('e1')], cursor: 'c-2' } });
+    const res = await fetchTipEventsSince('c-1');
+    expect(getEventsMock).toHaveBeenNthCalledWith(1, { filters, cursor: 'c-1', limit: PAGE_SIZE });
+    expect(getLatestLedgerMock).not.toHaveBeenCalled();
+    expect(res).toEqual({
+      events: [{ id: 'e1', topics: ['tipped', FROM_G, TO_C], data: 20_000_000n, ledger: 500 }],
+      cursor: 'c-2',
+      ok: true,
+    });
+  });
+
+  it('drops events without an RPC id: nothing could stop them being pushed twice', async () => {
+    serve({ 'c-1': { events: [raw(undefined), raw('e2')], cursor: 'c-2' } });
+    expect((await fetchTipEventsSince('c-1')).events.map((e) => e.id)).toEqual(['e2']);
+  });
+
+  it('follows full pages and short ones while the cursor moves — a gap wider than one RPC scan', async () => {
+    serve({
+      'c-0': { events: full('a'), cursor: 'c-a' }, // a full page
+      'c-a': { events: [raw('b0')], cursor: 'c-scan1-end' }, // one 10k-ledger scan ends short
+      'c-scan1-end': { events: [raw('c0')], cursor: 'c-latest' }, // the next scan reaches the tip
+    });
+    const res = await fetchTipEventsSince('c-0');
+    expect(res.events).toHaveLength(PAGE_SIZE + 2);
+    expect(res.events.at(-1)?.id).toBe('c0');
+    expect(res.cursor).toBe('c-latest');
+    // Stopped once a page left the cursor where it was.
+    expect(getEventsMock).toHaveBeenCalledTimes(4);
+  });
+
+  it('stops after MAX_PAGES, resuming from where it stopped next time', async () => {
+    let n = 0;
+    getEventsMock.mockImplementation(async () => ({ events: full(`p${n}-`), cursor: `c-${++n}` }));
+    const res = await fetchTipEventsSince('c-0');
+    expect(getEventsMock).toHaveBeenCalledTimes(MAX_PAGES);
+    expect(res.cursor).toBe(`c-${MAX_PAGES}`);
+    expect(res.events).toHaveLength(PAGE_SIZE * MAX_PAGES);
+  });
+
+  it('restarts at the recent window when the RPC rejects the stored cursor', async () => {
+    serve({
+      'c-stale': new Error('cursor is before the oldest ledger'),
+      [`ledger:${20_000 - EVENT_LEDGER_WINDOW}`]: { events: [raw('e1')], cursor: 'c-fresh' },
+    });
+    const res = await fetchTipEventsSince('c-stale');
+    expect(getEventsMock).toHaveBeenNthCalledWith(2, {
+      filters,
+      startLedger: 20_000 - EVENT_LEDGER_WINDOW,
+      limit: PAGE_SIZE,
+    });
+    expect(res).toMatchObject({ ok: true, cursor: 'c-fresh' });
+    expect(res.events.map((e) => e.id)).toEqual(['e1']);
+  });
+
+  it('reports the RPC unreadable, keeping the cursor, when even the fallback fails', async () => {
+    getEventsMock.mockRejectedValue(new Error('rpc down'));
+    expect(await fetchTipEventsSince('c-1')).toEqual({ events: [], cursor: 'c-1', ok: false });
+    getLatestLedgerMock.mockRejectedValue(new Error('rpc down'));
+    expect(await fetchTipEventsSince(null)).toEqual({ events: [], cursor: null, ok: false });
+  });
+
+  it('keeps what it read, and the cursor after it, when a later page fails', async () => {
+    serve({ 'c-0': { events: full('a'), cursor: 'c-a' }, 'c-a': new Error('rpc blip') });
+    const res = await fetchTipEventsSince('c-0');
+    expect(res).toMatchObject({ ok: true, cursor: 'c-a' });
+    expect(res.events).toHaveLength(PAGE_SIZE);
+  });
+
+  it('reads nothing while the rewards contract is not deployed', async () => {
+    vi.resetModules();
+    vi.doMock('./stellar', () => ({
+      server: { getLatestLedger: getLatestLedgerMock, getEvents: getEventsMock },
+      config: { contracts: { reputation: 'CREP', rewards: '', questRegistry: 'CQST' } },
+    }));
+    const { fetchTipEventsSince: read } = await import('./events');
+    expect(await read('c-1')).toEqual({ events: [], cursor: 'c-1', ok: true });
+    expect(getEventsMock).not.toHaveBeenCalled();
+    vi.doUnmock('./stellar');
   });
 });

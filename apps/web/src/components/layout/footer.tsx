@@ -2,12 +2,15 @@
 
 import Link from 'next/link';
 import { Logo } from '@/components/brand/logo';
+import { NetworkBadge } from '@/components/layout/network-badge';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useTranslations } from '@/lib/i18n';
 import { asset } from '@/lib/assets';
+import { feedbackFormLink } from '@/lib/feedback';
 
 export function Footer() {
   const t = useTranslations();
+  const feedback = feedbackFormLink(); // null → no form configured, no link (#287)
 
   const COLS = [
     {
@@ -30,12 +33,13 @@ export function Footer() {
       links: [
         { href: 'https://github.com/mericcintosun/alvinmunk', label: t('footer.link.github') },
         { href: 'https://x.com', label: t('footer.link.twitter') },
+        ...(feedback ? [{ href: feedback, label: t('footer.link.feedback') }] : []),
       ],
     },
   ];
 
   return (
-    <footer className="relative mt-28 border-t border-border/60">
+    <footer className="relative mt-28 border-t border-border/60 print:hidden">
       {/* faint sticker-tile texture — warmth under the cosmic base, masked to stay subtle */}
       <div
         aria-hidden
@@ -49,10 +53,9 @@ export function Footer() {
           <p className="max-w-xs text-sm text-muted-foreground text-balance">
             {t('footer.tagline')}
           </p>
-          <span className="mt-1 inline-flex w-fit items-center gap-1.5 rounded-full border border-secondary/40 px-2.5 py-1 text-xs text-secondary/90">
-            <span className="size-1.5 rounded-full bg-secondary motion-safe:animate-glow-pulse" />
-            {t('footer.live')}
-          </span>
+          {/* Which Stellar network these funds are real on — links to /api/health. It replaces a
+              static "Live on Stellar testnet" pill that would have kept saying testnet on mainnet. */}
+          <NetworkBadge className="mt-1" />
           {/* Language switcher lives here — prominent but not distracting */}
           <LanguageSwitcher variant="pill" className="mt-1 w-fit" />
         </div>

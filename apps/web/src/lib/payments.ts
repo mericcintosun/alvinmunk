@@ -5,6 +5,7 @@
  */
 import { Asset, Operation, TransactionBuilder } from '@stellar/stellar-sdk';
 import { server, networkPassphrase } from './stellar';
+import { submitSigned } from './submit';
 import type { Wallet } from './wallet';
 
 export interface PaymentResult {
@@ -22,18 +23,16 @@ export async function sendXlm(wallet: Wallet, to: string, amount: string): Promi
 
   const signedXdr = await wallet.sign(tx.toXDR());
   const signed = TransactionBuilder.fromXDR(signedXdr, networkPassphrase);
-  const sent = await server.sendTransaction(signed);
-
-  if (sent.status === 'ERROR') {
-    throw new Error(`payment rejected: ${JSON.stringify(sent.errorResult)}`);
-  }
+  const hash = await submitSigned(signed, 'payment');
 
   // Poll briefly so the UI can show a confirmed success/failure.
+  // The payment is already submitted, so a failed status read must never reject: keep polling
+  // through transient RPC/decode errors and report PENDING when the budget runs out (#193).
   for (let i = 0; i < 15; i++) {
-    const res = await server.getTransaction(sent.hash);
-    if (res.status === 'SUCCESS') return { hash: sent.hash, status: 'SUCCESS' };
-    if (res.status === 'FAILED') return { hash: sent.hash, status: 'FAILED' };
+    const status = await server.getTransaction(hash).then((r) => r.status, () => null);
+    if (status === 'SUCCESS') return { hash, status: 'SUCCESS' };
+    if (status === 'FAILED') return { hash, status: 'FAILED' };
     await new Promise((r) => setTimeout(r, 1000));
   }
-  return { hash: sent.hash, status: 'PENDING' };
+  return { hash, status: 'PENDING' };
 }

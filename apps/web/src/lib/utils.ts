@@ -1,15 +1,10 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { TxNotQueuedError, TxRejectedError } from './tx-errors';
 
 /** Merge conditional class names + dedupe Tailwind conflicts. */
 export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
-}
-
-/** Middle-truncate a Stellar address: GABC…WXYZ */
-export function shortAddress(addr: string, lead = 4, tail = 4): string {
-  if (!addr || addr.length <= lead + tail + 1) return addr;
-  return `${addr.slice(0, lead)}…${addr.slice(-tail)}`;
 }
 
 /** Extract a Soroban contract error code from a thrown error/message, if present. */
@@ -19,26 +14,49 @@ export function contractErrorCode(e: unknown): number | null {
   return m ? Number(m[1]) : null;
 }
 
+/** The flows that move USDC through the token SAC, where its balance / trustline errors mean something. */
+export type ErrorFlow = 'tip' | 'reward';
+
 /**
  * Turn a raw chain/network error into one calm human sentence (brand voice). Pass a
  * `codeMap` of contract error codes → messages for the contract being called; falls back
- * to the first line of the message (never the scary diagnostic-event dump).
+ * to the first line of the message (never the scary diagnostic-event dump). `flow` opts a
+ * USDC-moving caller into the SAC balance / trustline copy; every other flow never sees it.
  */
-export function humanizeError(e: unknown, codeMap: Record<number, string> = {}, fallback = 'Something went wrong — try again'): string {
+export function humanizeError(
+  e: unknown,
+  codeMap: Record<number, string> = {},
+  flow?: ErrorFlow,
+): string {
+  // Already one plain sentence (lib/tx-errors) — the keyword rules below would misread it.
+  if (e instanceof TxRejectedError || e instanceof TxNotQueuedError) return e.message;
   const raw = e instanceof Error ? e.message : String(e ?? 'Something went wrong');
   // Host-level signals first — they're clearer than a contract code AND dodge code
   // collisions (e.g. a token SAC's own #10 "insufficient balance" vs a contract's #10).
   const lower = raw.toLowerCase();
-  if (
-    lower.includes('not sufficient') ||
-    lower.includes('insufficient') ||
-    lower.includes('zero balance')
-  ) {
-    return "You don't have enough USDC to cover that — claim a reward or get test USDC first.";
+
+  // A classic tx rejected for its XLM fee names its result code (lib/contracts.ts).
+  if (lower.includes('txinsufficientbalance') || lower.includes('txinsufficientfee')) {
+    return 'You need a little more XLM to cover the network fee.';
   }
-  if (lower.includes('trustline')) {
-    return "The recipient hasn't enabled this USDC, so they can't receive the tip yet. Try another passkey wallet, or someone who's enabled USDC.";
+
+  if (flow) {
+    // The token SAC's balance errors ("balance is not sufficient to spend", "zero balance…").
+    if (
+      lower.includes('balanceerror') ||
+      lower.includes('insufficient balance') ||
+      lower.includes('not sufficient') ||
+      lower.includes('zero balance')
+    ) {
+      return "You don't have enough USDC to cover that — claim a reward or get test USDC first.";
+    }
+    if (lower.includes('trustline')) {
+      return flow === 'tip'
+        ? "The recipient hasn't enabled this USDC, so they can't receive the tip yet. Try another passkey wallet, or someone who's enabled USDC."
+        : "You haven't enabled USDC yet, so you can't receive the reward. Enable it in your wallet first.";
+    }
   }
+
   const code = contractErrorCode(e);
   if (code != null && codeMap[code]) return codeMap[code];
   // Drop Soroban's "Event log (newest first): …" diagnostic tail and take the first line.
@@ -88,4 +106,29 @@ export function shareInFlight<T>(
   const p = run().finally(() => pending.delete(key));
   pending.set(key, p);
   return p;
+}
+
+/**
+ * A gate that runs at most `limit` tasks at once, starting the rest in call order as slots
+ * free up — so a batch of reads (every stored vouch is one simulation) trickles out
+ * instead of bursting into the public RPC's rate limit. A freed slot passes straight to the
+ * next waiter, so a caller arriving in between can't push the count past `limit`.
+ */
+export function concurrencyLimit(limit: number): <T>(run: () => Promise<T>) => Promise<T> {
+  let active = 0;
+  const waiting: Array<() => void> = [];
+  const release = () => {
+    const next = waiting.shift();
+    if (next) next();
+    else active--;
+  };
+  return async <T>(run: () => Promise<T>): Promise<T> => {
+    if (active < limit) active++;
+    else await new Promise<void>((resolve) => waiting.push(resolve));
+    try {
+      return await run();
+    } finally {
+      release();
+    }
+  };
 }

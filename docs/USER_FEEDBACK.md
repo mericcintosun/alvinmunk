@@ -24,7 +24,7 @@ Settings: collect email off (field 2 captures it), one response per person off (
 
 **Export:** Responses tab → link to Google Sheets → File → Download → Microsoft Excel (.xlsx). Commit the file to the repo as `docs/feedback/responses.xlsx` (or link the shared Sheet, view-only) and reference it from the README.
 
-**Getting the 10 / 50 / 20-mainnet users:** onboard whole cohorts where people already know each other (a student club, a builder Discord, an ambassador group). Because a vouch names a specific person, seed 3–4 real users and have each vouch 3 people; the share links pull the rest in. Keep the form link in the app footer and in the post-vouch success toast.
+**Getting the 10 / 50 / 20-mainnet users:** onboard whole cohorts where people already know each other (a student club, a builder Discord, an ambassador group). Because a vouch names a specific person, seed 3–4 real users and have each vouch 3 people; the share links pull the rest in. Keep the form link in the app footer and in front of people right after a claim and their first vouch: set `NEXT_PUBLIC_FEEDBACK_FORM_URL` (see `.env.example`) and the app does both — a footer link, and a one-time 👍 / 👎 + "Tell us more" prompt that opens the form with their handle and wallet prefilled.
 
 ---
 
@@ -60,14 +60,15 @@ Add this block to `README.md` (update the numbers, the sheet link, and the commi
 
 For each onboarded user you need on-chain proof:
 - The wallet address column in the sheet is the anchor.
-- For a quick proof list, pull recent `vouch:claimed` / `profile` / `tipped` events and link the tx or the account on Stellar Expert. `scripts/status.mjs` and the leaderboard already read these events.
+- For a quick proof list, pull recent `vouch:claimed` / `tipped` events and link the tx or the account on Stellar Expert. The leaderboard/activity feed and `/api/stats` already read these events over RPC `getEvents` (`lib/events.ts`, `app/api/stats/route.ts`); `scripts/status.mjs` only reads contract state via simulation — it does not read events. Since #144 a `tipped` event always carries a positive `amount` between two *different* wallets, so a row backed by one is real traction rather than a zero or self-tip.
 - Keep a short `docs/feedback/onboarded_users.md` table: handle, address, first on-chain action, Stellar Expert link.
 
 ---
 
 ## 4. Analytics cross-check
 
-PostHog (already wired) gives you the quantitative side to pair with the form:
-- `profile_created`, `vouch_minted` events + autocaptured pageviews.
-- Funnels (landing → profile_created → vouch_minted) and 7-day retention among users who received a spend.
-- Export a screenshot of the funnel/retention board for the "analytics or monitoring setup" submission screenshot.
+Vercel Analytics (already wired via `apps/web/src/lib/track.ts`) gives you the quantitative side to pair with the form:
+- Autocaptured pageviews + visitors (any plan), plus Web Vitals from Speed Insights.
+- `profile_created`, `vouch_minted` and `vouch_batch_minted` custom events fired by `lib/track.ts` — **Vercel Pro plan only**; on Hobby these calls are harmless no-ops.
+- Vercel Analytics is anonymous/privacy-first (no `identify`), so per-user funnels and 7-day retention are **not** measurable with this setup — read those from the form and the on-chain event readers (`/api/stats`, the leaderboard) instead.
+- Export a screenshot of the Vercel Analytics dashboard (pageviews/visitors; custom events on Pro) for the "analytics or monitoring setup" submission screenshot.

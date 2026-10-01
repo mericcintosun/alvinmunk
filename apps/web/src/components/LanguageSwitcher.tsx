@@ -30,7 +30,7 @@ export function LanguageSwitcher({ variant = 'pill', className }: Props) {
         onClick={() => setLocale(next)}
         aria-label={`Switch to ${nextItem.label}`}
         className={cn(
-          'inline-flex items-center gap-1 rounded-full border border-border/60 px-2.5 py-1 font-mono text-[11px] uppercase tracking-wider text-muted-foreground transition-colors hover:border-border hover:text-foreground',
+          'inline-flex items-center gap-1 rounded-full border border-border/60 px-2.5 py-1 font-mono text-2xs uppercase tracking-wider text-muted-foreground transition-colors hover:border-border hover:text-foreground',
           className,
         )}
       >
@@ -56,7 +56,7 @@ export function LanguageSwitcher({ variant = 'pill', className }: Props) {
           aria-pressed={locale === l.code}
           aria-label={`Switch to ${l.label}`}
           className={cn(
-            'rounded-full px-2.5 py-0.5 font-mono text-[11px] uppercase tracking-wider transition-colors',
+            'rounded-full px-2.5 py-0.5 font-mono text-2xs uppercase tracking-wider transition-colors',
             locale === l.code
               ? 'bg-primary/15 text-foreground'
               : 'text-muted-foreground hover:text-foreground',

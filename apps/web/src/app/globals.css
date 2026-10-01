@@ -18,7 +18,7 @@
   --popover-foreground: 250 28% 96%;
 
   --primary: 265 100% 66%; /* electric violet — primary / chain */
-  --primary-foreground: 0 0% 100%;
+  --primary-foreground: 265 60% 6%;
 
   --secondary: 157 84% 52%; /* mint green — earned / verified energy */
   --secondary-foreground: 265 60% 6%;
@@ -30,9 +30,20 @@
   --accent-foreground: 265 60% 6%;
 
   --destructive: 350 82% 62%;
-  --destructive-foreground: 250 30% 97%;
+  --destructive-foreground: 265 60% 6%;
   --success: 157 84% 52%;
   --warning: 38 95% 62%;
+  /* Text variants of the semantic colours: what text-* utilities read (tailwind textColor).
+     4.5:1 on every surface in both themes; bg-, border- and ring- keep the fills above. */
+  --primary-text: 265 100% 72%;
+  --onchain-text: 265 100% 72%;
+  --secondary-text: 157 84% 52%;
+  --success-text: 157 84% 52%;
+  --accent-text: 36 100% 64%;
+  --warning-text: 38 95% 62%;
+  --destructive-text: 350 82% 64%;
+  --tertiary-text: 193 100% 52%;
+  --lime-text: 79 94% 64%;
 
   --border: 265 26% 16%;
   --input: 265 26% 16%;
@@ -44,6 +55,8 @@
 
   /* the signature flow + depth surfaces */
   --tertiary: 193 100% 52%; /* cyan — social / connection */
+  /* violet stop of .flow, kept light enough for the dark flow-button label to clear AA */
+  --flow-violet: 265 100% 66%;
   --surface: 266 34% 9%;
   --surface-2: 266 30% 12%;
   --hairline: 260 60% 100%;
@@ -79,9 +92,18 @@
   --accent: 36 100% 55%;
   --accent-foreground: 265 60% 8%;
   --destructive: 350 82% 55%;
-  --destructive-foreground: 250 30% 98%;
+  --destructive-foreground: 265 60% 8%;
   --success: 157 84% 45%;
   --warning: 38 95% 55%;
+  --primary-text: 265 100% 54%;
+  --onchain-text: 265 100% 54%;
+  --secondary-text: 157 84% 24%;
+  --success-text: 157 84% 24%;
+  --accent-text: 36 100% 28%;
+  --warning-text: 38 95% 28%;
+  --destructive-text: 350 82% 42%;
+  --tertiary-text: 193 100% 27%;
+  --lime-text: 79 94% 22%;
   --border: 265 26% 85%;
   --input: 265 26% 85%;
   --ring: 265 100% 60%;
@@ -89,6 +111,7 @@
   --onchain: 265 100% 60%;
   --radius: 0.875rem;
   --tertiary: 193 100% 45%;
+  --flow-violet: 265 100% 68%;
   --surface: 266 34% 97%;
   --surface-2: 266 30% 93%;
   --hairline: 260 60% 15%;
@@ -104,6 +127,23 @@
 @layer base {
   * {
     @apply border-border;
+    /* The focus ring's colour and geometry rest on every element; :focus-visible below only
+       switches it on. A `transition-all` control (Button, the app tabs) then fades the ring
+       in, instead of morphing it from the UA default (3px, currentColor, no offset). */
+    outline-color: hsl(var(--ring));
+    outline-width: 2px;
+    outline-offset: 2px;
+  }
+  /* Selected text: translucent brand violet under the foreground colour, so coloured text
+     (mint, cyan, violet) stays readable when selected in either theme (#509). */
+  ::selection {
+    background-color: hsl(var(--primary) / 0.35);
+    color: hsl(var(--foreground));
+  }
+  /* Thin scrollbars in the border token; scrollbar-color inherits into every scroll box. */
+  html {
+    scrollbar-color: hsl(var(--border)) transparent;
+    scrollbar-width: thin;
   }
   body {
     @apply bg-background text-foreground font-sans antialiased;
@@ -111,6 +151,33 @@
   }
   h1, h2, h3, h4 {
     @apply font-display tracking-tight;
+  }
+
+  /* One focus ring for the whole app. Declared once, here, so navbar links, the theme
+     toggle, footer links, language pills and every input get the same brand ring instead
+     of a browser default that differs per browser. Components must not hand-pick a ring
+     colour — `--ring` is the only focus colour (see docs/product/DESIGN_SYSTEM_TOKENS.md). */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* Eyebrow — the small uppercase kicker above headings (chain-site rhythm); `eyebrow-mono` is
+     the same kicker in the mono face (technical / on-chain labels). The only uppercase kicker
+     styles: no hand-rolled letter-spacings. Component classes, so a colour or leading utility
+     on the same element overrides them. */
+  .eyebrow,
+  .eyebrow-mono {
+    font-size: 0.6875rem;
+    line-height: 1;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: hsl(var(--muted-foreground));
+  }
+  .eyebrow-mono {
+    font-family: var(--font-mono), monospace;
   }
 }
 
@@ -146,10 +213,10 @@
   .flow {
     background-image: linear-gradient(
       110deg,
-      hsl(var(--primary)),
+      hsl(var(--flow-violet)),
       hsl(var(--tertiary)),
       hsl(var(--secondary)),
-      hsl(var(--primary))
+      hsl(var(--flow-violet))
     );
     background-size: 280% 100%;
     animation: gradient-pan 8s ease-in-out infinite;
@@ -221,15 +288,6 @@
     text-shadow: 0 0 28px hsl(var(--primary) / 0.35);
   }
 
-  /* Eyebrow — the small uppercase kicker above headings (chain-site rhythm). */
-  .eyebrow {
-    font-size: 0.6875rem;
-    line-height: 1;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    color: hsl(var(--muted-foreground));
-  }
-
   /* Fluid hero display size — scales smoothly from mobile to desktop. */
   .display-hero {
     font-size: clamp(2.75rem, 7vw, 5.5rem);
@@ -268,5 +326,128 @@
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
+  }
+}
+
+/* Print / save as PDF (#509): dark-on-light paper without the fixed screen layers. The
+   starfield canvas, navbar, footer, config banner and vouch notice carry `print:hidden`. */
+@media print {
+  /* The light theme's tokens (keep in step with :root.light — theme-print.test.ts checks),
+     forced over the dark default; only the page itself is plain paper white. */
+  :root,
+  :root.dark {
+    color-scheme: light;
+
+    --background: 0 0% 100%; /* paper white */
+    --foreground: 265 40% 12%;
+    --card: 266 38% 98%;
+    --card-foreground: 265 40% 12%;
+    --popover: 266 40% 99%;
+    --popover-foreground: 265 40% 12%;
+    --primary: 265 100% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 157 84% 45%;
+    --secondary-foreground: 265 60% 8%;
+    --muted: 265 20% 94%;
+    --muted-foreground: 252 14% 40%;
+    --accent: 36 100% 55%;
+    --accent-foreground: 265 60% 8%;
+    --destructive: 350 82% 55%;
+    --destructive-foreground: 265 60% 8%;
+    --success: 157 84% 45%;
+    --warning: 38 95% 55%;
+    --primary-text: 265 100% 54%;
+    --onchain-text: 265 100% 54%;
+    --secondary-text: 157 84% 24%;
+    --success-text: 157 84% 24%;
+    --accent-text: 36 100% 28%;
+    --warning-text: 38 95% 28%;
+    --destructive-text: 350 82% 42%;
+    --tertiary-text: 193 100% 27%;
+    --lime-text: 79 94% 22%;
+    --border: 265 26% 85%;
+    --input: 265 26% 85%;
+    --ring: 265 100% 60%;
+    --starlight: 265 60% 15%;
+    --onchain: 265 100% 60%;
+    --radius: 0.875rem;
+    --tertiary: 193 100% 45%;
+    --flow-violet: 265 100% 68%;
+    --surface: 266 34% 97%;
+    --surface-2: 266 30% 93%;
+    --hairline: 260 60% 15%;
+    --lime: 79 94% 45%;
+    --lime-foreground: 265 60% 8%;
+    --nebula-a: 255 60% 80%;
+    --nebula-b: 24 70% 82%;
+    --aurora-base: 228 40% 96%;
+    --glass-shadow: 230 40% 30%;
+  }
+
+  body,
+  main {
+    min-height: auto !important;
+  }
+
+  [data-sonner-toaster],
+  .grain::after {
+    display: none !important;
+  }
+
+  /* Screen-only depth and motion */
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  .nebula,
+  .aurora,
+  .grid-faint {
+    background: none !important;
+  }
+
+  .glass {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  .spotlight::before {
+    display: none !important;
+  }
+
+  /* Gradient text prints as solid foreground */
+  .text-gradient {
+    background: none !important;
+    -webkit-text-fill-color: hsl(var(--foreground)) !important;
+    color: hsl(var(--foreground)) !important;
+  }
+
+  /* Paper can't be clicked: print where an external link goes (share intents excluded) */
+  a[href^="http"]:not([href*="twitter.com/intent"]):not([href*="x.com/intent"])::after {
+    content: ' (' attr(href) ')';
+    font-size: 0.85em;
+    font-weight: normal;
+    color: hsl(var(--muted-foreground));
+    word-break: break-all;
+  }
+
+  pre,
+  blockquote,
+  table,
+  figure {
+    break-inside: avoid;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    break-after: avoid;
   }
 }

@@ -25,7 +25,7 @@ export const EVENTS = {
   XP: 'xp',
   /** topics ('social', addr) · data (amount, newTotal) — Social track total (leaderboard source). `amount` is unsigned: compare newTotal with the previous total for the direction */
   SOCIAL: 'social',
-  /** topics ('vouch', 'minted'|'claimed'|'slashed') · data minted (id, from) · claimed (id, from, claimer) · slashed (id, from, stake) */
+  /** topics ('vouch', 'minted'|'claimed'|'slashed'|'cancelled') · data minted (id, from) · claimed (id, from, claimer) · slashed (id, from, stake) · cancelled (id, from) */
   VOUCH: 'vouch',
   /** topics ('quest', 'created'|'awarded') · data created id · awarded (quest_id, recipient) */
   QUEST: 'quest',
@@ -34,6 +34,13 @@ export const EVENTS = {
   /** topics ('reward', to) · data (reward_id, amount, claims) */
   REWARD: 'reward',
 } as const;
+
+// ── Mirrors of the on-chain read-view structs ──
+// `Vouch` and `Profile` carry every `u64` as a `bigint`, because that is what
+// `scValToNative` returns for one and a u64 does not fit a JS `number` in general. Narrow at
+// the edge that needs it. `Attestation` is left narrowing its own `timestamp`: it is a unix
+// second count, `getQuestAttestation` already normalises to a number, and callers do
+// arithmetic on it.
 
 // ── Mirror of the on-chain Attestation struct (read-view shape) ──
 export interface Attestation {
@@ -45,24 +52,129 @@ export interface Attestation {
 
 // ── Mirror of the on-chain Vouch struct (read-view shape of `get_vouch`) ──
 export interface Vouch {
-  id: number;
+  id: bigint;
   from: string; // voucher address
-  /** sha256(secret) — BytesN<32> */
+  /** sha256(secret) — BytesN<32>; all zeros on a card minted with a claim key
+   *  (`mint_vouch_signed`), whose key is read with `get_claim_key` */
   claim_hash: Uint8Array;
   note: string;
   claimed: boolean;
   /** Option<Address> — null until claimed */
   claimer: string | null;
-  created: number; // ledger timestamp at mint
+  created: bigint; // ledger timestamp at mint
   /** Social XP escrowed at mint */
-  stake: number;
+  stake: bigint;
   slashed: boolean;
 }
 
+/** Mirror of the on-chain `Profile` struct — all of `get_profile`, nothing else. Frozen
+ *  (docs/ON_CHAIN_EVENTS.md): Soroban decodes a struct only when the returned map has
+ *  exactly its fields, so new per-address data ships as its own view, like `get_counts`. */
 export interface Profile {
-  address: string;
-  score: bigint;
-  attestations: Partial<Record<SchemaId, Attestation>>;
+  /** Social XP — leaderboard/fun, never cashable */
+  social: bigint;
+  /** Earned XP — the only track Rewards may gate USDC on */
+  earned: bigint;
+  /** true once the address has done at least one Earned (verified) action */
+  verified: boolean;
+}
+
+/**
+ * Every field of each mirror, in the contract's declaration order. A `#[contracttype]`
+ * struct with named fields travels as an `ScVal::Map` keyed by field name (sorted by the
+ * host), which `scValToNative` turns into a plain object with those keys: the decoders
+ * below accept exactly these keys, so a field added, dropped or renamed on either side
+ * throws instead of reading as `undefined`. `read-views.test.ts` checks the lists against
+ * `contracts/reputation/src/lib.rs` and decodes the contract's own fixtures through them.
+ */
+export const VOUCH_FIELDS = [
+  'id',
+  'from',
+  'claim_hash',
+  'note',
+  'claimed',
+  'claimer',
+  'created',
+  'stake',
+  'slashed',
+] as const satisfies readonly (keyof Vouch)[];
+
+export const PROFILE_FIELDS = [
+  'social',
+  'earned',
+  'verified',
+] as const satisfies readonly (keyof Profile)[];
+
+/** `raw` as a struct object with exactly `fields`, or a thrown error naming the drift. */
+function structOf(raw: unknown, name: string, fields: readonly string[]): Record<string, unknown> {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    const got = raw === null ? 'null' : Array.isArray(raw) ? 'an array' : typeof raw;
+    throw new Error(`${name}: expected a contract struct, got ${got}`);
+  }
+  const keys = Object.keys(raw);
+  const missing = fields.filter((f) => !keys.includes(f));
+  const extra = keys.filter((k) => !fields.includes(k));
+  if (missing.length || extra.length) {
+    throw new Error(
+      `${name}: contract fields drifted (missing: ${missing.join(', ') || '-'}; ` +
+        `unknown: ${extra.join(', ') || '-'})`,
+    );
+  }
+  return raw as Record<string, unknown>;
+}
+
+function u64Field(raw: unknown, what: string): bigint {
+  if (typeof raw !== 'bigint') throw new Error(`${what}: expected a u64, got ${typeof raw}`);
+  return raw;
+}
+
+function stringField(raw: unknown, what: string): string {
+  if (typeof raw !== 'string') throw new Error(`${what}: expected a string, got ${typeof raw}`);
+  return raw;
+}
+
+function boolField(raw: unknown, what: string): boolean {
+  if (typeof raw !== 'boolean') throw new Error(`${what}: expected a bool, got ${typeof raw}`);
+  return raw;
+}
+
+/**
+ * Decode a `get_vouch` return value, as `scValToNative` hands it back, into {@link Vouch}:
+ * `null` for `None` (an id that was never minted, which reads as `ScVal::Void`). An
+ * `Option<Address>` field is its address or `null`; a `BytesN<32>` is a 32-byte buffer.
+ */
+export function decodeVouch(raw: unknown): Vouch | null {
+  if (raw === null) return null;
+  const v = structOf(raw, 'Vouch', VOUCH_FIELDS);
+  const hash = v.claim_hash;
+  if (!(hash instanceof Uint8Array) || hash.length !== 32) {
+    throw new Error('Vouch.claim_hash: expected 32 bytes');
+  }
+  return {
+    id: u64Field(v.id, 'Vouch.id'),
+    from: stringField(v.from, 'Vouch.from'),
+    claim_hash: Uint8Array.from(hash),
+    note: stringField(v.note, 'Vouch.note'),
+    claimed: boolField(v.claimed, 'Vouch.claimed'),
+    claimer: v.claimer === null ? null : stringField(v.claimer, 'Vouch.claimer'),
+    created: u64Field(v.created, 'Vouch.created'),
+    stake: u64Field(v.stake, 'Vouch.stake'),
+    slashed: boolField(v.slashed, 'Vouch.slashed'),
+  };
+}
+
+/**
+ * Decode a `get_profile` return value, as `scValToNative` hands it back, into
+ * {@link Profile}. The address is the call's argument, never a field: `Profile` carries no
+ * subject of its own.
+ */
+export function decodeProfile(raw: unknown): Profile {
+  const p = structOf(raw, 'Profile', PROFILE_FIELDS);
+  return {
+    social: u64Field(p.social, 'Profile.social'),
+    earned: u64Field(p.earned, 'Profile.earned'),
+    verified: boolField(p.verified, 'Profile.verified'),
+  };
 }
 
 // ── Network config ──
@@ -90,14 +202,44 @@ export const PASSPHRASE = {
   mainnet: 'Public Global Stellar Network ; September 2015',
 } as const;
 
-/** Reads the public NEXT_PUBLIC_* env into a typed config (client + server safe). */
+/**
+ * Default URLs per network. Testnet has SDF's public endpoints; mainnet has SDF's public
+ * Horizon but no keyless public RPC, so a mainnet deploy must set NEXT_PUBLIC_RPC_URL — an
+ * unset one stays empty and `validateNetworkConfig` reports it, instead of the old silent
+ * fallback to testnet's RPC.
+ */
+export const DEFAULT_URLS: Record<StellarNetwork, { rpcUrl: string; horizonUrl: string }> = {
+  testnet: {
+    rpcUrl: 'https://soroban-testnet.stellar.org',
+    horizonUrl: 'https://horizon-testnet.stellar.org',
+  },
+  mainnet: { rpcUrl: '', horizonUrl: 'https://horizon.stellar.org' },
+};
+
+/** An env value, trimmed, with blank treated as unset (`FOO=` in a .env file is ''). */
+function envValue(v: string | undefined): string | undefined {
+  const t = v?.trim();
+  return t ? t : undefined;
+}
+
+/**
+ * Reads the public NEXT_PUBLIC_* env into a typed config (client + server safe). It never
+ * throws: the network name is normalised ("Mainnet " → mainnet), and anything that is still
+ * wrong — an unknown network, a passphrase for the other network, a missing mainnet RPC URL —
+ * is reported by `validateNetworkConfig`, which blocks signing and shows the config banner.
+ */
 export function readNetworkConfig(env: Record<string, string | undefined>): NetworkConfig {
-  const network = (env.NEXT_PUBLIC_STELLAR_NETWORK as StellarNetwork) ?? 'testnet';
+  const rawNetwork = env.NEXT_PUBLIC_STELLAR_NETWORK;
+  // Only an absent variable means testnet; an empty or unknown value stays as typed so the
+  // validator names it.
+  const network = (rawNetwork === undefined ? 'testnet' : rawNetwork.trim().toLowerCase()) as StellarNetwork;
+  const known = network === 'testnet' || network === 'mainnet';
+  const defaults = known ? DEFAULT_URLS[network] : DEFAULT_URLS.testnet;
   return {
     network,
-    rpcUrl: env.NEXT_PUBLIC_RPC_URL ?? 'https://soroban-testnet.stellar.org',
-    networkPassphrase: env.NEXT_PUBLIC_NETWORK_PASSPHRASE ?? PASSPHRASE[network],
-    horizonUrl: env.NEXT_PUBLIC_HORIZON_URL ?? 'https://horizon-testnet.stellar.org',
+    rpcUrl: envValue(env.NEXT_PUBLIC_RPC_URL) ?? defaults.rpcUrl,
+    networkPassphrase: envValue(env.NEXT_PUBLIC_NETWORK_PASSPHRASE) ?? (known ? PASSPHRASE[network] : ''),
+    horizonUrl: envValue(env.NEXT_PUBLIC_HORIZON_URL) ?? defaults.horizonUrl,
     contracts: {
       reputation: env.NEXT_PUBLIC_REPUTATION_CONTRACT_ID ?? '',
       questRegistry: env.NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID ?? '',
@@ -107,6 +249,74 @@ export function readNetworkConfig(env: Record<string, string | undefined>): Netw
       gate: env.NEXT_PUBLIC_GATE_CONTRACT_ID ?? '',
     },
   };
+}
+
+/** The env var behind each contract id — validation errors name it, so the fix is obvious. */
+const CONTRACT_ENV: Record<keyof ContractIds, string> = {
+  reputation: 'NEXT_PUBLIC_REPUTATION_CONTRACT_ID',
+  questRegistry: 'NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID',
+  rewards: 'NEXT_PUBLIC_REWARDS_CONTRACT_ID',
+  usdcSac: 'NEXT_PUBLIC_USDC_SAC_ID',
+  registry: 'NEXT_PUBLIC_REGISTRY_CONTRACT_ID',
+  gate: 'NEXT_PUBLIC_GATE_CONTRACT_ID',
+};
+
+/** Does `url` name `network`'s infrastructure? (SDF's public Horizon carries no network in its name.) */
+function pointsAt(url: string, network: StellarNetwork): boolean {
+  if (network === 'testnet') return /testnet/i.test(url);
+  return /mainnet/i.test(url) || /^https?:\/\/horizon\.stellar\.org(?:[:/]|$)/i.test(url);
+}
+
+/**
+ * Everything wrong with a resolved network config, one specific reason per problem (empty =
+ * consistent). This is THE validation: /api/health reports it, the client shows it, and the
+ * routes that sign or submit refuse to run on it — so a half-applied mainnet cutover (flipping
+ * `NEXT_PUBLIC_STELLAR_NETWORK=mainnet` but leaving a testnet RPC, passphrase or contract id
+ * behind, the likeliest mainnet launch failure) fails loudly instead of in confusing ways.
+ *
+ * Rules:
+ *  - the network is `testnet` or `mainnet`;
+ *  - the passphrase is that network's — an override that disagrees is rejected;
+ *  - the RPC and Horizon URLs are set and don't point at the other network;
+ *  - on mainnet, all six contract ids are set. Testnet allows empty ones, so a fresh
+ *    checkout runs before the deploy script has printed them.
+ */
+export function validateNetworkConfig(cfg: NetworkConfig): string[] {
+  const { network } = cfg;
+  if (network !== 'testnet' && network !== 'mainnet') {
+    return [`NEXT_PUBLIC_STELLAR_NETWORK must be "testnet" or "mainnet", not "${String(network)}"`];
+  }
+  const other: StellarNetwork = network === 'mainnet' ? 'testnet' : 'mainnet';
+  const errors: string[] = [];
+
+  if (cfg.networkPassphrase !== PASSPHRASE[network]) {
+    const got =
+      cfg.networkPassphrase === PASSPHRASE[other]
+        ? `the ${other} passphrase`
+        : `"${cfg.networkPassphrase}"`;
+    errors.push(
+      `NEXT_PUBLIC_NETWORK_PASSPHRASE is ${got}, but the network is ${network} ("${PASSPHRASE[network]}")`,
+    );
+  }
+
+  const urls = [
+    ['NEXT_PUBLIC_RPC_URL', cfg.rpcUrl],
+    ['NEXT_PUBLIC_HORIZON_URL', cfg.horizonUrl],
+  ] as const;
+  for (const [envKey, url] of urls) {
+    if (!url) errors.push(`${envKey} is empty`);
+    else if (pointsAt(url, other)) {
+      errors.push(`${envKey} points at ${other}, but the network is ${network}: ${url}`);
+    }
+  }
+
+  if (network === 'mainnet') {
+    for (const [key, envKey] of Object.entries(CONTRACT_ENV) as [keyof ContractIds, string][]) {
+      if (!cfg.contracts[key]) errors.push(`${envKey} is not set — every contract id is required on mainnet`);
+    }
+  }
+
+  return errors;
 }
 
 /** Deterministic generative-art seed from a wallet address (Genesis Stamp / vouch sigil). */
@@ -295,6 +505,8 @@ export function buildClaimUrl(origin: string, vouchId: number | string): string 
 
 /** Short display form for an address: GABC…WXYZ */
 export function shortAddr(address: string, lead = 4, tail = 4): string {
-  if (address.length <= lead + tail + 1) return address;
+  if (!address || address.length <= lead + tail + 1) return address;
   return `${address.slice(0, lead)}…${address.slice(-tail)}`;
 }
+
+export { isStellarAddress, type IsStellarAddressOptions } from './stellar-address';
