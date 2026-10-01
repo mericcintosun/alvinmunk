@@ -167,7 +167,7 @@ function Leaderboard({ net }: { net: ReadNetwork | null }) {
             </div>
           ) : (
             <div className="flex flex-col items-center gap-4 p-10 text-center">
-              <StateArt kind="empty-leaderboard" size={300} className="motion-safe:animate-float" />
+              <StateArt kind="empty-leaderboard" size={300} alt={t('leaderboard.empty.alt')} className="motion-safe:animate-float" />
               <p className="font-mono text-sm text-muted-foreground">
                 {t('leaderboard.empty')}
               </p>
