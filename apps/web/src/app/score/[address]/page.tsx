@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
-import { Sparkles, Users, ShieldCheck, Code, AlertCircle } from 'lucide-react';
+import { cookies } from 'next/headers';
+import { Sparkles, Users, ShieldCheck, Code, ArrowLeft } from 'lucide-react';
 import { getScores, getQuestAttestation } from '@/lib/reputation';
 import { getPeopleCounts } from '@/lib/constellation';
 import { Crest } from '@/components/brand/crest';
@@ -11,6 +12,10 @@ import { ReputationSnippet } from '@/components/ReputationSnippet';
 import { ReadOnlyBanner } from '@/components/read-only-banner';
 import { readNetworkFor } from '@/lib/read-network';
 import { FormattedDate, FormattedNumber } from '@/components/formatted';
+import { buttonVariants } from '@/components/ui/button';
+import Link from 'next/link';
+import { getTranslations } from '@/lib/i18n';
+import { LOCALE_KEY, parseLocale } from '@/lib/locale';
 
 // Chain reads go through the Stellar SDK's fetch; without this Next caches them in the Data
 // Cache forever, so the score page would never change after its first render.
@@ -40,20 +45,18 @@ export default async function ScorePage({ params, searchParams }: ScorePageProps
   const { address } = await params;
   const net = readNetworkFor((await searchParams)?.network);
 
+  // Read locale from cookie for server-side translations (may throw outside request scope, e.g. in tests)
+  let savedLocale: 'en' | 'tr' | null = null;
+  try {
+    savedLocale = parseLocale(cookies().get(LOCALE_KEY)?.value);
+  } catch {
+    // cookies() not available (e.g. during testing) — fall back to English
+  }
+  const t = getTranslations(savedLocale ?? 'en');
+
   // Validate address format
   if (!isStellarAddress(address)) {
-    return (
-      <div className="container max-w-2xl py-14">
-        <p className="eyebrow-mono text-primary/80">{'// error'}</p>
-        <div className="mt-6 flex flex-col items-center gap-4 text-center">
-          <AlertCircle className="size-12 text-destructive" />
-          <h1 className="font-display text-2xl font-semibold">Invalid address</h1>
-          <p className="text-muted-foreground">
-            Stellar addresses must start with G or C and be 56 characters long.
-          </p>
-        </div>
-      </div>
-    );
+    notFound();
   }
 
   // Fetch reputation data (read-only, no wallet required)
@@ -77,11 +80,24 @@ export default async function ScorePage({ params, searchParams }: ScorePageProps
         <p className="eyebrow-mono text-primary/80">{'// not_found'}</p>
         <div className="mt-6 flex flex-col items-center gap-4 text-center">
           <StateArt kind="empty-leaderboard" size={300} priority className="motion-safe:animate-float" />
-          <h1 className="font-display text-2xl font-semibold">No reputation yet</h1>
-          <p className="text-muted-foreground">
-            This address hasn&apos;t earned any Social XP, Earned XP, or completed any quests yet.
-          </p>
+          <h1 className="font-display text-2xl font-semibold">{t('score.empty.title')}</h1>
+          <p className="text-muted-foreground">{t('score.empty.body')}</p>
           <p className="font-mono text-sm text-muted-foreground">{shortAddr(address)}</p>
+          <div className="mt-6 flex flex-col sm:flex-row items-center gap-3">
+            <Link
+              href="/app/vouch"
+              className={buttonVariants({ variant: 'flow', size: 'lg' })}
+            >
+              {t('score.empty.vouchAction')}
+            </Link>
+            <Link
+              href="/leaderboard"
+              className={buttonVariants({ variant: 'outline', size: 'lg' })}
+            >
+              <ArrowLeft className="size-4 shrink-0" />
+              {t('score.empty.backToLeaderboard')}
+            </Link>
+          </div>
         </div>
       </div>
     );

@@ -9,6 +9,7 @@ import { usePoll } from '@/lib/use-poll';
 import type { VouchFunnel } from '@/lib/vouch-funnel';
 import { LoopHealth } from '@/components/LoopHealth';
 import { useFormat } from '@/lib/i18n';
+import { useTranslations } from '@/lib/i18n';
 
 type NetKey = 'testnet' | 'mainnet';
 
@@ -24,9 +25,9 @@ interface Stats {
   error?: string;
 }
 
-const TABS: { key: NetKey; label: string; goal: string }[] = [
-  { key: 'testnet', label: 'Testnet', goal: 'Blue belt goal: 50 users' },
-  { key: 'mainnet', label: 'Mainnet', goal: 'Black belt goal: 20 users' },
+const TABS: { key: NetKey; label: string }[] = [
+  { key: 'testnet', label: 'Testnet' },
+  { key: 'mainnet', label: 'Mainnet' },
 ];
 
 function explorer(net: NetKey, addr: string) {
@@ -39,10 +40,17 @@ function explorer(net: NetKey, addr: string) {
 
 export default function StatsPage() {
   const format = useFormat();
+  const t = useTranslations();
+  const [debug, setDebug] = useState(false);
   const [tab, setTab] = useState<NetKey>('testnet');
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setDebug(params.get('debug') === 'true');
+  }, []);
   const [data, setData] = useState<Record<NetKey, Stats | null>>({ testnet: null, mainnet: null });
   // Per-network: true once a poll has failed and we have not yet recovered. The last good
-  // `data[tab]` is kept on screen (never cleared on failure) — only the "live"/"stale"
+  // `data[tab]` is kept on screen (never cleared on failure) — only the "Live"/"Stale"
   // marker below reacts, so an outage never masquerades as a fresh zero.
   const [stale, setStale] = useState<Record<NetKey, boolean>>({ testnet: false, mainnet: false });
   const [loading, setLoading] = useState(true);
@@ -89,11 +97,10 @@ export default function StatsPage() {
   return (
     <div className="container max-w-3xl py-12">
       <header className="mb-6">
-        <p className="eyebrow mb-2">Live · on-chain</p>
-        <h1 className="font-display text-3xl font-semibold">Network stats</h1>
+        <p className="eyebrow mb-2">{t('stats.header.liveOnChain')}</p>
+        <h1 className="font-display text-3xl font-semibold">{t('stats.header.title')}</h1>
         <p className="mt-2 max-w-prose text-sm text-muted-foreground text-balance">
-          Unique wallets that have interacted with the alvinmunk contracts, read straight from
-          Soroban RPC. It grows as people onboard. Testnet and mainnet are separate goals.
+          {t('stats.header.description')}
         </p>
       </header>
 
@@ -117,9 +124,9 @@ export default function StatsPage() {
       <div className="glass rounded-3xl p-7">
         {s && !s.configured ? (
           <div className="py-8 text-center">
-            <p className="font-display text-2xl font-semibold text-muted-foreground">Launching on mainnet</p>
+            <p className="font-display text-2xl font-semibold text-muted-foreground">{t('stats.mainnet.launching')}</p>
             <p className="mt-2 text-sm text-muted-foreground">
-              Mainnet goes live at the Black belt. The counter turns on the moment the contracts deploy.
+              {t('stats.mainnet.counterTurnsOn')}
             </p>
             <p className="mt-4 font-display text-4xl font-semibold text-muted-foreground">
               0 / {format.number(target)}
@@ -131,16 +138,12 @@ export default function StatsPage() {
               <div className="flex items-center gap-3">
                 <Users className="size-6 text-primary" />
                 <div>
-                  <p className="text-xs font-medium text-muted-foreground">Wallets on-chain</p>
+                  <p className="text-xs font-medium text-muted-foreground">{t('stats.walletsOnChain')}</p>
                   <p className="font-display text-5xl font-semibold tabular-nums">
                     {users === undefined ? '—' : format.number(users)}
                   </p>
                 </div>
               </div>
-              <p className="font-display text-2xl font-semibold text-muted-foreground">
-                {users === undefined ? '—' : format.number(users)}{' '}
-                <span className="text-muted-foreground">/ {format.number(target)}</span>
-              </p>
             </div>
 
             {/* progress bar */}
@@ -151,10 +154,10 @@ export default function StatsPage() {
               />
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
-              {users === undefined ? '—' : pct}% toward {TABS.find((t) => t.key === tab)?.goal}
-              {s?.latestLedger ? ` · ledger ${s.latestLedger}` : ''}
-              <span className={cn('ml-2 inline-flex items-center gap-1', isStale ? 'text-warning' : 'text-secondary')} title={isStale ? 'Sync delayed' : 'Live'}>
-                <Activity className="size-3" /> {isStale ? 'stale' : 'live'}
+              {users === undefined ? '—' : pct}% {t('stats.towardGoal', { target: format.number(target) })}
+              {s?.latestLedger ? ` · {t('stats.ledger', { ledger: s.latestLedger })}` : ''}
+              <span className={cn('ml-2 inline-flex items-center gap-1', isStale ? 'text-warning' : 'text-secondary')} title={isStale ? t('stats.syncDelayed') : t('stats.live')}>
+                <Activity className="size-3" /> {isStale ? t('stats.stale') : t('stats.live')}
               </span>
             </p>
           </>
@@ -166,7 +169,8 @@ export default function StatsPage() {
         <LoopHealth
           funnel={s?.funnel}
           loading={loading && !s}
-          error={s ? s.funnelError : isStale ? 'Stats could not be loaded. Retrying…' : undefined}
+          error={s ? s.funnelError : isStale ? t('stats.couldNotLoad') : undefined}
+          debug={debug}
         />
       )}
 

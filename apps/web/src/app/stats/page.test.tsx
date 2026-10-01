@@ -11,6 +11,7 @@ const { fetchMock } = vi.hoisted(() => ({
 
 globalThis.fetch = fetchMock;
 
+import { I18nProvider } from '@/lib/i18n';
 import StatsPage from './page';
 
 describe('StatsPage', () => {
@@ -38,16 +39,14 @@ describe('StatsPage', () => {
     });
 
     await act(async () => {
-      root.render(<StatsPage />);
+      root.render(<I18nProvider><StatsPage /></I18nProvider>);
       await Promise.resolve();
     });
 
     // It should render — instead of 0
     expect(container.textContent).toContain('—');
     expect(container.textContent).not.toContain('0 / 50');
-    // The "0 / 50" gets rendered as "— / 50"
-    expect(container.textContent).toContain('— / 50');
-    expect(container.textContent).toContain('stale');
+    expect(container.textContent).toContain('Stale');
   });
 
   it('groups the wallet count and goal for the locale (#493)', async () => {
@@ -63,11 +62,11 @@ describe('StatsPage', () => {
       }),
     });
     await act(async () => {
-      root.render(<StatsPage />);
+      root.render(<I18nProvider><StatsPage /></I18nProvider>);
       await Promise.resolve();
     });
     expect(container.textContent).toContain('1,234');
-    expect(container.textContent).toContain('/ 5,000');
+    expect(container.textContent).toContain('5,000');
     expect(container.textContent).not.toContain('1234');
   });
 
@@ -84,12 +83,13 @@ describe('StatsPage', () => {
     });
 
     await act(async () => {
-      root.render(<StatsPage />);
+      root.render(<I18nProvider><StatsPage /></I18nProvider>);
       await Promise.resolve();
     });
 
-    expect(container.textContent).toContain('12 / 50');
-    expect(container.textContent).toContain('live');
+    expect(container.textContent).toContain('12');
+    expect(container.textContent).toContain('50');
+    expect(container.textContent).toContain('Live');
 
     fetchMock.mockResolvedValueOnce({
       ok: false,
@@ -110,13 +110,14 @@ describe('StatsPage', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     // The user count should remain on the screen, but state switches to stale
-    expect(container.textContent).toContain('12 / 50');
-    expect(container.textContent).toContain('stale');
+    expect(container.textContent).toContain('12');
+    expect(container.textContent).toContain('50');
+    expect(container.textContent).toContain('Stale');
   });
 });
 
 /** Issue #216: a wallet row opens its in-app score page, with stellar.expert one tap away. */
-describe('StatsPage — wallet rows (issue #216)', () => {
+describe('StatsPage - wallet rows (issue #216)', () => {
   let root: Root;
   let container: HTMLDivElement;
 
@@ -142,17 +143,21 @@ describe('StatsPage — wallet rows (issue #216)', () => {
     vi.useRealTimers();
   });
 
+  const renderWithI18n = async (network = 'testnet') => {
+    fetchMock.mockResolvedValue(stats(network));
+    await act(async () => {
+      root.render(<I18nProvider><StatsPage /></I18nProvider>);
+      await Promise.resolve();
+    });
+  };
+
   const linksTo = (prefix: string) =>
     Array.from(container.querySelectorAll('a')).filter((a) =>
       a.getAttribute('href')?.startsWith(prefix),
     );
 
   it('links each testnet wallet to /score/<address> and keeps stellar.expert as a new-tab icon', async () => {
-    fetchMock.mockResolvedValue(stats('testnet'));
-    await act(async () => {
-      root.render(<StatsPage />);
-      await Promise.resolve();
-    });
+    await renderWithI18n('testnet');
 
     const score = linksTo('/score/');
     expect(score.map((a) => a.getAttribute('href'))).toEqual([`/score/${G}`, `/score/${C}`]);
@@ -170,12 +175,8 @@ describe('StatsPage — wallet rows (issue #216)', () => {
     );
   });
 
-  it('keeps mainnet wallets on stellar.expert: /score reads the app’s own contracts', async () => {
-    fetchMock.mockResolvedValue(stats('mainnet'));
-    await act(async () => {
-      root.render(<StatsPage />);
-      await Promise.resolve();
-    });
+  it('keeps mainnet wallets on stellar.expert: /score reads the app own contracts', async () => {
+    await renderWithI18n('mainnet');
     const mainnetTab = Array.from(container.querySelectorAll('button')).find(
       (b) => b.textContent === 'Mainnet',
     );
@@ -195,7 +196,7 @@ describe('StatsPage — wallet rows (issue #216)', () => {
 });
 
 /** Issue #210: no polling from a background tab, and never two requests at once. */
-describe('StatsPage — background tabs (issue #210)', () => {
+describe('StatsPage - background tabs (issue #210)', () => {
   let root: Root;
   let container: HTMLDivElement;
 
@@ -228,7 +229,7 @@ describe('StatsPage — background tabs (issue #210)', () => {
   it('fires no request while the tab is hidden, and one when it returns', async () => {
     fetchMock.mockResolvedValue(ok);
     await act(async () => {
-      root.render(<StatsPage />);
+      root.render(<I18nProvider><StatsPage /></I18nProvider>);
       await Promise.resolve();
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -246,7 +247,7 @@ describe('StatsPage — background tabs (issue #210)', () => {
     let respond!: (v: typeof ok) => void;
     fetchMock.mockReturnValueOnce(new Promise((r) => (respond = r))).mockResolvedValue(ok);
     await act(async () => {
-      root.render(<StatsPage />);
+      root.render(<I18nProvider><StatsPage /></I18nProvider>);
       await Promise.resolve();
     });
 
@@ -256,7 +257,8 @@ describe('StatsPage — background tabs (issue #210)', () => {
 
     respond(ok);
     await advance(0);
-    expect(container.textContent).toContain('3 / 50');
+    expect(container.textContent).toContain('3');
+    expect(container.textContent).toContain('50');
     expect(fetchMock).toHaveBeenCalledTimes(1); // the next poll waits a full interval
   });
 });
