@@ -259,6 +259,20 @@ export async function setRewardSupply(
   );
 }
 
+/** Admin: freeze or unfreeze an account from claiming rewards. Resolves the transaction hash. */
+export async function setFrozen(
+  wallet: Wallet,
+  who: string,
+  frozen: boolean,
+): Promise<string> {
+  return invokeAndWaitHash(
+    rewardsId(),
+    'set_frozen',
+    [args.addr(who), args.bool(frozen)],
+    wallet,
+  );
+}
+
 /** Per-reward supply counters (a fixed-size pool's cap + running claim count). */
 export interface RewardStats {
   claims: number;
