@@ -415,6 +415,11 @@
   "statStrip.empty.title": "Takımyıldızın henüz sessiz",
   "statStrip.empty.body": "İlk destek, görev veya bahşiş itibar izini aydınlatır ve bu şeridi yaşayan bir özgeçmişe dönüştürür.",
 
+  "score.empty.title": "Henüz itibar yok",
+  "score.empty.body": "Bu adres henüz Sosyal XP, Kazanılan XP kazanmadı veya hiçbir görevi tamamlamadı.",
+  "score.empty.vouchAction": "Birini destekle",
+  "score.empty.backToLeaderboard": "Sıralamaya dön",
+
   "identity.handleTooShort": "Bir kullanıcı adı seç — 3 veya daha fazla harf ya da rakam.",
   "identity.handleTaken": "@{handle} alınmış — başka birini seç.",
   "identity.handleStamped": "@{handle} zincire damgalandı.",

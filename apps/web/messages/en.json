@@ -415,6 +415,11 @@
   "statStrip.empty.title": "Your constellation is still quiet",
   "statStrip.empty.body": "The first vouch, quest, or tip lights up your reputation trail and turns this strip into a living résumé.",
 
+  "score.empty.title": "No reputation yet",
+  "score.empty.body": "This address hasn't earned any Social XP, Earned XP, or completed any quests yet.",
+  "score.empty.vouchAction": "Vouch someone",
+  "score.empty.backToLeaderboard": "Back to leaderboard",
+
   "identity.handleTooShort": "Pick a handle — 3+ letters or numbers.",
   "identity.handleTaken": "@{handle} is taken — pick another.",
   "identity.handleStamped": "@{handle} stamped on-chain.",
