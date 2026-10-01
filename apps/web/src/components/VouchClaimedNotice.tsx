@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Bell } from 'lucide-react';
 import { toast } from '@/components/ui/toaster';
 import { useWallet } from '@/components/wallet/wallet-provider';
-import { pollNewlyClaimed, getPendingVouchIds } from '@/lib/myvouches';
+import { pollNewlyClaimed, getPendingVouchIds, getPendingVouches, subscribeToVouchPush } from '@/lib/myvouches';
 import {
   registerServiceWorker,
   requestPermission,
@@ -120,12 +120,18 @@ export function VouchClaimedNotice() {
     if (Notification.permission !== 'default') return;
 
     // Check if already subscribed (e.g. from a previous session).
-    getActivePushSubscription().then((sub) => {
-      if (sub) return; // already subscribed — no need to prompt
-      // Small delay so it doesn't compete with the initial page render.
-      const t = window.setTimeout(() => setShowBanner(true), 2500);
-      return () => window.clearTimeout(t);
-    });
+    let t: number;
+    getActivePushSubscription()
+      .then((sub) => {
+        if (sub) return; // already subscribed — no need to prompt
+        // Small delay so it doesn't compete with the initial page render.
+        t = window.setTimeout(() => setShowBanner(true), 2500);
+      })
+      .catch(() => {});
+      
+    return () => {
+      if (t) window.clearTimeout(t);
+    };
   }, []);
 
   async function handleEnable() {
@@ -134,13 +140,17 @@ export function VouchClaimedNotice() {
       await registerServiceWorker();
       const perm = await requestPermission();
       if (perm === 'granted') {
-        // Opt in now, without a vouch (#297): tips received reach this device even if
-        // this wallet never mints. A later mint adds its vouch ID to the same record.
-        if (walletAddress) {
-          await subscribeToPush(walletAddress);
-          void shareWalletWithServiceWorker(walletAddress);
+        try {
+          if (walletAddress) {
+            await subscribeToPush(walletAddress);
+            const pending = await getPendingVouches(window.location.origin);
+            await Promise.all(pending.map((v) => subscribeToVouchPush(walletAddress, v.id)));
+            void shareWalletWithServiceWorker(walletAddress);
+          }
+          toast.success(t('vouchNotice.push.enabled'));
+        } catch {
+          toast.error(t('vouchNotice.push.failed') || 'Failed to enable push notifications');
         }
-        toast.success(t('vouchNotice.push.enabled'));
       }
     } catch {
       // Ignore — user may have blocked the prompt
