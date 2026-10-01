@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Bell } from 'lucide-react';
+import { Bell, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toaster';
 import { useWallet } from '@/components/wallet/wallet-provider';
 import { pollNewlyClaimed, getPendingVouchIds } from '@/lib/myvouches';
@@ -152,32 +153,40 @@ export function VouchClaimedNotice() {
 
   if (!showBanner) return null;
 
+  // Issue #490: on phones the old `left-1/2 -translate-x-1/2` centering
+  // collapsed the banner into a narrow column. `inset-x-4 mx-auto max-w-md`
+  // keeps a comfortable width at 320/375px while still centering on desktop.
+  // `bottom-4` + safe-area inset clears the iOS home indicator.
   return (
     <div
       role="status"
       aria-live="polite"
-      className="fixed bottom-20 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-border/60 bg-surface/90 px-4 py-3 shadow-toast backdrop-blur-sm sm:bottom-6 print:hidden"
+      className="fixed inset-x-4 bottom-4 z-50 mx-auto flex max-w-md items-center gap-2 rounded-xl border border-border/60 bg-surface/90 px-3 py-2.5 shadow-toast backdrop-blur-sm print:hidden sm:bottom-6"
+      style={{ paddingBottom: 'max(0.625rem, env(safe-area-inset-bottom))' }}
     >
       <Bell className="size-4 shrink-0 text-primary" aria-hidden />
-      <p className="text-sm text-foreground">
+      <p className="min-w-0 flex-1 text-sm leading-snug text-foreground">
         {pushAvailabilityHint ? t('vouchNotice.push.installHint') : t('vouchNotice.push.prompt')}
       </p>
       {!pushAvailabilityHint && (
-        <button
+        <Button
+          size="sm"
           onClick={handleEnable}
           disabled={requesting}
-          className="ml-1 shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-80 disabled:opacity-50"
+          className="h-8 shrink-0 px-3 text-xs"
         >
           {requesting ? t('vouchNotice.push.enabling') : t('vouchNotice.push.enable')}
-        </button>
+        </Button>
       )}
-      <button
+      <Button
+        size="icon-sm"
+        variant="ghost"
         onClick={() => setShowBanner(false)}
         aria-label={t('vouchNotice.push.dismiss')}
-        className="ml-1 shrink-0 rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+        className="shrink-0"
       >
-        ✕
-      </button>
+        <X className="size-4" aria-hidden />
+      </Button>
     </div>
   );
 }
