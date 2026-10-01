@@ -48,6 +48,11 @@ describe('decorative art loads lazily by default (#506)', () => {
 
     const art = img(<StateArt kind="vouch-sent" size={9999} />);
     expect(art.getAttribute('width')).toBe('441');
-    expect(art.getAttribute('alt')).toMatch(/Vouch sent/);
+    expect(art.getAttribute('alt')).toBe('');
+    expect(art.getAttribute('aria-hidden')).toBe('true');
+
+    const artWithAlt = img(<StateArt kind="vouch-sent" size={9999} alt="Vouch sent" />);
+    expect(artWithAlt.getAttribute('alt')).toBe('Vouch sent');
+    expect(artWithAlt.getAttribute('aria-hidden')).toBeNull();
   });
 });

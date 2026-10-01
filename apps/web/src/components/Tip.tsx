@@ -273,7 +273,7 @@ export function Tip({ address }: { address: string }) {
 
         {hash && (
           <div className="mt-3 flex flex-col items-center">
-            <StateArt kind="tip-received" size={104} className="motion-safe:animate-ignite" />
+            <StateArt kind="tip-received" size={104} alt={t('tip.received.alt')} className="motion-safe:animate-ignite" />
             <a
               href={txExplorerUrl(hash)}
               target="_blank"
