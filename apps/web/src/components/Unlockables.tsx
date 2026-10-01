@@ -7,7 +7,8 @@ import { getGates, isUnlocked, unlockGate, TRACK, type Gate } from '@/lib/gate';
 import { getScores } from '@/lib/reputation';
 import { Frame } from '@/components/fx/frame';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
+import { cn, humanizeError } from '@/lib/utils';
+import { useTranslations } from '@/lib/i18n';
 
 type Row = Gate & { unlocked: boolean };
 
@@ -17,6 +18,7 @@ type Row = Gate & { unlocked: boolean };
  * (any app can `check` it). Hides itself when no gates are configured.
  */
 export function Unlockables({ address }: { address: string }) {
+  const t = useTranslations();
   const [scores, setScores] = useState<{ social: number; earned: number } | null>(null);
   const [rows, setRows] = useState<Row[] | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
@@ -48,7 +50,13 @@ export function Unlockables({ address }: { address: string }) {
       await unlockGate(w, id);
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'unlock failed');
+      setError(
+        humanizeError(
+          e,
+          { 4: t('error.gate.inactive'), 5: t('error.gate.threshold') },
+          t('error.fallback')
+        )
+      );
     } finally {
       setBusy(null);
     }

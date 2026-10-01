@@ -24,7 +24,7 @@ export function contractErrorCode(e: unknown): number | null {
  * `codeMap` of contract error codes → messages for the contract being called; falls back
  * to the first line of the message (never the scary diagnostic-event dump).
  */
-export function humanizeError(e: unknown, codeMap: Record<number, string> = {}): string {
+export function humanizeError(e: unknown, codeMap: Record<number, string> = {}, fallback = 'Something went wrong — try again'): string {
   const raw = e instanceof Error ? e.message : String(e ?? 'Something went wrong');
   // Host-level signals first — they're clearer than a contract code AND dodge code
   // collisions (e.g. a token SAC's own #10 "insufficient balance" vs a contract's #10).
@@ -45,7 +45,7 @@ export function humanizeError(e: unknown, codeMap: Record<number, string> = {}):
   const firstLine = raw.split(/Event log|\n/)[0].trim();
   // Unknown contract code → always give the user a next step, never a dead end.
   if (code != null) return `That didn't go through (chain error ${code}). Try again in a moment.`;
-  return firstLine.length > 120 ? `${firstLine.slice(0, 117)}…` : firstLine || 'Something went wrong';
+  return firstLine.length > 120 ? `${firstLine.slice(0, 117)}…` : firstLine || fallback;
 }
 
 /**

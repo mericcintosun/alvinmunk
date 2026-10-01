@@ -23,6 +23,11 @@ describe('humanizeError', () => {
     const msg = humanizeError(new Error('boom\nEvent log (newest first): scary stuff'));
     expect(msg).toBe('boom');
   });
+
+  it('uses a fallback for unknown chain error', () => {
+    const msg = humanizeError(new Error('HostError: Error(Contract, #99)\nEvent log (newest first): scary stuff'), {}, 'Something went wrong — try again');
+    expect(msg).toContain('Something went wrong — try again');
+  });
 });
 
 describe('shortAddress', () => {

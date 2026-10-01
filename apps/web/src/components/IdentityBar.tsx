@@ -150,7 +150,7 @@ export function IdentityBar() {
       toast.success(`@${h} stamped on-chain.`);
       setEditing(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'claim failed');
+      toast.error(humanizeError(e, { 3: t('error.claim.taken') }, t('error.fallback')));
     } finally {
       setBusy(false);
     }

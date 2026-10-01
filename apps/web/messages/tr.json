@@ -250,5 +250,9 @@
   "identity.meta.unsupported": "Bu cihaza kaydedildi. Herkese açık yüz ve biyografi bu ağda henüz aktif değil.",
   "identity.meta.error.noHandle": "Önce @kullanıcı adını zincirde al — sonra yüzün ve biyografin herkese açık olabilir.",
   "identity.meta.error.bio": "Bu biyografi kaydedilemez — tek satır düz metin olsun, en fazla 80 bayt.",
-  "identity.meta.error.avatar": "Kayıt defteri bu yüzü henüz tanımıyor — başka birini seç."
+  "identity.meta.error.avatar": "Kayıt defteri bu yüzü henüz tanımıyor — başka birini seç.",
+  "error.claim.taken": "Bu kullanıcı adı az önce alındı — başka birini dene.",
+  "error.gate.inactive": "Bu kapı şu anda kapalı.",
+  "error.gate.threshold": "Bunun kilidini açmak için daha fazla itibara ihtiyacın var.",
+  "error.fallback": "Bir şeyler ters gitti — tekrar dene."
 }

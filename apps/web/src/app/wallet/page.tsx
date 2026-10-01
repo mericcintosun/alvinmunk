@@ -9,7 +9,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { shortAddress } from '@/lib/utils';
+import { shortAddress, humanizeError } from '@/lib/utils';
+import { useTranslations } from '@/lib/i18n';
 
 /**
  * Level 1 + 2 multi-wallet demo: connect via the Stellar Wallets Kit picker (Freighter,
@@ -17,6 +18,7 @@ import { shortAddress } from '@/lib/utils';
  * with pending/success/failure + tx-hash feedback. Maps 1:1 to the belt checklist.
  */
 export default function WalletPage() {
+  const t = useTranslations();
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [balance, setBalance] = useState<string | null>(null);
   const [to, setTo] = useState('');
@@ -37,7 +39,7 @@ export default function WalletPage() {
       setWallet(w);
       setBalance(await getXlmBalance(w.address).catch(() => '0'));
     } catch (e) {
-      setError(msg(e));
+      setError(humanizeError(e, {}, t('error.fallback')));
     } finally {
       setConnecting(false);
     }
@@ -57,7 +59,7 @@ export default function WalletPage() {
       setResult(r);
       await refresh();
     } catch (e) {
-      setError(msg(e));
+      setError(humanizeError(e, {}, t('error.fallback')));
     } finally {
       setBusy(false);
     }
@@ -153,6 +155,3 @@ export default function WalletPage() {
   );
 }
 
-function msg(e: unknown): string {
-  return e instanceof Error ? e.message : 'something went wrong';
-}

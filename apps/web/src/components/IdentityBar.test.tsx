@@ -169,4 +169,20 @@ describe('IdentityBar profile meta', () => {
     );
     expect(store.saved.at(-1)?.avatar).toEqual({ kind: 'face', id: 'face-03' });
   });
+  it('translates a HandleTaken HostError on rename', async () => {
+    const { claimHandle } = await import('@/lib/registry');
+    vi.mocked(claimHandle).mockRejectedValue(new Error('HostError: Error(Contract, #3)\nEvent log (newest first): ...'));
+    await mount();
+    await click(byLabel('Edit handle'));
+    const input = byLabel('New handle') as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    await act(async () => {
+      setter.call(input, 'newhandle');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const form = input.closest('form')!;
+    await act(async () => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+    await flush();
+    expect(toastMock.error).toHaveBeenCalledWith('That handle was just taken — pick another.');
+  });
 });

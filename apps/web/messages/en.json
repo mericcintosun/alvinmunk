@@ -250,5 +250,9 @@
   "identity.meta.unsupported": "Saved on this device. Public faces and bios aren't live on this network yet.",
   "identity.meta.error.noHandle": "Claim your @handle on-chain first — then your face and bio can go public.",
   "identity.meta.error.bio": "That bio can't be saved — keep it to one line of plain text, 80 bytes max.",
-  "identity.meta.error.avatar": "The registry doesn't know that face yet — pick another."
+  "identity.meta.error.avatar": "The registry doesn't know that face yet — pick another.",
+  "error.claim.taken": "That handle was just taken — pick another.",
+  "error.gate.inactive": "That gate is closed right now.",
+  "error.gate.threshold": "You need more reputation to unlock this.",
+  "error.fallback": "Something went wrong — try again."
 }
