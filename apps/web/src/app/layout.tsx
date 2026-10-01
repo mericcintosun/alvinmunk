@@ -6,6 +6,7 @@ import { Starfield } from '@/components/brand/starfield';
 import { SmoothScroll } from '@/components/smooth-scroll';
 import { Navbar } from '@/components/layout/navbar';
 import { SiteFooter } from '@/components/layout/site-footer';
+import { SkipLink } from '@/components/layout/skip-link';
 import { Toaster } from '@/components/ui/toaster';
 import { AnalyticsProvider } from '@/components/analytics';
 import { ConfigStatusBanner } from '@/components/config-status-banner';
@@ -37,11 +38,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <WalletProvider>
           <I18nProvider initialLocale={savedLocale ?? undefined}>
           <MotionProvider>
+          <SkipLink />
           <SmoothScroll />
           <Starfield />
           <ConfigStatusBanner />
           <Navbar />
-          <main className="min-h-[calc(100dvh-4rem)]">{children}</main>
+          <main id="main-content" tabIndex={-1} className="min-h-[calc(100dvh-4rem)]">{children}</main>
           <SiteFooter />
           <Toaster />
           <AnalyticsProvider />

@@ -377,7 +377,7 @@ function ClaimInner({ params }: { params: { id: string } }) {
         ) : (
           <div className="flex flex-col items-start gap-3">
             <div className="relative self-stretch">
-              <StateArt kind="claim-success" size={220} className="mx-auto motion-safe:animate-ignite" />
+              <StateArt kind="claim-success" size={220} alt={t('claim.success.alt')} className="mx-auto motion-safe:animate-ignite" />
               <Sticker name="stamp-verified" size={88} rotate={-8} className="absolute -right-1 top-0 motion-safe:animate-ignite" />
             </div>
             <Stamp accent="secondary">✦ STAR IGNITED</Stamp>

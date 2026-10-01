@@ -250,7 +250,7 @@ export function VouchCompose() {
             {link && (
               <div className="mt-3 rounded-xl border border-secondary/30 bg-secondary/10 p-3">
                 <div className="mb-2 flex items-center gap-3">
-                  <StateArt kind="vouch-sent" size={92} className="shrink-0 motion-safe:animate-ignite" />
+                  <StateArt kind="vouch-sent" size={92} alt={t('vouch.compose.sent.alt')} className="shrink-0 motion-safe:animate-ignite" />
                   <p className="text-sm font-medium text-foreground">{t('vouch.compose.sent.msg')}</p>
                 </div>
                 <p className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -459,7 +459,7 @@ function BatchForm({
       {cards.length > 0 && (
         <div className="mt-3 rounded-xl border border-secondary/30 bg-secondary/10 p-3">
           <div className="mb-2 flex items-center gap-3">
-            <StateArt kind="vouch-sent" size={92} className="shrink-0 motion-safe:animate-ignite" />
+            <StateArt kind="vouch-sent" size={92} alt={t('vouch.compose.batch.sent.alt')} className="shrink-0 motion-safe:animate-ignite" />
             <p className="text-sm font-medium text-foreground">
               {t('vouch.compose.batch.sent', { count: String(cards.length) })}
             </p>

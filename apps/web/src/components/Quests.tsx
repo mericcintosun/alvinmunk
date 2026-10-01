@@ -437,7 +437,7 @@ export function Quests({ address }: { address: string }) {
 
         {done && (
           <div className="mt-3 flex flex-col items-center">
-            <StateArt kind="quest-complete" size={120} className="motion-safe:animate-ignite" />
+            <StateArt kind="quest-complete" size={120} alt={t('quests.complete.alt')} className="motion-safe:animate-ignite" />
             <p className="mt-1 text-center text-xs text-secondary">{t('quests.done')}</p>
           </div>
         )}
