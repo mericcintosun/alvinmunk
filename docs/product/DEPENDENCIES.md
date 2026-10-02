@@ -50,7 +50,7 @@ shadcn components are added on demand and **committed into the repo**
   minor can break tx decoding. Keep all SDK usage behind `lib/contracts.ts` + `lib/stellar.ts`
   (the adapter) so a future bump touches one place.
 - **Next 14→15**: run `npx @next/codemod upgrade`; audit `fetch` caching + async request
-  APIs (`cookies()/headers()` are async in 15). React/react-dom → 19. Node 20+.
+  APIs (`cookies()/headers()` are async in 15). React/react-dom → 19. Node 24 (`.nvmrc`).
 - **Tailwind stays v3** until a deliberate, isolated migration (v4 = `@import "tailwindcss"`,
   CSS `@theme`, `@tailwindcss/postcss`). Our tokens are already CSS-variable-based, so a
   later v4 move is low-friction.

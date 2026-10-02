@@ -5,7 +5,7 @@ Thanks for your interest in contributing! alvinmunk is a social proof-of-people 
 ## Quick Start
 
 ```bash
-# Prerequisites: Node ≥20, pnpm 9, Rust stable + wasm32 target, Stellar CLI
+# Prerequisites: Node ≥24, pnpm 9, Rust stable + wasm32 target, Stellar CLI
 pnpm install                          # install JS deps
 pnpm contracts:build                  # build Soroban contracts (wasm32)
 pnpm contracts:test                   # run Rust contract tests
