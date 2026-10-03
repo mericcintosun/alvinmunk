@@ -661,6 +661,17 @@ definition the gate had at that moment: a later `gate`/`created` for the same `i
 supersedes it (the user must `unlock` again), and it doesn't count while the gate is
 inactive. See `UnlockRecord` below for the stored record.
 
+**Each unlock is published once (#148).** `unlock` is idempotent per `(caller, id)` for as
+long as the stored proof still counts — calling it again on a gate you already hold a
+*current* unlock for succeeds, extends the proof's TTL and emits **nothing**. One `unlocked`
+event therefore always means one unlock, so an indexer that counts unlocks ("how many
+people opened the Bounty board") can't be inflated by one account paying the fee again.
+
+The one exception is a **superseded** proof: after `create_gate` / `create_gate_rules`
+redefines the `id` (which bumps `GateVersion(id)`), the old record no longer counts, and
+unlocking again re-qualifies under the new definition — that is a *new* unlock and does
+emit. See [`UnlockRecord`](#unlockrecord-get_unlock--is_unlocked--get_gate_version).
+
 | Field | Type | Description |
 |-------|------|-------------|
 | **topics[0]** | `Symbol("unlocked")` | Event discriminator |
