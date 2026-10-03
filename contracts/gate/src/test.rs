@@ -1180,3 +1180,52 @@ fn the_release_build_is_set_up_by_its_constructor() {
     GateContractClient::new(&env, &id).upgrade(&hash);
     assert_eq!(env.auths()[0].0, admin);
 }
+
+/// #148: `unlocked` is documented as the on-chain record that "a user claims a gate they
+/// pass", so an indexer that counts unlocks would count a repeat unlock twice. Paying the
+/// fee again must buy nothing: the second call keeps the proof alive and publishes
+/// nothing. A redefinition is the exception — that proof is superseded, so unlocking again
+/// is a NEW unlock and does emit.
+///
+/// `events().all()` drains the buffer, so each step below discards whatever the previous
+/// step announced and then counts only what `unlock` itself published.
+#[test]
+fn unlocking_twice_publishes_one_event() {
+    let f = setup();
+    let user = Address::generate(&f.env);
+    earn(&f, &user, 30);
+    f.gate
+        .create_gate(&1u32, &TRACK_EARNED, &30u64, &label(&f, "Bounty"));
+    f.env.events().all();
+
+    f.gate.unlock(&user, &1u32);
+    assert_eq!(
+        f.env.events().all().len(),
+        1,
+        "the first unlock publishes its event"
+    );
+
+    // Same gate, same definition: the call succeeds and publishes nothing.
+    f.gate.unlock(&user, &1u32);
+    assert!(
+        f.env.events().all().is_empty(),
+        "a second unlock of the same gate must not publish again"
+    );
+    assert!(f.gate.is_unlocked(&user, &1u32));
+    // The no-op kept the proof: still stored, still under the version it passed.
+    assert_eq!(f.gate.get_unlock(&user, &1u32).unwrap().version, 0);
+
+    // Redefining the gate supersedes that proof, so unlocking again is a new unlock.
+    f.gate
+        .create_gate(&1u32, &TRACK_EARNED, &1000u64, &label(&f, "Bounty"));
+    assert!(!f.gate.is_unlocked(&user, &1u32));
+    earn(&f, &user, 970);
+    f.env.events().all();
+    f.gate.unlock(&user, &1u32);
+    assert_eq!(
+        f.env.events().all().len(),
+        1,
+        "re-qualifying after a redefinition is a new unlock"
+    );
+    assert_eq!(f.gate.get_unlock(&user, &1u32).unwrap().version, 1);
+}

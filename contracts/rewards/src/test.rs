@@ -1585,6 +1585,38 @@ fn daily_paid_counter_lives_two_days() {
     }
 }
 
+/// #151: the other half of `daily_paid_counter_lives_two_days`. That test only pins the TTL we
+/// asked for; this one proves the entry actually EXPIRES and stops occupying state, instead
+/// of sitting in contract storage for the ~60 days the persistent constants used to buy.
+/// `DailyPaid(day)` is only read while `timestamp / DAY_SECS` still equals that `day`, so
+/// anything still there a few days later is rent the first claimer of the day pays for
+/// nothing. Temporary entries expire on LEDGER sequence, so the clock advanced here is
+/// `sequence_number`, not `timestamp`.
+#[test]
+fn daily_paid_counter_is_gone_a_few_days_later() {
+    for ttls in [TESTNET_TTLS, MAINNET_TTLS] {
+        let f = setup_with_ttls(ttls);
+        let user = earner(&f, 100);
+        f.rewards.add_reward(&1u32, &50u64, &200i128);
+        f.rewards.claim_reward(&user, &1u32);
+        let key = DataKey::DailyPaid(0);
+        assert!(f
+            .env
+            .as_contract(&f.rewards_id, || f.env.storage().temporary().has(&key)));
+
+        // A few days of ledgers on: past the 2-day TTL, so the counter is collected.
+        f.env
+            .ledger()
+            .with_mut(|l| l.sequence_number += DAY_LEDGERS * 3);
+        assert!(!f
+            .env
+            .as_contract(&f.rewards_id, || f.env.storage().temporary().has(&key)));
+
+        // And a stale read is a clean 0, not a resurrected counter from the expired entry.
+        assert_eq!(f.rewards.get_daily_paid(), 0);
+    }
+}
+
 /// #127: the release build is set up by its constructor, inside the deploy — registering it
 /// takes the constructor's arguments, it has no `init` left for anyone to call afterwards,
 /// and `upgrade` asks the constructor's admin to sign.

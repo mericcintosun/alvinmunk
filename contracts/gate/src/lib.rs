@@ -301,8 +301,12 @@ impl GateContract {
     }
 
     /// `caller` claims a gate they pass — records an on-chain proof + a consumer unlock,
-    /// stamped with the gate's current version and ledger. Unlocking again replaces the
-    /// record, which is how a wallet re-qualifies after the gate is redefined.
+    /// stamped with the gate's current version and ledger. Unlocking a gate you already
+    /// hold a CURRENT unlock for is a no-op that keeps the proof alive: it re-publishes
+    /// no `unlocked` event (#148), so an indexer that counts unlocks can't be inflated by
+    /// one account paying the fee again. An unlock made under a SUPERSEDED definition is
+    /// not a duplicate — re-writing it is how a wallet re-qualifies after the gate is
+    /// redefined, and that still emits.
     pub fn unlock(env: Env, caller: Address, id: u32) {
         caller.require_auth();
         let g = Self::gate(&env, id);
@@ -312,14 +316,17 @@ impl GateContract {
         if !Self::passes(&env, &caller, &g, &mut [None, None]) {
             panic_with_error!(&env, Error::BelowThreshold);
         }
+        let key = DataKey::Unlocked(caller.clone(), id);
+        if Self::unlocked(&env, caller.clone(), &g) {
+            Self::bump(&env, &key); // already unlocked: keep the proof alive, say nothing
+            return;
+        }
         let record = UnlockRecord {
             version: Self::version(&env, id),
             ledger: env.ledger().sequence(),
         };
-        env.storage()
-            .persistent()
-            .set(&DataKey::Unlocked(caller.clone(), id), &record);
-        Self::bump(&env, &DataKey::Unlocked(caller.clone(), id));
+        env.storage().persistent().set(&key, &record);
+        Self::bump(&env, &key);
         env.events()
             .publish((symbol_short!("unlocked"), caller), id);
     }
