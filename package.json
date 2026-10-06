@@ -5,7 +5,7 @@
   "description": "alvinmunk — Stellar Passport: a social proof-of-people reputation game on Stellar/Soroban",
   "packageManager": "pnpm@9.7.0",
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "scripts": {
     "dev": "turbo run dev",

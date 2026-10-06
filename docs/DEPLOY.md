@@ -12,7 +12,7 @@ For mainnet cutover, see [`DEPLOY_MAINNET.md`](./DEPLOY_MAINNET.md).
 
 | Tool | Why |
 | --- | --- |
-| **Node ≥ 20** + **pnpm 9** | Web app (`corepack enable && corepack prepare pnpm@9 --activate`) |
+| **Node ≥ 24** + **pnpm 9** | Web app (`corepack enable && corepack prepare pnpm@9 --activate`) |
 | **Rust via rustup** + `wasm32v1-none` | Soroban contract builds (repo pins the channel in `contracts/rust-toolchain.toml`) |
 | **Stellar CLI** (`stellar`) | Keygen, deploy, invoke — `brew install stellar-cli` or `cargo install --locked stellar-cli` |
 | **jq** | `deploy-testnet.sh` reads the attester's ed25519 key out of `stellar strkey decode` |
@@ -169,9 +169,10 @@ The app is a Next.js app under `apps/web` with serverless API routes (`/api/atte
 1. Import the GitHub repo into [Vercel](https://vercel.com).
 2. Set **Root Directory** to `apps/web`.
 3. Use a monorepo-friendly install if the lockfile/pnpm version warns, e.g. `pnpm install --no-frozen-lockfile`.
-4. In **Project → Settings → Environment Variables**, add every `NEXT_PUBLIC_*` you put in `.env.local`, plus any optional secrets you want live (`ATTESTER_SECRET_KEY`, `USDC_ISSUER_SECRET_KEY`, `PASSKEY_RELAYER_*`). Mark secrets as sensitive / not exposed to the client.
-5. `NEXT_PUBLIC_SITE_URL` can stay unset on Vercel, forks included: production builds use the project's production domain (`VERCEL_PROJECT_PRODUCTION_URL`, a custom domain if one is assigned) and preview deployments their own host (`VERCEL_URL`), so a preview's link cards point at the preview. Set it only to pin a different canonical host, and then scope it to the **Production** environment — set for Preview too, it would send previews' `og:image` back to production.
-6. Deploy (Git push or `vercel --prod` from a linked project).
+4. In **Project → Settings**, set **Node.js Version** to **24.x**, the major in the repo's `.nvmrc` (Node 24 is an LTS line with security releases until 2028-04-30; Node 20 reached end-of-life on 2026-04-30). The serverless API routes (`/api/attest`, `/api/faucet`, `/api/passkey-send`, `/api/health`) run on this version, so change it whenever `.nvmrc` moves to a new major.
+5. In **Project → Settings → Environment Variables**, add every `NEXT_PUBLIC_*` you put in `.env.local`, plus any optional secrets you want live (`ATTESTER_SECRET_KEY`, `USDC_ISSUER_SECRET_KEY`, `PASSKEY_RELAYER_*`). Mark secrets as sensitive / not exposed to the client.
+6. `NEXT_PUBLIC_SITE_URL` can stay unset on Vercel, forks included: production builds use the project's production domain (`VERCEL_PROJECT_PRODUCTION_URL`, a custom domain if one is assigned) and preview deployments their own host (`VERCEL_URL`), so a preview's link cards point at the preview. Set it only to pin a different canonical host, and then scope it to the **Production** environment — set for Preview too, it would send previews' `og:image` back to production.
+7. Deploy (Git push or `vercel --prod` from a linked project).
 
 Confirm: open `https://<your-deploy>/api/health` and walk through onboarding on the production URL.
 

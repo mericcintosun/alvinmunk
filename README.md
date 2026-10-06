@@ -37,7 +37,7 @@ Belt-program evidence (White → Blue: screenshots, tx hashes, rubric tables) li
 ## Quick start
 
 ### Prerequisites
-- **Node ≥ 20** + **pnpm 9** (`corepack enable && corepack prepare pnpm@9 --activate`)
+- **Node ≥ 24** + **pnpm 9** (`corepack enable && corepack prepare pnpm@9 --activate`)
 - **Rust stable** + `wasm32-unknown-unknown` target
 - **Stellar CLI**: `cargo install --locked stellar-cli` (or `brew install stellar-cli`)
 
@@ -173,6 +173,10 @@ Five Soroban contracts, deployed + cross-contract verified on-chain:
 | Gate (reputation-gated access) | [`CCOKRQIUL4OY6PTWNAXPC7QKZMJMG2E73UMHGP357XRC6YKGOBUPSSMC`](https://stellar.expert/explorer/testnet/contract/CCOKRQIUL4OY6PTWNAXPC7QKZMJMG2E73UMHGP357XRC6YKGOBUPSSMC) |
 
 The set was redeployed on 2026-09-30 to pick up the constructor, claim-key vouch and award-payload upgrades; the user-activity links in the [belt submissions](./docs/BELT_SUBMISSIONS.md) point at the previous deployment, where that activity happened. `deployments/testnet.json` always holds the current ids.
+### Prerequisites
+- **Node ≥ 24** + **pnpm 9** (`corepack enable && corepack prepare pnpm@9 --activate`)
+- **Rust stable** + `wasm32-unknown-unknown` target
+- **Stellar CLI**: `cargo install --locked stellar-cli` (or `brew install stellar-cli`)
 
 ---
 
