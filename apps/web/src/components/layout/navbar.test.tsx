@@ -52,6 +52,7 @@ vi.mock('@/components/wallet/wallet-provider', () => ({ useWallet: () => wallet 
 vi.mock('sonner', () => ({ toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }) }));
 
 import { Navbar } from './navbar';
+import { I18nProvider, useLocale } from '@/lib/i18n';
 import { THEME_KEY } from '@/components/theme-toggle';
 
 describe('Navbar', () => {
@@ -152,22 +153,26 @@ describe('Navbar', () => {
     const mobile = await openPanel();
 
     // Tapping the account chip opens its menu instead of unmounting the whole panel.
-    await act(async () => mobile.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click());
-    expect(panel()).not.toBeNull();
-    const disconnect = Array.from(mobile.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(
-      (el) => el.textContent?.includes('Disconnect'),
+    await act(async () =>
+      mobile.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click(),
     );
+    expect(panel()).not.toBeNull();
+    const disconnect = Array.from(
+      mobile.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+    ).find((el) => el.textContent?.includes('Disconnect'));
     expect(disconnect).toBeDefined();
 
     await act(async () => disconnect!.click());
     expect(wallet.disconnect).toHaveBeenCalledTimes(1);
   });
 
-  it('closes the panel when the account menu\'s View profile link is followed', async () => {
+  it("closes the panel when the account menu's View profile link is followed", async () => {
     wallet.profile = { handle: 'damian', address: 'G'.padEnd(56, 'A'), createdAt: 0 };
     await mount();
     const mobile = await openPanel();
-    await act(async () => mobile.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click());
+    await act(async () =>
+      mobile.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!.click(),
+    );
 
     await act(async () => mobile.querySelector<HTMLAnchorElement>('a[href="/u/damian"]')!.click());
     expect(panel()).toBeNull();
@@ -261,5 +266,47 @@ describe('Navbar', () => {
     const labels = Array.from(container.querySelectorAll('a')).map((a) => a.textContent?.trim());
     expect(labels).not.toContain('Dashboard');
     expect(mobile.querySelector('a[href="/app"]')?.textContent).toBe('Open app');
+  });
+
+  describe('Language switcher (#511)', () => {
+    /** The icon-variant toggle: the only navbar button wrapping a `lang`-tagged label. */
+    const toggle = (scope: ParentNode = container) =>
+      [...scope.querySelectorAll<HTMLButtonElement>('button')].find((b) =>
+        b.querySelector('span[lang]'),
+      );
+
+    it('is mounted in the navbar, so every /app route can change language', async () => {
+      nav.pathname = '/app/vouch';
+      await mount();
+      expect(toggle()?.textContent).toBe('Türkçe');
+      expect(toggle()?.getAttribute('aria-label')).toBe('Switch to Türkçe');
+      expect(toggle()?.querySelector('span')?.getAttribute('lang')).toBe('tr');
+
+      // Phones, which never see the desktop cluster, reach it through the menu panel.
+      const mobile = await openPanel();
+      expect(toggle(mobile)?.textContent).toBe('Türkçe');
+    });
+
+    it('switches the locale from an /app route', async () => {
+      nav.pathname = '/app/quests';
+      function LocaleProbe() {
+        return <span data-testid="locale">{useLocale().locale}</span>;
+      }
+      await act(async () =>
+        root.render(
+          <I18nProvider>
+            <Navbar />
+            <LocaleProbe />
+          </I18nProvider>,
+        ),
+      );
+      expect(container.querySelector('[data-testid="locale"]')?.textContent).toBe('en');
+
+      await act(async () => toggle()!.click());
+      expect(container.querySelector('[data-testid="locale"]')?.textContent).toBe('tr');
+      // The button now offers the way back, announced in the language that is active.
+      expect(toggle()?.textContent).toBe('English');
+      expect(toggle()?.getAttribute('aria-label')).toBe('English diline geç');
+    });
   });
 });
