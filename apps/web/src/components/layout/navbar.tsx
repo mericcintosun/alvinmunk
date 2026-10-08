@@ -7,6 +7,7 @@ import { Menu, X } from 'lucide-react';
 import { Logo } from '@/components/brand/logo';
 import { ConnectButton } from '@/components/wallet/connect-button';
 import { NetworkBadge } from '@/components/layout/network-badge';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { useTranslations } from '@/lib/i18n';
 import { useWallet } from '@/components/wallet/wallet-provider';
@@ -68,7 +69,9 @@ export function Navbar() {
     <header
       className={cn(
         'sticky top-0 z-40 backdrop-blur-xl transition-colors duration-300 print:hidden',
-        scrolled ? 'border-b border-border/70 bg-background/80' : 'border-b border-transparent bg-background/30',
+        scrolled
+          ? 'border-b border-border/70 bg-background/80'
+          : 'border-b border-transparent bg-background/30',
       )}
     >
       <nav className="container flex h-16 items-center justify-between gap-4">
@@ -96,6 +99,9 @@ export function Navbar() {
         <div className="flex items-center gap-2">
           <NetworkBadge />
           <ThemeToggle />
+          {/* Language on any route, /app/* included: the footer switcher is not rendered
+              there (site-footer.tsx), and the mobile panel carries its own for < md. */}
+          <LanguageSwitcher variant="icon" className="hidden md:inline-flex" />
           <div className="hidden md:block">
             <WalletButton />
           </div>
@@ -128,6 +134,10 @@ export function Navbar() {
                 </Link>
               );
             })}
+            {/* The language toggle, on the phones that never see the desktop cluster. */}
+            <div className="px-2 pt-2">
+              <LanguageSwitcher variant="icon" />
+            </div>
             {/* Close only when a link inside is followed: a wrapper that closed on any click
                 would unmount the account menu the moment its chip is tapped. */}
             <div className="px-2 pt-2">
