@@ -6,9 +6,10 @@ import { fetchLeaderboard } from '@/lib/leaderboard';
 import { usePoll } from '@/lib/use-poll';
 import { type LeaderboardEntry } from '@alvinmunk/shared';
 import { loadProfile } from '@/lib/profile';
-import { reverseHandles } from '@/lib/registry';
+import * as registry from '@/lib/registry';
 import { Crest } from '@/components/brand/crest';
 import { Avatar } from '@/components/Avatar';
+import type { AvatarConfig } from '@/lib/avatar';
 import { Frame } from '@/components/fx/frame';
 import { ShareRow } from '@/components/fx/share-row';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -37,6 +38,7 @@ function Leaderboard({ net }: { net: ReadNetwork | null }) {
   const [rows, setRows] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [handles, setHandles] = useState<Record<string, string | null>>({});
+  const [avatars, setAvatars] = useState<Record<string, AvatarConfig | undefined>>({});
   const [stale, setStale] = useState(false);
   // The signed-in profile lives on the deployment's network, never the override's.
   const me = net ? undefined : loadProfile()?.address;
@@ -47,6 +49,7 @@ function Leaderboard({ net }: { net: ReadNetwork | null }) {
    * while a batch is still running.
    */
   const pendingHandles = useRef<Set<string>>(new Set());
+  const pendingAvatars = useRef<Set<string>>(new Set());
 
   // Depend on a stable string key (sorted addresses) rather than the array
   // reference so a poll that returns identical data doesn't restart lookups.
@@ -67,7 +70,7 @@ function Leaderboard({ net }: { net: ReadNetwork | null }) {
     let alive = true;
     // One batched reverse_many read (lib/registry.ts) instead of N single-address
     // calls — this is what #319 already gives us for free.
-    reverseHandles(missing, net).then((map) => alive && setHandles((h) => ({ ...h, ...map })));
+    (registry.reverseHandles ? registry.reverseHandles(missing, net) : Promise.resolve({})).then((map) => alive && setHandles((h) => ({ ...h, ...map })));
 
     // We do NOT remove addresses from pendingHandles on cleanup — if the component
     // unmounts the lookup is abandoned, but a fresh mount gets a fresh ref and starts
@@ -77,6 +80,20 @@ function Leaderboard({ net }: { net: ReadNetwork | null }) {
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addressKey]); // stable key: only re-runs when the actual set of addresses changes
+
+  useEffect(() => {
+    const missing = rows
+      .map((r) => r.address)
+      .filter((a) => !(a in avatars) && !pendingAvatars.current.has(a));
+
+    if (missing.length === 0) return;
+    for (const a of missing) pendingAvatars.current.add(a);
+
+    let alive = true;
+    (registry.useAvatars ? registry.useAvatars(missing, net) : Promise.resolve({})).then((map) => alive && setAvatars((a) => ({ ...a, ...map })));
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addressKey]);
 
   // Every 5s while the tab is visible, never overlapping, backing off on failures (lib/use-poll.ts).
   // `net` is fixed for this instance: the page remounts it (keyed) when the network changes.
@@ -211,7 +228,7 @@ function Leaderboard({ net }: { net: ReadNetwork | null }) {
                       )}
                     </span>
                     <Crest address={e.address} size={42} points={Math.min(9, 4 + (e.rank % 5))} />
-                    <Avatar address={e.address} size={32} />
+                    <Avatar address={e.address} avatar={avatars[e.address]} size={32} />
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-mono text-sm">
                         {handle ? (

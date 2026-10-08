@@ -3,11 +3,12 @@
 import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { Search, Star, Users, ArrowRight, Sparkles, UserPlus } from 'lucide-react';
-import { resolveHandle, reverseHandles } from '@/lib/registry';
+import { resolveHandle, reverseHandles, getMeta, useAvatars } from '@/lib/registry';
 import { getScores } from '@/lib/reputation';
 import { fetchReputationEvents } from '@/lib/events';
-import { suggestPeople, type Suggestion } from '@/lib/constellation';
+import { suggestPeople, type Suggestion as BaseSuggestion } from '@/lib/constellation';
 import { Avatar } from '@/components/Avatar';
+import type { AvatarConfig } from '@/lib/avatar';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -18,11 +19,14 @@ import { useFormat, useTranslations, type TFn } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { shortAddr } from '@alvinmunk/shared';
 
+type Suggestion = BaseSuggestion & { avatar?: AvatarConfig };
+
 type SearchResult = {
   handle: string;
   address: string;
   social: number;
   earned: number;
+  avatar?: AvatarConfig;
 } | null;
 
 type SearchState = 'idle' | 'loading' | 'found' | 'not-found' | 'error';
@@ -73,12 +77,15 @@ export default function PeoplePage() {
           return;
         }
 
-        // Batch-resolve handles for all suggested addresses
+        // Batch-resolve handles and avatars for all suggested addresses
         const addrs = raw.map((s) => s.address);
-        const handleMap = await reverseHandles(addrs).catch(() => ({} as Record<string, string | null>));
+        const [handleMap, avatarMap] = await Promise.all([
+          reverseHandles(addrs).catch(() => ({} as Record<string, string | null>)),
+          (useAvatars ? useAvatars(addrs) : Promise.resolve({})).catch(() => ({} as Record<string, AvatarConfig | undefined>)),
+        ]);
         if (!alive) return;
 
-        setSuggestions(raw.map((s) => ({ ...s, handle: handleMap[s.address] ?? null })));
+        setSuggestions(raw.map((s) => ({ ...s, handle: handleMap[s.address] ?? null, avatar: avatarMap[s.address] })));
         setSuggestionsLoading(false);
       })
       .catch(() => {
@@ -106,8 +113,8 @@ export default function PeoplePage() {
         setState('not-found');
         return;
       }
-      const scores = await getScores(address);
-      setResult({ handle: h, address, ...scores });
+      const [scores, meta] = await Promise.all([getScores(address), getMeta(address)]);
+      setResult({ handle: h, address, avatar: meta?.avatar, ...scores });
       setState('found');
     } catch {
       setState('error');
@@ -193,6 +200,7 @@ export default function PeoplePage() {
               <div className="flex items-center gap-4 rounded-xl border border-border/60 bg-surface/40 p-4">
                 <Avatar
                   address={result.address}
+                  avatar={result.avatar}
                   handle={result.handle}
                   size={56}
                   ring
@@ -321,6 +329,7 @@ function SuggestionCard({ suggestion: s, t }: { suggestion: Suggestion; t: TFn }
     <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-surface/30 p-3 transition-colors hover:bg-surface/50">
       <Avatar
         address={s.address}
+        avatar={s.avatar}
         handle={s.handle ?? undefined}
         size={40}
         ring

@@ -6,8 +6,9 @@ import { getWallet } from '@/lib/wallet';
 import { completeQuest, getCompleted, getQuestPeriods, getStreak } from '@/lib/quests';
 import { DEFAULT_QUEST_IDS, TIP_FLOOR_USDC, WEEK_SECS } from '@/lib/attest';
 import { getEarnedScore } from '@/lib/reputation';
-import { resolveHandle } from '@/lib/registry';
+import * as registry from '@/lib/registry';
 import { normalizeHandle } from '@/lib/profile';
+import type { AvatarConfig } from '@/lib/avatar';
 import { Frame } from '@/components/fx/frame';
 import { NumberTicker } from '@/components/fx/number-ticker';
 import { Button } from '@/components/ui/button';
@@ -69,9 +70,11 @@ export function Quests({ address }: { address: string }) {
   const [busy, setBusy] = useState<null | 'referral' | 'invite' | 'vouchback' | 'firsttip'>(null);
   const [ref, setRef] = useState('');
   const [resolvedRef, setResolvedRef] = useState<string | null>(null);
+  const [refAvatar, setRefAvatar] = useState<AvatarConfig | undefined>(undefined);
   const [resolvingRef, setResolvingRef] = useState(false);
   const [invite, setInvite] = useState('');
   const [resolvedInvite, setResolvedInvite] = useState<string | null>(null);
+  const [inviteAvatar, setInviteAvatar] = useState<AvatarConfig | undefined>(undefined);
   const [resolvingInvite, setResolvingInvite] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -112,6 +115,18 @@ export function Quests({ address }: { address: string }) {
   }, [refTrim]);
 
   useEffect(() => {
+    if (!resolvedRef) {
+      setRefAvatar(undefined);
+      return;
+    }
+    let alive = true;
+    (registry.getMeta ? registry.getMeta(resolvedRef) : Promise.resolve(null)).then((meta) => alive && setRefAvatar(meta?.avatar)).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [resolvedRef]);
+
+  useEffect(() => {
     if (isStellarAddress(inviteTrim)) {
       setResolvedInvite(inviteTrim);
       setResolvingInvite(false);
@@ -140,6 +155,18 @@ export function Quests({ address }: { address: string }) {
       clearTimeout(timer);
     };
   }, [inviteTrim]);
+
+  useEffect(() => {
+    if (!resolvedInvite) {
+      setInviteAvatar(undefined);
+      return;
+    }
+    let alive = true;
+    (registry.getMeta ? registry.getMeta(resolvedInvite) : Promise.resolve(null)).then((meta) => alive && setInviteAvatar(meta?.avatar)).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [resolvedInvite]);
 
   // Quests this wallet already completed show as done. `null` (the read failed, or the
   // deployed contract predates `get_completed`) leaves every quest available, as before.
@@ -309,7 +336,7 @@ export function Quests({ address }: { address: string }) {
                 t('quests.lookingUp')
               ) : resolvedRef ? (
                 <span className="flex items-center text-secondary">
-                  → <Avatar address={resolvedRef} size={16} ring={false} className="mx-1.5" />
+                  → <Avatar address={resolvedRef} avatar={refAvatar} size={16} ring={false} className="mx-1.5" />
                   {shortAddr(resolvedRef, 6, 6)}
                 </span>
               ) : (
@@ -358,7 +385,7 @@ export function Quests({ address }: { address: string }) {
                 t('quests.lookingUp')
               ) : resolvedInvite ? (
                 <span className="flex items-center text-secondary">
-                  → <Avatar address={resolvedInvite} size={16} ring={false} className="mx-1.5" />
+                  → <Avatar address={resolvedInvite} avatar={inviteAvatar} size={16} ring={false} className="mx-1.5" />
                   {shortAddr(resolvedInvite, 6, 6)}
                 </span>
               ) : (

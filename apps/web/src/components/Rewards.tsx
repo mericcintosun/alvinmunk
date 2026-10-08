@@ -23,6 +23,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { withTimeout, humanizeError } from '@/lib/utils';
 import { toast } from '@/components/ui/toaster';
 import { useTranslations } from '@/lib/i18n';
+import * as registry from '@/lib/registry';
 import { MoneyFlowConfirm, isRealMoney, type MoneyConfirmRequest } from '@/components/MoneyFlowConfirm';
 
 // Rewards contract error codes → friendly copy (mirrors contracts/rewards Error enum).
@@ -104,7 +105,9 @@ export function Rewards({ address }: { address: string }) {
       void claim(id);
       return;
     }
-    setPending({ id, request: { kind: 'claim', to: address, amount: stroopsToUsdc(amount) } });
+    void (registry.getMeta ? registry.getMeta(address) : Promise.resolve(null)).then((meta) => {
+      setPending({ id, request: { kind: 'claim', to: address, amount: stroopsToUsdc(amount), avatar: meta?.avatar } });
+    });
   }
 
   async function claim(id: number) {

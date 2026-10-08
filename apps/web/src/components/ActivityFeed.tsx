@@ -1,9 +1,8 @@
-'use client';
-
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { shortAddr } from '@alvinmunk/shared';
 import { fetchActivity, type FeedItem } from '@/lib/feed';
-import { reverseHandles } from '@/lib/registry';
+import { reverseHandles, useAvatars } from '@/lib/registry';
+import type { AvatarConfig } from '@/lib/avatar';
 import { stroopsToUsdc } from '@/lib/rewards';
 import { FOCUS_MODE } from '@/lib/focus';
 import { Frame } from '@/components/fx/frame';
@@ -19,6 +18,10 @@ export function ActivityFeed() {
   const t = useTranslations();
   const [items, setItems] = useState<FeedItem[] | null>(null);
   const [handles, setHandles] = useState<Record<string, string | null>>({});
+  const [avatars, setAvatars] = useState<Record<string, AvatarConfig | undefined>>({});
+  const pendingHandles = useRef<Set<string>>(new Set());
+  const pendingAvatars = useRef<Set<string>>(new Set());
+  const itemKey = items ? items.map((i) => `${i.from}:${i.to}`).join(',') : '';
 
   useEffect(() => {
     fetchActivity(10)
@@ -28,14 +31,31 @@ export function ActivityFeed() {
 
   useEffect(() => {
     if (!items) return;
-    const addrs = [...new Set(items.flatMap((i) => [i.from, i.to]))].filter((a) => !(a in handles));
-    if (addrs.length === 0) return;
+    const missing = [...new Set(items.flatMap((i) => [i.from, i.to]))].filter(
+      (a) => !(a in handles) && !pendingHandles.current.has(a),
+    );
+    if (missing.length === 0) return;
+    for (const a of missing) pendingHandles.current.add(a);
     let alive = true;
-    reverseHandles(addrs).then((map) => alive && setHandles((h) => ({ ...h, ...map })));
+    reverseHandles(missing).then((map) => alive && setHandles((h) => ({ ...h, ...map })));
     return () => {
       alive = false;
     };
-  }, [items, handles]);
+  }, [itemKey]);
+
+  useEffect(() => {
+    if (!items) return;
+    const missing = [...new Set(items.flatMap((i) => [i.from, i.to]))].filter(
+      (a) => !(a in avatars) && !pendingAvatars.current.has(a),
+    );
+    if (missing.length === 0) return;
+    for (const a of missing) pendingAvatars.current.add(a);
+    let alive = true;
+    (useAvatars ? useAvatars(missing) : Promise.resolve({})).then((map) => alive && setAvatars((a) => ({ ...a, ...map })));
+    return () => {
+      alive = false;
+    };
+  }, [itemKey]);
 
   const name = (a: string) => (handles[a] ? `@${handles[a]}` : shortAddr(a));
   const visible = items ? (FOCUS_MODE ? items.filter((i) => i.kind !== 'tip') : items) : null;
@@ -65,12 +85,12 @@ export function ActivityFeed() {
         <ul className="divide-y divide-border/50 font-mono text-xs">
           {visible.map((it, i) => (
             <li key={i} className="flex items-center gap-2 px-4 py-2.5">
-              <Avatar address={it.from} size={22} ring={false} />
+              <Avatar address={it.from} avatar={avatars[it.from]} size={22} ring={false} />
               <span className="truncate text-foreground">{name(it.from)}</span>
               {it.kind === 'tip' ? (
                 <>
                   <span className="shrink-0 text-muted-foreground">{t('activityFeed.tipped')}</span>
-                  <Avatar address={it.to} size={22} ring={false} />
+                  <Avatar address={it.to} avatar={avatars[it.to]} size={22} ring={false} />
                   <span className="truncate text-foreground">{name(it.to)}</span>
                   <span className="shrink-0 text-foreground">
                     {it.amount != null ? `${stroopsToUsdc(it.amount)} USDC` : ''}
@@ -79,7 +99,7 @@ export function ActivityFeed() {
               ) : (
                 <>
                   <span className="shrink-0 text-muted-foreground">{t('activityFeed.vouched')}</span>
-                  <Avatar address={it.to} size={22} ring={false} />
+                  <Avatar address={it.to} avatar={avatars[it.to]} size={22} ring={false} />
                   <span className="truncate text-foreground">{name(it.to)}</span>
                 </>
               )}

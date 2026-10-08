@@ -11,7 +11,7 @@ const { getWalletMock, tipMock, hasTrustlineMock } = vi.hoisted(() => ({
   hasTrustlineMock: vi.fn(),
 }));
 
-vi.mock('@/lib/registry', () => ({ resolveHandle: vi.fn() }));
+vi.mock('@/lib/registry', () => ({ resolveHandle: vi.fn(), getMeta: vi.fn().mockResolvedValue(null) }));
 vi.mock('@/lib/wallet', () => ({ getWallet: getWalletMock }));
 vi.mock('@/lib/rewards', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/rewards')>()),

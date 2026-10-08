@@ -33,6 +33,8 @@ vi.mock('@/lib/constellation', () => ({ suggestPeople: suggestPeopleMock }));
 vi.mock('@/lib/registry', () => ({
   resolveHandle: resolveHandleMock,
   reverseHandles: reverseHandlesMock,
+  useAvatars: vi.fn().mockResolvedValue({}),
+  getMeta: vi.fn().mockResolvedValue(null),
 }));
 vi.mock('@/lib/reputation', () => ({ getScores: getScoresMock }));
 vi.mock('@/components/Avatar', () => ({ Avatar: () => null }));

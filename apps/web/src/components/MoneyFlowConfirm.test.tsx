@@ -18,7 +18,7 @@ vi.mock('@/lib/stellar', async (importOriginal) => {
   return { ...orig, config: Object.defineProperty({ ...orig.config }, 'network', { get: () => m.network }) };
 });
 vi.mock('@/lib/wallet', () => ({ getWallet: m.getWallet }));
-vi.mock('@/lib/registry', () => ({ resolveHandle: m.resolveHandle }));
+vi.mock('@/lib/registry', () => ({ resolveHandle: m.resolveHandle, getMeta: vi.fn().mockResolvedValue(null) }));
 vi.mock('@/lib/rewards', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/rewards')>()),
   tip: m.tip,
