@@ -10,7 +10,8 @@ import { fetchBackedBy, fetchVouchersOf, mutualNeighbours, timeAgo, type Voucher
 import { fetchReputationEvents } from '@/lib/events';
 import { useFormat, useLocale, useTranslations } from '@/lib/i18n';
 import { withReadNetwork, type ReadNetwork } from '@/lib/read-network';
-import { reverseHandles } from '@/lib/registry';
+import { reverseHandles, useAvatars } from '@/lib/registry';
+import type { AvatarConfig } from '@/lib/avatar';
 import { cn } from '@/lib/utils';
 
 /** People read per list (the event fold's cap). */
@@ -51,6 +52,7 @@ export function VouchNetwork({
   const [backed, setBacked] = useState<VoucherStar[] | null>(null);
   const [mutual, setMutual] = useState<string[]>([]);
   const [handles, setHandles] = useState<Record<string, string | null>>({});
+  const [avatars, setAvatars] = useState<Record<string, AvatarConfig | undefined>>({});
 
   useEffect(() => {
     let alive = true;
@@ -95,8 +97,20 @@ export function VouchNetwork({
     };
   }, [missing, net]);
 
+  const missingAvatars = [...new Set(people)].filter((a) => !(a in avatars)).sort().join(',');
+  useEffect(() => {
+    if (!missingAvatars) return;
+    let alive = true;
+    (useAvatars ? useAvatars(missingAvatars.split(','), net) : Promise.resolve({}))
+      .then((map) => alive && setAvatars((a) => ({ ...a, ...map })))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [missingAvatars, net]);
+
   const face = (a: string, size: number, title?: string) => (
-    <FaceLink key={a} address={a} handle={handles[a] ?? null} net={net} size={size} title={title} />
+    <FaceLink key={a} address={a} handle={handles[a] ?? null} avatar={avatars[a]} net={net} size={size} title={title} />
   );
 
   return (
@@ -216,12 +230,14 @@ function Row({
 function FaceLink({
   address,
   handle,
+  avatar,
   net,
   size,
   title,
 }: {
   address: string;
   handle: string | null;
+  avatar?: AvatarConfig;
   net: ReadNetwork | null;
   size: number;
   title?: string;
@@ -229,7 +245,7 @@ function FaceLink({
   const href = withReadNetwork(handle ? `/u/${handle}` : `/score/${address}`, net);
   return (
     <Link href={href} title={title} aria-label={title} className="block rounded-full transition-transform hover:scale-110">
-      <Avatar address={address} handle={handle ?? undefined} size={size} />
+      <Avatar address={address} avatar={avatar} handle={handle ?? undefined} size={size} />
     </Link>
   );
 }

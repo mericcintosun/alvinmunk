@@ -23,7 +23,10 @@ vi.mock('@/lib/constellation', async (importOriginal) => ({
   fetchBackedBy: m.backed,
 }));
 vi.mock('@/lib/events', () => ({ fetchReputationEvents: m.events }));
-vi.mock('@/lib/registry', () => ({ reverseHandles: m.reverseHandles }));
+vi.mock('@/lib/registry', () => ({
+  reverseHandles: m.reverseHandles,
+  useAvatars: vi.fn().mockResolvedValue({}),
+}));
 vi.mock('@/components/Avatar', () => ({ Avatar: () => <span data-testid="face" /> }));
 vi.mock('next/link', () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (

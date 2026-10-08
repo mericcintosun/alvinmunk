@@ -12,7 +12,10 @@ const { fetchActivityMock, reverseHandlesMock, focus } = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/feed', () => ({ fetchActivity: fetchActivityMock }));
-vi.mock('@/lib/registry', () => ({ reverseHandles: reverseHandlesMock }));
+vi.mock('@/lib/registry', () => ({
+  reverseHandles: reverseHandlesMock,
+  useAvatars: vi.fn().mockResolvedValue({}),
+}));
 vi.mock('@/components/Avatar', () => ({ Avatar: () => null }));
 vi.mock('@/lib/focus', () => focus);
 

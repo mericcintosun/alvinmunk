@@ -175,7 +175,7 @@ function PersonName({ person }: { person: BadgePerson }) {
       className="inline-flex items-center gap-1 align-middle normal-case text-foreground underline-offset-2 hover:underline"
     >
       <span aria-hidden>
-        <Avatar address={person.address} size={14} ring={false} />
+        <Avatar address={person.address} avatar={person.avatar} size={14} ring={false} />
       </span>
       @{person.handle}
     </Link>

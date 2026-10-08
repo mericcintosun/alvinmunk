@@ -4,6 +4,7 @@ import React, { useEffect, useId, useRef, useState } from 'react';
 import { Dialog } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Avatar } from '@/components/Avatar';
+import type { AvatarConfig } from '@/lib/avatar';
 import { getItem, setItem } from '@/lib/storage';
 import { config } from '@/lib/stellar';
 import { useTranslations } from '@/lib/i18n';
@@ -29,6 +30,8 @@ export interface MoneyConfirmRequest {
   handle?: string | null;
   /** The amount in USDC, as shown to the user. */
   amount: string;
+  /** The recipient's published avatar (if any). */
+  avatar?: AvatarConfig;
 }
 
 /**
@@ -91,7 +94,7 @@ export function MoneyFlowConfirm({
         </div>
 
         <div className="flex items-center gap-3 rounded-xl border border-border bg-background/60 p-4">
-          <Avatar address={request.to} size={48} />
+          <Avatar address={request.to} avatar={request.avatar} size={48} />
           <div className="min-w-0 flex-1">
             <p className="text-xs uppercase tracking-wider text-muted-foreground">
               {tip ? t('moneyFlowConfirm.to') : t('moneyFlowConfirm.claimTo')}

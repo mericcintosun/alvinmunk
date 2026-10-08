@@ -31,7 +31,7 @@ vi.mock('@/lib/quests', () => ({
   getStreak: getStreakMock,
 }));
 vi.mock('@/lib/reputation', () => ({ getEarnedScore: getEarnedScoreMock }));
-vi.mock('@/lib/registry', () => ({ resolveHandle: vi.fn() }));
+vi.mock('@/lib/registry', () => ({ resolveHandle: vi.fn(), getMeta: vi.fn().mockResolvedValue(null) }));
 vi.mock('@/components/ui/toaster', () => ({ toast: toastMock }));
 vi.mock('@/components/fx/frame', () => ({
   Frame: ({ children }: { children: React.ReactNode }) => children,

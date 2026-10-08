@@ -25,7 +25,8 @@ import type { StickerName } from './assets';
 import { fetchReputationEvents, fetchTipsSent, type RepEvent } from './events';
 import { getCounts, getProfile } from './reputation';
 import { getStreak } from './quests';
-import { reverseHandle } from './registry';
+import * as registry from './registry';
+import type { AvatarConfig } from './avatar';
 import { readJSON, writeJSON } from './storage';
 
 // ── Public shapes ─────────────────────────────────────────────────────────────
@@ -34,6 +35,7 @@ import { readJSON, writeJSON } from './storage';
 export interface BadgePerson {
   address: string;
   handle: string | null;
+  avatar?: AvatarConfig;
 }
 
 /** Everything the pure engine needs — no wallets, no promises. */
@@ -219,7 +221,13 @@ function writeBadgeSnapshot(address: string, s: BadgeSnapshot): void {
 
 async function personOf(address: string | undefined): Promise<BadgePerson | undefined> {
   if (!address) return undefined;
-  return { address, handle: await reverseHandle(address).catch(() => null) };
+  const reverseHandleFn = (registry as any).reverseHandle;
+  const getMetaFn = (registry as any).getMeta;
+  const [handle, meta] = await Promise.all([
+    (reverseHandleFn ? reverseHandleFn(address) : Promise.resolve(null)).catch(() => null),
+    (getMetaFn ? getMetaFn(address) : Promise.resolve(undefined)).catch(() => undefined),
+  ]);
+  return { address, handle, avatar: meta?.avatar };
 }
 
 /**

@@ -19,6 +19,7 @@ vi.mock('@/lib/profile', () => ({
 }));
 vi.mock('@/lib/registry', () => ({
   reverseHandles: reverseHandlesMock,
+  useAvatars: vi.fn().mockResolvedValue({}),
 }));
 // The key, then any vars as name=value, so a test can read what a label was built from.
 vi.mock('@/lib/i18n', async (importOriginal) => ({

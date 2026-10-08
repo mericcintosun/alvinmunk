@@ -23,7 +23,10 @@ vi.mock('./events', () => ({
 }));
 vi.mock('./reputation', () => ({ getProfile: getProfileMock, getCounts: getCountsMock }));
 vi.mock('./quests', () => ({ getStreak: getStreakMock }));
-vi.mock('./registry', () => ({ reverseHandle: reverseHandleMock }));
+vi.mock('./registry', () => ({
+  reverseHandle: reverseHandleMock,
+  getMeta: vi.fn().mockResolvedValue(null),
+}));
 
 import {
   computeBadges,

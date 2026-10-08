@@ -93,6 +93,48 @@ function reverseChunk(chunk: string[], net?: ReadNetwork | null): Promise<(strin
   });
 }
 
+const pendingAvatars = new Map<string, Promise<(AvatarConfig | undefined)[]>>();
+
+/**
+ * Batched and cached avatar resolution for a list of addresses, modelled on reverseHandles
+ * plus shareInFlight. Every input address gets an entry (undefined = default face), so
+ * callers never re-ask for the same address.
+ */
+export async function useAvatars(
+  addresses: string[],
+  net?: ReadNetwork | null,
+): Promise<Record<string, AvatarConfig | undefined>> {
+  const unique = [...new Set(addresses)];
+  const out: Record<string, AvatarConfig | undefined> = Object.fromEntries(unique.map((a) => [a, undefined]));
+  if (!registryOf(net)) return out;
+  const todo = unique.filter(Boolean).sort();
+  const chunks: string[][] = [];
+  for (let i = 0; i < todo.length; i += REVERSE_MANY_CAP) {
+    chunks.push(todo.slice(i, i + REVERSE_MANY_CAP));
+  }
+  await Promise.all(
+    chunks.map(async (chunk) => {
+      const avatars = await avatarChunk(chunk, net);
+      for (let i = 0; i < chunk.length; i++) out[chunk[i]] = avatars[i];
+    }),
+  );
+  return out;
+}
+
+export const getAvatars = useAvatars;
+
+function avatarChunk(chunk: string[], net?: ReadNetwork | null): Promise<(AvatarConfig | undefined)[]> {
+  return shareInFlight(pendingAvatars, `avatar|${net?.network ?? ''}|${chunk.join(',')}`, async () => {
+    return Promise.all(
+      chunk.map((addr) =>
+        getMeta(addr, net)
+          .then((meta) => meta?.avatar)
+          .catch(() => undefined),
+      ),
+    );
+  });
+}
+
 /** A freed handle held back for the wallet that freed it (the registry's `cooldown` view). */
 export interface HandleCooldown {
   /** The wallet that released it or renamed away; it may take it back any time. */

@@ -12,8 +12,9 @@ import {
   stroopsToUsdc,
   tip,
 } from '@/lib/rewards';
-import { resolveHandle } from '@/lib/registry';
+import * as registry from '@/lib/registry';
 import { normalizeHandle } from '@/lib/profile';
+import type { AvatarConfig } from '@/lib/avatar';
 import { validateTip } from '@/lib/admin';
 import { Frame } from '@/components/fx/frame';
 import { NumberTicker } from '@/components/fx/number-ticker';
@@ -65,6 +66,7 @@ export function Tip({ address }: { address: string }) {
   // Feedback-driven: people think in @handles, not 56-char keys. Resolve a typed handle to
   // its on-chain address via the registry so the tip can target "@beko" instead of a G…/C….
   const [resolved, setResolved] = useState<string | null>(null);
+  const [resolvedAvatar, setResolvedAvatar] = useState<AvatarConfig | undefined>(undefined);
   const [resolving, setResolving] = useState(false);
   const [amount, setAmount] = useState('1');
   const [busy, setBusy] = useState<null | 'enable' | 'faucet' | 'tip'>(null);
@@ -106,7 +108,7 @@ export function Tip({ address }: { address: string }) {
     let alive = true;
     setResolving(true);
     const timer = setTimeout(() => {
-      resolveHandle(handle)
+      registry.resolveHandle(handle)
         .catch(() => null)
         .then((addr) => {
           if (alive) {
@@ -120,6 +122,18 @@ export function Tip({ address }: { address: string }) {
       clearTimeout(timer);
     };
   }, [to]);
+
+  useEffect(() => {
+    if (!resolved) {
+      setResolvedAvatar(undefined);
+      return;
+    }
+    let alive = true;
+    (registry.getMeta ? registry.getMeta(resolved) : Promise.resolve(null)).then((meta) => alive && setResolvedAvatar(meta?.avatar)).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [resolved]);
 
   async function run(kind: 'enable' | 'faucet' | 'tip', fn: () => Promise<string | void>) {
     setBusy(kind);
@@ -191,6 +205,7 @@ export function Tip({ address }: { address: string }) {
         to: resolved,
         handle: isStellarAddress(raw) ? null : normalizeHandle(raw.replace(/^@/, '')),
         amount: stroopsToUsdc(check.value),
+        avatar: resolvedAvatar,
       },
       amount,
     });
@@ -243,7 +258,7 @@ export function Tip({ address }: { address: string }) {
                   t('tip.lookingUp')
                 ) : resolved ? (
                   <span className="flex items-center text-secondary">
-                    → <Avatar address={resolved} size={16} ring={false} className="mx-1.5" />
+                    → <Avatar address={resolved} avatar={resolvedAvatar} size={16} ring={false} className="mx-1.5" />
                     {shortAddr(resolved, 6, 6)}
                   </span>
                 ) : (
