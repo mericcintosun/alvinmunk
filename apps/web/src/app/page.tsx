@@ -2,6 +2,8 @@
 
 import Link from 'next/link';
 import { ArrowRight, Sparkles, ShieldCheck, Coins, Globe, Plus } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { shortAddr } from '@alvinmunk/shared';
 import { Crest } from '@/components/brand/crest';
 import { HeroBackdrop } from '@/components/brand/hero-backdrop';
 import { Reveal } from '@/components/motion/reveal';
@@ -24,7 +26,9 @@ const TICKER_ICONS: StickerName[] = ['ticker-heart', 'ticker-coin', 'ticker-eye'
 // One playful sticker per "how it works" step.
 const STEP_STICKERS: StickerName[] = ['hand-open', 'hand-shake', 'star-lime'];
 
-const SAMPLE = [
+// ── Placeholder data (server render + fallback when <3 real items or RPC fails) ──
+// These are shown labelled as "examples" so they are never mistaken for live activity.
+const SAMPLE_ADDRESSES = [
   'GABCXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXAYSE',
   'GMEHMETXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXMET',
   'GDENIZXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXDENIZ',
@@ -32,7 +36,7 @@ const SAMPLE = [
   'GKEREMXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXOXKEREM',
 ];
 
-const TICKER = [
+const SAMPLE_TICKER = [
   'Ayşe lit a star for Mehmet',
   'Deniz vouched Leyla',
   'Kerem backed Selin',
@@ -40,6 +44,111 @@ const TICKER = [
   'Zeynep vouched Can',
   'Efe lit a star for Naz',
 ];
+
+/** Minimum real items before we show live data (below this → fall back to labelled examples). */
+const LIVE_THRESHOLD = 3;
+
+// ── Ticker: resolved label per item ──
+interface TickerItem {
+  text: string;
+  /** true when this row came from the chain */
+  live: boolean;
+}
+
+/** Post-mount hook: dynamically imports feed + registry so stellar-sdk stays out of the
+ *  initial bundle (same pattern as landing-onboard.tsx). */
+function useLiveTicker(): { items: TickerItem[]; isExample: boolean } {
+  const [items, setItems] = useState<TickerItem[]>(
+    SAMPLE_TICKER.map((text) => ({ text, live: false })),
+  );
+  const [isExample, setIsExample] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        // Dynamic import keeps stellar-sdk out of the landing page's initial bundle.
+        const [{ fetchActivity }, { reverseHandles }] = await Promise.all([
+          import('@/lib/feed'),
+          import('@/lib/registry'),
+        ]);
+        const raw = await fetchActivity(12);
+        if (!alive) return;
+        if (raw.length < LIVE_THRESHOLD) {
+          // Not enough chain data — stay on labelled examples.
+          return;
+        }
+        const addrs = [...new Set(raw.flatMap((it) => [it.from, it.to]))];
+        const handles = await reverseHandles(addrs);
+        if (!alive) return;
+        const name = (a: string) => (handles[a] ? `@${handles[a]}` : shortAddr(a));
+        setItems(
+          raw.map((it) => ({
+            text: `${name(it.from)} lit a star for ${name(it.to)}`,
+            live: true,
+          })),
+        );
+        setIsExample(false);
+      } catch {
+        // RPC error — keep labelled examples, nothing to do.
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  return { items, isExample };
+}
+
+// ── Leaderboard peek entry ──
+interface PeekEntry {
+  address: string;
+  score: number;
+  live: boolean;
+}
+
+/** Post-mount hook: dynamically imports leaderboard so stellar-sdk stays out of the
+ *  initial bundle. */
+function useLiveLeaderboardPeek(): { entries: PeekEntry[]; isExample: boolean } {
+  const [entries, setEntries] = useState<PeekEntry[]>(
+    SAMPLE_ADDRESSES.map((address, i) => ({
+      address,
+      score: (SAMPLE_ADDRESSES.length - i) * 4,
+      live: false,
+    })),
+  );
+  const [isExample, setIsExample] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const { fetchLeaderboard } = await import('@/lib/leaderboard');
+        const board = await fetchLeaderboard();
+        if (!alive) return;
+        if (board.length < LIVE_THRESHOLD) {
+          return;
+        }
+        setEntries(
+          board.slice(0, 5).map((e) => ({
+            address: e.address,
+            score: e.score,
+            live: true,
+          })),
+        );
+        setIsExample(false);
+      } catch {
+        // RPC error — keep labelled examples.
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  return { entries, isExample };
+}
 
 const STATS_META = [
   { code: 'CONTRACTS', v: 3, labelKey: 'landing.stats.onchain' },
@@ -49,6 +158,8 @@ const STATS_META = [
 
 export default function LandingPage() {
   const t = useTranslations();
+  const { items: tickerItems, isExample: tickerIsExample } = useLiveTicker();
+  const { entries: leaderboardEntries, isExample: leaderboardIsExample } = useLiveLeaderboardPeek();
 
   const STEPS = [
     { n: '01', tKey: 'landing.step.01.title', tagKey: 'landing.step.01.tag', dKey: 'landing.step.01.desc' },
@@ -119,10 +230,15 @@ export default function LandingPage() {
         {/* Live vouch ticker (marquee) */}
         <div className="border-y border-border/50 bg-card/20 py-3 backdrop-blur-sm [mask-image:linear-gradient(to_right,transparent,black_8%,black_92%,transparent)]">
           <div className="flex w-max motion-safe:animate-marquee gap-10 pr-10">
-            {[...TICKER, ...TICKER].map((tick, i) => (
+            {[...tickerItems, ...tickerItems].map((tick, i) => (
               <span key={i} className="flex items-center gap-2 whitespace-nowrap font-mono text-xs text-muted-foreground">
-                <Sticker name={TICKER_ICONS[i % TICKER_ICONS.length]} size={20} priority className="h-4 w-auto" />
-                {tick}
+                <Sticker name={TICKER_ICONS[i % TICKER_ICONS.length]} size={20} className="h-4 w-auto" />
+                {tick.text}
+                {tickerIsExample && i === 0 && (
+                  <span className="rounded border border-border/60 px-1 py-px text-[9px] uppercase tracking-widest text-muted-foreground/60">
+                    {t('landing.ticker.example')}
+                  </span>
+                )}
               </span>
             ))}
           </div>
@@ -229,19 +345,26 @@ export default function LandingPage() {
               {t('landing.leaderboard.title')}
               <Sticker name="burst-new" size={52} rotate={-8} className="hidden h-9 w-auto sm:block" />
             </h2>
-            <Link href="/leaderboard" className="font-mono text-xs text-primary hover:underline">
-              {t('landing.leaderboard.link')}
-            </Link>
+            <div className="flex items-center gap-3">
+              {leaderboardIsExample && (
+                <span className="rounded border border-border/60 px-1.5 py-px font-mono text-[9px] uppercase tracking-widest text-muted-foreground/60">
+                  {t('landing.ticker.example')}
+                </span>
+              )}
+              <Link href="/leaderboard" className="font-mono text-xs text-primary hover:underline">
+                {t('landing.leaderboard.link')}
+              </Link>
+            </div>
           </div>
         </Reveal>
         <Reveal>
           <div className="flex flex-wrap justify-center gap-x-10 gap-y-8 sm:justify-start">
-            {SAMPLE.map((addr, i) => (
-              <div key={addr} className="group flex flex-col items-center gap-2">
+            {leaderboardEntries.map((entry, i) => (
+              <div key={entry.address} className="group flex flex-col items-center gap-2">
                 <div className="transition-transform duration-300 group-hover:-translate-y-1 group-hover:scale-105">
-                  <Crest address={addr} size={72} points={i + 4} />
+                  <Crest address={entry.address} size={72} points={i + 4} />
                 </div>
-                <span className="font-mono text-2xs text-muted-foreground">★ {(SAMPLE.length - i) * 4}</span>
+                <span className="font-mono text-[10px] text-muted-foreground">★ {entry.score}</span>
               </div>
             ))}
           </div>

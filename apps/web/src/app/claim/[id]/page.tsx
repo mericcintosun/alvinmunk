@@ -16,10 +16,7 @@ import {
   type ClaimCode,
   type VouchView,
 } from '@/lib/reputation';
-import { getMeta, reverseHandle } from '@/lib/registry';
-import { Avatar } from '@/components/Avatar';
-import { FeedbackPrompt } from '@/components/FeedbackPrompt';
-import type { AvatarConfig } from '@/lib/avatar';
+import { reverseHandle } from '@/lib/registry';
 import { Crest } from '@/components/brand/crest';
 import { Frame } from '@/components/fx/frame';
 import { Stamp } from '@/components/fx/stamp';
@@ -87,8 +84,6 @@ function ClaimInner({ params }: { params: { id: string } }) {
   const [reloadKey, setReloadKey] = useState(0);
   /** @handle of the voucher (null = none or lookup still in flight). Never blocks the claim. */
   const [voucherHandle, setVoucherHandle] = useState<string | null>(null);
-  /** The voucher's published face (undefined = none / still loading → deterministic default). */
-  const [voucherAvatar, setVoucherAvatar] = useState<AvatarConfig | undefined>(undefined);
 
   useEffect(() => setClaimCode(readClaimCode()), []);
 
@@ -125,22 +120,17 @@ function ClaimInner({ params }: { params: { id: string } }) {
 
   const loading = validId && vouch === undefined && !loadError;
 
-  // Who vouched (#218): the voucher's @handle and face, looked up after the vouch loads and
-  // fire-and-forget — a slow or failing read only keeps the address fallback; it never
-  // blocks or delays the Claim button.
+  // Fire-and-forget reverse handle lookup — never blocks the claim button.
+  // Runs once the vouch is loaded and we have the voucher's address.
   useEffect(() => {
-    const from = vouch?.from;
-    if (!from) return;
+    if (!vouch?.from) return;
     let alive = true;
-    reverseHandle(from)
-      .then((h) => alive && setVoucherHandle(h))
-      .catch(() => {});
-    getMeta(from)
-      .then((meta) => alive && setVoucherAvatar(meta?.avatar))
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
+    reverseHandle(vouch.from).then((h) => {
+      if (alive) setVoucherHandle(h);
+    }).catch(() => {
+      // Lookup failure is silent: the page falls back to shortAddr automatically.
+    });
+    return () => { alive = false; };
   }, [vouch?.from]);
 
   const nowSec = Math.floor(Date.now() / 1000);
@@ -271,7 +261,7 @@ function ClaimInner({ params }: { params: { id: string } }) {
       <p className="eyebrow-mono text-primary/80">
         {done ? '// connected' : '// incoming_vouch'}
       </p>
-      <h1 className="mt-4 font-display text-3xl font-semibold tracking-tight [overflow-wrap:anywhere] sm:text-4xl">
+      <h1 className="mt-4 font-display text-4xl font-semibold tracking-tight">
         {done
           ? "You're connected."
           : voucherHandle
@@ -289,12 +279,8 @@ function ClaimInner({ params }: { params: { id: string } }) {
         {/* minmax(0, …): a long @handle truncates instead of widening its half (#477). */}
         <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 p-6">
           <div className="flex flex-col items-center gap-2 text-center">
-            {vouch ? (
-              <Avatar address={vouch.from} avatar={voucherAvatar} handle={voucherHandle ?? undefined} size={88} />
-            ) : (
-              <Crest address={`voucher-${id}`} size={88} points={6} animate />
-            )}
-            <span className="max-w-full truncate font-mono text-2xs uppercase tracking-wider text-muted-foreground">
+            <Crest address={vouch?.from ?? `voucher-${id}`} size={88} points={6} animate />
+            <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
               {voucherHandle ? `@${voucherHandle}` : vouch ? shortAddr(vouch.from) : 'from'}
             </span>
             {voucherHandle && vouch && !done && (
@@ -302,7 +288,7 @@ function ClaimInner({ params }: { params: { id: string } }) {
                 href={`/u/${voucherHandle}`}
                 target="_blank"
                 rel="noreferrer"
-                className="max-w-full truncate font-mono text-2xs uppercase tracking-wider text-primary/70 underline underline-offset-2 hover:text-primary transition-colors"
+                className="font-mono text-[9px] uppercase tracking-wider text-primary/70 underline underline-offset-2 hover:text-primary transition-colors"
               >
                 {t('claim.voucher.viewProfile', { handle: voucherHandle })}
               </Link>

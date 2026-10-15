@@ -37,6 +37,7 @@
   "landing.hero.seeHowItWorks": "ya da nasıl çalıştığını gör",
   "landing.hero.pills": "tohum_ifadesi_yok / ücretler_karşılanıyor / stellar'da_canlı",
   "landing.ticker.label": "zincir üzerinde // gerçekler",
+  "landing.ticker.example": "örnek",
   "landing.stats.onchain": "Soroban, zincir üzerinde",
   "landing.stats.xpTracks": "itibar ile nakit",
   "landing.stats.stakeWin": "destek penceresi",
@@ -130,9 +131,6 @@
   "claim.voucher.headlineHandle": "@{handle} seni destekledi.",
   "claim.voucher.headlineFallback": "Biri seni destekledi.",
   "claim.voucher.viewProfile": "@{handle} profilini görüntüle →",
-  "claim.cancelled.frame": "// destek_iptal",
-  "claim.cancelled.title": "Bu link iptal edildi.",
-  "claim.cancelled.body": "Gönderen kişi bu desteği kimse talep etmeden iptal etti, bu yüzden artık talep edilemez. Sana gönderilmişse, senin için yeniden destek vermesini iste.",
 
   "appHome.whatNow": "Ne yapılacak",
   "appHome.recentActivity": "Son aktivite",

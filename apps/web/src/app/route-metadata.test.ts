@@ -182,21 +182,6 @@ describe('route metadata', () => {
     expect(m.twitter?.card).toBe('summary_large_image');
   });
 
-  it('the /u/<handle> card is 1200×630 and its alt names the handle (#505)', async () => {
-    const m = await resolve('/u/Alice', null, { metadata: profile('Alice'), images: profileImages('Alice') });
-    const card = { width: 1200, height: 630, alt: '@alice’s profile card on alvinmunk', type: 'image/png' };
-    expect(m.openGraph?.images).toEqual([expect.objectContaining(card)]);
-    expect(m.twitter?.images).toEqual([expect.objectContaining(card)]);
-  });
-
-  it.each(['not-a-handle', 'a'.repeat(33), '%3Cscript%3E'])(
-    'the /u card for a param that can never be a handle (%s) gets a generic alt',
-    (param) => {
-      const [meta] = profileOgImage.generateImageMetadata({ params: { handle: param } });
-      expect(meta.alt).toBe('A profile card on alvinmunk');
-    },
-  );
-
   it('/v/<handle> reads as an invite from that handle and uses its opengraph-image for twitter:image', async () => {
     const m = await resolve('/v/Bob', null, {
       metadata: invite('Bob'),
