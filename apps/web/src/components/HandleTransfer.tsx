@@ -66,7 +66,7 @@ export function HandleTransfer({ wallet }: { wallet: Wallet }) {
       setDone({ handle: holdings.handle, hash });
       setHoldings(null);
     } catch (e) {
-      setError(humanizeError(e, transferErrors(t)));
+      setError(humanizeError(e, transferErrors(t), t));
     } finally {
       setBusy(false);
     }

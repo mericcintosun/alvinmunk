@@ -10,7 +10,6 @@
   "nav.themeDark": "Koyu temaya geç",
   "nav.themeSystem": "Sistem temasını kullan",
   "nav.theme": "Tema",
-
   "footer.tagline": "İtibar insanları adlandırmalı, puan biriktirmemeli. Stellar üzerinde yaşıyor.",
   "network.badge.testnet": "Testnet · test parası",
   "network.badge.mainnet": "Mainnet",
@@ -29,7 +28,6 @@
   "footer.link.github": "GitHub",
   "footer.link.twitter": "X / Twitter",
   "footer.link.feedback": "Geri bildirim",
-
   "landing.eyebrow": "insanların kanıtı · stellar",
   "landing.hero.title1": "İnsanları topla,",
   "landing.hero.title2": "puan değil.",
@@ -72,7 +70,6 @@
   "landing.cta.title": "Birisi tanınmayı bekliyor —",
   "landing.cta.titleHighlight": "o sen misin?",
   "landing.cta.button": "Uygulamayı aç",
-
   "onboard.placeholder": "kullanıcı adını seç",
   "onboard.ariaLabel": "Kullanıcı adı",
   "onboard.startFree": "Ücretsiz başla",
@@ -99,19 +96,16 @@
   "onboard.pickFace": "Yüzünü seç",
   "onboard.submit": "Profilimi oluştur",
   "onboard.footer": "Bu cihazda kaydedildi · test ağında ücretler karşılandı · tohum ifadesi yok.",
-
   "onboard.app.or": "veya",
   "onboard.app.restore": "Hesabım zaten var",
   "onboard.app.restoring": "Hesabın aranıyor…",
   "onboard.app.restoreNotFound": "Bu geçiş anahtarı için hesap bulunamadı — yeni bir hesap oluştur veya ilk kaydolduğun cihazı kullan.",
   "onboard.app.restoreNoHandle": "Hesabın bulundu — henüz bir kullanıcı adı yok. Bitirmek için yukarıdan birini seç.",
-
   "onboard.claim.errShort": "Bir kullanıcı adı seç — 3 veya daha fazla harf ya da rakam.",
   "onboard.claim.errTaken": "@{handle} alınmış — başka birini dene.",
   "onboard.claim.errReserved": "@{handle} yeni bırakıldı; {date} tarihine kadar önceki sahibine ayrılmış — başka birini dene.",
   "onboard.claim.success": "İçerisindesin — @{handle} zincire damgalandı.",
   "onboard.claim.restored": "Tekrar hoş geldin — @{handle} geri yüklendi.",
-
   "claim.handle.title": "Kullanıcı adını seç",
   "claim.handle.subtitle": "İnsanlar seni bulabilsin — ve seni adınla geri onaylayabilsin.",
   "claim.handle.placeholder": "kullaniciadin",
@@ -133,7 +127,6 @@
   "claim.cancelled.frame": "// destek_iptal",
   "claim.cancelled.title": "Bu link iptal edildi.",
   "claim.cancelled.body": "Gönderen kişi bu desteği kimse talep etmeden iptal etti, bu yüzden artık talep edilemez. Sana gönderilmişse, senin için yeniden destek vermesini iste.",
-
   "appHome.whatNow": "Ne yapılacak",
   "appHome.recentActivity": "Son aktivite",
   "appHome.viewAll": "Tümünü gör",
@@ -143,7 +136,6 @@
   "appHome.shortcut.quests.body": "Onaylı görevleri tamamla. Kazanılan XP, USDC'nin kilidini açan tek iz.",
   "appHome.shortcut.rewards.title": "Bahşiş ver & çek",
   "appHome.shortcut.rewards.body": "USDC bahşişi gönder ve Kazanılan XP sınırı geçtiğinde ödülleri al.",
-
   "owedBonuses.frameLabel": "beklenen // bonuslar",
   "owedBonuses.title": "{total} XP bekliyor",
   "owedBonuses.subtitle": "Destek bonusun, her kişi ilk doğrulanmış görevini tamamladığında açılır.",
@@ -152,7 +144,6 @@
   "owedBonuses.nudgeLabel": "Görevler bağlantısını {name} ile paylaş",
   "owedBonuses.shareText": "alvinmunk'ta doğrulanmış bir görev tamamla — sana verdiğim desteğin bonusunu açar.",
   "owedBonuses.copied": "kopyalandı",
-
   "vouch.page.title": "Birinin yıldızını yak",
   "vouch.page.subtitle": "Birini destekle — henüz hesabı olmasa da. Kartın paylaşılabilir bir davetiye olur; talep ettiklerinde ikiniz de Sosyal XP kazanırsınız.",
   "vouch.compose.frame": "destek // oluştur",
@@ -207,7 +198,6 @@
   "vouch.error.xp": "Bu desteği kullanmak için biraz daha Sosyal XP'ye ihtiyacın var.",
   "vouch.error.noteTooLong": "Notu en fazla {max} karakterle sınırla.",
   "vouch.error.batchSize": "Bir seferde 1 ile {max} kişi arasında destekle.",
-
   "quests.page.title": "Doğrulanmış görevler",
   "quests.page.subtitle": "Bunlar onaylayıcı tarafından kontrol edilir, kendi bildirimine dayanmaz. Her tamamlama {earnedXP} basar — USDC'nin kilidini açabilecek tek tür. Daha hızlı tırmanmak için haftalık seriyi sürdür.",
   "quests.page.earnedXP": "Kazanılan XP",
@@ -216,13 +206,11 @@
   "quests.week.resetsInMinutes": "{minutes}dk sonra yenilenir",
   "quests.week.resetting": "şimdi yenileniyor…",
   "quests.week.resetsAt": "Seri haftasının yenilenmesi: {when}",
-
   "rewards.page.title": "İtibarını harca",
   "rewards.page.subtitle": "Herkese USDC bahşişi gönder, Kazanılan XP sınırını geçince ödülleri al ve konumuna göre korunan avantajların kilidini aç.",
   "rewards.page.send": "Gönder",
   "rewards.page.claim": "Al",
   "rewards.page.unlock": "Kilidi Aç",
-
   "tip.frame": "harca // bahşiş",
   "tip.title": "Bahşiş gönder",
   "tip.subtitle": "Harcanabilir, nakde çevrilebilir bir hat — gerçek test ağı USDC'sini cüzdandan cüzdana gönder.",
@@ -247,7 +235,6 @@
   "tip.error.invalidAmount": "0 USDC'den büyük bir tutar gir — bahşiş bir şey göndermeli.",
   "tip.error.selfTip": "Kendine bahşiş gönderemezsin — başka bir cüzdana gönder.",
   "tip.error.ownWallet": "Bu senin kendi cüzdanın — bahşiş için başka birini gir.",
-
   "quests.frame": "görevler // kazan",
   "quests.title": "Doğrulanmış görevler",
   "quests.earnedXp": "Kazanılan XP",
@@ -282,7 +269,6 @@
   "quests.completedThisRound": "Bu tur tamamlandı",
   "quests.toast.success": "Görev doğrulandı — Kazanılan XP eklendi 🎉",
   "quests.done": "zincirde doğrulandı → Kazanılan XP eklendi",
-
   "rewards.frame": "harca // rütbe",
   "rewards.title": "Rütbe ödülleri",
   "rewards.earnedXp": "Kazanılan XP",
@@ -323,7 +309,6 @@
   "rewards.cashout.paid": "Ödeme gönderildi — işlemi gör →",
   "rewards.cashout.unavailable": "Bir Stellar anchor'ı (SEP-24 off-ramp) üzerinden yerel nakde çek — ana ağda geliyor.",
   "rewards.cashout.exceeds": "Çekim tutarı kullanılabilir USDC'ni aşıyor.",
-
   "unlockables.frame": "avantajlar // itibarla_korunan",
   "unlockables.intro": "İtibar erişimin kilidini açar — her kapı herhangi bir uygulama tarafından zincirde okunabilir.",
   "unlockables.earnedXp": "Kazanılan XP",
@@ -334,15 +319,12 @@
   "unlockables.unlock": "aç",
   "unlockables.locked": "kilitli",
   "unlockables.error": "kilit açılamadı",
-
   "activity.page.title": "Gökyüzü hareketleniyor",
   "activity.page.subtitle": "Her talep edilen destek bir yerde bir yıldız yakar. Bu akış, zincir olaylarından canlı olarak okunur — arada hiçbir backend yok.",
   "activity.page.leaderboard.title": "Sıralamayı gör",
   "activity.page.leaderboard.body": "En çok bağlantılı takımyıldızları, sıralı.",
-
   "readOnly.stamp": "{network} · SALT OKUNUR",
   "readOnly.body": "Arşivlenmiş {network} verisi. Bu görünümde kefil olma, bahşiş ve cüzdan bağlama kapalı.",
-
   "leaderboard.eyebrow": "// gece_gökyüzü",
   "leaderboard.title": "En çok bağlantılı olanlar",
   "leaderboard.syncDelayed": "senkronizasyon gecikti",
@@ -362,7 +344,6 @@
   "leaderboard.rowLabel": "{name}, sıra {rank}, {score} Sosyal XP",
   "leaderboard.entries.one": "1 kayıt",
   "leaderboard.entries.other": "{count} kayıt",
-
   "howItWorks.eyebrow": "// makine",
   "howItWorks.title": "Nasıl çalışır",
   "howItWorks.subtitle": "alvinmunk güveni görebileceğin bir şeye dönüştürür — ve diğer uygulamalar okuyabilir. Sınırlar dahil tüm makine burada.",
@@ -397,7 +378,6 @@
   "howItWorks.devs.title": "Geliştiriciler için",
   "howItWorks.devs.body": "alvinmunk kanonik bir onay ilkesi yayar. Herhangi bir uygulama, API anahtarı ya da sunucu olmadan cüzdanın itibarını doğrudan kontrattan okuyabilir.",
   "howItWorks.devs.openApp": "Uygulamayı aç",
-
   "appTabs.home": "Ana Sayfa",
   "appTabs.vouch": "Destek",
   "appTabs.quests": "Görevler",
@@ -414,7 +394,6 @@
   "statStrip.earned.hint": "Doğrulanmış · USDC'nin kilidini açar",
   "statStrip.empty.title": "Takımyıldızın henüz sessiz",
   "statStrip.empty.body": "İlk destek, görev veya bahşiş itibar izini aydınlatır ve bu şeridi yaşayan bir özgeçmişe dönüştürür.",
-
   "identity.handleTooShort": "Bir kullanıcı adı seç — 3 veya daha fazla harf ya da rakam.",
   "identity.handleTaken": "@{handle} alınmış — başka birini seç.",
   "identity.handleStamped": "@{handle} zincire damgalandı.",
@@ -429,7 +408,6 @@
   "identity.shareText": "alvinmunk'taki takımyıldızım — insanları topla, puan değil.",
   "identity.pickFace": "bir yüz seç",
   "identity.remix": "yeniden düzenle",
-
   "wallet.openApp": "Uygulamayı aç",
   "wallet.addressCopied": "Adres kopyalandı",
   "wallet.viewProfile": "Profili gör",
@@ -453,7 +431,6 @@
   "walletPage.failed": "✗ Ödeme başarısız",
   "walletPage.pending": "… Gönderildi (beklemede)",
   "walletPage.error": "Bir şeyler ters gitti",
-
   "vouchNotice.claimed.one": "🌟 Desteğin yıldızını yaktı — \"{note}\" talep edildi.",
   "vouchNotice.claimed.many": "🌟 {count} desteğin talep edildi — gökyüzün büyüdü.",
   "vouchNotice.push.enabled": "🔔 Anlık bildirimler açıldı — yıldızın talep edildiğinde ya da bahşiş geldiğinde haber vereceğiz.",
@@ -462,7 +439,6 @@
   "vouchNotice.push.enable": "Aç",
   "vouchNotice.push.installHint": "Bildirim almak için Ana Ekrana Ekle.",
   "vouchNotice.push.dismiss": "Anlık bildirim isteğini kapat",
-
   "constellation.label": "Takımyıldızın",
   "constellation.reading": "Gökyüzün okunuyor…",
   "constellation.loadError": "Gökyüzün şu anda okunamadı — ağ yavaş. Yenileyince yüklenecek.",
@@ -473,7 +449,6 @@
   "constellation.peopleVouchedFor": "Seni {count} kişi destekledi",
   "constellation.vouchedForYou": "sana destek verdi",
   "constellation.dismiss": "Kapat",
-
   "vouchNetwork.vouchedBy": "Destekleyenler",
   "vouchNetwork.backed.me": "Desteklediklerin",
   "vouchNetwork.backed.them": "{handle} kişisinin destekledikleri",
@@ -481,7 +456,6 @@
   "vouchNetwork.empty": "Henüz kimse yok — ilk destek bu satırı yakar.",
   "vouchNetwork.more": "+{count} kişi daha",
   "vouchNetwork.windowNote": "Zincirdeki son destekler gösteriliyor. Eski bağlantılar burada görünmese de yukarıdaki sayılara dahildir.",
-
   "firstStarNudge.title": "Gökyüzün tek bir yıldızla başlar ✦",
   "firstStarNudge.body": "alvinmunk birini destekleyerek başlar. Güvendiğin birini destekle — henüz hesabı olması bile gerekmiyor. Yıldızı, desteğini talep ettiğinde parlar.",
   "firstStarNudge.action": "ilk yıldızını yak",
@@ -496,13 +470,11 @@
   "feedback.prompt.thanks": "Teşekkürler — çok işimize yarar.",
   "feedback.prompt.more": "Biraz daha anlat →",
   "feedback.prompt.dismiss": "Kapat",
-
   "pendingBonusNudge.title.one": "İlk görevini tamamladığında 1 kişi +{amount} XP kazanacak",
   "pendingBonusNudge.title.other": "İlk görevini tamamladığında {count} kişi kişi başı +{amount} XP kazanacak",
   "pendingBonusNudge.title.mixed": "İlk görevini tamamladığında {count} kişi toplam +{total} XP kazanacak",
   "pendingBonusNudge.body": "Destek bonusları ilk doğrulanmış görevinle açılır — gerçek biri olduğunu gösteren adım bu.",
   "pendingBonusNudge.action": "Bir görev tamamla →",
-
   "pendingHalfCards.frame": "bekleyen // talep_bekliyor",
   "pendingHalfCards.empty.title": "Bekleyen yarım kart yok",
   "pendingHalfCards.empty.body": "Henüz kimsenin talep etmediği bir destek oluşturduğunda, bu panel onu yeniden paylaşman için nazikçe hatırlatır.",
@@ -520,7 +492,6 @@
   "pendingHalfCards.revokeError.notYours": "Bu desteği yalnızca onu oluşturan cüzdan iptal edebilir.",
   "pendingHalfCards.revokeError.claimed": "Çok geç — bu destek zaten talep edildi.",
   "pendingHalfCards.revokeError.cancelled": "Bu link zaten iptal edildi.",
-
   "activityFeed.frame": "kayıt // son_aktivite",
   "activityFeed.live": "CANLI",
   "activityFeed.empty.title": "Henüz aktivite yok",
@@ -530,7 +501,6 @@
   "shareRow.tweet": "gönder",
   "shareRow.copied": "kopyalandı",
   "shareRow.copyLink": "linki_kopyala",
-
   "embed.title": "Rozetini göm",
   "embed.body": "@{handle} adlı kişinin canlı itibarını bir README'ye, hackathon profiline ya da herhangi bir siteye ekle. Rozet salt okunur bir SVG'dir ve CDN'de önbelleğe alınır.",
   "embed.label.markdown": "Markdown",
@@ -538,10 +508,8 @@
   "embed.copy": "kopyala",
   "embed.copied": "kopyalandı",
   "embed.styleHint": "Rozeti ?style=card ile şekillendir, boyutu kendi işaretlemede seç. Sahipsiz takma adlar nötr görünür — asla bozuk resim olmaz.",
-
   "vouch.compose.defaultNote": "sana destek verdi",
   "vouch.compose.shareXSuffix": "— gökyüzünün yarısını talep et:",
-
   "badges.frame": "rozetler // kilometre_taşları",
   "badges.heading": "Kilometre taşı rozetleri",
   "badges.loading": "Rozetler yükleniyor…",
@@ -573,7 +541,6 @@
   "badges.generous.by": "ilk bahşiş: {name}",
   "badges.generous.desc": "İlk bahşiş gönderildi",
   "badges.generous.next": "Henüz bahşiş gönderilmedi",
-
   "identity.handle.reserved": "@{handle} yeni bırakıldı; {date} tarihine kadar önceki sahibine ayrılmış — başka birini dene.",
   "identity.bio.label": "Biyografi",
   "identity.bio.placeholder": "Kendin hakkında tek satır — düz metin",
@@ -588,7 +555,6 @@
   "identity.meta.error.noHandle": "Önce @kullanıcı adını zincirde al — sonra yüzün ve biyografin herkese açık olabilir.",
   "identity.meta.error.bio": "Bu biyografi kaydedilemez — tek satır düz metin olsun, en fazla 80 bayt.",
   "identity.meta.error.avatar": "Kayıt defteri bu yüzü henüz tanımıyor — başka birini seç.",
-
   "people.suggest.heading": "Tanıyor olabileceğin kişiler",
   "people.suggest.mutual.one": "Tanıdığın 1 kişi onlara kefil oldu",
   "people.suggest.mutual.other": "Tanıdığın {count} kişi onlara kefil oldu",
@@ -597,9 +563,7 @@
   "people.suggest.viewAria": "{label} profilini görüntüle",
   "people.suggest.viewReputation": "İtibarı görüntüle",
   "people.suggest.viewReputationAria": "{label} itibarını görüntüle",
-
   "configBanner.title": "Bu dağıtım yanlış yapılandırılmış — düzeltilene kadar hiçbir işlem gönderilemez.",
-
   "handleTransfer.title": "@kullanıcı adını bu cüzdana taşı",
   "handleTransfer.body": "Bu tarayıcıdaki uygulama içi cüzdan ({from}) @{handle} kullanıcı adını tutuyor. Tek işlemde buraya taşı: uygulama içi anahtar burada, bu cüzdan da her zamanki gibi imzalar; böylece kullanıcı adı arada hiç boşta kalmaz.",
   "handleTransfer.xpNote": "Sosyal ve Kazanılan XP'n uygulama içi cüzdanda kalır: adrese göre tutulur ve taşınmaz. Yüzün ve biyografin kullanıcı adıyla birlikte gelir.",
@@ -609,7 +573,6 @@
   "handleTransfer.done": "@{handle} artık bu cüzdanın.",
   "handleTransfer.error.noHandle": "Uygulama içi cüzdanın artık bir kullanıcı adı yok — taşınacak bir şey kalmadı.",
   "handleTransfer.error.targetHasHandle": "Bu cüzdanın zaten bir kullanıcı adı var — taşıma için kullanıcı adı olmayan bir cüzdan gerekir.",
-
   "moneyFlowConfirm.tipTitle": "Bahşişi onayla",
   "moneyFlowConfirm.claimTitle": "Ödülü almayı onayla",
   "moneyFlowConfirm.tipSubtitle": "Ana ağda gerçek USDC göndermek üzeresin.",
@@ -624,7 +587,6 @@
   "moneyFlowConfirm.cancel": "İptal",
   "moneyFlowConfirm.confirmTip": "Bahşişi onayla",
   "moneyFlowConfirm.confirmClaim": "Ödülü al",
-
   "inbox.title": "Gelen kutusu",
   "inbox.subtitle": "Yarım kartlarının alınması, aldığın bahşişler ve görev sonuçların — sen yokken olanlar.",
   "inbox.empty.title": "Her şey sakin",
@@ -633,5 +595,25 @@
   "inbox.item.claim": "{who} yarım kartını aldı",
   "inbox.item.tip": "{who} sana {amount} USDC bahşiş gönderdi",
   "inbox.item.quest": "#{id} numaralı görev doğrulandı — Kazanılan XP eklendi",
-  "inbox.item.streak": "Görev serin {weeks} haftaya ulaştı"
+  "inbox.item.streak": "Görev serin {weeks} haftaya ulaştı",
+  "errors.generic": "Bir şeyler ters gitti",
+  "errors.chainCode": "Bu işlem gerçekleşmedi (zincir hatası {code}). Biraz sonra yeniden deneyin.",
+  "errors.xlmFee": "Ağ ücretini karşılamak için biraz daha XLM'ye ihtiyacın var.",
+  "errors.usdcInsufficient": "Bunu karşılayacak kadar USDC'n yok — önce bir ödül al veya test USDC edin.",
+  "errors.trustlineRecipient": "Alıcı bu USDC'yi henüz etkinleştirmedi, bu yüzden bahşişi alamaz. Başka bir passkey cüzdanı veya USDC etkinleştirmiş birini dene.",
+  "errors.trustlineSelf": "USDC'yi henüz etkinleştirmediğin için ödülü alamazsın. Önce cüzdanından etkinleştir.",
+  "errors.timeout": "{label} zaman aşımına uğradı — ağ yavaş. Yeniden deneyin.",
+  "quests.error.unauthorized": "Bu görev doğrulaması yetkilendirilmemiş — biraz sonra yeniden dene.",
+  "quests.error.notFound": "Böyle bir görev yok.",
+  "quests.error.alreadyClaimed": "Bu görevi zaten tamamladın.",
+  "quests.error.inactive": "Bu görev şu an aktif değil.",
+  "quests.error.dailyLimit": "Görev ödülleri bugünün sınırına ulaştı — 00:00 UTC sonrası yeniden dene.",
+  "quests.error.expired": "Görev onayı zincire ulaşmadan süresi doldu — görevi yeniden tamamla.",
+  "claim.error.missingCode": "Bu bağlantının talep kodu eksik.",
+  "claim.error.badCode": "Bu bağlantıdaki talep kodu geçersiz.",
+  "claim.error.notFound": "Bu destek yok veya süresi dolmuş.",
+  "claim.error.alreadyClaimed": "Bu yıldız zaten aydınlatıldı — önceden talep edilmiş.",
+  "claim.error.self": "Kendi destengini talep edemezsin. Bağlantıyı güvendiğin biriyle paylaş.",
+  "claim.error.dailyLimit": "Günlük sınır aşıldı — yarın yeniden dene.",
+  "claim.error.mismatch": "Bu bağlantı bu desteğe uymuyor — gönderen kişiden yeniden paylaşmasını iste."
 }

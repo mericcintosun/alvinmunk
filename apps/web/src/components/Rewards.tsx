@@ -117,7 +117,7 @@ export function Rewards({ address }: { address: string }) {
       await refresh();
       toast.success(t('rewards.toast.success'));
     } catch (e) {
-      const msg = humanizeError(e, buildRewardErrors(t), 'reward');
+      const msg = humanizeError(e, buildRewardErrors(t), 'reward', t);
       setError(msg);
       toast.error(msg);
     } finally {
@@ -294,7 +294,7 @@ function AnchorCashout({ address }: { address: string }) {
       setAmount('');
       if (next.withdrawal.url) window.open(next.withdrawal.url, '_blank', 'noopener,noreferrer');
     } catch (e) {
-      setError(humanizeError(e));
+      setError(humanizeError(e, {}, t));
     } finally {
       setBusy(null);
     }
@@ -308,7 +308,7 @@ function AnchorCashout({ address }: { address: string }) {
       const wallet = await getWallet();
       setPaidHash(await sendWithdrawalPayment(wallet, session.withdrawal, session.toml.usdcIssuer));
     } catch (e) {
-      setError(humanizeError(e));
+      setError(humanizeError(e, {}, t));
     } finally {
       setBusy(null);
     }

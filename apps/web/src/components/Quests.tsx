@@ -20,7 +20,7 @@ import { WeekReset } from '@/components/WeekReset';
 import { isStellarAddress, shortAddr } from '@alvinmunk/shared';
 import { cn, humanizeError } from '@/lib/utils';
 import { toast } from '@/components/ui/toaster';
-import { useTranslations } from '@/lib/i18n';
+import { useTranslations, type TFn } from '@/lib/i18n';
 
 // Quest ids are admin-created on the QuestRegistry; env-configurable so they can change per
 // deployment without a code edit. The defaults (2 = refer, 3 = invite-converts, 4 = vouch-back)
@@ -59,6 +59,19 @@ type Evidence =
  * A quest the admin made repeatable (`set_quest_period`, #154) is tagged, shows as done only
  * for the current period, and opens again when the week rolls over.
  */
+
+
+function buildQuestErrors(t: TFn): Record<number, string> {
+  return {
+    3: t('quests.error.unauthorized'),
+    4: t('quests.error.notFound'),
+    5: t('quests.error.alreadyClaimed'),
+    6: t('quests.error.inactive'),
+    7: t('quests.error.dailyLimit'),
+    8: t('quests.error.expired'),
+  };
+}
+
 export function Quests({ address }: { address: string }) {
   const t = useTranslations();
   const [earned, setEarned] = useState<number | null>(null);
@@ -229,14 +242,14 @@ export function Quests({ address }: { address: string }) {
     setDone(false);
     try {
       const wallet = await getWallet();
-      const r = await completeQuest(wallet, questId, evidence);
+      const r = await completeQuest(wallet, questId, evidence, t);
       if (r.ok || r.completed) setCompleted((prev) => ({ ...prev, [questId]: true }));
       if (!r.ok) throw new Error(r.error);
       setDone(true);
       toast.success(t('quests.toast.success'));
       refreshScores();
     } catch (e) {
-      const msg = humanizeError(e);
+      const msg = humanizeError(e, buildQuestErrors(t), t);
       setError(msg);
       toast.error(msg);
     } finally {

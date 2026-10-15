@@ -67,7 +67,7 @@ export function PendingHalfCards({ hideWhenEmpty = false }: { hideWhenEmpty?: bo
       setItems((prev) => prev?.filter((item) => item.id !== v.id) ?? prev);
       setConfirming(null);
     } catch (e) {
-      setRevokeError({ id: v.id, message: humanizeError(e, revokeErrors(t)) });
+      setRevokeError({ id: v.id, message: humanizeError(e, revokeErrors(t), t) });
     } finally {
       setRevoking(false);
     }

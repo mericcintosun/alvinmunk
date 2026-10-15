@@ -95,7 +95,7 @@ export function VouchCompose() {
       track('vouch_minted', { hasNote: note.trim().length > 0, walletKind: wallet.kind });
       toast.success(t('vouch.compose.toast.success'));
     } catch (e) {
-      const msg = humanizeError(e, buildVouchErrors(t));
+      const msg = humanizeError(e, buildVouchErrors(t), t);
       trackError(e, { flow: 'vouch_mint' });
       setError(msg);
       toast.error(msg);
@@ -132,7 +132,7 @@ export function VouchCompose() {
       });
       toast.success(t('vouch.compose.batch.toast', { count: String(out.length) }));
     } catch (e) {
-      const msg = humanizeError(e, buildVouchErrors(t));
+      const msg = humanizeError(e, buildVouchErrors(t), t);
       trackError(e, { flow: 'vouch_mint_batch' });
       setError(msg);
       toast.error(msg);
