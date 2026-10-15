@@ -20,19 +20,29 @@ import {
   questId as questRegistryId,
 } from './contracts';
 import { contractErrorCode, humanizeError } from './utils';
+import type { TFn } from './i18n';
+import enMessages from '../../messages/en.json';
 import type { EvidenceType } from './attest';
 import type { Wallet } from './wallet';
 
-// QuestRegistry contract error codes → friendly copy (mirrors contracts/quest_registry Error enum).
+// QuestRegistry contract error codes → i18n keys (mirrors contracts/quest_registry Error enum).
 const ALREADY_CLAIMED = 5;
-const QUEST_ERRORS: Record<number, string> = {
-  3: 'This quest verification isn’t authorized — try again in a moment.',
-  4: 'That quest doesn’t exist.',
-  5: 'You’ve already completed this quest.',
-  6: 'This quest isn’t active right now.',
-  7: 'Quest rewards hit today’s limit — try again after 00:00 UTC.',
-  8: 'The quest approval expired before it reached the chain — complete the quest again.',
+const QUEST_ERROR_KEY: Record<number, string> = {
+  3: 'quests.error.unauthorized',
+  4: 'quests.error.notFound',
+  5: 'quests.error.alreadyClaimed',
+  6: 'quests.error.inactive',
+  7: 'quests.error.dailyLimit',
+  8: 'quests.error.expired',
 };
+
+function defaultT(): TFn {
+  return (key, vars) => {
+    const raw = (enMessages as Record<string, string>)[key] ?? key;
+    if (!vars) return raw;
+    return raw.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? `{${k}}`);
+  };
+}
 
 export interface QuestResult {
   ok: boolean;
@@ -41,6 +51,8 @@ export interface QuestResult {
   /** The wallet had already completed this quest: the attester answered 409, or the
    *  contract's replay guard refused the award (`AlreadyClaimed`). */
   completed?: boolean;
+  /** Numeric contract error code, when the failure came from the chain. */
+  code?: number;
 }
 
 // --- Admin content management. Every write is `admin.require_auth()`-gated on-chain. ---
@@ -243,7 +255,9 @@ export async function completeQuest(
   wallet: Wallet,
   questId: number,
   evidence: Evidence,
+  t?: TFn,
 ): Promise<QuestResult> {
+  const tr = t ?? defaultT();
   // 1) Attester verifies the evidence and signs the on-chain payload (no tx, no fee).
   const res = await fetch('/api/attest', {
     method: 'POST',
@@ -257,7 +271,7 @@ export async function completeQuest(
     error?: string;
   };
   if (res.status === 409) {
-    return { ok: false, error: data.error ?? QUEST_ERRORS[ALREADY_CLAIMED], completed: true };
+    return { ok: false, error: data.error ?? tr('quests.error.alreadyClaimed'), completed: true };
   }
   if (!res.ok || !data.attester || !data.sig || !Number.isSafeInteger(data.expiresAt)) {
     return { ok: false, error: data.error ?? `error ${res.status}` };
@@ -281,8 +295,12 @@ export async function completeQuest(
     );
     return { ok: true };
   } catch (e) {
-    const error = humanizeError(e, QUEST_ERRORS);
-    return contractErrorCode(e) === ALREADY_CLAIMED
+    const code = contractErrorCode(e);
+    const error =
+      code != null && QUEST_ERROR_KEY[code]
+        ? tr(QUEST_ERROR_KEY[code])
+        : humanizeError(e, {}, undefined, tr);
+    return code === ALREADY_CLAIMED
       ? { ok: false, error, completed: true }
       : { ok: false, error };
   }

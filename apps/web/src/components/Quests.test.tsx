@@ -248,6 +248,7 @@ describe('Quests', () => {
       { kind: 'dev', address: ADDRESS },
       VOUCHBACK,
       { type: 'vouch_back', ref: '' },
+      expect.any(Function),
     );
     expect(vouchBackButton().textContent).toBe('Completed');
     expect(vouchBackButton().disabled).toBe(true);
@@ -371,7 +372,7 @@ describe('Quests', () => {
       expect(completeQuestMock).toHaveBeenCalledWith({ kind: 'dev', address: ADDRESS }, 6, {
         type: 'first_tip',
         ref: '',
-      });
+      }, expect.any(Function));
       expectReportedSuccess();
     });
   });

@@ -32,7 +32,7 @@ import { Input } from '@/components/ui/input';
 import { HandleHint } from '@/components/handle-hint';
 import { useCreateProfile } from '@/hooks/use-create-profile';
 import { HANDLE_MAX_CHARS } from '@/lib/profile';
-import { useTranslations } from '@/lib/i18n';
+import { useTranslations, type TFn } from '@/lib/i18n';
 import { cn, contractErrorCode, humanizeError, withTimeout } from '@/lib/utils';
 
 /** Read the claim code from the URL: the claim key's seed (#k=…) on current links, the
@@ -56,9 +56,21 @@ const CLAIM_ERRORS: Record<number, string> = {
 
 /** A claim signature that doesn't verify traps in the host (Error(Crypto, …)), not with a
  *  contract code: the link's key isn't this card's, or the link was cut short. */
-function claimErrorMessage(e: unknown): string {
+function buildClaimErrors(t: TFn): Record<number, string> {
+  return {
+    4: t('claim.error.notFound'),
+    5: t('claim.error.alreadyClaimed'),
+    6: t('claim.error.self'),
+    8: t('claim.error.badCode'),
+    9: t('claim.error.dailyLimit'),
+    13: t('claim.error.mismatch'),
+  };
+}
+
+function claimErrorMessage(e: unknown, t?: TFn): string {
+  const tr = t ?? ((k: string) => k);
   const raw = e instanceof Error ? e.message : String(e ?? '');
-  return raw.includes('Error(Crypto,') ? BAD_CODE : humanizeError(e, CLAIM_ERRORS);
+  return raw.includes('Error(Crypto,') ? (t ? t('claim.error.badCode') : BAD_CODE) : humanizeError(e, buildClaimErrors(tr as TFn), tr as TFn);
 }
 
 export default function ClaimPage(props: { params: { id: string } }) {
@@ -150,12 +162,12 @@ function ClaimInner({ params }: { params: { id: string } }) {
 
   async function onClaim() {
     if (!claimCode) {
-      setError('This link is missing its claim code.');
+      setError(t('claim.error.missingCode'));
       setState('error');
       return;
     }
     if (!isClaimCode(claimCode.code)) {
-      setError(BAD_CODE);
+      setError(t('claim.error.badCode'));
       setState('error');
       return;
     }
@@ -187,7 +199,7 @@ function ClaimInner({ params }: { params: { id: string } }) {
         setState('preview');
         return;
       }
-      setError(claimErrorMessage(e));
+      setError(claimErrorMessage(e, t));
       setState('error');
     }
   }

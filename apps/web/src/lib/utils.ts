@@ -1,6 +1,8 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { TxNotQueuedError, TxRejectedError } from './tx-errors';
+import type { TFn } from './i18n';
+import enMessages from '../../messages/en.json';
 
 /** Merge conditional class names + dedupe Tailwind conflicts. */
 export function cn(...inputs: ClassValue[]): string {
@@ -23,21 +25,33 @@ export type ErrorFlow = 'tip' | 'reward';
  * to the first line of the message (never the scary diagnostic-event dump). `flow` opts a
  * USDC-moving caller into the SAC balance / trustline copy; every other flow never sees it.
  */
+function defaultT(): TFn {
+  return (key, vars) => {
+    const raw = (enMessages as Record<string, string>)[key] ?? key;
+    if (!vars) return raw;
+    return raw.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? `{${k}}`);
+  };
+}
+
 export function humanizeError(
   e: unknown,
   codeMap: Record<number, string> = {},
-  flow?: ErrorFlow,
+  flowOrT?: ErrorFlow | TFn,
+  maybeT?: TFn,
 ): string {
+  const flow = typeof flowOrT === 'string' ? (flowOrT as ErrorFlow) : undefined;
+  const providedT = typeof flowOrT === 'function' ? (flowOrT as TFn) : maybeT;
+  const t = providedT ?? defaultT();
   // Already one plain sentence (lib/tx-errors) — the keyword rules below would misread it.
   if (e instanceof TxRejectedError || e instanceof TxNotQueuedError) return e.message;
-  const raw = e instanceof Error ? e.message : String(e ?? 'Something went wrong');
+  const raw = e instanceof Error ? e.message : String(e ?? t('errors.generic'));
   // Host-level signals first — they're clearer than a contract code AND dodge code
   // collisions (e.g. a token SAC's own #10 "insufficient balance" vs a contract's #10).
   const lower = raw.toLowerCase();
 
   // A classic tx rejected for its XLM fee names its result code (lib/contracts.ts).
   if (lower.includes('txinsufficientbalance') || lower.includes('txinsufficientfee')) {
-    return 'You need a little more XLM to cover the network fee.';
+    return t('errors.xlmFee');
   }
 
   if (flow) {
@@ -48,12 +62,10 @@ export function humanizeError(
       lower.includes('not sufficient') ||
       lower.includes('zero balance')
     ) {
-      return "You don't have enough USDC to cover that — claim a reward or get test USDC first.";
+      return t('errors.usdcInsufficient');
     }
     if (lower.includes('trustline')) {
-      return flow === 'tip'
-        ? "The recipient hasn't enabled this USDC, so they can't receive the tip yet. Try another passkey wallet, or someone who's enabled USDC."
-        : "You haven't enabled USDC yet, so you can't receive the reward. Enable it in your wallet first.";
+      return flow === 'tip' ? t('errors.trustlineRecipient') : t('errors.trustlineSelf');
     }
   }
 
@@ -62,8 +74,8 @@ export function humanizeError(
   // Drop Soroban's "Event log (newest first): …" diagnostic tail and take the first line.
   const firstLine = raw.split(/Event log|\n/)[0].trim();
   // Unknown contract code → always give the user a next step, never a dead end.
-  if (code != null) return `That didn't go through (chain error ${code}). Try again in a moment.`;
-  return firstLine.length > 120 ? `${firstLine.slice(0, 117)}…` : firstLine || 'Something went wrong';
+  if (code != null) return t('errors.chainCode', { code: String(code) });
+  return firstLine.length > 120 ? `${firstLine.slice(0, 117)}…` : firstLine || t('errors.generic');
 }
 
 /**
@@ -74,7 +86,7 @@ export function humanizeError(
 export function withTimeout<T>(p: Promise<T>, ms = 15_000, label = 'request'): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const t = setTimeout(
-      () => reject(new Error(`The ${label} timed out — the network is slow. Try again.`)),
+      () => reject(new Error(defaultT()('errors.timeout', { label }))),
       ms,
     );
     p.then(

@@ -10,7 +10,6 @@
   "nav.themeDark": "Switch to dark theme",
   "nav.themeSystem": "Use the system theme",
   "nav.theme": "Theme",
-
   "footer.tagline": "Reputation should name humans, not hoard points. Lit on Stellar.",
   "network.badge.testnet": "Testnet · test funds",
   "network.badge.mainnet": "Mainnet",
@@ -29,7 +28,6 @@
   "footer.link.github": "GitHub",
   "footer.link.twitter": "X / Twitter",
   "footer.link.feedback": "Feedback",
-
   "landing.eyebrow": "proof-of-people · stellar",
   "landing.hero.title1": "Collect people,",
   "landing.hero.title2": "not points.",
@@ -72,7 +70,6 @@
   "landing.cta.title": "Someone's waiting to be",
   "landing.cta.titleHighlight": "recognized.",
   "landing.cta.button": "Open the app",
-
   "onboard.placeholder": "pick your handle",
   "onboard.ariaLabel": "Handle",
   "onboard.startFree": "Start free",
@@ -99,19 +96,16 @@
   "onboard.pickFace": "Pick your face",
   "onboard.submit": "Create my profile",
   "onboard.footer": "Saved on this device · fees sponsored on testnet · no seed phrase.",
-
   "onboard.app.or": "or",
   "onboard.app.restore": "I already have an account",
   "onboard.app.restoring": "Looking for your account…",
   "onboard.app.restoreNotFound": "No account found for that passkey — create a new one, or use the device where you first signed up.",
   "onboard.app.restoreNoHandle": "Found your account — it has no handle yet. Pick one above to finish.",
-
   "onboard.claim.errShort": "Pick a handle — 3+ letters or numbers.",
   "onboard.claim.errTaken": "@{handle} is taken — pick another.",
   "onboard.claim.errReserved": "@{handle} was just freed and is held for its previous owner until {date} — pick another.",
   "onboard.claim.success": "You're in — @{handle} stamped on-chain.",
   "onboard.claim.restored": "Welcome back — @{handle} restored.",
-
   "claim.handle.title": "Pick your handle",
   "claim.handle.subtitle": "So people can find you — and vouch you back by name.",
   "claim.handle.placeholder": "yourhandle",
@@ -133,7 +127,6 @@
   "claim.cancelled.frame": "// vouch_revoked",
   "claim.cancelled.title": "This link was revoked.",
   "claim.cancelled.body": "The person who sent it cancelled this vouch before anyone claimed it, so it can no longer be claimed. If it was meant for you, ask them to vouch for you again.",
-
   "appHome.whatNow": "What now",
   "appHome.recentActivity": "Recent activity",
   "appHome.viewAll": "View all",
@@ -143,7 +136,6 @@
   "appHome.shortcut.quests.body": "Complete attester-checked quests. Earned XP is the only track that unlocks USDC.",
   "appHome.shortcut.rewards.title": "Tip & cash out",
   "appHome.shortcut.rewards.body": "Send USDC tips and claim rank rewards once your Earned XP clears the bar.",
-
   "owedBonuses.frameLabel": "owed // bonuses",
   "owedBonuses.title": "{total} XP waiting",
   "owedBonuses.subtitle": "Your vouch bonus unlocks when each person completes their first verified quest.",
@@ -152,7 +144,6 @@
   "owedBonuses.nudgeLabel": "Share the quests link with {name}",
   "owedBonuses.shareText": "Complete a verified quest on alvinmunk — it unlocks the bonus from my vouch for you.",
   "owedBonuses.copied": "copied",
-
   "vouch.page.title": "Light someone's star",
   "vouch.page.subtitle": "Vouch for a person — they don't need an account yet. Your card becomes a shareable invite; when they claim it, you both earn Social XP.",
   "vouch.compose.frame": "vouch // mint",
@@ -207,7 +198,6 @@
   "vouch.error.xp": "You need a little more Social XP to stake this vouch.",
   "vouch.error.noteTooLong": "Keep the note to {max} characters or fewer.",
   "vouch.error.batchSize": "Vouch for 1 to {max} people at a time.",
-
   "quests.page.title": "Verified quests",
   "quests.page.subtitle": "These are checked by the attester, not self-reported. Each completion mints {earnedXP} — the only kind that can ever unlock USDC. Keep a weekly streak going to climb faster.",
   "quests.page.earnedXP": "Earned XP",
@@ -216,13 +206,11 @@
   "quests.week.resetsInMinutes": "resets in {minutes}m",
   "quests.week.resetting": "resetting now…",
   "quests.week.resetsAt": "The streak week resets {when}",
-
   "rewards.page.title": "Spend your reputation",
   "rewards.page.subtitle": "Tip anyone in USDC, claim rank rewards once your Earned XP clears the bar, and unlock perks gated by your standing.",
   "rewards.page.send": "Send",
   "rewards.page.claim": "Claim",
   "rewards.page.unlock": "Unlock",
-
   "tip.frame": "spend // tip",
   "tip.title": "Send a tip",
   "tip.subtitle": "A spendable, cashable rail — send real testnet USDC wallet → wallet.",
@@ -247,7 +235,6 @@
   "tip.error.invalidAmount": "Enter an amount above 0 USDC — a tip has to move something.",
   "tip.error.selfTip": "You can’t tip yourself — send it to another wallet.",
   "tip.error.ownWallet": "That’s your own wallet — enter someone else to tip.",
-
   "quests.frame": "quests // earn",
   "quests.title": "Verified quests",
   "quests.earnedXp": "Earned XP",
@@ -282,7 +269,6 @@
   "quests.completedThisRound": "Done this round",
   "quests.toast.success": "Quest verified — Earned XP added 🎉",
   "quests.done": "verified on-chain → Earned XP added",
-
   "rewards.frame": "spend // rank",
   "rewards.title": "Rank rewards",
   "rewards.earnedXp": "Earned XP",
@@ -323,7 +309,6 @@
   "rewards.cashout.paid": "Payment sent — view transaction →",
   "rewards.cashout.unavailable": "Cash out to local cash via a Stellar anchor (SEP-24 off-ramp) — coming at mainnet.",
   "rewards.cashout.exceeds": "The withdrawal amount exceeds your available USDC.",
-
   "unlockables.frame": "perks // reputation_gated",
   "unlockables.intro": "Reputation unlocks access — every gate is readable on-chain by any app.",
   "unlockables.earnedXp": "Earned XP",
@@ -334,15 +319,12 @@
   "unlockables.unlock": "unlock",
   "unlockables.locked": "locked",
   "unlockables.error": "unlock failed",
-
   "activity.page.title": "The sky is moving",
   "activity.page.subtitle": "Every claimed vouch lights a star somewhere. This feed reads live from on-chain events — no backend in between.",
   "activity.page.leaderboard.title": "See the leaderboard",
   "activity.page.leaderboard.body": "The most-connected constellations, ranked.",
-
   "readOnly.stamp": "{network} · READ-ONLY",
   "readOnly.body": "Archived {network} data. Vouching, tipping and connecting a wallet are off on this view.",
-
   "leaderboard.eyebrow": "// the_night_sky",
   "leaderboard.title": "The most-connected",
   "leaderboard.syncDelayed": "sync delayed",
@@ -362,7 +344,6 @@
   "leaderboard.rowLabel": "{name}, rank {rank}, {score} Social XP",
   "leaderboard.entries.one": "1 entry",
   "leaderboard.entries.other": "{count} entries",
-
   "howItWorks.eyebrow": "// the_machine",
   "howItWorks.title": "How it works",
   "howItWorks.subtitle": "alvinmunk turns trust into something you can see — and other apps can read. Here's the whole machine, including the limits.",
@@ -397,7 +378,6 @@
   "howItWorks.devs.title": "For developers",
   "howItWorks.devs.body": "alvinmunk emits a canonical attestation primitive. Any app can read a wallet's reputation straight from the contract, with no API key and no backend.",
   "howItWorks.devs.openApp": "Open the app",
-
   "appTabs.home": "Home",
   "appTabs.vouch": "Vouch",
   "appTabs.quests": "Quests",
@@ -414,7 +394,6 @@
   "statStrip.earned.hint": "Verified · unlocks USDC",
   "statStrip.empty.title": "Your constellation is still quiet",
   "statStrip.empty.body": "The first vouch, quest, or tip lights up your reputation trail and turns this strip into a living résumé.",
-
   "identity.handleTooShort": "Pick a handle — 3+ letters or numbers.",
   "identity.handleTaken": "@{handle} is taken — pick another.",
   "identity.handleStamped": "@{handle} stamped on-chain.",
@@ -429,7 +408,6 @@
   "identity.shareText": "My constellation on alvinmunk — collect people, not points.",
   "identity.pickFace": "pick a face",
   "identity.remix": "remix",
-
   "wallet.openApp": "Open app",
   "wallet.addressCopied": "Address copied",
   "wallet.viewProfile": "View profile",
@@ -453,7 +431,6 @@
   "walletPage.failed": "✗ Payment failed",
   "walletPage.pending": "… Submitted (pending)",
   "walletPage.error": "Something went wrong",
-
   "vouchNotice.claimed.one": "🌟 Your vouch ignited — \"{note}\" was claimed.",
   "vouchNotice.claimed.many": "🌟 {count} of your vouches were claimed — your sky grew.",
   "vouchNotice.push.enabled": "🔔 Push notifications enabled — we'll tell you when your star is claimed or a tip arrives.",
@@ -462,7 +439,6 @@
   "vouchNotice.push.enable": "Enable",
   "vouchNotice.push.installHint": "Add to Home Screen to get notified.",
   "vouchNotice.push.dismiss": "Dismiss push notification prompt",
-
   "constellation.label": "Your constellation",
   "constellation.reading": "Reading your sky…",
   "constellation.loadError": "Couldn’t read your sky right now — the network is slow. It’ll fill in on refresh.",
@@ -473,7 +449,6 @@
   "constellation.peopleVouchedFor": "{count} people vouched for you",
   "constellation.vouchedForYou": "vouched for you",
   "constellation.dismiss": "Dismiss",
-
   "vouchNetwork.vouchedBy": "Vouched by",
   "vouchNetwork.backed.me": "You backed",
   "vouchNetwork.backed.them": "{handle} backed",
@@ -481,7 +456,6 @@
   "vouchNetwork.empty": "Nobody yet — the first vouch lights this row.",
   "vouchNetwork.more": "+{count} more",
   "vouchNetwork.windowNote": "Showing recent on-chain vouches. Older connections still count in the numbers above, even when they don't appear here.",
-
   "firstStarNudge.title": "Your sky starts with one star ✦",
   "firstStarNudge.body": "alvinmunk begins by backing someone. Vouch for one person you trust — they don’t even need an account yet. Their star ignites when they claim it.",
   "firstStarNudge.action": "light your first star",
@@ -496,13 +470,11 @@
   "feedback.prompt.thanks": "Thanks — that helps.",
   "feedback.prompt.more": "Tell us more →",
   "feedback.prompt.dismiss": "Dismiss",
-
   "pendingBonusNudge.title.one": "1 person gets +{amount} XP when you complete your first quest",
   "pendingBonusNudge.title.other": "{count} people get +{amount} XP each when you complete your first quest",
   "pendingBonusNudge.title.mixed": "{count} people get +{total} XP between them when you complete your first quest",
   "pendingBonusNudge.body": "Their vouch bonus unlocks with your first verified quest — the step that shows you're real.",
   "pendingBonusNudge.action": "Complete a quest →",
-
   "pendingHalfCards.frame": "pending // awaiting_claim",
   "pendingHalfCards.empty.title": "No half-cards waiting",
   "pendingHalfCards.empty.body": "When you mint a vouch that nobody claims yet, this panel becomes your friendly reminder to share it again.",
@@ -520,7 +492,6 @@
   "pendingHalfCards.revokeError.notYours": "Only the wallet that minted this vouch can revoke it.",
   "pendingHalfCards.revokeError.claimed": "Too late — this vouch was already claimed.",
   "pendingHalfCards.revokeError.cancelled": "This link was already revoked.",
-
   "activityFeed.frame": "log // recent_activity",
   "activityFeed.live": "LIVE",
   "activityFeed.empty.title": "No activity yet",
@@ -530,7 +501,6 @@
   "shareRow.tweet": "tweet",
   "shareRow.copied": "copied",
   "shareRow.copyLink": "copy_link",
-
   "embed.title": "Embed your badge",
   "embed.body": "Drop @{handle}'s live reputation into a README, a hackathon profile or any site. The badge is a read-only SVG, cached at the edge.",
   "embed.label.markdown": "Markdown",
@@ -538,10 +508,8 @@
   "embed.copy": "copy",
   "embed.copied": "copied",
   "embed.styleHint": "Shape the badge with ?style=card, and pick the size in your own markup. Unclaimed handles render neutral — never a broken image.",
-
   "vouch.compose.defaultNote": "vouched for you",
   "vouch.compose.shareXSuffix": "— claim your half of the sky:",
-
   "badges.frame": "badges // milestones",
   "badges.heading": "Milestone badges",
   "badges.loading": "Loading badges…",
@@ -573,7 +541,6 @@
   "badges.generous.by": "first tip to {name}",
   "badges.generous.desc": "First tip sent",
   "badges.generous.next": "No tip sent yet",
-
   "identity.handle.reserved": "@{handle} was just freed and is held for its previous owner until {date} — pick another.",
   "identity.bio.label": "Bio",
   "identity.bio.placeholder": "One line about you — plain text",
@@ -588,7 +555,6 @@
   "identity.meta.error.noHandle": "Claim your @handle on-chain first — then your face and bio can go public.",
   "identity.meta.error.bio": "That bio can't be saved — keep it to one line of plain text, 80 bytes max.",
   "identity.meta.error.avatar": "The registry doesn't know that face yet — pick another.",
-
   "people.suggest.heading": "People you might know",
   "people.suggest.mutual.one": "1 person you know vouched for them",
   "people.suggest.mutual.other": "{count} people you know vouched for them",
@@ -597,9 +563,7 @@
   "people.suggest.viewAria": "View {label}'s profile",
   "people.suggest.viewReputation": "View reputation",
   "people.suggest.viewReputationAria": "View {label}'s reputation",
-
   "configBanner.title": "This deployment is misconfigured — nothing can be sent until it is fixed.",
-
   "handleTransfer.title": "Move your @handle to this wallet",
   "handleTransfer.body": "This browser's in-app wallet ({from}) holds @{handle}. Move it here in one transaction: the in-app key signs here and this wallet signs as usual, so the handle is never up for grabs in between.",
   "handleTransfer.xpNote": "Your Social and Earned XP stay with the in-app wallet: they're kept per address and don't move. Your face and bio come along with the handle.",
@@ -609,7 +573,6 @@
   "handleTransfer.done": "@{handle} now belongs to this wallet.",
   "handleTransfer.error.noHandle": "The in-app wallet no longer holds a handle — there's nothing to move.",
   "handleTransfer.error.targetHasHandle": "This wallet already holds a handle — the move needs a wallet without one.",
-
   "moneyFlowConfirm.tipTitle": "Confirm tip",
   "moneyFlowConfirm.claimTitle": "Confirm claim",
   "moneyFlowConfirm.tipSubtitle": "You're about to send real USDC on mainnet.",
@@ -624,7 +587,6 @@
   "moneyFlowConfirm.cancel": "Cancel",
   "moneyFlowConfirm.confirmTip": "Confirm tip",
   "moneyFlowConfirm.confirmClaim": "Confirm claim",
-
   "inbox.title": "Inbox",
   "inbox.subtitle": "Claims of your half-cards, tips you received and your quest results — what happened while you were away.",
   "inbox.empty.title": "All quiet",
@@ -633,5 +595,25 @@
   "inbox.item.claim": "{who} claimed your half-card",
   "inbox.item.tip": "{who} tipped you {amount} USDC",
   "inbox.item.quest": "Quest #{id} verified — Earned XP added",
-  "inbox.item.streak": "Your quest streak reached {weeks} weeks"
+  "inbox.item.streak": "Your quest streak reached {weeks} weeks",
+  "errors.generic": "Something went wrong",
+  "errors.chainCode": "That didn't go through (chain error {code}). Try again in a moment.",
+  "errors.xlmFee": "You need a little more XLM to cover the network fee.",
+  "errors.usdcInsufficient": "You don't have enough USDC to cover that — claim a reward or get test USDC first.",
+  "errors.trustlineRecipient": "The recipient hasn't enabled this USDC, so they can't receive the tip yet. Try another passkey wallet, or someone who's enabled USDC.",
+  "errors.trustlineSelf": "You haven't enabled USDC yet, so you can't receive the reward. Enable it in your wallet first.",
+  "errors.timeout": "The {label} timed out — the network is slow. Try again.",
+  "quests.error.unauthorized": "This quest verification isn’t authorized — try again in a moment.",
+  "quests.error.notFound": "That quest doesn’t exist.",
+  "quests.error.alreadyClaimed": "You’ve already completed this quest.",
+  "quests.error.inactive": "This quest isn’t active right now.",
+  "quests.error.dailyLimit": "Quest rewards hit today’s limit — try again after 00:00 UTC.",
+  "quests.error.expired": "The quest approval expired before it reached the chain — complete the quest again.",
+  "claim.error.missingCode": "This link is missing its claim code.",
+  "claim.error.badCode": "This link's claim code is invalid.",
+  "claim.error.notFound": "This vouch doesn't exist or has expired.",
+  "claim.error.alreadyClaimed": "This star is already lit — it was claimed already.",
+  "claim.error.self": "You can't claim your own vouch. Share the link with someone you trust instead.",
+  "claim.error.dailyLimit": "Daily limit reached — try again tomorrow.",
+  "claim.error.mismatch": "This link doesn't fit this vouch — ask the person who sent it to share it again."
 }

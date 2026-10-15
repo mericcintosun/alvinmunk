@@ -138,7 +138,7 @@ export function Tip({ address }: { address: string }) {
       );
       refresh();
     } catch (e) {
-      const msg = humanizeError(e, buildTipErrors(t), 'tip');
+      const msg = humanizeError(e, buildTipErrors(t), 'tip', t);
       setError(msg);
       toast.error(msg);
     } finally {

@@ -109,7 +109,7 @@ export function IdentityBar() {
       toast.success(t('identity.meta.saved'));
     } catch (e) {
       toast.error(
-        isMetaUnsupported(e) ? t('identity.meta.unsupported') : humanizeError(e, metaErrors(t)),
+        isMetaUnsupported(e) ? t('identity.meta.unsupported') : humanizeError(e, metaErrors(t), t),
       );
     } finally {
       setSavingMeta(false);

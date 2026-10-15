@@ -189,7 +189,7 @@ export function useCreateProfile({
     } catch (e) {
       console.error('🛑 createProfile failed →', e);
       trackError(e, { flow: 'create_profile', from });
-      toast.error(humanizeError(e));
+      toast.error(humanizeError(e, {}, t));
     } finally {
       setCreating(false);
     }
@@ -216,7 +216,7 @@ export function useCreateProfile({
       }
       console.error('🛑 restoreAccount failed →', e);
       trackError(e, { flow: 'restore_account', from });
-      toast.error(humanizeError(e));
+      toast.error(humanizeError(e, {}, t));
     } finally {
       setRestoring(false);
     }
