@@ -62,6 +62,18 @@ describe('VouchClaimedNotice push opt-in (#297)', () => {
     expect(push.subscribeToPush).toHaveBeenCalledWith(WALLET);
   });
 
+  it('is sized to the viewport and clears the safe area', async () => {
+    await act(async () => root.render(<VouchClaimedNotice />));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    const banner = container.querySelector('[role="status"]')!;
+    expect(banner.className).toContain('inset-x-4');
+    expect(banner.className).toContain('max-w-md');
+    expect(banner.className).toContain('env(safe-area-inset-bottom)');
+    expect(banner.className).not.toContain('-translate-x-1/2');
+  });
+
   it('does not subscribe when permission is refused', async () => {
     push.requestPermission.mockResolvedValueOnce('denied');
     await act(async () => root.render(<VouchClaimedNotice />));
