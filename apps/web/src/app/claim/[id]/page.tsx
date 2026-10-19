@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, use, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { shortAddr } from '@alvinmunk/shared';
@@ -54,16 +54,16 @@ function claimErrorMessage(e: unknown): string {
   return raw.includes('Error(Crypto,') ? BAD_CODE : humanizeError(e, CLAIM_ERRORS);
 }
 
-export default function ClaimPage(props: { params: { id: string } }) {
+export default function ClaimPage({ params }: { params: Promise<{ id: string }> }) {
   return (
     <Suspense fallback={null}>
-      <ClaimInner {...props} />
+      <ClaimInner params={params} />
     </Suspense>
   );
 }
 
-function ClaimInner({ params }: { params: { id: string } }) {
-  const { id } = params;
+function ClaimInner({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const vid = Number(id);
   const validId = Number.isInteger(vid) && vid >= 0;
   const { connect, profile } = useWallet();

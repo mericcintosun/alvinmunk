@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useWallet } from '@/components/wallet/wallet-provider';
 import { getScores, type PeopleCounts } from '@/lib/reputation';
@@ -22,8 +22,9 @@ import { cn } from '@/lib/utils';
  * @handle renders for anyone (the share-link target). Falls back to an honest "unclaimed"
  * state for free handles.
  */
-export default function ProfilePage({ params }: { params: { handle: string } }) {
-  const handle = params.handle.toLowerCase();
+export default function ProfilePage({ params }: { params: Promise<{ handle: string }> }) {
+  const { handle: rawHandle } = use(params);
+  const handle = rawHandle.toLowerCase();
   const { profile } = useWallet();
   const [address, setAddress] = useState<string | null | undefined>(undefined); // undefined = loading
   const [scores, setScores] = useState<{ social: number; earned: number } | null>(null);

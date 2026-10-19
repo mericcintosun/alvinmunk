@@ -2,8 +2,13 @@ import type { Metadata } from 'next';
 import { routeHandle } from '@/lib/metadata';
 
 // Text only, no RPC: the sibling opengraph-image route renders the inviter's card.
-export function generateMetadata({ params }: { params: { handle: string } }): Metadata {
-  const handle = routeHandle(params.handle);
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ handle: string }>;
+}): Promise<Metadata> {
+  const { handle: raw } = await params;
+  const handle = routeHandle(raw);
   if (!handle) {
     return { title: 'You’re invited', description: 'Join a constellation on alvinmunk.' };
   }

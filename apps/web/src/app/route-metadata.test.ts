@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import Module from 'node:module';
+import path from 'node:path';
 import type { Metadata } from 'next';
-import { accumulateMetadata, type MetadataItems } from 'next/dist/lib/metadata/resolve-metadata';
+import type { MetadataItems } from 'next/dist/lib/metadata/resolve-metadata';
 import type { ResolvedMetadata } from 'next/dist/lib/metadata/types/metadata-interface';
 import { CLAIM_DESCRIPTION, SITE_DESCRIPTION, SITE_TITLE, rootMetadata, routeHandle } from '@/lib/metadata';
 import * as appLayout from './app/layout';
@@ -21,7 +23,22 @@ import * as adminLayout from './admin/layout';
 // The /app layout renders the wallet-gated client shell; only its metadata matters here.
 vi.mock('@/components/app/app-client-layout', () => ({ AppClientLayout: () => null }));
 
-type Export = Metadata | (() => Metadata);
+// Next 15.5's metadata resolver `require('server-only')` on load. The marker's default
+// entry throws by design — Next swaps it for an empty module via the `react-server` export
+// condition it sets at build time, which a plain Node require under vitest never applies.
+// Point that one specifier at a no-op, then pull in the resolver (it is imported lazily so
+// this hook is installed first).
+const serverOnlyNoop = path.resolve(__dirname, '../../stubs/server-only.cjs');
+const moduleInternals = Module as unknown as {
+  _resolveFilename(...args: unknown[]): string;
+};
+const resolveFilename = moduleInternals._resolveFilename;
+moduleInternals._resolveFilename = function (request: string, ...rest: unknown[]) {
+  return request === 'server-only' ? serverOnlyNoop : resolveFilename.call(this, request, ...rest);
+};
+const { accumulateMetadata } = await import('next/dist/lib/metadata/resolve-metadata');
+
+type Export = Metadata | (() => Metadata | Promise<Metadata>);
 /** One route segment: its layout's metadata export (null = no layout) and, optionally,
  *  the og:image a sibling `opengraph-image` file contributes. */
 type Segment = Export | null | { metadata: Export; ogImage: string };
@@ -47,11 +64,17 @@ async function resolveWith(root: Metadata, pathname: string, ...segments: Segmen
     }
     return [segment, null, null];
   }) as unknown as MetadataItems;
-  return accumulateMetadata(items, { pathname, trailingSlash: false, isStandaloneMode: false });
+  // Next 15.5 widened this internal helper's signature: (route, items, pathname, context).
+  return accumulateMetadata(pathname, items, Promise.resolve(pathname), {
+    trailingSlash: false,
+    isStaticMetadataRouteFile: false,
+  });
 }
 
-const profile = (handle: string) => () => profileLayout.generateMetadata({ params: { handle } });
-const invite = (handle: string) => () => inviteLayout.generateMetadata({ params: { handle } });
+const profile = (handle: string) => () =>
+  profileLayout.generateMetadata({ params: Promise.resolve({ handle }) });
+const invite = (handle: string) => () =>
+  inviteLayout.generateMetadata({ params: Promise.resolve({ handle }) });
 
 // Next's OGImage union also allows a bare string/URL, not just a descriptor object;
 // mirror that here since the resolved metadata type keeps the full union.

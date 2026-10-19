@@ -227,3 +227,34 @@ export function parseRepoAllowlist(raw: string | undefined): Set<string> | null 
 export function repoAllowed(allow: Set<string> | null, owner: string, repo: string): boolean {
   return !allow || allow.has(`${owner}/${repo}`.toLowerCase());
 }
+
+/**
+ * A decoded `vouch/claimed` event value: (vouch_id, from, claimer).
+ * Mirrors contracts/reputation/src/lib.rs claim_vouch emit at line ~293.
+ */
+export interface VouchClaimedEvent {
+  vouchId: string; // stringified u64
+  from: string;    // G/C address — the voucher
+  claimer: string; // G/C address — the person who claimed
+}
+
+/**
+ * Decode one raw `vouch/claimed` event value (a 3-tuple ScVal) into a typed record.
+ * Returns null for any event that cannot be decoded — callers skip those silently.
+ * Lives here (not in the route module, whose exports Next owns) so it stays unit-testable
+ * independently of the RPC layer.
+ */
+export function decodeVouchClaimedEvent(
+  raw: unknown, // scValToNative output for one event's value
+): VouchClaimedEvent | null {
+  if (!Array.isArray(raw) || raw.length !== 3) return null;
+  const [id, from, claimer] = raw;
+  if (
+    (typeof id !== 'number' && typeof id !== 'bigint') ||
+    typeof from !== 'string' ||
+    typeof claimer !== 'string'
+  ) {
+    return null;
+  }
+  return { vouchId: String(id), from, claimer };
+}

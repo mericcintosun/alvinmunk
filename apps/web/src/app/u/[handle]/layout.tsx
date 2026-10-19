@@ -3,8 +3,13 @@ import { routeHandle } from '@/lib/metadata';
 
 // Text only, no RPC: the handle is all the copy needs, and the on-chain face and scores
 // are already rendered into the card by the sibling opengraph-image route.
-export function generateMetadata({ params }: { params: { handle: string } }): Metadata {
-  const handle = routeHandle(params.handle);
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ handle: string }>;
+}): Promise<Metadata> {
+  const { handle: raw } = await params;
+  const handle = routeHandle(raw);
   if (!handle) {
     return { title: 'Profile', description: 'A constellation on alvinmunk.' };
   }

@@ -44,7 +44,7 @@ vi.mock('@stellar/stellar-sdk', async (importOriginal) => {
   };
 });
 
-import { decodeVouchClaimedEvent } from './route';
+import { decodeVouchClaimedEvent } from '@/lib/attest';
 
 // ── shared fixtures ───────────────────────────────────────────────────────────
 

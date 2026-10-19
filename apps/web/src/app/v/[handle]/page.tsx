@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { resolveHandle, getMeta } from '@/lib/registry';
@@ -22,8 +22,9 @@ import type { AvatarConfig } from '@/lib/avatar';
  * @handle back on the dashboard (we stash the inviter in sessionStorage). One user
  * becomes a recruiting funnel.
  */
-export default function InvitePage({ params }: { params: { handle: string } }) {
-  const handle = params.handle.toLowerCase();
+export default function InvitePage({ params }: { params: Promise<{ handle: string }> }) {
+  const { handle: rawHandle } = use(params);
+  const handle = rawHandle.toLowerCase();
   const [address, setAddress] = useState<string | null | undefined>(undefined);
   const [vouchedBy, setVouchedBy] = useState<number | null>(null);
   const [avatar, setAvatar] = useState<AvatarConfig | undefined>(undefined);

@@ -23,7 +23,7 @@ import { defaultAvatarId, faceFile, kitFile, type KitAvatar } from './avatar';
 const G = 'G'.padEnd(56, 'B');
 const scores: OgScores = { social: 40, earned: 7, vouchedBy: 3, backed: 2 };
 
-function render(el: JSX.Element): Document {
+function render(el: React.JSX.Element): Document {
   return new DOMParser().parseFromString(renderToStaticMarkup(el), 'text/html');
 }
 const srcs = (doc: Document) => [...doc.querySelectorAll('img')].map((i) => i.getAttribute('src'));
