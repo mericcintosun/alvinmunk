@@ -35,6 +35,12 @@ jobs:
       - run: pnpm test
 
   web-e2e:
+    # A fork PR's pull_request run gets neither secrets nor repository vars from GitHub (same
+    # restriction, for the same reason) — every CI_* var below would read empty, and the guard
+    # step would fail every external contributor's PR forever, through no fault of their own.
+    # Skip cleanly instead of failing red: push and same-repo PRs still get the CI vars and run
+    # the smoke test as before; a fork PR just skips this job.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -43,11 +49,26 @@ jobs:
       NEXT_PUBLIC_RPC_URL: ${{ vars.NEXT_PUBLIC_RPC_URL || 'https://soroban-testnet.stellar.org' }}
       NEXT_PUBLIC_NETWORK_PASSPHRASE: 'Test SDF Network ; September 2015'
       NEXT_PUBLIC_HORIZON_URL: ${{ vars.NEXT_PUBLIC_HORIZON_URL || 'https://horizon-testnet.stellar.org' }}
-      NEXT_PUBLIC_REPUTATION_CONTRACT_ID: ${{ vars.NEXT_PUBLIC_REPUTATION_CONTRACT_ID || 'CDRYXUS55TKGYEM3YUB3YTJWQKSWWQABK6YPQK7SLEPVALWYK4IR7WCL' }}
-      NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID: ${{ vars.NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID || 'CBEJVYLWTU6BQDL3RXKWW6CYUISRC4SUIVURCG452CTOIANGY2N7V3WI' }}
-      NEXT_PUBLIC_REWARDS_CONTRACT_ID: ${{ vars.NEXT_PUBLIC_REWARDS_CONTRACT_ID || 'CBMO3X3EXKUZAHNAPRSFVBXJJARJD5I5VME5UQ7OSI2OA5Q56UO7TM3G' }}
-      NEXT_PUBLIC_REGISTRY_CONTRACT_ID: ${{ vars.NEXT_PUBLIC_REGISTRY_CONTRACT_ID || 'CCT5EGFZ33IFLMUU6EBMC6NWRLX5TWJS5FICNJFBG7MU5PTAU6PFMVH4' }}
+      # The smoke test WRITES on-chain (Friendbot wallet, genesis tx, registry.claim handle,
+      # vouch), so it runs against a dedicated CI contract set only — never the published
+      # contracts in the README table, whose wallets /api/stats counts and
+      # scripts/scan-roster.mjs commits forever (#250). No `|| fallback` here on purpose: a
+      # missing variable must fail the job, not silently write to production. Setup:
+      # docs/CI_CONTRACTS.md.
+      NEXT_PUBLIC_REPUTATION_CONTRACT_ID: ${{ vars.CI_REPUTATION_CONTRACT_ID }}
+      NEXT_PUBLIC_QUEST_REGISTRY_CONTRACT_ID: ${{ vars.CI_QUEST_REGISTRY_CONTRACT_ID }}
+      NEXT_PUBLIC_REWARDS_CONTRACT_ID: ${{ vars.CI_REWARDS_CONTRACT_ID }}
+      NEXT_PUBLIC_REGISTRY_CONTRACT_ID: ${{ vars.CI_REGISTRY_CONTRACT_ID }}
+      NEXT_PUBLIC_GATE_CONTRACT_ID: ${{ vars.CI_GATE_CONTRACT_ID }}
+      NEXT_PUBLIC_USDC_SAC_ID: ${{ vars.CI_USDC_SAC_ID }}
       NEXT_PUBLIC_PASSKEY_WALLET_WASM_HASH: ''
+      # Same values, read by the guard below (GitHub's `env:` cannot reference another env var).
+      CI_REPUTATION_CONTRACT_ID: ${{ vars.CI_REPUTATION_CONTRACT_ID }}
+      CI_QUEST_REGISTRY_CONTRACT_ID: ${{ vars.CI_QUEST_REGISTRY_CONTRACT_ID }}
+      CI_REWARDS_CONTRACT_ID: ${{ vars.CI_REWARDS_CONTRACT_ID }}
+      CI_REGISTRY_CONTRACT_ID: ${{ vars.CI_REGISTRY_CONTRACT_ID }}
+      CI_GATE_CONTRACT_ID: ${{ vars.CI_GATE_CONTRACT_ID }}
+      CI_USDC_SAC_ID: ${{ vars.CI_USDC_SAC_ID }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -55,6 +76,10 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
+      # Fail fast (seconds, before any install) when a CI contract id is missing, malformed or
+      # points at a contract the README publishes.
+      - name: Guard CI contract ids
+        run: node scripts/check-ci-contracts.mjs
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir apps/web exec playwright install --with-deps chromium
       - run: pnpm --dir apps/web e2e:smoke
@@ -66,3 +91,13 @@ jobs:
             apps/web/playwright-report
             apps/web/test-results
           if-no-files-found: ignore
+
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # Offline tests for the repo's deploy/guard scripts (node:test, no deps).
+      - run: node --test scripts/*.test.mjs
