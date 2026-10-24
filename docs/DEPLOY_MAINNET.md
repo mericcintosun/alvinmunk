@@ -123,7 +123,7 @@ Needs `stellar` (with `strkey decode`), `jq` and `git`. Offline tests for the ga
 ## Gate 3 — Post-deployment
 
 **App cutover**
-- [ ] In Vercel prod env, flip `NEXT_PUBLIC_STELLAR_NETWORK=mainnet`, set the mainnet RPC/Horizon, the five mainnet contract ids, and the Circle USDC SAC id.
+- [ ] In Vercel prod env, flip `NEXT_PUBLIC_STELLAR_NETWORK=mainnet` (and update `NEXT_PUBLIC_NETWORK_PASSPHRASE` if set), set the mainnet RPC/Horizon, the five mainnet contract ids, and the Circle USDC SAC id.
 - [ ] The dev wallet is hard-disabled on mainnet, so passkey infra must be live: set `NEXT_PUBLIC_PASSKEY_WALLET_WASM_HASH` + the relayer secrets (already configured on Vercel).
 - [ ] Remove/disable the testnet faucet route on mainnet (it already refuses when network=mainnet).
 - [ ] Redeploy, then `GET /api/health`: it must return `"ok": true` with `"configErrors": []`. Each entry names the env var still set for testnet (or missing) — while any remain, the app shows a red banner, hands out no wallet, and the attester and faucet answer 503.

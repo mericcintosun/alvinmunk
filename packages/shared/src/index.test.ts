@@ -4,6 +4,7 @@ import {
   stampArt,
   readNetworkConfig,
   validateNetworkConfig,
+  networkPassphrase,
   PASSPHRASE,
   SCHEMA,
   rankLeaderboard,
@@ -95,6 +96,39 @@ describe('readNetworkConfig', () => {
     expect(c.networkPassphrase).toBe(PASSPHRASE.testnet);
     expect(c.rpcUrl).toBe('https://soroban-testnet.stellar.org');
     expect(c.horizonUrl).toBe('https://horizon-testnet.stellar.org');
+  });
+});
+
+describe('networkPassphrase', () => {
+  it('returns PASSPHRASE.testnet by default when env is empty', () => {
+    expect(networkPassphrase({})).toBe(PASSPHRASE.testnet);
+  });
+
+  it('returns PASSPHRASE.mainnet when NEXT_PUBLIC_STELLAR_NETWORK is mainnet', () => {
+    expect(networkPassphrase({ NEXT_PUBLIC_STELLAR_NETWORK: 'mainnet' })).toBe(PASSPHRASE.mainnet);
+    expect(networkPassphrase({ NEXT_PUBLIC_STELLAR_NETWORK: ' Mainnet ' })).toBe(PASSPHRASE.mainnet);
+  });
+
+  it('honours explicit NEXT_PUBLIC_NETWORK_PASSPHRASE over network name', () => {
+    expect(
+      networkPassphrase({
+        NEXT_PUBLIC_STELLAR_NETWORK: 'mainnet',
+        NEXT_PUBLIC_NETWORK_PASSPHRASE: PASSPHRASE.testnet,
+      }),
+    ).toBe(PASSPHRASE.testnet);
+  });
+
+  it('ignores blank NEXT_PUBLIC_NETWORK_PASSPHRASE and falls back to network', () => {
+    expect(
+      networkPassphrase({
+        NEXT_PUBLIC_STELLAR_NETWORK: 'mainnet',
+        NEXT_PUBLIC_NETWORK_PASSPHRASE: '   ',
+      }),
+    ).toBe(PASSPHRASE.mainnet);
+  });
+
+  it('returns empty string when network is unknown and no explicit passphrase', () => {
+    expect(networkPassphrase({ NEXT_PUBLIC_STELLAR_NETWORK: 'unknown_net' })).toBe('');
   });
 });
 

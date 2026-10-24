@@ -223,6 +223,21 @@ function envValue(v: string | undefined): string | undefined {
 }
 
 /**
+ * Resolves the Stellar network passphrase from env variables:
+ * - Uses env.NEXT_PUBLIC_NETWORK_PASSPHRASE if set and non-empty.
+ * - Otherwise falls back to PASSPHRASE[network] where network is derived from NEXT_PUBLIC_STELLAR_NETWORK (default 'testnet').
+ */
+export function networkPassphrase(env: Record<string, string | undefined> = typeof process !== 'undefined' ? process.env : {}): string {
+  const explicit = envValue(env.NEXT_PUBLIC_NETWORK_PASSPHRASE);
+  if (explicit) return explicit;
+  const rawNetwork = env.NEXT_PUBLIC_STELLAR_NETWORK;
+  const network = (rawNetwork === undefined ? 'testnet' : rawNetwork.trim().toLowerCase()) as StellarNetwork;
+  if (network === 'mainnet') return PASSPHRASE.mainnet;
+  if (network === 'testnet') return PASSPHRASE.testnet;
+  return '';
+}
+
+/**
  * Reads the public NEXT_PUBLIC_* env into a typed config (client + server safe). It never
  * throws: the network name is normalised ("Mainnet " → mainnet), and anything that is still
  * wrong — an unknown network, a passphrase for the other network, a missing mainnet RPC URL —
@@ -238,7 +253,7 @@ export function readNetworkConfig(env: Record<string, string | undefined>): Netw
   return {
     network,
     rpcUrl: envValue(env.NEXT_PUBLIC_RPC_URL) ?? defaults.rpcUrl,
-    networkPassphrase: envValue(env.NEXT_PUBLIC_NETWORK_PASSPHRASE) ?? (known ? PASSPHRASE[network] : ''),
+    networkPassphrase: networkPassphrase(env),
     horizonUrl: envValue(env.NEXT_PUBLIC_HORIZON_URL) ?? defaults.horizonUrl,
     contracts: {
       reputation: env.NEXT_PUBLIC_REPUTATION_CONTRACT_ID ?? '',
