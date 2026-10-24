@@ -97,10 +97,13 @@ describe('on an inconsistent config', () => {
   it.each([
     ['/api/attest', '@/app/api/attest/route'],
     ['/api/faucet', '@/app/api/faucet/route'],
+    ['/api/passkey-send', '@/app/api/passkey-send/route'],
   ])('%s answers 503 with the reasons before doing anything', async (url, path) => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.stubEnv('ATTESTER_SECRET_KEY', 'S'.padEnd(56, 'A'));
     vi.stubEnv('USDC_ISSUER_SECRET_KEY', 'S'.padEnd(56, 'A'));
+    vi.stubEnv('PASSKEY_RELAYER_URL', 'https://relayer.example.com');
+    vi.stubEnv('PASSKEY_RELAYER_API_KEY', 'test-key');
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
     const route = await loadWith<{ POST: (req: Request) => Promise<Response> }>(HALF_CUTOVER, path);
