@@ -1942,3 +1942,184 @@ fn the_release_build_is_set_up_by_its_constructor() {
     QuestRegistryContractClient::new(&env, &id).upgrade(&hash);
     assert_eq!(env.auths()[0].0, admin);
 }
+
+// --- Issue #100: Attester key revocation, cross-deployment replay, and lifecycle coverage ---
+
+#[test]
+fn revoked_attester_key_can_no_longer_award_quests() {
+    let f = setup();
+    let (u1, u2, u3) = (
+        Address::generate(&f.env),
+        Address::generate(&f.env),
+        Address::generate(&f.env),
+    );
+    f.quest.create_quest(&1u32, &2u32, &50u64);
+
+    // Before revocation, the allowlisted key awards quests normally.
+    award(&f, &f.attester_sk, 1, &u1);
+    assert_eq!(f.rep.get_earned(&u1), 50);
+
+    // Issue a valid, unexpired signature for u2 before the key is revoked, then revoke the key.
+    let expires_at = f.env.ledger().timestamp() + SIG_TTL;
+    let pre_signed_payload = f.quest.quest_payload(&1u32, &u2, &expires_at);
+    let pre_signed_sig = sign(&f.env, &f.attester_sk, &pre_signed_payload);
+
+    f.quest.remove_attester_key(&f.attester_pub);
+    let still_stored = f.env.as_contract(&f.quest.address, || {
+        f.env
+            .storage()
+            .persistent()
+            .has(&DataKey::AttesterKey(f.attester_pub.clone()))
+    });
+    assert!(!still_stored);
+
+    // Both a pre-revocation signature and a freshly signed payload from the revoked key revert
+    // with NotAuthorized (#3), leaving balances and completion state untouched.
+    assert_eq!(
+        submit(&f, &f.attester_sk, &pre_signed_sig, 1, &u2, expires_at),
+        Err(Error::NotAuthorized)
+    );
+    assert_eq!(
+        try_award(&f, &f.attester_sk, 1, &u2),
+        Err(Error::NotAuthorized)
+    );
+    assert_eq!(f.rep.get_earned(&u2), 0);
+    assert!(!f.quest.is_completed(&1u32, &u2));
+
+    // Re-allowlisting the key restores its ability to award quests.
+    f.quest.add_attester_key(&f.attester_pub);
+    award(&f, &f.attester_sk, 1, &u3);
+    assert_eq!(f.rep.get_earned(&u3), 50);
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn non_admin_remove_attester_key_reverts() {
+    let env = Env::default();
+    let id = env.register(
+        QuestRegistryContract,
+        (&Address::generate(&env), &Address::generate(&env)),
+    );
+    let client = QuestRegistryContractClient::new(&env, &id);
+    client.remove_attester_key(&BytesN::from_array(&env, &[7; 32]));
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Auth, InvalidAction)")]
+fn non_admin_add_attester_key_reverts() {
+    let env = Env::default();
+    let id = env.register(
+        QuestRegistryContract,
+        (&Address::generate(&env), &Address::generate(&env)),
+    );
+    let client = QuestRegistryContractClient::new(&env, &id);
+    client.add_attester_key(&BytesN::from_array(&env, &[7; 32]));
+}
+
+#[test]
+fn signature_bound_to_another_contract_deployment_is_rejected() {
+    let f = setup_testnet();
+    f.quest.create_quest(&1u32, &2u32, &50u64);
+    let user = Address::generate(&f.env);
+    let expires_at = f.env.ledger().timestamp() + SIG_TTL;
+
+    // Register a second QuestRegistry instance in the same environment and allowlist the same
+    // attester key on both deployments.
+    let admin_b = Address::generate(&f.env);
+    let rep_b = f.env.register(ReputationContract, (&admin_b,));
+    let quest_b_id = f.env.register(QuestRegistryContract, (&admin_b, &rep_b));
+    let quest_b = QuestRegistryContractClient::new(&f.env, &quest_b_id);
+    quest_b.add_attester_key(&f.attester_pub);
+    quest_b.create_quest(&1u32, &2u32, &50u64);
+
+    // A valid signature produced over quest_b's `quest_payload` (both one-shot v1 and
+    // repeatable v2) is rejected when replayed against `f.quest` because `quest_payload`
+    // binds `current_contract_address()`.
+    let payload_b_v1 = quest_b.quest_payload(&1u32, &user, &expires_at);
+    let sig_b_v1 = sign(&f.env, &f.attester_sk, &payload_b_v1);
+    assert_bad_signature(|| {
+        f.quest
+            .award_quest(&f.attester_pub, &sig_b_v1, &1u32, &user, &expires_at)
+    });
+
+    f.quest.set_quest_period(&1u32, &WEEK);
+    quest_b.set_quest_period(&1u32, &WEEK);
+    let payload_b_v2 = quest_b.quest_payload(&1u32, &user, &expires_at);
+    let sig_b_v2 = sign(&f.env, &f.attester_sk, &payload_b_v2);
+    assert_bad_signature(|| {
+        f.quest
+            .award_quest(&f.attester_pub, &sig_b_v2, &1u32, &user, &expires_at)
+    });
+    assert_eq!(f.rep.get_earned(&user), 0);
+}
+
+#[test]
+fn set_quest_active_re_enables_a_disabled_quest_and_create_quest_reactivates() {
+    let f = setup();
+    let (u1, u2) = (Address::generate(&f.env), Address::generate(&f.env));
+    f.quest.create_quest(&1u32, &2u32, &50u64);
+
+    // Disable -> award fails with QuestInactive (#6).
+    f.quest.set_quest_active(&1u32, &false);
+    assert_eq!(
+        try_award(&f, &f.attester_sk, 1, &u1),
+        Err(Error::QuestInactive)
+    );
+
+    // Re-enable via set_quest_active(1, true) -> award succeeds.
+    f.quest.set_quest_active(&1u32, &true);
+    award(&f, &f.attester_sk, 1, &u1);
+    assert_eq!(f.rep.get_earned(&u1), 50);
+
+    // Disable again, then re-create the same quest id with updated XP -> active is reset to true.
+    f.quest.set_quest_active(&1u32, &false);
+    f.quest.create_quest(&1u32, &2u32, &75u64);
+    award(&f, &f.attester_sk, 1, &u2);
+    assert_eq!(f.rep.get_earned(&u2), 75);
+
+    // Toggling an unknown quest id reverts with QuestNotFound (#4).
+    assert_eq!(
+        f.quest.try_set_quest_active(&999u32, &true),
+        Err(Ok(Error::QuestNotFound.into()))
+    );
+}
+
+#[test]
+fn legacy_address_attester_entries_are_managed_by_admin_only() {
+    let f = setup();
+    let legacy_addr = Address::generate(&f.env);
+
+    f.quest.add_attester(&legacy_addr);
+    let present = f.env.as_contract(&f.quest.address, || {
+        f.env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&DataKey::Attester(legacy_addr.clone()))
+            .unwrap_or(false)
+    });
+    assert!(present);
+
+    f.quest.remove_attester(&legacy_addr);
+    let after_remove = f.env.as_contract(&f.quest.address, || {
+        f.env
+            .storage()
+            .persistent()
+            .has(&DataKey::Attester(legacy_addr.clone()))
+    });
+    assert!(!after_remove);
+}
+
+#[test]
+fn get_week_returns_the_floor_of_timestamp_over_week_secs() {
+    let f = setup();
+    for (ts, expected_week) in [
+        (0u64, 0u64),
+        (WEEK_SECS - 1, 0),
+        (WEEK_SECS, 1),
+        (WEEK_SECS * 10 + 12_345, 10),
+        (THU_2026_10_01, 2961),
+    ] {
+        set_time(&f, ts);
+        assert_eq!(f.quest.get_week(), expected_week);
+    }
+}
