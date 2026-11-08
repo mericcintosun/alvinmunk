@@ -1,0 +1,27 @@
+{
+  "default_branch": "main",
+  "branches": [
+    "fix/quests-streak-flame-overlap",
+    "fix/responsive-push-banner",
+    "main",
+    "origin",
+    "solver/issue-490-40-a0",
+    "solver/issue-491-41-a0"
+  ],
+  "parent": {
+    "fix/quests-streak-flame-overlap": "main",
+    "fix/responsive-push-banner": "main",
+    "main": null,
+    "origin": "main",
+    "solver/issue-490-40-a0": "main",
+    "solver/issue-491-41-a0": "main"
+  },
+  "order": [
+    "main",
+    "fix/quests-streak-flame-overlap",
+    "fix/responsive-push-banner",
+    "origin",
+    "solver/issue-490-40-a0",
+    "solver/issue-491-41-a0"
+  ]
+}

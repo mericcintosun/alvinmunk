@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Bell } from 'lucide-react';
+import { Bell, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toaster';
 import { useWallet } from '@/components/wallet/wallet-provider';
 import { pollNewlyClaimed, getPendingVouchIds } from '@/lib/myvouches';
@@ -156,28 +157,26 @@ export function VouchClaimedNotice() {
     <div
       role="status"
       aria-live="polite"
-      className="fixed bottom-20 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-border/60 bg-surface/90 px-4 py-3 shadow-toast backdrop-blur-sm sm:bottom-6 print:hidden"
+      className="fixed inset-x-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-50 mx-auto flex max-w-md items-center gap-3 rounded-xl border border-border/60 bg-surface/90 px-4 py-3 shadow-toast backdrop-blur-sm print:hidden"
     >
       <Bell className="size-4 shrink-0 text-primary" aria-hidden />
-      <p className="text-sm text-foreground">
+      <p className="min-w-0 flex-1 text-sm text-foreground">
         {pushAvailabilityHint ? t('vouchNotice.push.installHint') : t('vouchNotice.push.prompt')}
       </p>
       {!pushAvailabilityHint && (
-        <button
-          onClick={handleEnable}
-          disabled={requesting}
-          className="ml-1 shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-80 disabled:opacity-50"
-        >
+        <Button size="sm" onClick={handleEnable} disabled={requesting} className="shrink-0">
           {requesting ? t('vouchNotice.push.enabling') : t('vouchNotice.push.enable')}
-        </button>
+        </Button>
       )}
-      <button
+      <Button
+        variant="ghost"
+        size="icon-sm"
         onClick={() => setShowBanner(false)}
         aria-label={t('vouchNotice.push.dismiss')}
-        className="ml-1 shrink-0 rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+        className="shrink-0"
       >
-        ✕
-      </button>
+        <X aria-hidden />
+      </Button>
     </div>
   );
 }
