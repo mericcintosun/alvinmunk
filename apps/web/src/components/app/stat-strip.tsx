@@ -142,30 +142,34 @@ export function StatStrip({ address, compact = false }: { address: string; compa
         </dl>
       )}
       <div className={cn('space-y-3', compact && 'hidden sm:block')}>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
           {busy
             ? TILES.map((tile) => {
                 const Icon = tile.icon;
                 return (
-                  <div key={tile.key} className="glass rounded-2xl p-4">
-                    <div className="mb-2 flex items-center gap-2">
-                      <Icon className={cn('size-4', tile.tint)} />
-                      <span className="text-xs font-medium text-muted-foreground">{t(`statStrip.${tile.key}.label`)}</span>
+                  <div key={tile.key} className="glass min-w-0 rounded-2xl p-2.5 sm:p-4">
+                    <div className="mb-1.5 flex items-center gap-1.5 sm:mb-2 sm:gap-2">
+                      <Icon className={cn('size-3.5 shrink-0 sm:size-4', tile.tint)} />
+                      <span className="truncate text-xs font-medium text-muted-foreground" title={t(`statStrip.${tile.key}.label`)}>
+                        {t(`statStrip.${tile.key}.label`)}
+                      </span>
                     </div>
-                    <div className="h-9 w-16 animate-pulse rounded bg-muted/40" />
-                    <div className="mt-2 h-2 w-20 animate-pulse rounded bg-muted/30" />
+                    <div className="h-7 w-12 animate-pulse rounded bg-muted/40 sm:h-9 sm:w-16" />
+                    <div className="mt-2 h-2 w-14 animate-pulse rounded bg-muted/30 sm:w-20" />
                   </div>
                 );
               })
             : TILES.map((tile) => {
                 const Icon = tile.icon;
                 return (
-                  <div key={tile.key} className="glass rounded-2xl p-4">
-                    <div className="mb-2 flex items-center gap-2">
-                      <Icon className={cn('size-4', tile.tint)} />
-                      <span className="text-xs font-medium text-muted-foreground">{t(`statStrip.${tile.key}.label`)}</span>
+                  <div key={tile.key} className="glass min-w-0 rounded-2xl p-2.5 sm:p-4">
+                    <div className="mb-1.5 flex items-center gap-1.5 sm:mb-2 sm:gap-2">
+                      <Icon className={cn('size-3.5 shrink-0 sm:size-4', tile.tint)} />
+                      <span className="truncate text-xs font-medium text-muted-foreground" title={t(`statStrip.${tile.key}.label`)}>
+                        {t(`statStrip.${tile.key}.label`)}
+                      </span>
                     </div>
-                    <div className="font-display text-3xl font-semibold tabular-nums">
+                    <div className="truncate font-display text-xl font-semibold tabular-nums sm:text-3xl">
                       {format.number(value(tile.key))}
                     </div>
                     <p className="mt-1 hidden text-2xs text-muted-foreground sm:block">{t(`statStrip.${tile.key}.hint`)}</p>
