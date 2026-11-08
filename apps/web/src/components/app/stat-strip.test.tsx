@@ -182,4 +182,22 @@ describe('StatStrip', () => {
       localStorage.removeItem('alvinmunk_locale');
     }
   });
+
+  it('applies min-w-0, responsive padding and truncation to prevent overflow at 320-375px (#478)', async () => {
+    getScoresMock.mockResolvedValue({ social: 99_999, earned: 12_345 });
+    getPeopleCountsMock.mockResolvedValue({ vouchedBy: 88_888, backed: 42 });
+    await render();
+
+    const tiles = container.querySelectorAll('.grid.grid-cols-3 > div.glass');
+    expect(tiles).toHaveLength(3);
+    for (const el of Array.from(tiles)) {
+      expect(el.className).toContain('min-w-0');
+      expect(el.className).toContain('p-2.5');
+      expect(el.className).toContain('sm:p-4');
+      const label = el.querySelector('span');
+      expect(label?.className).toContain('truncate');
+      const val = el.querySelector('.font-display');
+      expect(val?.className).toContain('truncate');
+    }
+  });
 });

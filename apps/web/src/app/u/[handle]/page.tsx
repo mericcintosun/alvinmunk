@@ -158,9 +158,9 @@ export default function ProfilePage({
             </div>
           </div>
           <div className="grid grid-cols-3 divide-x divide-border/60 border-t border-border/60">
-            <Field label="VOUCHED_BY" accent="primary" />
+            <Field label="VOUCHED BY" accent="primary" />
             <Field label="BACKED" accent="tertiary" />
-            <Field label="EARNED_XP" accent="secondary" />
+            <Field label="EARNED XP" accent="secondary" />
           </div>
         </Frame>
         {!net && <Skeleton data-testid="badges-placeholder" className="mt-5 h-[238px] rounded-none sm:h-[146px]" />}
@@ -220,9 +220,9 @@ export default function ProfilePage({
         </div>
 
         <div className="grid grid-cols-3 divide-x divide-border/60 border-t border-border/60">
-          <Field label="VOUCHED_BY" value={people?.vouchedBy} accent="primary" />
+          <Field label="VOUCHED BY" value={people?.vouchedBy} accent="primary" />
           <Field label="BACKED" value={people?.backed} accent="tertiary" />
-          <Field label="EARNED_XP" value={scores?.earned} accent="secondary" />
+          <Field label="EARNED XP" value={scores?.earned} accent="secondary" />
         </div>
       </Frame>
 
@@ -293,13 +293,15 @@ function Field({
   const c = accent === 'primary' ? 'text-primary' : accent === 'secondary' ? 'text-secondary' : 'text-tertiary';
   const format = useFormat();
   return (
-    <div className="p-5">
-      <p className="eyebrow-mono text-muted-foreground">{label}</p>
+    <div className="min-w-0 p-3 sm:p-5">
+      <p className="eyebrow-mono break-words text-muted-foreground">{label}</p>
       {value === undefined ? (
-        // h-9 = text-3xl's line height, so the cell keeps its height when the number lands.
-        <Skeleton className="mt-2 h-9 w-12" />
+        // h-7 sm:h-9 line height preserves height when number lands
+        <Skeleton className="mt-2 h-7 w-12 sm:h-9" />
       ) : (
-        <p className={cn('mt-2 font-display text-3xl font-semibold', c)}>{format.number(value)}</p>
+        <p className={cn('mt-2 truncate font-display text-xl font-semibold tabular-nums sm:text-3xl', c)}>
+          {format.number(value)}
+        </p>
       )}
     </div>
   );
